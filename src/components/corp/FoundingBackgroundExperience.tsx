@@ -103,6 +103,7 @@ export type FoundingBackgroundConfig = {
 interface FoundingBackgroundExperienceProps {
   config?: FoundingBackgroundConfig;
   editor?: CorpSectionEditorState;
+  embedded?: boolean;
 }
 
 const videoBookPages: VideoBookPage[] = [
@@ -334,7 +335,7 @@ export function buildFoundingBackgroundConfig(page?: CorpPage | null): FoundingB
   };
 }
 
-export default function FoundingBackgroundExperience({ config, editor }: FoundingBackgroundExperienceProps = {}) {
+export default function FoundingBackgroundExperience({ config, editor, embedded = false }: FoundingBackgroundExperienceProps = {}) {
   const activeConfig = config ?? buildFoundingBackgroundConfig();
   const [activeVideoPage, setActiveVideoPage] = useState(0);
   const [pageTurnDirection, setPageTurnDirection] = useState<PageTurnDirection>('next');
@@ -469,7 +470,12 @@ export default function FoundingBackgroundExperience({ config, editor }: Foundin
   }, [playCurrentMedia, selectedVideoEmbedUrl, selectedVideoPage.source]);
 
   return (
-    <Page id="content-area" aria-labelledby="founding-title">
+    <Page
+      as={embedded ? 'section' : undefined}
+      id={embedded ? undefined : 'content-area'}
+      aria-labelledby="founding-title"
+      $embedded={embedded}
+    >
       <CorpEditableSection blockId="founding-media" label="영상/사진 수정" editor={editor}>
       <VideoBookSection aria-label="책장 스타일 창업배경 영상">
         <VideoBookStage>
@@ -647,7 +653,7 @@ export default function FoundingBackgroundExperience({ config, editor }: Foundin
   );
 }
 
-const Page = styled.main`
+const Page = styled.main<{ $embedded: boolean }>`
   --founding-bg: #090d16;
   --founding-card: rgba(19, 25, 38, 0.74);
   --founding-border: rgba(199, 210, 254, 0.16);
@@ -660,13 +666,15 @@ const Page = styled.main`
   --founding-violet: #a855f7;
   --founding-emerald: #10b981;
   --founding-amber: #fbbf24;
-  flex: 1;
+  flex: ${(props) => (props.$embedded ? '0 0 auto' : '1')};
   min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
+  min-height: ${(props) => (props.$embedded ? 'auto' : '0')};
+  overflow-y: ${(props) => (props.$embedded ? 'visible' : 'auto')};
   overflow-x: hidden;
   isolation: isolate;
   position: relative;
+  width: 100%;
+  margin: ${(props) => (props.$embedded ? '34px 0 0' : '0')};
   padding: 40px 32px 64px;
   color: var(--founding-text);
   background:
@@ -677,6 +685,7 @@ const Page = styled.main`
     radial-gradient(circle at 52% 82%, rgba(168, 85, 247, 0.11), transparent 35%),
     var(--founding-bg);
   background-size: 64px 64px, 64px 64px, auto, auto, auto, auto;
+  border-top: ${(props) => (props.$embedded ? '1px solid rgba(226, 232, 240, 0.12)' : '0')};
 
   @media (max-width: 760px) {
     padding: 22px 12px 42px;

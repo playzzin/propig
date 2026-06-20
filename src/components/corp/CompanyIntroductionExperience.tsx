@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { CorpEditableSection, type CorpSectionEditorState } from '@/components/corp/CorpSectionEditOverlay';
+import FoundingBackgroundExperience, { buildFoundingBackgroundConfig } from '@/components/corp/FoundingBackgroundExperience';
 import { getYouTubeEmbedUrl, YOUTUBE_EMBED_ALLOW } from '@/components/corp/corpMediaEmbed';
 import { CORP_PAGE_SEED_BY_ID } from '@/constants/corpPageSeeds';
 import type { CorpPage, CorpPageBlock } from '@/schemas/corpPageSchema';
@@ -584,6 +585,7 @@ export default function CompanyIntroductionExperience({
 function NativeCompanyIntroduction({ page, editor }: { page?: CorpPage | null; editor?: CorpSectionEditorState }) {
   const blocks = useMemo(() => getIntroductionBlocks(page), [page]);
   const source = useMemo(() => createImmediateIntroductionSource(blocks), [blocks]);
+  const foundingConfig = useMemo(() => buildFoundingBackgroundConfig(CORP_PAGE_SEED_BY_ID['founding-background']), []);
 
   return (
     <NativePage
@@ -614,6 +616,7 @@ function NativeCompanyIntroduction({ page, editor }: { page?: CorpPage | null; e
             </CorpEditableSection>
           );
         })}
+        <FoundingBackgroundExperience config={foundingConfig} editor={editor} embedded />
       </NativeStack>
     </NativePage>
   );
