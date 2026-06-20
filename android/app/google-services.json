@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "905560824324",
+    "project_id": "propig-63524",
+    "storage_bucket": "propig-63524.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:905560824324:android:812322aaa2f7625b173351",
+        "android_client_info": {
+          "package_name": "com.propig.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "905560824324-pft2m5bpv3h8nai2l8vr39jr4922f04c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.propig.app",
+            "certificate_hash": "dabfb530db3a5768f612a4ac71377d0ef322a830"
+          }
+        },
+        {
+          "client_id": "905560824324-f8n7g260eiqcbdd5p4tnee8rtrjv4fqi.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZPluZi9pcBabpPOT_yoNn_7V9aLsFW6Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "905560824324-f8n7g260eiqcbdd5p4tnee8rtrjv4fqi.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

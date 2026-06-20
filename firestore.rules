@@ -1,0 +1,138 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'admin' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function hasMenuManagement() {
+      return isAdmin() ||
+        (
+          signedIn() &&
+          (
+            request.auth.token.menuManagement == true ||
+            request.auth.token.menuManager == true ||
+            get(/databases/$(database)/documents/userAccess/$(request.auth.uid)).data.permissions.menuManagement == true
+          )
+        );
+    }
+
+    function ownsIncomingUserId() {
+      return signedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    function ownsExistingUserId() {
+      return signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /corpProjectBoards/{boardId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /albums/{albumId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /system_settings/{settingId} {
+      allow read: if settingId == "general" || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /menuSettings/{settingId} {
+      allow read: if true;
+      allow write: if hasMenuManagement();
+    }
+
+    match /corpPages/{pageId} {
+      allow read: if true;
+      allow write: if hasMenuManagement();
+    }
+
+    match /corpPageDrafts/{pageId} {
+      allow read, write: if hasMenuManagement();
+    }
+
+    match /corpPageVersions/{versionId} {
+      allow read, write: if hasMenuManagement();
+    }
+
+    match /admins/{uid} {
+      allow read: if isAdmin() || isOwner(uid);
+      allow write: if isAdmin();
+    }
+
+    match /userAccess/{uid} {
+      allow read: if isAdmin() || isOwner(uid);
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+
+      match /{document=**} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    match /driveItems/{itemId} {
+      allow read, update, delete: if isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+      allow create: if isAdmin() || (signedIn() && request.resource.data.ownerId == request.auth.uid);
+    }
+
+    match /video_studio_projects/{projectId} {
+      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow create: if isAdmin() || ownsIncomingUserId();
+    }
+
+    match /video_studio_clips/{clipId} {
+      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow create: if isAdmin() || ownsIncomingUserId();
+    }
+
+    match /video_studio_jobs/{jobId} {
+      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow create: if isAdmin() || ownsIncomingUserId();
+    }
+
+    match /mandalartBoards/{boardId} {
+      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow create: if isAdmin() || ownsIncomingUserId();
+    }
+
+    match /ai_generations/{imageId} {
+      allow read: if signedIn();
+      allow update, delete: if isAdmin() || ownsExistingUserId();
+      allow create: if isAdmin() || ownsIncomingUserId();
+    }
+
+    match /bookmarks/{bookmarkId} {
+      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow create: if isAdmin() || ownsIncomingUserId();
+    }
+
+    match /categories/{categoryId} {
+      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow create: if isAdmin() || ownsIncomingUserId();
+    }
+
+    match /{document=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}

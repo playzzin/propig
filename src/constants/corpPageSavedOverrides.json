@@ -1,0 +1,869 @@
+[
+  {
+    "hidden": false,
+    "description": "PRO PIG의 회사 방향, 운영 철학, 전국·글로벌 네트워크를 한 화면에서 소개합니다.ㅋㅋㅋㅋ",
+    "title": "회사소개",
+    "menu": {
+      "icon": "building",
+      "label": "회사소개"
+    },
+    "id": "introduction",
+    "seo": {
+      "description": "PRO PIG의 회사 방향, 운영 철학, 전국·글로벌 네트워크를 한 화면에서 소개합니다.",
+      "title": "회사소개 | 회사소개"
+    },
+    "slug": "introduction",
+    "order": 10,
+    "status": "draft",
+    "templateKey": "company-introduction",
+    "templateSettings": {
+      "socialContribution": {}
+    },
+    "blocks": [
+      {
+        "id": "introduction-hero",
+        "enabled": true,
+        "type": "hero",
+        "data": {
+          "kicker": "COMPANY INTRODUCTION",
+          "headline": "그냥돼지 회사소개",
+          "body": "PRO PIG는 기업 소개 사이트, 업무 생산성 앱, AI 자동화 도구를 한 제품군으로 묶어 기획, 개발, 검증, 운영 흐름을 빠르게 연결합니다. 현재 공개 페이지와 내부 도구가 같은 기준으로 업데이트되도록 콘텐츠, 수치, 그래프를 계속 정비하고 있습니다.",
+          "mediaUrl": "https://firebasestorage.googleapis.com/v0/b/propig-63524.firebasestorage.app/o/images%2Falbums%2FeQ1HpopP0IN7FIiUq55E%2Foriginals%2Fupload_1780877011507_0_ChatGPT-Image-2026%EB%85%84-6%EC%9B%94-8%EC%9D%BC-%EC%98%A4%EC%A0%84-08_54_13.png?alt=media&token=a13a1574-4db0-40d8-80be-0a08f8e8e6b2",
+          "primaryLabel": "기업기술 보기",
+          "primaryHref": "/corp/company/technology"
+        }
+      },
+      {
+        "id": "introduction-finance",
+        "enabled": true,
+        "type": "metric-grid",
+        "data": {
+          "title": "현재 운영 현황",
+          "metrics": [
+            {
+              "label": " 자본금",
+              "value": "17만 5천원",
+              "caption": "망가지고 주머니에 남은돈....",
+              "icon": "Sections"
+            },
+            {
+              "label": "매출",
+              "value": "시급 2만",
+              "caption": "정도 되면 그냥 일하니까.....",
+              "icon": "Products"
+            },
+            {
+              "label": "영업이익",
+              "value": "1만원",
+              "caption": "이것저것 차포 다때믄 노동력으로 남는돈.",
+              "icon": "Automation"
+            },
+            {
+              "label": "부채",
+              "value": "10억쯤",
+              "caption": "이건 내가쫌 있지....",
+              "icon": "Admin"
+            },
+            {
+              "label": "사업영역",
+              "value": "이것저것",
+              "caption": "뭐 계속하다보면 하나 얻어 걸리겟지...",
+              "icon": "Live"
+            },
+            {
+              "label": "자기자본",
+              "value": "200만원",
+              "caption": "보증금+오토바이+집기..등등",
+              "icon": "QA"
+            },
+            {
+              "label": "순이익",
+              "value": "4500원",
+              "caption": "머 이래저래 담배값정도는 있더라고.....",
+              "icon": "Stack"
+            },
+            {
+              "label": "유보금",
+              "value": "46만원",
+              "caption": "압류됫지만 수수료비싸서 찾지않은금액....",
+              "icon": "Focus"
+            }
+          ]
+        }
+      },
+      {
+        "id": "introduction-capital-allocation",
+        "enabled": true,
+        "type": "metric-grid",
+        "data": {
+          "title": "운영 자원 배분",
+          "metrics": [
+            {
+              "label": "식대",
+              "value": "60%",
+              "caption": "핵심 화면과 기능 고도화",
+              "progress": 60,
+              "accent": "#2dd4bf"
+            },
+            {
+              "label": "주거비",
+              "value": "20%",
+              "caption": "분석, 생성, 요약 흐름 정비",
+              "progress": 20,
+              "accent": "#60a5fa"
+            },
+            {
+              "label": "담배값",
+              "value": "10%",
+              "caption": "소개 페이지와 관리자 편집 구조",
+              "progress": 10,
+              "accent": "#f5c766"
+            },
+            {
+              "label": "구독료",
+              "value": "3%",
+              "caption": "문구, 이미지, 섹션 상태 관리",
+              "progress": 3,
+              "accent": "#fb7185"
+            },
+            {
+              "label": "자기계발",
+              "value": "2%",
+              "caption": "권한, 렌더링, 배포 전 검증",
+              "progress": 2,
+              "accent": "#a78bfa"
+            }
+          ]
+        }
+      },
+      {
+        "id": "introduction-revenue-profit",
+        "enabled": true,
+        "type": "metric-grid",
+        "data": {
+          "title": "운영 지표 추이",
+          "metrics": [
+            {
+              "label": "2024",
+              "value": "2개",
+              "caption": "자동화 흐름",
+              "progress": 33,
+              "accent": "#2dd4bf",
+              "subLabel": "운영 모듈",
+              "secondaryProgress": 25,
+              "secondaryAccent": "#f5c766",
+              "secondaryLabel": "자동화 흐름",
+              "secondaryValue": "1개"
+            },
+            {
+              "label": "2025 H1",
+              "value": "3개",
+              "caption": "자동화 흐름",
+              "progress": 50,
+              "accent": "#2dd4bf",
+              "subLabel": "운영 모듈",
+              "secondaryProgress": 50,
+              "secondaryAccent": "#f5c766",
+              "secondaryLabel": "자동화 흐름",
+              "secondaryValue": "2개"
+            },
+            {
+              "label": "2025 H2",
+              "value": "5개",
+              "caption": "자동화 흐름",
+              "progress": 83,
+              "accent": "#2dd4bf",
+              "subLabel": "운영 모듈",
+              "secondaryProgress": 75,
+              "secondaryAccent": "#f5c766",
+              "secondaryLabel": "자동화 흐름",
+              "secondaryValue": "3개"
+            },
+            {
+              "label": "2026.06",
+              "value": "6개",
+              "caption": "자동화 흐름",
+              "progress": 100,
+              "accent": "#2dd4bf",
+              "subLabel": "운영 모듈",
+              "secondaryProgress": 100,
+              "secondaryAccent": "#f5c766",
+              "secondaryLabel": "자동화 흐름",
+              "secondaryValue": "4개"
+            }
+          ]
+        }
+      },
+      {
+        "id": "introduction-history",
+        "enabled": true,
+        "type": "timeline",
+        "data": {
+          "title": "PRO PIG 회사연혁",
+          "body": "",
+          "summaryItems": [],
+          "items": [
+            {
+              "date": "2023",
+              "title": "문제와 화면 구조 정리",
+              "body": "흩어진 업무 요청과 반복 대응을 제품 과제로 바꾸고, 회사 소개와 운영 도구가 함께 움직일 수 있는 화면 구조를 정리했습니다.",
+              "icon": "01",
+              "details": [
+                "현장 요청 흐름 수집",
+                "운영 문제와 제품 과제 연결",
+                "초기 실행 기준 정리"
+              ]
+            },
+            {
+              "date": "2024",
+              "title": "제품형 운영 흐름 구축",
+              "body": "메모, 목표, 습관, 분석 같은 생산성 흐름을 제품 단위로 나누고, AI 보조 기능을 실제 사용 절차에 연결했습니다.",
+              "icon": "02",
+              "details": [
+                "AI 워크플로우 적용",
+                "내부 검토 프로세스 정착",
+                "응답 품질 기준 수립"
+              ]
+            },
+            {
+              "date": "2025",
+              "title": "기업 콘텐츠와 도구 확장",
+              "body": "회사소개, 기업기술, 사업영역, 사회공헌 등 기업 페이지를 관리형 콘텐츠로 확장하고, 제품 화면과 같은 운영 기준을 적용했습니다.",
+              "icon": "03",
+              "details": [
+                "파트너 운영 범위 확대",
+                "재무 지표와 성장 지표 연결",
+                "글로벌 협력 구조 정리"
+              ]
+            },
+            {
+              "date": "2026",
+              "title": "AI·CMS 운영 기준 정착",
+              "body": "현재는 공개 페이지, 관리자 편집, AI 자동화, 브라우저 검증을 하나의 루프로 묶어 실제 화면과 데이터가 어긋나지 않게 정비하고 있습니다.",
+              "icon": "04",
+              "details": [
+                "운영 기준 표준화",
+                "고객과 파트너 신뢰도 강화",
+                "상용 서비스 품질 관리"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "introduction-values",
+        "enabled": true,
+        "type": "feature-grid",
+        "data": {
+          "title": "현재 운영을 움직이는 10가지 기준",
+          "features": [
+            {
+              "title": "현장 우선",
+              "body": "화면에 보이는 문제와 실제 사용 흐름을 먼저 확인합니다.",
+              "meta": "01 Field First",
+              "icon": "01",
+              "details": [
+                "추상적인 선언보다 현재 페이지에서 사용자가 보는 상태를 기준으로 판단합니다.",
+                "문구, 수치, 그래프가 실제 운영 흐름과 어긋나면 즉시 수정합니다."
+              ]
+            },
+            {
+              "title": "데이터 기준",
+              "body": "감으로 판단하지 않고 기록, 지표, 화면 상태를 함께 봅니다.",
+              "meta": "02 Data Grounded",
+              "icon": "02",
+              "details": [
+                "운영 현황은 숫자 카드와 그래프로 드러나야 합니다.",
+                "정성 문구도 근거가 되는 기능, 섹션, 검증 단계와 연결합니다."
+              ]
+            },
+            {
+              "title": "빠른 검증",
+              "body": "작게 고치고 실제 브라우저에서 바로 확인합니다.",
+              "meta": "03 Verify Fast",
+              "icon": "03",
+              "details": [
+                "코드가 맞아도 화면에서 겹치거나 숨겨지면 완료로 보지 않습니다.",
+                "데스크톱과 모바일에서 텍스트, 그래프, 섹션 노출을 함께 확인합니다."
+              ]
+            },
+            {
+              "title": "자동화 우선순위",
+              "body": "반복되는 분석, 생성, 검증 흐름부터 자동화합니다.",
+              "meta": "04 Automation",
+              "icon": "04",
+              "details": [
+                "사람의 판단이 필요한 구간과 자동 처리할 구간을 분리합니다.",
+                "AI 보조 기능은 실제 업무 시간을 줄이는 쪽에 먼저 배치합니다."
+              ]
+            },
+            {
+              "title": "콘텐츠 일관성",
+              "body": "관리자 편집 데이터와 공개 페이지 문구가 같은 기준을 공유합니다.",
+              "meta": "05 Content Sync",
+              "icon": "05",
+              "details": [
+                "회사소개, 기술, 사업영역의 톤을 하나의 운영 언어로 정리합니다.",
+                "수정 가능한 데이터는 화면 반영 방식까지 함께 설계합니다."
+              ]
+            },
+            {
+              "title": "보안과 권한",
+              "body": "관리 기능은 역할과 권한을 기준으로 접근 범위를 나눕니다.",
+              "meta": "06 Permission",
+              "icon": "06",
+              "details": [
+                "편집, 발행, 메뉴 관리는 권한 확인을 거쳐 노출합니다.",
+                "데이터 구조는 Firebase 규칙과 서비스 계층에서 함께 방어합니다."
+              ]
+            },
+            {
+              "title": "파트너 책임 범위",
+              "body": "협업과 외부 연결은 역할, 일정, 결과물을 명확히 나눕니다.",
+              "meta": "07 Partner Scope",
+              "icon": "07",
+              "details": [
+                "사업영역과 제휴 흐름은 실행 가능한 책임 범위로 표현합니다.",
+                "파트너십 문구는 실제 운영 단계와 연결될 때만 사용합니다."
+              ]
+            },
+            {
+              "title": "품질 회고",
+              "body": "작업 후에는 화면, 데이터, 유지보수성을 다시 확인합니다.",
+              "meta": "08 Review Loop",
+              "icon": "08",
+              "details": [
+                "작은 문구 변경도 전체 섹션 흐름에 영향을 주는지 봅니다.",
+                "숨겨진 섹션, 깨진 그래프, 오래된 수치를 재검토합니다."
+              ]
+            },
+            {
+              "title": "사용자 경험 밀도",
+              "body": "첫 화면은 보기 좋게, 하단 섹션은 반복해서 읽기 쉽게 만듭니다.",
+              "meta": "09 UX Density",
+              "icon": "09",
+              "details": [
+                "기업 사이트는 과장된 장식보다 스캔 가능한 정보 구조가 중요합니다.",
+                "버튼, 그래프, 카드가 화면 크기에 따라 안정적으로 유지되게 합니다."
+              ]
+            },
+            {
+              "title": "지속 가능한 운영",
+              "body": "발행 후에도 수정, 검증, 개선이 이어지는 구조를 유지합니다.",
+              "meta": "10 Continuous Ops",
+              "icon": "10",
+              "details": [
+                "한 번 만든 페이지를 끝으로 보지 않고 현재 상태에 맞게 갱신합니다.",
+                "제품, 콘텐츠, 운영 데이터를 같은 리듬으로 개선합니다."
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "introduction-tech-knowledge",
+        "enabled": true,
+        "type": "feature-grid",
+        "data": {
+          "title": "기술 소개",
+          "features": [
+            {
+              "title": "Data Signal",
+              "body": "흩어진 문의, 화면 상태, 운영 기록을 하나의 데이터 흐름으로 모아 다음 의사결정에 연결합니다.",
+              "meta": "Webzine 01",
+              "icon": "Data",
+              "mediaUrl": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "고객 신호와 내부 운영 기록을 같은 기준으로 정리합니다.",
+                "반복되는 이슈와 주요 변화를 빠르게 찾습니다."
+              ]
+            },
+            {
+              "title": "AI Workflow",
+              "body": "문서 분류, 응답 초안, 콘텐츠 생성, 업무 요약을 AI 흐름으로 먼저 정리합니다.",
+              "meta": "Webzine 02",
+              "icon": "AI",
+              "mediaUrl": "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "반복 문서와 고객 요청을 자동으로 분류합니다.",
+                "응답 준비 시간을 줄이고 처리 기준을 일정하게 유지합니다."
+              ]
+            },
+            {
+              "title": "CMS Sync",
+              "body": "관리자에서 수정한 회사소개 데이터가 공개 페이지의 섹션, 문구, 그래프에 바로 이어지게 합니다.",
+              "meta": "Webzine 03",
+              "icon": "CMS",
+              "mediaUrl": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "섹션별 편집 단위를 데이터 블록으로 관리합니다.",
+                "발행 전후의 문구와 수치가 같은 구조를 바라보게 합니다."
+              ]
+            },
+            {
+              "title": "Automation QA",
+              "body": "수정 후 코드와 브라우저 렌더링을 함께 확인해 숨겨진 섹션과 깨진 그래프를 줄입니다.",
+              "meta": "Webzine 04",
+              "icon": "QA",
+              "mediaUrl": "https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "데스크톱과 모바일에서 텍스트 겹침, 표시 상태, 그래프 비율을 확인합니다.",
+                "수정된 화면은 로컬 서버에서 직접 렌더링해 검증합니다."
+              ]
+            },
+            {
+              "title": "Security Guardrail",
+              "body": "인증, 권한, Firestore 규칙, 관리 화면 접근을 분리해 운영 데이터의 변경 범위를 통제합니다.",
+              "meta": "Webzine 05",
+              "icon": "Security",
+              "mediaUrl": "https://images.unsplash.com/photo-1563986768494-4dee2763ff3f?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "관리 권한이 있는 사용자만 편집 진입점을 볼 수 있게 합니다.",
+                "저장 전 데이터 구조를 스키마와 서비스 계층에서 정리합니다."
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "introduction-vision",
+        "enabled": true,
+        "type": "feature-grid",
+        "data": {
+          "title": "기업브랜드",
+          "features": [
+            {
+              "title": "현재 상태를 한 화면에 연결",
+              "body": "제품과 기업 콘텐츠 현황을 운영자가 바로 읽을 수 있게 만듭니다.",
+              "meta": "01 Standard",
+              "icon": "Standard",
+              "mediaUrl": "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "흩어진 화면, 문구, 수치, 그래프를 같은 기준으로 정리해 관리 부담을 줄입니다."
+              ]
+            },
+            {
+              "title": "AI로 반복 업무 단축",
+              "body": "분석, 생성, 요약 같은 반복 업무를 AI 보조 흐름으로 줄입니다.",
+              "meta": "02 Decision",
+              "icon": "Decision",
+              "mediaUrl": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "사람은 판단과 조율에 집중하고, 반복 입력과 초안 작성은 자동화 흐름으로 넘깁니다."
+              ]
+            },
+            {
+              "title": "발행 가능한 콘텐츠 운영",
+              "body": "회사소개와 제품 화면을 관리자에서 지속적으로 갱신할 수 있게 합니다.",
+              "meta": "03 Growth",
+              "icon": "Growth",
+              "mediaUrl": "https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "초안, 발행, 검증, 수정 루프를 유지해 현재 상태와 공개 문구 사이의 간격을 줄입니다."
+              ]
+            },
+            {
+              "title": "검증 가능한 성장 구조",
+              "body": "운영 모듈과 자동화 흐름을 숫자로 추적하며 성장 기준을 명확히 합니다.",
+              "meta": "04 Trust",
+              "icon": "Trust",
+              "mediaUrl": "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=900&q=80",
+              "details": [
+                "좋아 보이는 표현보다 실제로 확인 가능한 화면, 데이터, 검증 결과를 우선합니다."
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "hidden": false,
+    "description": "문제 인식, 실행 방식, 사업화 과정이 어떻게 PRO PIG의 출발점이 되었는지 정리합니다.",
+    "title": "창업배경",
+    "menu": {
+      "icon": "lightbulb",
+      "label": "창업배경"
+    },
+    "id": "founding-background",
+    "seo": {
+      "description": "문제 인식, 실행 방식, 사업화 과정이 어떻게 PRO PIG의 출발점이 되었는지 정리합니다.",
+      "title": "창업배경 | 회사소개"
+    },
+    "slug": "founding-background",
+    "order": 20,
+    "status": "draft",
+    "templateKey": "founding-background",
+    "templateSettings": {
+      "socialContribution": {}
+    },
+    "blocks": [
+      {
+        "id": "founding-hero",
+        "enabled": true,
+        "type": "hero",
+        "data": {
+          "kicker": "FOUNDING BACKGROUND",
+          "headline": "창업배경은 문제와 실행이 정면으로 부딪힌 순간에서 시작됐습니다.",
+          "body": "왼쪽의 혼선은 매일 쌓이는 현장의 압박이고, 오른쪽의 체계는 그 압박을 버티며 만든 실행 방식입니다. PRO PIG는 두 장면이 충돌하는 지점에서 쓸모 있는 운영 기준을 만들었습니다.",
+          "mediaUrl": "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1100&q=82",
+          "primaryLabel": "사업영역 보기",
+          "primaryHref": "/corp/company/business-area"
+        }
+      },
+      {
+        "id": "founding-media",
+        "enabled": true,
+        "type": "media-showcase",
+        "data": {
+          "title": "현재 적용 사진과 영상",
+          "body": "창업배경 페이지의 책장형 영상, 문제/실행 사진 URL입니다.",
+          "media": [
+            {
+              "url": "https://www.youtube.com/shorts/QKvZNC7h-Do",
+              "type": "video",
+              "alt": "데이터로 남긴 첫 문제",
+              "caption": "Chapter 01 · 운영 데이터",
+              "description": "흩어진 요청과 반복 업무를 기록 가능한 데이터로 바꾸며 창업의 첫 기준을 세운 장면입니다."
+            },
+            {
+              "url": "https://www.youtube.com/shorts/qYzSLPxzYcU",
+              "type": "video",
+              "alt": "AI로 좁힌 실행 간격",
+              "caption": "Chapter 02 · AI 실행",
+              "description": "사람이 매번 판단하던 흐름을 보조하는 AI 구조를 붙여 더 빠른 실행 방식을 만들었습니다."
+            },
+            {
+              "url": "https://www.youtube.com/shorts/S0DVTJFVqJ8",
+              "type": "video",
+              "alt": "자동화로 반복을 줄인 순간",
+              "caption": "Chapter 03 · 업무 자동화",
+              "description": "같은 설명과 확인을 반복하던 업무를 자동화해 팀이 문제 해결에 더 집중할 수 있게 했습니다."
+            },
+            {
+              "url": "https://www.youtube.com/watch?v=g7VKQMytX8M&list=RDg7VKQMytX8M&start_radio=1",
+              "type": "video",
+              "alt": "파트너와 함께 검증한 방식",
+              "caption": "Chapter 04 · 파트너 검증",
+              "description": "내부의 개선에 머물지 않고 파트너 환경에서 다시 검증하며 사업화 가능한 기준으로 정리했습니다."
+            },
+            {
+              "url": "https://firebasestorage.googleapis.com/v0/b/propig-63524.firebasestorage.app/o/images%2Falbums%2FeQ1HpopP0IN7FIiUq55E%2Foriginals%2Fupload_1780876994461_0_ChatGPT-Image-2026%EB%85%84-6%EC%9B%94-8%EC%9D%BC-%EC%98%A4%EC%A0%84-08_39_44.png?alt=media&token=bb8a9a92-8f42-4580-8827-ff7c1668c8c1",
+              "type": "image",
+              "alt": "현장의 혼선",
+              "caption": "Problem Side · 요청은 늘고 기준은 흩어져 있던 출발점"
+            },
+            {
+              "url": "https://firebasestorage.googleapis.com/v0/b/propig-63524.firebasestorage.app/o/images%2Falbums%2FeQ1HpopP0IN7FIiUq55E%2Foriginals%2Fupload_1780877604159_0_ChatGPT-Image-2026%EB%85%84-6%EC%9B%94-8%EC%9D%BC-%EC%98%A4%EC%A0%84-08_41_41.png?alt=media&token=9ad9b24d-a323-4789-944e-c4fd205a3512",
+              "type": "image",
+              "alt": "실행의 체계",
+              "caption": "Build Side · 흩어진 경험을 반복 가능한 운영 방식으로 전환"
+            }
+          ]
+        }
+      },
+      {
+        "id": "founding-features",
+        "enabled": true,
+        "type": "feature-grid",
+        "data": {
+          "title": "WHY WE STARTED",
+          "features": [
+            {
+              "title": "문제의 밀도",
+              "body": "현장 요청, 고객 피드백, 파트너 대응이 한꺼번에 몰리며 기존 방식의 한계가 먼저 보였습니다.",
+              "meta": "Origin Signal",
+              "icon": "Gauge"
+            },
+            {
+              "title": "실행의 증거",
+              "body": "멋진 선언보다 오늘 처리한 기록, 반복 가능한 절차, 다시 쓸 수 있는 기준을 먼저 쌓았습니다.",
+              "meta": "Origin Signal",
+              "icon": "BadgeCheck"
+            },
+            {
+              "title": "사업화의 방향",
+              "body": "각자 버티던 경험을 데이터와 운영 체계로 묶어 PRO PIG의 첫 제품 방향으로 정리했습니다.",
+              "meta": "Origin Signal",
+              "icon": "GitBranch"
+            }
+          ]
+        }
+      },
+      {
+        "id": "founding-statement",
+        "enabled": true,
+        "type": "statement",
+        "data": {
+          "eyebrow": "WHY WE STARTED",
+          "title": "창업배경 섹션",
+          "body": "시작은 거창한 사업계획서보다 단순했습니다. 매번 새로 설명하고, 다시 확인하고, 급하게 처리하던 일을 더 안정적인 시스템으로 바꾸자는 문제의식이 창업의 기준이 됐습니다.",
+          "items": [
+            "불편을 기록",
+            "패턴을 분리",
+            "제품으로 고정"
+          ]
+        }
+      },
+      {
+        "id": "founding-timeline",
+        "enabled": true,
+        "type": "timeline",
+        "data": {
+          "title": "문제가 제품 방향이 된 흐름",
+          "body": "",
+          "summaryItems": [],
+          "items": [
+            {
+              "date": "01",
+              "title": "불편을 기록",
+              "body": "현장 요청과 반복 업무를 기록으로 남겨 문제의 밀도를 확인했습니다.",
+              "icon": "Film"
+            },
+            {
+              "date": "02",
+              "title": "패턴을 분리",
+              "body": "반복되는 설명, 확인, 보고 흐름을 따로 떼어 자동화 가능한 구조로 만들었습니다.",
+              "icon": "GitBranch"
+            },
+            {
+              "date": "03",
+              "title": "제품으로 고정",
+              "body": "검증된 방식을 제품 기준으로 정리하고 파트너 환경에서 다시 확인했습니다.",
+              "icon": "ShieldCheck"
+            }
+          ]
+        }
+      },
+      {
+        "id": "founding-quote",
+        "enabled": true,
+        "type": "quote",
+        "data": {
+          "quote": "창업배경은 멋진 선언이 아니라 반복해서 부딪힌 문제를 끝까지 기록한 결과입니다.",
+          "cite": "PRO PIG Founding Story"
+        }
+      }
+    ]
+  },
+  {
+    "hidden": false,
+    "description": "대표의 이력과 캐릭터, 현장형 리더십을 솔직한 프로필 형식으로 소개합니다.",
+    "title": "대표소개",
+    "menu": {
+      "icon": "user-tie",
+      "label": "대표소개"
+    },
+    "id": "ceo-intro",
+    "seo": {
+      "description": "대표의 이력과 캐릭터, 현장형 리더십을 솔직한 프로필 형식으로 소개합니다.",
+      "title": "대표소개 | 회사소개"
+    },
+    "slug": "ceo-intro",
+    "order": 30,
+    "status": "draft",
+    "templateKey": "ceo-intro",
+    "templateSettings": {
+      "socialContribution": {}
+    },
+    "blocks": [
+      {
+        "id": "ceo-hero",
+        "enabled": true,
+        "type": "hero",
+        "data": {
+          "kicker": "CEO PROFILE",
+          "headline": "대표소개, 이번엔 솔직하게 접어 봤습니다.",
+          "body": "공식 이력과 생활형 현장 감각을 한 화면에서 보여주는 대표 프로필 페이지입니다.",
+          "mediaUrl": "/corp/ceo-intro-satire.png",
+          "primaryLabel": "직원소개 보기",
+          "primaryHref": "/corp/company/staff-intro"
+        }
+      },
+      {
+        "id": "ceo-media",
+        "enabled": true,
+        "type": "media-showcase",
+        "data": {
+          "title": "대표 이미지",
+          "body": "현재 대표소개 페이지에서 사용하는 이미지 주소입니다.",
+          "media": [
+            {
+              "url": "https://firebasestorage.googleapis.com/v0/b/propig-63524.firebasestorage.app/o/images%2Falbums%2FeQ1HpopP0IN7FIiUq55E%2Foriginals%2Fupload_1780878139007_0_ChatGPT-Image-2026%EB%85%84-6%EC%9B%94-6%EC%9D%BC-%EC%98%A4%EC%A0%84-12_19_28.png?alt=media&token=259cb144-d16d-468b-9196-da64b6b990b3",
+              "type": "image",
+              "alt": "공사 현장 분위기의 대표 인물 사진",
+              "caption": "대표소개 메인 포트레이트"
+            }
+          ]
+        }
+      },
+      {
+        "id": "ceo-profile-sections",
+        "enabled": true,
+        "type": "feature-grid",
+        "data": {
+          "title": "프로필 섹션",
+          "features": [
+            {
+              "title": "신체 스펙",
+              "body": "키 약 180cm, 전성기 체중 약 145kg, 시력 좌 0.6 / 우 0.3, 혈액형 B형, 술은 안 마시는 타입이라는 설정을 담습니다.",
+              "meta": "01",
+              "icon": "Activity",
+              "details": [
+                "키: 약 180cm. 실제로는 조금 모자라지만, 프로필에는 언제나 반올림의 미학이 있다.",
+                "몸무게: 전성기 최대 약 145kg. 현재는 110kg-120kg 사이를 유동적으로 왕복한다.",
+                "시력: 좌 0.6 / 우 0.3. 멀리 있는 리스크보다 눈앞의 위기를 먼저 보는 타입.",
+                "혈액형: B형. 자기 페이스가 강하고, 핑계도 비교적 빠르게 나온다.",
+                "음주/흡연: 술은 안 마신다. 담배는 많이 핀다. 건강관리는 늘 다음 분기 핵심 과제다.",
+                "특이사항: 중량급 체형이지만 위기 상황에서는 경량급 기동성을 보인다. 도망갈 때만큼은 조직 내 최상위권."
+              ]
+            },
+            {
+              "title": "학력",
+              "body": "서울대학교, 하버드, 예일 같은 드림 스쿨과 실제 최종학력 고졸 사이의 간극을 유머러스하게 보여줍니다.",
+              "meta": "02",
+              "icon": "GraduationCap",
+              "details": [
+                "서울대학교 법과대학: 학사(LL.B) 2003.03-2007.02를 꿈꿨다.",
+                "하버드대학교 로스쿨: 법학석사(LL.M) 2008.08-2009.05도 상상 속에서는 꽤 진지했다.",
+                "예일대학교 로스쿨: 법학박사(J.S.D.) 2009.09-2014.05까지 가는 장기 시나리오도 있었다.",
+                "실제 최종학력: 고졸. 대신 현장학, 생존전략, 재기론은 비공식 전공처럼 오래 수강했다."
+              ]
+            },
+            {
+              "title": "경력",
+              "body": "10대 중반부터 현재까지 배달, 현장, 영업, 인력 업무를 거친 생활형 타임라인입니다.",
+              "meta": "03",
+              "icon": "BriefcaseBusiness",
+              "details": [
+                "10대 중반: 문화일보 석간배달과 음식점 배달로 노동의 기본기를 배웠다.",
+                "10대 후반: 각종 비공식 아르바이트를 경험했다. 공식 이력서에는 적기 난감한 챕터.",
+                "20대 초반: 사행성 오락실 근무 및 운영. 확률과 리스크를 몸으로 익혔다.",
+                "20대 중반: 휴대폰 판매와 운영. 말발, 손님 응대, 재고 스트레스를 한 번에 배웠다.",
+                "20대 후반: 공익근무와 휴대폰 내구제. 제도권과 비제도권 사이를 오갔다.",
+                "30대 초반: 도박 등으로 한 번 무너졌다. 경력 공백이 아니라 인생 손절매 구간.",
+                "30대 중반: 인력사무실 운영. 사람, 현장, 돈의 속도를 동시에 관리했다.",
+                "30대 후반: 건설시공팀과 인력사무실 운영. 현장형 리더십의 흙먼지 버전.",
+                "40대 초반: 징역 복역 후 잠깐 열심히 살았다. “잠깐”이라는 표현이 이력의 핵심 포인트다.",
+                "현재: 노가다, 배달, 대리, 택배 등 다양한 일을 경험 중. 직함보다 생계 대응력이 먼저다."
+              ]
+            },
+            {
+              "title": "기술 및 자격증",
+              "body": "1종 보통, 1종 대형, 2종 소형 면허와 현장 감각, 빠른 실행력을 핵심 역량으로 정리합니다.",
+              "meta": "04",
+              "icon": "BadgeCheck",
+              "details": [
+                "운전면허: 1종 보통, 1종 대형, 2종 소형 보유.",
+                "현장 기술: 배달 동선, 대리운전 감각, 택배 적재, 인력 배치, 급한 상황 판단에 강하다.",
+                "대표 역량: 계획서보다 빠른 실행, 회의보다 빠른 이동, 포장보다 빠른 인정."
+              ]
+            },
+            {
+              "title": "범죄 경력",
+              "body": "형사 이력과 생활 기록을 숨기지 않고 솔직한 메시지로 정리하는 투명경영 섹션입니다.",
+              "meta": "05",
+              "icon": "ShieldAlert",
+              "details": [
+                "형사 이력: 징역 1년. 미화할 수 없고, 숨기기에도 이미 너무 진한 구간.",
+                "주요 경력: 사기, 폭행, 재물손괴 등 잡범 경력 보유.",
+                "생활 기록: 과태료, 범칙금 등 자잘한 행정 이력도 다수. 성실함의 방향이 가끔 잘못 잡혔다.",
+                "현재 메시지: 깨끗한 척보다 덜 위험한 건, 적어도 더럽게 지나온 길을 알고 있다는 점이다."
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "ceo-identity",
+        "enabled": true,
+        "type": "statement",
+        "data": {
+          "eyebrow": "비공식 대표 약력",
+          "title": "포장지는 얇고, 이력은 두껍다.",
+          "body": "학벌과 무결점 대신 현장, 시행착오, 재기, 생활력을 들고 온 대표. 이 소개는 장점만 광내는 기업 프로필 대신, 흠집까지 드러내는 풍자 버전이다.",
+          "items": [
+            "대표 요약 키커, 제목, 본문을 별도 섹션에서 수정합니다.",
+            "그래프 수치 카드는 빠른 정보 블록에서 수정합니다."
+          ]
+        }
+      },
+      {
+        "id": "ceo-facts",
+        "enabled": true,
+        "type": "metric-grid",
+        "data": {
+          "title": "빠른 정보",
+          "metrics": [
+            {
+              "label": "최종학력",
+              "value": "고졸",
+              "caption": "현장과 생존 전략을 오래 배운 타입",
+              "icon": "GraduationCap",
+              "progress": 58,
+              "accent": "#60a5fa",
+              "subLabel": "검증",
+              "subValue": "실전형"
+            },
+            {
+              "label": "면허",
+              "value": "1종 대형",
+              "caption": "바퀴 달린 것과 현장 동선에 강한 프로필",
+              "icon": "BadgeCheck",
+              "progress": 84,
+              "accent": "#34d399",
+              "subLabel": "가동성",
+              "subValue": "높음"
+            },
+            {
+              "label": "주요 전공",
+              "value": "현장 생존",
+              "caption": "직함보다 생활력과 실행력을 앞세웁니다.",
+              "icon": "Scale",
+              "progress": 91,
+              "accent": "#a78bfa",
+              "subLabel": "생존력",
+              "subValue": "상"
+            }
+          ]
+        }
+      },
+      {
+        "id": "ceo-timeline",
+        "enabled": true,
+        "type": "timeline",
+        "data": {
+          "title": "생활력이 먼저였던 타임라인",
+          "body": "",
+          "summaryItems": [],
+          "items": [
+            {
+              "date": "10대",
+              "title": "배달과 현장 경험",
+              "body": "신문, 배달, 각종 아르바이트를 통해 노동의 기본기를 배웠습니다.",
+              "icon": "UserRound"
+            },
+            {
+              "date": "20대",
+              "title": "영업과 운영",
+              "body": "여행사, 의류 판매, 공익근무, 대리운전 등 말과 대응의 현장을 거쳤습니다.",
+              "icon": "BriefcaseBusiness"
+            },
+            {
+              "date": "30대",
+              "title": "인력사무소 운영",
+              "body": "사람, 현장, 돈의 속도를 동시에 관리하며 운영 감각을 키웠습니다.",
+              "icon": "Scale"
+            },
+            {
+              "date": "현재",
+              "title": "대표 역할",
+              "body": "멋진 직함보다 빠른 인정, 실행, 책임을 우선하는 대표 캐릭터로 정리됩니다.",
+              "icon": "Sparkles"
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

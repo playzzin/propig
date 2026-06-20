@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRO PIG Korea Network Map</title>
+
+  <script src="https://cdn.amcharts.com/lib/5/index.js"></script>
+  <script src="https://cdn.amcharts.com/lib/5/map.js"></script>
+  <script src="https://cdn.amcharts.com/lib/5/geodata/southKoreaLow.js"></script>
+  <script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+  <script defer src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    :root {
+      --bg: #08110f;
+      --panel: rgba(10, 22, 21, 0.92);
+      --line: rgba(219, 255, 246, 0.15);
+      --line-strong: rgba(219, 255, 246, 0.3);
+      --text: #f0fff9;
+      --muted: #a5bfb7;
+      --faint: #647b73;
+      --mint: #2dd4bf;
+      --blue: #60a5fa;
+      --amber: #f5c766;
+      --rose: #fb7185;
+      --green: #84cc16;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      overflow: hidden;
+      color: var(--text);
+      font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      letter-spacing: 0;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(255,255,255,0.032) 1px, transparent 1px),
+        linear-gradient(135deg, rgba(96, 165, 250, 0.15), transparent 34rem),
+        linear-gradient(315deg, rgba(245, 199, 102, 0.12), transparent 34rem),
+        var(--bg);
+      background-size: 46px 46px, 46px 46px, auto, auto, auto;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .shell {
+      height: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 390px;
+      overflow: hidden;
+    }
+
+    .map-stage {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      border-right: 1px solid var(--line);
+    }
+
+    #chartdiv {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+
+    .map-stage::before,
+    .map-stage::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .map-stage::before {
+      background:
+        linear-gradient(90deg, rgba(8, 17, 15, 0.94), transparent 26%, transparent 68%, rgba(8, 17, 15, 0.72)),
+        linear-gradient(180deg, rgba(8, 17, 15, 0.18), rgba(8, 17, 15, 0.84));
+    }
+
+    .map-stage::after {
+      background:
+        repeating-linear-gradient(125deg, transparent 0 28px, rgba(255,255,255,0.045) 29px 30px),
+        linear-gradient(90deg, transparent, rgba(45, 212, 191, 0.08), transparent);
+      opacity: 0.35;
+      animation: terrainDrift 15s linear infinite;
+    }
+
+    @keyframes terrainDrift {
+      from { transform: translate3d(-40px, 0, 0); }
+      to { transform: translate3d(40px, 0, 0); }
+    }
+
+    .map-title {
+      position: absolute;
+      left: 28px;
+      top: 24px;
+      z-index: 4;
+      max-width: 540px;
+      pointer-events: none;
+    }
+
+    .map-title .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--amber);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .map-title h1 {
+      margin: 10px 0 10px;
+      color: var(--text);
+      font-size: 46px;
+      line-height: 0.98;
+      font-weight: 900;
+      word-break: keep-all;
+    }
+
+    .map-title p {
+      margin: 0;
+      max-width: 480px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.72;
+      word-break: keep-all;
+    }
+
+    .map-actions {
+      position: absolute;
+      left: 28px;
+      bottom: 24px;
+      z-index: 5;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .action-button {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(219, 255, 246, 0.2);
+      background: rgba(8, 17, 15, 0.78);
+      color: var(--text);
+      padding: 0 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 850;
+      backdrop-filter: blur(16px);
+      transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .action-button:hover {
+      transform: translateY(-2px);
+      border-color: rgba(245, 199, 102, 0.54);
+      background: rgba(245, 199, 102, 0.12);
+    }
+
+    .signal-strip {
+      position: absolute;
+      right: 24px;
+      bottom: 24px;
+      z-index: 5;
+      width: min(360px, calc(100% - 48px));
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+    }
+
+    .signal {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: rgba(8, 17, 15, 0.72);
+      backdrop-filter: blur(14px);
+      padding: 12px;
+      border-radius: 6px;
+    }
+
+    .signal strong {
+      display: block;
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .signal span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.42;
+    }
+
+    .sidebar {
+      position: relative;
+      z-index: 8;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        linear-gradient(180deg, rgba(18, 28, 31, 0.96), rgba(5, 12, 11, 0.98)),
+        var(--panel);
+      box-shadow: -22px 0 58px rgba(0, 0, 0, 0.34);
+    }
+
+    .sidebar-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .brand i {
+      color: var(--amber);
+      font-size: 22px;
+    }
+
+    .sidebar-header p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.62;
+      word-break: keep-all;
+    }
+
+    .coverage-summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .coverage-summary div {
+      min-width: 0;
+      border: 1px solid var(--line);
+      padding: 11px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .coverage-summary strong {
+      display: block;
+      color: var(--text);
+      font-size: 16px;
+      margin-bottom: 5px;
+    }
+
+    .coverage-summary span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.38;
+    }
+
+    .panel {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 18px;
+    }
+
+    .info-card {
+      border: 1px solid var(--line-strong);
+      background:
+        linear-gradient(160deg, rgba(28, 43, 45, 0.96), rgba(6, 14, 13, 0.96));
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 22px 52px rgba(0, 0, 0, 0.28);
+      animation: slideIn 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(16px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+
+    .flag {
+      font-size: 42px;
+      line-height: 1;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      color: var(--amber);
+      background: rgba(245, 199, 102, 0.13);
+      border: 1px solid rgba(245, 199, 102, 0.24);
+      padding: 7px 10px;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+      white-space: nowrap;
+      border-radius: 999px;
+    }
+
+    .region-name {
+      margin: 0;
+      color: var(--text);
+      font-size: 28px;
+      line-height: 1.04;
+      font-weight: 900;
+    }
+
+    .region-role {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 8px 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .region-summary {
+      margin: 0 0 18px;
+      color: #c8ded7;
+      line-height: 1.7;
+      font-size: 13px;
+      word-break: keep-all;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat-box {
+      min-height: 76px;
+      border: 1px solid var(--line);
+      background: rgba(3, 9, 9, 0.6);
+      border-radius: 6px;
+      padding: 12px;
+    }
+
+    .stat-label {
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 850;
+      line-height: 1.24;
+    }
+
+    .lane-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .lane {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      align-items: start;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.035);
+      border-radius: 6px;
+      padding: 12px;
+    }
+
+    .lane i {
+      color: var(--mint);
+      font-size: 20px;
+      margin-top: 1px;
+    }
+
+    .lane strong {
+      display: block;
+      color: var(--text);
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .lane span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      word-break: keep-all;
+    }
+
+    .empty-state {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 18px;
+      color: var(--muted);
+      padding: 10px;
+    }
+
+    .empty-state i {
+      color: var(--amber);
+      font-size: 54px;
+    }
+
+    .empty-state h2 {
+      margin: 0;
+      color: var(--text);
+      font-size: 26px;
+      line-height: 1.08;
+      font-weight: 900;
+    }
+
+    .empty-state p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.72;
+      word-break: keep-all;
+    }
+
+    @media (max-width: 980px) {
+      .shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: 57vh 43vh;
+      }
+
+      .map-stage {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .sidebar {
+        box-shadow: 0 -18px 54px rgba(0, 0, 0, 0.28);
+      }
+
+      .sidebar-header {
+        padding: 16px 18px;
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .map-title {
+        left: 18px;
+        right: 18px;
+        top: 18px;
+      }
+
+      .map-title h1 {
+        font-size: 36px;
+      }
+
+      .map-title p {
+        max-width: 390px;
+      }
+
+      .map-actions {
+        left: 18px;
+        bottom: 18px;
+      }
+
+      .signal-strip {
+        display: none;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .shell {
+        grid-template-rows: 54vh 46vh;
+      }
+
+      .map-title h1 {
+        font-size: 29px;
+      }
+
+      .map-title p {
+        display: none;
+      }
+
+      .coverage-summary,
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="map-stage" aria-label="대한민국 전국 거점 지도">
+      <div id="chartdiv"></div>
+
+      <div class="map-title">
+        <span class="eyebrow"><i class="ph-fill ph-map-trifold"></i> Korea operating network</span>
+        <h1>전국 거점을 하나의 회사 경험으로 묶습니다.</h1>
+        <p>시·도별 지점, 운영 역할, 고객 대응 리듬을 확인하고 전국 단위의 회사 역량을 탐색할 수 있습니다.</p>
+      </div>
+
+      <div class="map-actions">
+        <button class="action-button" type="button" id="returnWorld">
+          <i class="ph-fill ph-globe-hemisphere-east"></i>
+          세계지도로 돌아가기
+        </button>
+        <button class="action-button" type="button" id="resetKorea">
+          <i class="ph-fill ph-arrows-clockwise"></i>
+          전국 보기
+        </button>
+      </div>
+
+      <div class="signal-strip" aria-hidden="true">
+        <div class="signal"><strong>17</strong><span>광역 거점 커버리지</span></div>
+        <div class="signal"><strong>156</strong><span>전국 운영 접점</span></div>
+        <div class="signal"><strong>1 day</strong><span>권역별 응답 리듬</span></div>
+      </div>
+    </section>
+
+    <aside class="sidebar" aria-label="대한민국 지역별 회사 소개">
+      <header class="sidebar-header">
+        <div class="brand"><i class="ph-fill ph-buildings"></i> PRO PIG KOREA</div>
+        <p>전국 고객과 파트너가 같은 품질의 제품 경험을 받을 수 있도록 권역별 운영 체계를 연결합니다.</p>
+      </header>
+
+      <div class="coverage-summary">
+        <div><strong>Seoul HQ</strong><span>전국 전략과 제품 운영의 기준점</span></div>
+        <div><strong>Regional cells</strong><span>권역별 고객 대응과 파트너십 실행</span></div>
+      </div>
+
+      <div class="panel" id="panel">
+        <div class="empty-state">
+          <i class="ph-duotone ph-map-pin-area"></i>
+          <div>
+            <h2>National company network</h2>
+            <p>지역을 클릭하면 지점 규모, 권역 역할, 고객 대응 구조가 표시됩니다.</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    function notifyParent(action, payload) {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(Object.assign({
+          source: "propig-atlas",
+          action: action
+        }, payload || {}), window.location.origin);
+      }
+    }
+
+    document.getElementById("returnWorld").addEventListener("click", function () {
+      notifyParent("open-world");
+    });
+
+    am5.ready(function () {
+      var root = am5.Root.new("chartdiv");
+      root.setThemes([am5themes_Animated.new(root)]);
+
+      var chart = root.container.children.push(am5map.MapChart.new(root, {
+        panX: "translateX",
+        panY: "translateY",
+        projection: am5map.geoMercator(),
+        minZoomLevel: 1,
+        maxZoomLevel: 18,
+        homeGeoPoint: { longitude: 127.8, latitude: 36.2 },
+        homeZoomLevel: 1
+      }));
+
+      var polygonSeries = chart.series.push(am5map.MapPolygonSeries.new(root, {
+        geoJSON: am5geodata_southKoreaLow
+      }));
+
+      polygonSeries.mapPolygons.template.setAll({
+        tooltipText: "{name}",
+        toggleKey: "active",
+        interactive: true,
+        fill: am5.color(0x25413d),
+        stroke: am5.color(0x0c1c1a),
+        strokeWidth: 1.15
+      });
+
+      polygonSeries.mapPolygons.template.states.create("hover", {
+        fill: am5.color(0x3f6961),
+        stroke: am5.color(0xf5c766)
+      });
+
+      polygonSeries.mapPolygons.template.states.create("active", {
+        fill: am5.color(0xf5c766),
+        stroke: am5.color(0xf0fff9),
+        strokeWidth: 2
+      });
+
+      var regionDB = {
+        "KR-11": {
+          name: "서울특별시",
+          flag: "🏙️",
+          branches: 32,
+          type: "Headquarters",
+          revenue: "전국 전략",
+          rhythm: "Same-day",
+          summary: "본사, 제품 전략, 고객 성공, 데이터 운영이 집중된 전국 운영의 기준점입니다.",
+          lanes: [
+            ["ph-fill ph-cpu", "Product command", "제품 로드맵과 전국 품질 기준을 정렬"],
+            ["ph-fill ph-users-three", "Customer success", "대형 고객과 주요 파트너의 도입 성과 관리"]
+          ]
+        },
+        "KR-26": {
+          name: "부산광역시",
+          flag: "🚢",
+          branches: 12,
+          type: "Port & Logistics",
+          revenue: "물류 운영",
+          rhythm: "Port relay",
+          summary: "해운, 유통, 제조 고객을 연결하는 남동권 물류와 현장 운영 거점입니다.",
+          lanes: [
+            ["ph-fill ph-truck", "Logistics desk", "출고, 배송, 현장 대응 데이터를 운영 화면으로 연결"],
+            ["ph-fill ph-handshake", "Partner network", "항만과 유통 파트너의 공동 실행 관리"]
+          ]
+        },
+        "KR-27": {
+          name: "대구광역시",
+          flag: "🏭",
+          branches: 8,
+          type: "Manufacturing Support",
+          revenue: "생산 지원",
+          rhythm: "Weekly sync",
+          summary: "제조와 리테일 고객의 반복 업무를 자동화하고 현장 운영 지표를 안정화합니다.",
+          lanes: [
+            ["ph-fill ph-factory", "Field automation", "생산 지원 업무를 표준 프로세스로 전환"],
+            ["ph-fill ph-chart-line-up", "Performance loop", "현장 지표를 개선 과제로 연결"]
+          ]
+        },
+        "KR-28": {
+          name: "인천광역시",
+          flag: "✈️",
+          branches: 10,
+          type: "International Gateway",
+          revenue: "국제 허브",
+          rhythm: "24h handoff",
+          summary: "공항, 항만, 글로벌 고객 접점이 만나는 국제 운영 허브입니다.",
+          lanes: [
+            ["ph-fill ph-airplane-tilt", "Global handoff", "해외 고객과 국내 운영팀의 응답 흐름 연결"],
+            ["ph-fill ph-globe-hemisphere-east", "Inbound support", "글로벌 도입 문의와 물류 이슈 대응"]
+          ]
+        },
+        "KR-29": {
+          name: "광주광역시",
+          flag: "🔧",
+          branches: 6,
+          type: "Service Lab",
+          revenue: "기술 지원",
+          rhythm: "Field review",
+          summary: "호남권 고객의 현장 요구를 제품 개선 신호로 바꾸는 서비스 랩입니다.",
+          lanes: [
+            ["ph-fill ph-wrench", "Service quality", "현장 이슈 분류와 응답 품질 개선"],
+            ["ph-fill ph-lightbulb", "Use case lab", "지역별 사용 사례를 제품화"]
+          ]
+        },
+        "KR-30": {
+          name: "대전광역시",
+          flag: "🧪",
+          branches: 7,
+          type: "R&D Center",
+          revenue: "기술 검증",
+          rhythm: "Prototype",
+          summary: "AI 자동화, 데이터 분석, 공공·연구 고객의 검증 프로젝트를 담당합니다.",
+          lanes: [
+            ["ph-fill ph-flask", "R&D sprint", "신규 기능과 자동화 시나리오 검증"],
+            ["ph-fill ph-database", "Data science", "운영 데이터를 분석 모델로 전환"]
+          ]
+        },
+        "KR-31": {
+          name: "울산광역시",
+          flag: "⛽",
+          branches: 5,
+          type: "Industrial Node",
+          revenue: "산업 거점",
+          rhythm: "Reliability",
+          summary: "산업 현장의 안정성, 안전, 설비 연계 업무를 지원하는 특화 거점입니다.",
+          lanes: [
+            ["ph-fill ph-shield-check", "Safety workflow", "안전 점검과 운영 증적 관리"],
+            ["ph-fill ph-gauge", "Reliability ops", "장기 운영 안정성 지표 추적"]
+          ]
+        },
+        "KR-41": {
+          name: "경기도",
+          flag: "🏢",
+          branches: 36,
+          type: "Core Operations",
+          revenue: "핵심 운영지역",
+          rhythm: "Daily loop",
+          summary: "가장 넓은 고객 접점과 운영 실험이 이루어지는 수도권 핵심 실행 권역입니다.",
+          lanes: [
+            ["ph-fill ph-buildings", "Enterprise belt", "대기업, 스타트업, 제조 고객의 복합 운영"],
+            ["ph-fill ph-flow-arrow", "Scale playbook", "검증된 기능을 전국 지점으로 확산"]
+          ]
+        },
+        "KR-42": {
+          name: "강원특별자치도",
+          flag: "⛰️",
+          branches: 4,
+          type: "Tourism & Retail",
+          revenue: "관광 운영",
+          rhythm: "Seasonal",
+          summary: "관광, 리테일, 지역 서비스 수요를 계절별 운영 모델로 관리합니다.",
+          lanes: [
+            ["ph-fill ph-mountains", "Seasonal demand", "성수기 수요와 현장 지원 계획 관리"],
+            ["ph-fill ph-storefront", "Retail ops", "지역 매장과 서비스 접점 운영"]
+          ]
+        },
+        "KR-43": {
+          name: "충청북도",
+          flag: "🚚",
+          branches: 5,
+          type: "Inland Logistics",
+          revenue: "내륙 물류",
+          rhythm: "Route sync",
+          summary: "내륙 물류와 권역 간 이동 데이터를 기반으로 운영 효율을 높입니다.",
+          lanes: [
+            ["ph-fill ph-truck-trailer", "Route ops", "배송 경로와 고객 응대 흐름 최적화"],
+            ["ph-fill ph-map-pin-line", "Regional bridge", "수도권과 남부권 연결 지점 관리"]
+          ]
+        },
+        "KR-44": {
+          name: "충청남도",
+          flag: "🏗️",
+          branches: 7,
+          type: "Manufacturing Hub",
+          revenue: "제조 허브",
+          rhythm: "Plant sync",
+          summary: "제조, 건설, 공공 고객의 복합 운영과 현장 자동화를 지원합니다.",
+          lanes: [
+            ["ph-fill ph-crane", "Project support", "현장 프로젝트 일정과 산출물 관리"],
+            ["ph-fill ph-robot", "Automation cell", "반복 업무 자동화 실험"]
+          ]
+        },
+        "KR-45": {
+          name: "전북특별자치도",
+          flag: "🌾",
+          branches: 4,
+          type: "Regional Operations",
+          revenue: "지역 운영",
+          rhythm: "Local desk",
+          summary: "농식품, 지역 서비스, 공공 고객의 현장 중심 운영을 지원합니다.",
+          lanes: [
+            ["ph-fill ph-leaf", "Local industry", "지역 산업 특화 업무 흐름 정리"],
+            ["ph-fill ph-clipboard-text", "Public desk", "공공 문서와 운영 보고 체계 지원"]
+          ]
+        },
+        "KR-46": {
+          name: "전라남도",
+          flag: "⚓",
+          branches: 6,
+          type: "Coastal Operations",
+          revenue: "항만 운영",
+          rhythm: "Coastal relay",
+          summary: "해안권 고객과 에너지, 물류, 지역 산업 운영을 연결합니다.",
+          lanes: [
+            ["ph-fill ph-anchor", "Coastal desk", "항만과 해안 산업의 운영 이슈 대응"],
+            ["ph-fill ph-wave-sine", "Energy signal", "에너지·설비 운영 신호 분석"]
+          ]
+        },
+        "KR-47": {
+          name: "경상북도",
+          flag: "🏞️",
+          branches: 9,
+          type: "Production Network",
+          revenue: "생산 네트워크",
+          rhythm: "Ops review",
+          summary: "제조와 지역 산업 고객의 운영 데이터를 제품 개선과 자동화 과제로 연결합니다.",
+          lanes: [
+            ["ph-fill ph-package", "Production flow", "생산 관련 반복 업무를 표준화"],
+            ["ph-fill ph-chart-donut", "Quality data", "품질 지표와 고객 피드백 분석"]
+          ]
+        },
+        "KR-48": {
+          name: "경상남도",
+          flag: "🏭",
+          branches: 13,
+          type: "Industrial Cluster",
+          revenue: "제조 클러스터",
+          rhythm: "Cluster sync",
+          summary: "동남권 제조 클러스터의 고객 성공과 파트너 기술 지원을 담당합니다.",
+          lanes: [
+            ["ph-fill ph-factory", "Industrial cluster", "제조 고객의 운영 전환 지원"],
+            ["ph-fill ph-plugs-connected", "Partner tech", "파트너 시스템과 제품 연동 관리"]
+          ]
+        },
+        "KR-49": {
+          name: "제주특별자치도",
+          flag: "🌴",
+          branches: 3,
+          type: "Tourism Experience",
+          revenue: "관광 특화",
+          rhythm: "Experience",
+          summary: "관광과 로컬 브랜드 경험을 중심으로 고객 접점 운영을 고도화합니다.",
+          lanes: [
+            ["ph-fill ph-camera", "Experience desk", "방문 고객의 디지털 경험 운영"],
+            ["ph-fill ph-sparkle", "Local brand", "지역 브랜드와 콘텐츠 협업"]
+          ]
+        },
+        "KR-50": {
+          name: "세종특별자치시",
+          flag: "🏛️",
+          branches: 2,
+          type: "Government Desk",
+          revenue: "행정 거점",
+          rhythm: "Policy brief",
+          summary: "행정, 공공 문서, 정책 협력 프로젝트를 위한 특화 거점입니다.",
+          lanes: [
+            ["ph-fill ph-bank", "Government desk", "공공 고객과 협력 과제 관리"],
+            ["ph-fill ph-file-magnifying-glass", "Evidence pack", "심사와 보고에 필요한 증적 정리"]
+          ]
+        }
+      };
+
+      polygonSeries.events.on("datavalidated", function () {
+        polygonSeries.mapPolygons.each(function (polygon) {
+          var ctx = polygon.dataItem.dataContext;
+          var data = regionDB[ctx.id];
+
+          if (data) {
+            polygon.set("fill", am5.color(0x315650));
+            polygon.set("stroke", am5.color(0x8eeadd));
+            polygon.set("strokeWidth", 1.15);
+          }
+        });
+      });
+
+      var previousPolygon = null;
+
+      polygonSeries.mapPolygons.template.on("active", function (active, target) {
+        if (previousPolygon && previousPolygon !== target) {
+          previousPolygon.set("active", false);
+        }
+
+        if (target.get("active")) {
+          previousPolygon = target;
+          var ctx = target.dataItem.dataContext;
+          updatePanel(ctx.id, ctx.name);
+          notifyParent("korea-region-selected", { regionId: ctx.id, regionName: ctx.name });
+          return;
+        }
+
+        resetPanel();
+        chart.goHome();
+      });
+
+      document.getElementById("resetKorea").addEventListener("click", function () {
+        if (previousPolygon) {
+          previousPolygon.set("active", false);
+          previousPolygon = null;
+        }
+        resetPanel();
+        chart.goHome();
+      });
+
+      function updatePanel(id, mapName) {
+        var data = regionDB[id];
+        var panel = document.getElementById("panel");
+
+        if (!data) {
+          panel.innerHTML = [
+            '<div class="info-card">',
+            '<div class="card-top"><div class="flag">📍</div><div class="status" style="color:#fb7185;background:rgba(251,113,133,0.12);border-color:rgba(251,113,133,0.24)">No data</div></div>',
+            '<h2 class="region-name">' + mapName + '</h2>',
+            '<p class="region-summary">현재 세부 운영 데이터가 공개되지 않은 지역입니다. 전국 커버리지 분석 대상에는 포함됩니다.</p>',
+            '</div>'
+          ].join("");
+          return;
+        }
+
+        panel.innerHTML = [
+          '<div class="info-card">',
+          '<div class="card-top"><div class="flag">' + data.flag + '</div><div class="status">Active region</div></div>',
+          '<h2 class="region-name">' + data.name + '</h2>',
+          '<div class="region-role"><i class="ph-fill ph-map-pin"></i>' + data.type + '</div>',
+          '<p class="region-summary">' + data.summary + '</p>',
+          '<div class="stats-grid">',
+          '<div class="stat-box"><div class="stat-label">Branches</div><div class="stat-value">' + data.branches + '</div></div>',
+          '<div class="stat-box"><div class="stat-label">Focus</div><div class="stat-value">' + data.revenue + '</div></div>',
+          '<div class="stat-box"><div class="stat-label">Rhythm</div><div class="stat-value">' + data.rhythm + '</div></div>',
+          '<div class="stat-box"><div class="stat-label">Code</div><div class="stat-value">' + id + '</div></div>',
+          '</div>',
+          '<div class="lane-list">',
+          data.lanes.map(function (lane) {
+            return '<div class="lane"><i class="' + lane[0] + '"></i><div><strong>' + lane[1] + '</strong><span>' + lane[2] + '</span></div></div>';
+          }).join(""),
+          '</div>',
+          '</div>'
+        ].join("");
+      }
+
+      function resetPanel() {
+        document.getElementById("panel").innerHTML = [
+          '<div class="empty-state">',
+          '<i class="ph-duotone ph-map-pin-area"></i>',
+          '<div><h2>National company network</h2><p>지역을 클릭하면 지점 규모, 권역 역할, 고객 대응 구조가 표시됩니다.</p></div>',
+          '</div>'
+        ].join("");
+      }
+
+      chart.appear(1000, 100);
+    });
+  </script>
+</body>
+</html>
