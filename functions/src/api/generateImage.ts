@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { geminiApiKey } from '../secrets';
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -19,7 +20,7 @@ interface GenerateImageRequest {
     height?: number; // Custom height
 }
 
-export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB' }, async (request) => {
+export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secrets: [geminiApiKey] }, async (request) => {
     // 1. Authentication Check
     if (!request.auth) {
         throw new HttpsError('unauthenticated', '로그인이 필요합니다.');

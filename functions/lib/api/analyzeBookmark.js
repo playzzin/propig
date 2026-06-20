@@ -6,6 +6,7 @@ const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
 const logger = require("firebase-functions/logger");
 const security_1 = require("./security");
+const secrets_1 = require("../secrets");
 // Zod schema for the Gemini response
 const AnalysisResponseSchema = zod_1.z.object({
     title: zod_1.z.string(),
@@ -38,7 +39,7 @@ async function fetchYoutubeOembed(videoId) {
         return null;
     }
 }
-exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true }, async (req, res) => {
+exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets_1.geminiApiKey] }, async (req, res) => {
     try {
         if (req.method === 'OPTIONS') {
             res.status(204).send('');

@@ -1,12 +1,14 @@
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import * as logger from 'firebase-functions/logger';
 import { VideoStudioWorkerError, processQueuedVideoStudioJob } from '../videoStudio/processor';
+import { grokApiKey } from '../secrets';
 
 const triggerConfig = {
     document: 'video_studio_jobs/{jobId}',
     timeoutSeconds: 540,
     memory: '2GiB' as const,
     region: 'asia-northeast3',
+    secrets: [grokApiKey],
 };
 
 async function processQueuedJobById(jobId: string) {

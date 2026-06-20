@@ -5,6 +5,7 @@ const firestore_1 = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const Orchestrator_1 = require("./agents/Orchestrator");
 const AgentManager_1 = require("./agents/AgentManager");
+const secrets_1 = require("./secrets");
 const isPlainRecord = (value) => {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 };
@@ -18,7 +19,7 @@ if (!admin.apps.length) {
  */
 exports.onAgentJobCreated = (0, firestore_1.onDocumentCreated)({
     document: 'agent_jobs/{jobId}',
-    // secrets: [geminiApiKey],
+    secrets: [secrets_1.geminiApiKey],
     timeoutSeconds: 540,
     memory: '1GiB',
     region: 'asia-northeast3',
@@ -78,7 +79,7 @@ exports.onAgentJobCreated = (0, firestore_1.onDocumentCreated)({
  */
 exports.onSubAgentJobCreated = (0, firestore_1.onDocumentCreated)({
     document: 'sub_agent_jobs/{jobId}',
-    // secrets: [geminiApiKey],
+    secrets: [secrets_1.geminiApiKey],
     timeoutSeconds: 540,
     memory: '1GiB',
     region: 'asia-northeast3',

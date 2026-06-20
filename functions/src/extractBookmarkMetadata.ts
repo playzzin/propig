@@ -2,6 +2,7 @@ import { https, logger } from 'firebase-functions/v2';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from 'zod';
 import { fetchExternalHttpUrl, normalizeExternalHttpUrl } from './api/security';
+import { geminiApiKey } from './secrets';
 
 type GeminiEnv = {
   apiKey: string;
@@ -192,7 +193,7 @@ function getFaviconUrl(url: string): string {
 }
 
 // 북마크 메타데이터 추출
-export const extractBookmarkMetadata = https.onCall({}, async (request) => {
+export const extractBookmarkMetadata = https.onCall({ secrets: [geminiApiKey] }, async (request) => {
   if (!request.auth) {
     throw new https.HttpsError('unauthenticated', 'Login is required');
   }
@@ -397,7 +398,7 @@ URL: ${safeUrl}
 });
 
 // 배치로 메타데이터 추출
-export const extractBatchMetadata = https.onCall({}, async (request) => {
+export const extractBatchMetadata = https.onCall({ secrets: [geminiApiKey] }, async (request) => {
   if (!request.auth) {
     throw new https.HttpsError('unauthenticated', 'Login is required');
   }

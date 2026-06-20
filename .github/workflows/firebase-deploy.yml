@@ -96,14 +96,6 @@ jobs:
             printf "GEMINI_MODEL=%s\n" "$GEMINI_MODEL"
             printf "GEMINI_IMAGE_MODEL=%s\n" "$GEMINI_IMAGE_MODEL"
 
-            if [ -n "$GEMINI_API_KEY" ]; then
-              printf "GEMINI_API_KEY=%s\n" "$GEMINI_API_KEY"
-            fi
-
-            if [ -n "$GROK_API_KEY" ]; then
-              printf "GROK_API_KEY=%s\n" "$GROK_API_KEY"
-            fi
-
             if [ -n "$GEMINI_ADMIN_UIDS" ]; then
               printf "GEMINI_ADMIN_UIDS=%s\n" "$GEMINI_ADMIN_UIDS"
             fi

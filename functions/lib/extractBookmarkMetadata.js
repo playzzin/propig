@@ -5,6 +5,7 @@ const v2_1 = require("firebase-functions/v2");
 const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
 const security_1 = require("./api/security");
+const secrets_1 = require("./secrets");
 const getGeminiEnv = () => {
     var _a;
     return {
@@ -163,7 +164,7 @@ function getFaviconUrl(url) {
     return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
 }
 // 북마크 메타데이터 추출
-exports.extractBookmarkMetadata = v2_1.https.onCall({}, async (request) => {
+exports.extractBookmarkMetadata = v2_1.https.onCall({ secrets: [secrets_1.geminiApiKey] }, async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h;
     if (!request.auth) {
         throw new v2_1.https.HttpsError('unauthenticated', 'Login is required');
@@ -345,7 +346,7 @@ URL: ${safeUrl}
     }
 });
 // 배치로 메타데이터 추출
-exports.extractBatchMetadata = v2_1.https.onCall({}, async (request) => {
+exports.extractBatchMetadata = v2_1.https.onCall({ secrets: [secrets_1.geminiApiKey] }, async (request) => {
     if (!request.auth) {
         throw new v2_1.https.HttpsError('unauthenticated', 'Login is required');
     }

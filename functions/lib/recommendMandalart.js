@@ -4,6 +4,7 @@ exports.recommendMandalart = void 0;
 const v2_1 = require("firebase-functions/v2");
 const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
+const secrets_1 = require("./secrets");
 const MandalartTaskSchema = zod_1.z.string().max(50);
 const MandalartRecommendationSchema = zod_1.z.object({
     mainGoal: zod_1.z.string().max(50).optional(),
@@ -45,7 +46,7 @@ const buildSystemPrompt = (template) => {
 const buildUserPrompt = (req) => {
     return `메인 목표: ${req.mainGoal}\n\n요구사항:\n- 서브 목표는 서로 중복되지 않는 영역으로 구성\n- 실행 과제는 '측정 가능한 행동' 형태로 작성 (예: \"주 3회 30분 유산소\")\n- 너무 추상적인 표현(예: 열심히, 잘하기) 금지\n- 한국어로 작성`;
 };
-exports.recommendMandalart = v2_1.https.onCall(async (request) => {
+exports.recommendMandalart = v2_1.https.onCall({ secrets: [secrets_1.geminiApiKey] }, async (request) => {
     var _a;
     if (!request.auth) {
         throw new v2_1.https.HttpsError('unauthenticated', '로그인이 필요합니다.');

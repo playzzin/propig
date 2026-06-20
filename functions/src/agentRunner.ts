@@ -2,6 +2,7 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 import { OrchestratorAgent } from './agents/Orchestrator';
 import { AgentManager } from './agents/AgentManager';
+import { geminiApiKey } from './secrets';
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,7 +20,7 @@ if (!admin.apps.length) {
 export const onAgentJobCreated = onDocumentCreated(
     {
         document: 'agent_jobs/{jobId}',
-        // secrets: [geminiApiKey],
+        secrets: [geminiApiKey],
         timeoutSeconds: 540,
         memory: '1GiB',
         region: 'asia-northeast3',
@@ -93,7 +94,7 @@ export const onAgentJobCreated = onDocumentCreated(
 export const onSubAgentJobCreated = onDocumentCreated(
     {
         document: 'sub_agent_jobs/{jobId}',
-        // secrets: [geminiApiKey],
+        secrets: [geminiApiKey],
         timeoutSeconds: 540,
         memory: '1GiB',
         region: 'asia-northeast3',

@@ -4,11 +4,13 @@ exports.onVideoStudioJobRequeued = exports.onVideoStudioJobQueued = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const processor_1 = require("../videoStudio/processor");
+const secrets_1 = require("../secrets");
 const triggerConfig = {
     document: 'video_studio_jobs/{jobId}',
     timeoutSeconds: 540,
     memory: '2GiB',
     region: 'asia-northeast3',
+    secrets: [secrets_1.grokApiKey],
 };
 async function processQueuedJobById(jobId) {
     try {

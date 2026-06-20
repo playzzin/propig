@@ -3,12 +3,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateImage = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
+const secrets_1 = require("../secrets");
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
     admin.initializeApp();
 }
 const db = admin.firestore();
-exports.generateImage = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '2GiB' }, async (request) => {
+exports.generateImage = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '2GiB', secrets: [secrets_1.geminiApiKey] }, async (request) => {
     // 1. Authentication Check
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', '로그인이 필요합니다.');

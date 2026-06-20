@@ -6,11 +6,12 @@ const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
 const logger = require("firebase-functions/logger");
 const security_1 = require("./security");
+const secrets_1 = require("../secrets");
 // Zod schema
 const MandalartGenerationSchema = zod_1.z.object({
     subGoals: zod_1.z.array(zod_1.z.string()).length(8),
 });
-exports.generateMandalart = (0, https_1.onRequest)({ cors: true }, async (req, res) => {
+exports.generateMandalart = (0, https_1.onRequest)({ cors: true, secrets: [secrets_1.geminiApiKey] }, async (req, res) => {
     try {
         if (req.method === 'OPTIONS') {
             res.status(204).send('');

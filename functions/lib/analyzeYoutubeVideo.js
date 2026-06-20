@@ -5,6 +5,7 @@ const v2_1 = require("firebase-functions/v2");
 const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
 const admin = require("firebase-admin");
+const secrets_1 = require("./secrets");
 if (!admin.apps.length) {
     admin.initializeApp();
 }
@@ -329,7 +330,7 @@ const buildFallback = (args) => {
     };
 };
 // 2026 Recommended Config: Timeouts extended for long context processing
-exports.analyzeYoutubeVideo = v2_1.https.onCall({ timeoutSeconds: 300, memory: '1GiB' }, async (request) => {
+exports.analyzeYoutubeVideo = v2_1.https.onCall({ timeoutSeconds: 300, memory: '1GiB', secrets: [secrets_1.geminiApiKey] }, async (request) => {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
         throw new v2_1.https.HttpsError('unauthenticated', 'Login is required');

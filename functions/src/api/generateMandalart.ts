@@ -4,13 +4,14 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from 'zod';
 import * as logger from 'firebase-functions/logger';
 import { requireAuthenticatedUser } from './security';
+import { geminiApiKey } from '../secrets';
 
 // Zod schema
 const MandalartGenerationSchema = z.object({
     subGoals: z.array(z.string()).length(8),
 });
 
-export const generateMandalart = onRequest({ cors: true }, async (req, res) => {
+export const generateMandalart = onRequest({ cors: true, secrets: [geminiApiKey] }, async (req, res) => {
     try {
         if (req.method === 'OPTIONS') {
             res.status(204).send('');

@@ -2,6 +2,7 @@ import { https, logger } from 'firebase-functions/v2';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from 'zod';
 import * as admin from 'firebase-admin';
+import { geminiApiKey } from './secrets';
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -418,7 +419,7 @@ const buildFallback = (args: {
 };
 
 // 2026 Recommended Config: Timeouts extended for long context processing
-export const analyzeYoutubeVideo = https.onCall({ timeoutSeconds: 300, memory: '1GiB' }, async (request) => {
+export const analyzeYoutubeVideo = https.onCall({ timeoutSeconds: 300, memory: '1GiB', secrets: [geminiApiKey] }, async (request) => {
   if (!request.auth) {
     throw new https.HttpsError('unauthenticated', 'Login is required');
   }
