@@ -34,7 +34,7 @@
     "@imgly/background-removal": "^1.7.0",
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
-    "@refinedev/core": "^5.0.8",
+    "@refinedev/core": "^5.0.12",
     "@remotion/cli": "^4.0.462",
     "@remotion/player": "^4.0.462",
     "@remotion/renderer": "^4.0.462",
