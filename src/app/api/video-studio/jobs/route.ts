@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUserAuth } from '@/lib/server/user-auth';
-import { createVideoStudioJob, getOwnedProject } from '@/lib/server/video-studio-admin';
+import { createVideoStudioJob } from '@/lib/server/video-studio-admin';
+import { preflightVideoStudioJob } from '@/lib/server/video-studio-preflight';
 import {
     VideoStudioJobRequestSchema,
     defaultVideoStudioJobTitle,
 } from '@/lib/video-studio-job-request';
 
 export const runtime = 'nodejs';
+const shouldLogVideoStudioDebug = process.env.NODE_ENV !== 'production';
 
 // Development mode mock data
 function generateMockJobId(): string {
@@ -40,7 +42,9 @@ export async function POST(req: NextRequest) {
         const forceRealRun = req.headers.get('x-video-studio-force-real-run') === 'true';
         
         if (isDevMode && !forceRealRun) {
-            console.log('[API] Video Studio in DEV MODE - returning mock job');
+            if (shouldLogVideoStudioDebug) {
+                console.info('[API] Video Studio in DEV MODE - returning mock job');
+            }
             return NextResponse.json({
                 success: true,
                 jobId: generateMockJobId(),
@@ -49,7 +53,10 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        await getOwnedProject(auth.uid, payload.projectId);
+        const prepared = await preflightVideoStudioJob({
+            userId: auth.uid,
+            request: payload,
+        });
 
         const title = payload.clipTitle?.trim() || defaultVideoStudioJobTitle(payload.operation);
         const jobId = await createVideoStudioJob({
@@ -63,9 +70,7 @@ export async function POST(req: NextRequest) {
             message: 'Job accepted and waiting for a processor.',
             sourceClipId: payload.sourceClipId || null,
             mergeSourceClipIds: payload.mergeClipIds || [],
-            metadata: {
-                request: payload,
-            },
+            metadata: prepared.metadata,
         });
 
         return NextResponse.json({

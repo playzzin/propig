@@ -1,5 +1,13 @@
-import CompanyIntroductionExperience from '@/components/corp/CompanyIntroductionExperience';
+import Dashboard2Experience from '@/components/dashboard/Dashboard2Experience';
 
 export default function CompanyIntroductionPage() {
-  return <CompanyIntroductionExperience />;
+  return (
+    <Dashboard2Experience
+      key="company-introduction"
+      variant="introduction"
+      enableBrandStory
+      includeProductIntroduction
+      includeCompanyHistory
+    />
+  );
 }

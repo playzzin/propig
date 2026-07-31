@@ -382,7 +382,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
     }
 
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[AddBookmarkModal] extractBookmarkMetadata response:', parsed.data);
+      console.info('[AddBookmarkModal] extractBookmarkMetadata response:', parsed.data);
     }
 
     return parsed.data;

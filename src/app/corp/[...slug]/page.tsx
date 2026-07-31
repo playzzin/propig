@@ -2,8 +2,15 @@ import { notFound } from 'next/navigation';
 import { getCorpPageBySlug, CORP_PAGE_DEFINITIONS } from '@/constants/corpPages';
 import { CorpInfoPage } from '@/components/corp/CorpInfoPage';
 
+const DEDICATED_CORP_PAGE_PATHS = new Set([
+  '/corp/partnership/business',
+  '/corp/partnership/sponsorship',
+  '/corp/careers/jobs',
+  '/corp/careers/apply',
+]);
+
 const CATCH_ALL_CORP_PAGE_DEFINITIONS = CORP_PAGE_DEFINITIONS.filter(
-  (page) => !page.path.startsWith('/corp/company/'),
+  (page) => !page.path.startsWith('/corp/company/') && !DEDICATED_CORP_PAGE_PATHS.has(page.path),
 );
 
 // SSG를 위한 정적 경로 생성

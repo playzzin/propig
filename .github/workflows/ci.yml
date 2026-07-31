@@ -39,7 +39,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -56,6 +56,9 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Test
+        run: npm test
+
       - name: Build static web app
         run: npm run build
 
@@ -70,7 +73,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: |
             package-lock.json

@@ -169,6 +169,7 @@ export function ProjectSidebar({
                             value={projectResolution}
                             onChange={(event) => setProjectResolution(event.target.value as VideoStudioResolution)}
                         >
+                            <option value="1080p">1080p</option>
                             <option value="720p">720p</option>
                             <option value="480p">480p</option>
                         </S.Select>

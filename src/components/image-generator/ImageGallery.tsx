@@ -6,7 +6,8 @@ import { FaCopy, FaDownload, FaLayerGroup, FaPen, FaTrash } from 'react-icons/fa
 import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { deleteObject, ref } from 'firebase/storage';
 import { toast } from 'sonner';
-import { db, storage } from '@/firebase/config';
+import { db } from '@/firebase/config';
+import { storage } from '@/firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 
 export type GeneratedImage = {
@@ -15,7 +16,7 @@ export type GeneratedImage = {
     prompt: string;
     createdAt: Date;
     type?: 'image' | 'video';
-    provider?: 'gemini' | 'grok';
+    provider?: 'openrouter';
 };
 
 interface Props {

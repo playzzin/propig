@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUserAuth } from '@/lib/server/user-auth';
 import { createVideoStudioJob } from '@/lib/server/video-studio-admin';
 import { executeQueuedVideoStudioJob } from '@/lib/server/video-studio-job-executor';
+import { preflightVideoStudioJob } from '@/lib/server/video-studio-preflight';
 import {
     VideoStudioJobRequestSchema,
     defaultVideoStudioJobTitle,
@@ -32,6 +33,10 @@ export async function POST(req: NextRequest) {
         }
 
         const payload = parsed.data;
+        const prepared = await preflightVideoStudioJob({
+            userId: auth.uid,
+            request: payload,
+        });
         const title = payload.clipTitle?.trim() || defaultVideoStudioJobTitle(payload.operation);
         const jobId = await createVideoStudioJob({
             userId: auth.uid,
@@ -44,9 +49,7 @@ export async function POST(req: NextRequest) {
             message: 'Job accepted and waiting for a processor.',
             sourceClipId: payload.sourceClipId || null,
             mergeSourceClipIds: payload.mergeClipIds || [],
-            metadata: {
-                request: payload,
-            },
+            metadata: prepared.metadata,
         });
 
         const result = await executeQueuedVideoStudioJob({

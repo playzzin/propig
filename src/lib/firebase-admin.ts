@@ -14,23 +14,64 @@ export type FirebaseAdminCredentialMode =
 export type FirebaseAdminStatus = {
   initialized: boolean;
   canPersistToFirestore: boolean;
+  canSignStorageUrls: boolean;
   credentialMode: FirebaseAdminCredentialMode;
   message: string | null;
 };
 
 let adminCredentialMode: FirebaseAdminCredentialMode = "unavailable";
 let adminInitializationError: string | null = null;
+let adminCredentialValidationError: string | null = null;
 let hasResolvableApplicationDefaultCredentials = false;
+
+const shouldDebugFirebaseAdmin =
+  (process.env.FIREBASE_ADMIN_DEBUG ?? "").toLowerCase() === "true";
+
+const normalizeServiceAccount = (value: unknown): admin.ServiceAccount | null => {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const projectId =
+    typeof record.projectId === "string"
+      ? record.projectId
+      : typeof record.project_id === "string"
+        ? record.project_id
+        : "";
+  const clientEmail =
+    typeof record.clientEmail === "string"
+      ? record.clientEmail
+      : typeof record.client_email === "string"
+        ? record.client_email
+        : "";
+  const privateKey =
+    typeof record.privateKey === "string"
+      ? record.privateKey
+      : typeof record.private_key === "string"
+        ? record.private_key
+        : "";
+
+  if (!projectId.trim() || !clientEmail.trim() || !privateKey.trim()) {
+    adminCredentialValidationError =
+      "Firebase service-account credentials must include project_id, client_email, and private_key.";
+    return null;
+  }
+
+  return {
+    projectId: projectId.trim(),
+    clientEmail: clientEmail.trim(),
+    privateKey: privateKey.replace(/\\n/g, "\n"),
+  };
+};
 
 const loadServiceAccountFromEnv = (): admin.ServiceAccount | null => {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw);
-    return parsed as admin.ServiceAccount;
+    return normalizeServiceAccount(JSON.parse(raw));
   } catch (error) {
     console.warn("FIREBASE_SERVICE_ACCOUNT_KEY parsing failed:", error);
+    adminCredentialValidationError =
+      "FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON.";
     return null;
   }
 };
@@ -42,28 +83,36 @@ const loadServiceAccountFromSplitEnv = (): admin.ServiceAccount | null => {
 
   if (!projectId || !clientEmail || !privateKey) return null;
 
-  return {
+  return normalizeServiceAccount({
     projectId,
     clientEmail,
-    privateKey: privateKey.replace(/\\n/g, "\n"),
-  };
+    privateKey,
+  });
 };
 
 const loadServiceAccountFromPath = (): admin.ServiceAccount | null => {
   const explicitPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  const serviceAccountPath = explicitPath || join(process.cwd(), "serviceAccountKey.json");
+  const serviceAccountPath =
+    explicitPath ||
+    (process.env.NODE_ENV === "development"
+      ? join(/*turbopackIgnore: true*/ process.cwd(), "serviceAccountKey.json")
+      : null);
+
+  if (!serviceAccountPath) return null;
 
   try {
-    const file = readFileSync(serviceAccountPath, "utf8");
-    return JSON.parse(file) as admin.ServiceAccount;
+    const file = readFileSync(/*turbopackIgnore: true*/ serviceAccountPath, "utf8");
+    return normalizeServiceAccount(JSON.parse(file));
   } catch {
+    adminCredentialValidationError =
+      "FIREBASE_SERVICE_ACCOUNT_PATH could not be read or parsed.";
     return null;
   }
 };
 
 const findApplicationDefaultCredentialsPath = (): string | null => {
   const explicitPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (explicitPath && existsSync(explicitPath)) {
+  if (explicitPath && existsSync(/*turbopackIgnore: true*/ explicitPath)) {
     return explicitPath;
   }
 
@@ -73,7 +122,7 @@ const findApplicationDefaultCredentialsPath = (): string | null => {
     join(homedir(), ".config", "gcloud", "application_default_credentials.json"),
   ].filter(Boolean);
 
-  const resolvedPath = candidates.find((candidate) => existsSync(candidate));
+  const resolvedPath = candidates.find((candidate) => existsSync(/*turbopackIgnore: true*/ candidate));
   return resolvedPath || null;
 };
 
@@ -86,7 +135,16 @@ const isGoogleManagedRuntime = (): boolean =>
       process.env.GAE_ENV,
   );
 
+// Application Default Credentials can be created while the local Next server is
+// already running. Re-check the filesystem when reporting persistence status so
+// a dev-server restart is not required after `gcloud auth application-default login`.
+const hasCurrentApplicationDefaultCredentials = (): boolean =>
+  hasResolvableApplicationDefaultCredentials ||
+  Boolean(findApplicationDefaultCredentialsPath()) ||
+  isGoogleManagedRuntime();
+
 const buildMissingCredentialsMessage = (): string =>
+  adminCredentialValidationError ||
   "Firebase Admin credentials are not configured for Firestore writes. Set FIREBASE_SERVICE_ACCOUNT_KEY, FIREBASE_SERVICE_ACCOUNT_PATH, FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY, or run `gcloud auth application-default login`.";
 
 const resolveStorageBucket = (): string | undefined => {
@@ -134,11 +192,49 @@ if (!admin.apps.length) {
       });
     }
 
-    console.log("Firebase Admin initialized");
+    if (shouldDebugFirebaseAdmin) {
+      console.info("Firebase Admin initialized");
+    }
   } catch (error) {
     adminCredentialMode = "unavailable";
     adminInitializationError = error instanceof Error ? error.message : String(error);
     console.warn("Firebase Admin initialization failed:", error);
+  }
+}
+
+// Next.js Fast Refresh can preserve the Firebase Admin singleton while
+// re-evaluating this module. In that case, recover the credential mode from the
+// current runtime instead of treating the already initialized app as unusable.
+if (admin.apps.length > 0 && adminCredentialMode === "unavailable" && !adminInitializationError) {
+  const hasEnvServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+  const hasSplitEnvServiceAccount = Boolean(
+    process.env.FIREBASE_PROJECT_ID &&
+      process.env.FIREBASE_CLIENT_EMAIL &&
+      process.env.FIREBASE_PRIVATE_KEY,
+  );
+  const explicitServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const developmentServiceAccountPath =
+    process.env.NODE_ENV === "development"
+      ? join(/*turbopackIgnore: true*/ process.cwd(), "serviceAccountKey.json")
+      : null;
+  const hasServiceAccountPath = Boolean(
+    (explicitServiceAccountPath &&
+      existsSync(/*turbopackIgnore: true*/ explicitServiceAccountPath)) ||
+      (developmentServiceAccountPath &&
+        existsSync(/*turbopackIgnore: true*/ developmentServiceAccountPath)),
+  );
+
+  hasResolvableApplicationDefaultCredentials =
+    Boolean(findApplicationDefaultCredentialsPath()) || isGoogleManagedRuntime();
+
+  if (hasEnvServiceAccount) {
+    adminCredentialMode = "service_account_env";
+  } else if (hasSplitEnvServiceAccount) {
+    adminCredentialMode = "service_account_split_env";
+  } else if (hasServiceAccountPath) {
+    adminCredentialMode = "service_account_path";
+  } else if (hasResolvableApplicationDefaultCredentials) {
+    adminCredentialMode = "application_default";
   }
 }
 
@@ -163,12 +259,13 @@ export const getFirebaseAdminStatus = (): FirebaseAdminStatus => {
     (adminCredentialMode === "service_account_env" ||
       adminCredentialMode === "service_account_split_env" ||
       adminCredentialMode === "service_account_path" ||
-      (adminCredentialMode === "application_default" && hasResolvableApplicationDefaultCredentials));
+      (adminCredentialMode === "application_default" && hasCurrentApplicationDefaultCredentials()));
 
   if (!initialized) {
     return {
       initialized,
       canPersistToFirestore: false,
+      canSignStorageUrls: false,
       credentialMode: adminCredentialMode,
       message: adminInitializationError || buildMissingCredentialsMessage(),
     };
@@ -178,6 +275,7 @@ export const getFirebaseAdminStatus = (): FirebaseAdminStatus => {
     return {
       initialized,
       canPersistToFirestore: false,
+      canSignStorageUrls: false,
       credentialMode: adminCredentialMode,
       message: buildMissingCredentialsMessage(),
     };
@@ -186,10 +284,106 @@ export const getFirebaseAdminStatus = (): FirebaseAdminStatus => {
   return {
     initialized,
     canPersistToFirestore: true,
+    canSignStorageUrls:
+      adminCredentialMode === "service_account_env" ||
+      adminCredentialMode === "service_account_split_env" ||
+      adminCredentialMode === "service_account_path",
     credentialMode: adminCredentialMode,
     message: null,
   };
 };
+
+export type FirebaseAdminRuntimeProbe = {
+  status: FirebaseAdminStatus;
+  firestore: {
+    ok: boolean;
+    message: string;
+  };
+  storage: {
+    ok: boolean;
+    message: string;
+  };
+  storageSigning: {
+    ok: boolean;
+    message: string;
+  };
+};
+
+export async function probeFirebaseAdminRuntime(): Promise<FirebaseAdminRuntimeProbe> {
+  const status = getFirebaseAdminStatus();
+  if (!status.canPersistToFirestore) {
+    const message = status.message || "Firebase Admin credentials are unavailable.";
+    return {
+      status,
+      firestore: { ok: false, message },
+      storage: { ok: false, message },
+      storageSigning: { ok: false, message },
+    };
+  }
+
+  const firestore = await db
+    .collection("video_studio_jobs")
+    .limit(1)
+    .get()
+    .then(() => ({
+      ok: true,
+      message: "Firestore Admin read access is available.",
+    }))
+    .catch((error: unknown) => ({
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Firestore Admin read access failed.",
+    }));
+
+  const bucket = admin.storage().bucket();
+  const [storage, storageSigning] = await Promise.all([
+    bucket
+    .getMetadata()
+    .then(() => ({
+      ok: true,
+      message: "Firebase Storage Admin access is available.",
+    }))
+    .catch((error: unknown) => ({
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Firebase Storage Admin access failed.",
+    })),
+    bucket
+      .file("__readiness__/signing-probe.txt")
+      .getSignedUrl({
+        action: "read",
+        expires: Date.now() + 60 * 1000,
+      })
+      .then(() => ({
+        ok: true,
+        message: "Firebase Storage URL signing is available.",
+      }))
+      .catch((error: unknown) => ({
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Firebase Storage URL signing is unavailable.",
+      })),
+  ]);
+
+  return {
+    status: {
+      ...status,
+      canSignStorageUrls: storageSigning.ok,
+      message:
+        status.message
+        || (!storageSigning.ok ? storageSigning.message : null),
+    },
+    firestore,
+    storage,
+    storageSigning,
+  };
+}
 
 export { db };
 export default admin;

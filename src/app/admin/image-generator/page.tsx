@@ -9,7 +9,6 @@ import * as S from './ImageGenerator.styles';
 
 export default function ImageGeneratorPage() {
     const {
-        provider, setProvider,
         generationMode, setGenerationMode,
         prompt, setPrompt,
         negativePrompt, setNegativePrompt,
@@ -17,7 +16,10 @@ export default function ImageGeneratorPage() {
         width, setWidth,
         height, setHeight,
         stylePreset, setStylePreset,
-        referenceImage, setReferenceImage,
+        referenceAssets,
+        addReferenceAssets,
+        removeReferenceAsset,
+        updateReferenceAssetRole,
         activeImage, setActiveImage,
         generateMutation,
         handleGenerate,
@@ -71,6 +73,10 @@ export default function ImageGeneratorPage() {
     const handleExtractFrame = () => {
         const videoElement = document.getElementById('preview-video') as HTMLVideoElement | null;
         if (!videoElement) return;
+        if (referenceAssets.length >= 4) {
+            toast.info('참조 이미지는 최대 4장까지 등록할 수 있습니다.');
+            return;
+        }
 
         const canvas = document.createElement('canvas');
         canvas.width = videoElement.videoWidth;
@@ -80,12 +86,20 @@ export default function ImageGeneratorPage() {
         if (!ctx) return;
 
         ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-        setReferenceImage(canvas.toDataURL('image/png'));
+        addReferenceAssets([{
+            image: canvas.toDataURL('image/png'),
+            role: 'style',
+            name: '추출 프레임',
+        }]);
         toast.success('현재 프레임을 참조 이미지로 설정했습니다.');
     };
 
     const handleUseAsReference = async () => {
         if (!activeImage) return;
+        if (referenceAssets.length >= 4) {
+            toast.info('참조 이미지는 최대 4장까지 등록할 수 있습니다.');
+            return;
+        }
 
         try {
             const response = await fetch(activeImage.url);
@@ -94,13 +108,21 @@ export default function ImageGeneratorPage() {
             const blob = await response.blob();
             const reader = new FileReader();
             reader.onloadend = () => {
-                setReferenceImage(reader.result as string);
+                addReferenceAssets([{
+                    image: reader.result as string,
+                    role: 'style',
+                    name: '생성 결과',
+                }]);
                 toast.success('현재 이미지를 참조 이미지로 설정했습니다.');
             };
             reader.readAsDataURL(blob);
         } catch (error) {
             console.error('Fetch failed for reference image, setting URL directly:', error);
-            setReferenceImage(activeImage.url);
+            addReferenceAssets([{
+                image: activeImage.url,
+                role: 'style',
+                name: '생성 결과',
+            }]);
             toast.success('현재 이미지를 참조 이미지로 설정했습니다.');
         }
     };
@@ -121,12 +143,12 @@ export default function ImageGeneratorPage() {
                     setHeight={setHeight}
                     stylePreset={stylePreset}
                     setStylePreset={setStylePreset}
-                    referenceImage={referenceImage}
-                    setReferenceImage={setReferenceImage}
+                    referenceAssets={referenceAssets}
+                    onAddReferenceAssets={addReferenceAssets}
+                    onRemoveReferenceAsset={removeReferenceAsset}
+                    onUpdateReferenceAssetRole={updateReferenceAssetRole}
                     isGenerating={isGenerating}
                     onGenerate={handleGenerate}
-                    provider={provider}
-                    setProvider={setProvider}
                     generationMode={generationMode}
                     setGenerationMode={setGenerationMode}
                 />

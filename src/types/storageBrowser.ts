@@ -27,7 +27,7 @@ export type AdminStorageUrlResponse = {
   bucket: string;
   path: string;
   url: string;
-  expiresAt: string;
+  expiresAt: string | null;
 };
 
 export type AdminStorageCreateFolderResponse = {

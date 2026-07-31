@@ -52,7 +52,6 @@ import {
   Line,
   Pie,
   PieChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -74,10 +73,31 @@ import {
   type TrendValueSummary,
 } from './habitMetricStats';
 import { HabitStatsDashboard } from './HabitStatsDashboard';
+import { useDailyRecordLayout, type DailyRecordLayout } from './useDailyRecordLayout';
+import {
+  DATE_LABELS,
+  addCalendarMonths,
+  addDays,
+  addMonths,
+  formatMonthDay,
+  formatStatsRange,
+  formatYearMonth,
+  getDateBandColor,
+  getDateKeysBetween,
+  getPreviousDateKeys,
+  getRangeDateKeys,
+  getStartOfMonth,
+  getStartOfWeek,
+  getWeekendAccent,
+  getWeekendTone,
+  parseDateKey,
+  toDateKey,
+  type StatsPeriod,
+  type WeekendTone,
+} from './habitTrackerDateUtils';
 
-type HabitView = 'daily' | 'stats' | 'manage' | 'manual';
+export type HabitView = 'daily' | 'stats' | 'manage' | 'manual';
 type ManageSection = 'habits' | 'categories';
-type DailyRecordLayout = 'detail' | 'simple';
 type RecordMode =
   | 'check'
   | 'cardio'
@@ -89,8 +109,6 @@ type RecordMode =
   | 'singleChoice'
   | 'multiChoice'
   | 'note';
-type StatsPeriod = 'weekly' | 'monthly';
-type WeekendTone = 'weekday' | 'saturday' | 'sunday';
 type ItemStatsChartMode = 'progress' | 'value';
 
 interface HabitTrackerAppProps {
@@ -262,23 +280,7 @@ interface HabitPreset {
   options?: string[];
 }
 
-const DATE_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
-const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 const CATEGORY_COLORS = ['#42d392', '#ff7a59', '#63b3ff', '#f8c64e', '#a78bfa', '#2dd4bf'];
-const WEEKEND_ACCENTS: Record<Exclude<WeekendTone, 'weekday'>, { text: string; border: string; background: string; solid: string }> = {
-  saturday: {
-    text: '#0ea5e9',
-    border: 'rgba(2, 132, 199, 0.72)',
-    background: 'rgba(2, 132, 199, 0.14)',
-    solid: '#0284c7',
-  },
-  sunday: {
-    text: '#f43f5e',
-    border: 'rgba(225, 29, 72, 0.72)',
-    background: 'rgba(225, 29, 72, 0.14)',
-    solid: '#e11d48',
-  },
-};
 const EMPTY_WORKSPACE: HabitWorkspace = {
   categories: [],
   habits: [],
@@ -303,7 +305,6 @@ const SELECTABLE_RECORD_MODES: RecordMode[] = ['check', 'duration', 'number', 'r
 const TREND_RECORD_MODES: RecordMode[] = ['cardio', 'strength', 'number', 'sets', 'duration', 'rating'];
 const DEFAULT_CHOICE_LABELS = ['선택 항목 1', '선택 항목 2', '선택 항목 3'];
 const TREND_METRIC_COLORS = ['#42d392', '#63b3ff', '#f8c64e', '#ff7a59', '#a78bfa'];
-const DAILY_RECORD_LAYOUT_STORAGE_KEY = 'habit-tracker:daily-record-layout';
 const QUICK_HABIT_PRESETS: HabitPreset[] = [
   { id: 'supplement', label: '영양제', summary: '체크만 하기', categoryName: '건강', categoryColor: '#42d392', mode: 'check' },
   { id: 'meditation', label: '명상', summary: '10분 기록', categoryName: '마음', categoryColor: '#a78bfa', mode: 'duration', target: 10, unit: '분' },
@@ -342,63 +343,6 @@ const METRIC_AGGREGATION_META: Record<MetricAggregationMode, { label: string; sh
 const METRIC_AGGREGATION_OPTIONS = Object.keys(METRIC_AGGREGATION_META) as MetricAggregationMode[];
 const HISTORY_ROW_LIMIT = 80;
 
-function toDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function parseDateKey(dateKey: string): Date {
-  return new Date(`${dateKey}T00:00:00`);
-}
-
-function getWeekendTone(date: Date): WeekendTone {
-  const day = date.getDay();
-  if (day === 6) return 'saturday';
-  if (day === 0) return 'sunday';
-  return 'weekday';
-}
-
-function getWeekendAccent(tone: WeekendTone, key: keyof (typeof WEEKEND_ACCENTS)['saturday'], fallback: string): string {
-  if (tone === 'weekday') return fallback;
-  return WEEKEND_ACCENTS[tone][key];
-}
-
-function getDateBandColor(tone: WeekendTone, active: boolean): string {
-  if (tone === 'weekday') return active ? 'var(--habit-green)' : '#059669';
-  return WEEKEND_ACCENTS[tone].solid;
-}
-
-function addDays(date: Date, amount: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
-
-function addMonths(date: Date, amount: number): Date {
-  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
-}
-
-function addCalendarMonths(date: Date, amount: number): Date {
-  const day = date.getDate();
-  const next = new Date(date.getFullYear(), date.getMonth() + amount, 1);
-  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-  next.setDate(Math.min(day, lastDay));
-  return next;
-}
-
-function getStartOfWeek(date: Date): Date {
-  const next = new Date(date);
-  const offset = (next.getDay() + 6) % 7;
-  next.setDate(next.getDate() - offset);
-  return next;
-}
-
-function getStartOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -428,10 +372,6 @@ function normalizeGoalDirection(mode: RecordMode, value: unknown): GoalDirection
 
 function isStatsPeriodValue(value: string | null): value is StatsPeriod {
   return value === 'weekly' || value === 'monthly';
-}
-
-function isDailyRecordLayoutValue(value: string | null): value is DailyRecordLayout {
-  return value === 'detail' || value === 'simple';
 }
 
 function isItemStatsChartModeValue(value: string | null): value is ItemStatsChartMode {
@@ -482,39 +422,6 @@ function normalizeChoiceOptions(options: unknown): ChoiceOption[] {
 
 function getHabitChoiceOptions(habit: Pick<HabitItem, 'mode' | 'options'>): ChoiceOption[] {
   return normalizeChoiceOptions(habit.options);
-}
-
-function formatMonthDay(dateKey: string): string {
-  const date = parseDateKey(dateKey);
-  return `${date.getMonth() + 1}.${date.getDate()}`;
-}
-
-function formatYearMonth(date: Date): string {
-  return `${String(date.getFullYear()).slice(2)}.${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatStatsRange(period: StatsPeriod, dateKey: string): string {
-  const date = parseDateKey(dateKey);
-
-  if (period === 'weekly') {
-    const start = getStartOfWeek(date);
-    const end = addDays(start, 6);
-    return `${formatMonthDay(toDateKey(start))} - ${formatMonthDay(toDateKey(end))}`;
-  }
-
-  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
-}
-
-function getDateKeysBetween(start: Date, end: Date): string[] {
-  const keys: string[] = [];
-  let current = new Date(start);
-
-  while (current <= end) {
-    keys.push(toDateKey(current));
-    current = addDays(current, 1);
-  }
-
-  return keys;
 }
 
 function getModeDefaults(mode: RecordMode): Pick<HabitItem, 'target' | 'unit' | 'secondaryTarget' | 'secondaryUnit' | 'tertiaryTarget' | 'tertiaryUnit'> {
@@ -2064,17 +1971,6 @@ function calculateHabitTrendStats(
     progressLabel: `${GOAL_DIRECTION_META[getHabitGoalDirection(habit)].shortLabel} ${progress}% · ${METRIC_AGGREGATION_META[aggregation].shortLabel} ${averageText}`,
     trendLabel: getTrendChangeLabel(habit, change),
   };
-}
-
-function getRangeDateKeys(baseDateKey: string, count: number): string[] {
-  const baseDate = parseDateKey(baseDateKey);
-  return Array.from({ length: count }, (_, index) => toDateKey(addDays(baseDate, index - count + 1)));
-}
-
-function getPreviousDateKeys(dateKeys: string[]): string[] {
-  if (dateKeys.length === 0) return [];
-  const startDate = parseDateKey(dateKeys[0]);
-  return Array.from({ length: dateKeys.length }, (_, index) => toDateKey(addDays(startDate, index - dateKeys.length)));
 }
 
 function makeId(prefix: string): string {
@@ -4618,118 +4514,11 @@ const StatsToolbar = styled.div`
   flex-wrap: wrap;
 `;
 
-const PeriodSwitch = styled.div`
-  height: 40px;
-  padding: 3px;
-  border: 1px solid var(--habit-line);
-  border-radius: 8px;
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(74px, 1fr));
-  gap: 3px;
-  background: rgba(255, 255, 255, 0.04);
-`;
-
-const PeriodButton = styled.button<{ $active: boolean }>`
-  border: 0;
-  border-radius: 6px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  color: ${(props) => (props.$active ? '#07100c' : 'var(--habit-muted)')};
-  background: ${(props) => (props.$active ? 'var(--habit-green)' : 'transparent')};
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 950;
-  cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
-
-  &:hover {
-    color: ${(props) => (props.$active ? '#07100c' : 'var(--habit-text)')};
-    background: ${(props) => (props.$active ? 'var(--habit-green)' : 'rgba(255, 255, 255, 0.07)')};
-  }
-
-  @media (max-width: 560px) {
-    padding: 0 8px;
-    font-size: 0.72rem;
-  }
-`;
-
 const RangeNavigator = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-`;
-
-const RangeLabel = styled.div`
-  min-height: 38px;
-  min-width: 150px;
-  border: 1px solid var(--habit-line);
-  border-radius: 8px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--habit-text);
-  background: rgba(255, 255, 255, 0.035);
-  font-size: 0.82rem;
-  font-weight: 950;
-`;
-
-const WeekdayStrip = styled.div`
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 7px;
-
-  @media (max-width: 720px) {
-    grid-template-columns: repeat(7, minmax(42px, 1fr));
-    overflow-x: auto;
-  }
-`;
-
-const WeekdayCell = styled.div<{ $percent: number; $weekendTone: WeekendTone }>`
-  min-height: 72px;
-  border: 1px solid
-    ${(props) => getWeekendAccent(props.$weekendTone, 'border', props.$percent > 0 ? 'rgba(66, 211, 146, 0.36)' : 'var(--habit-line)')};
-  border-radius: 8px;
-  padding: 9px 8px;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 3px;
-  color: var(--habit-muted);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
-    ${(props) => {
-      if (props.$weekendTone !== 'weekday' && props.$percent === 0) return getWeekendAccent(props.$weekendTone, 'background', 'rgba(255, 255, 255, 0.03)');
-      if (props.$percent >= 80) return 'rgba(66, 211, 146, 0.14)';
-      if (props.$percent >= 45) return 'rgba(99, 179, 255, 0.11)';
-      if (props.$percent > 0) return 'rgba(248, 198, 78, 0.1)';
-      return 'rgba(255, 255, 255, 0.03)';
-    }};
-
-  strong {
-    color: ${(props) => getWeekendAccent(props.$weekendTone, 'text', 'var(--habit-text)')};
-    font-size: 0.9rem;
-    font-weight: 950;
-  }
-
-  span,
-  small {
-    font-size: 0.72rem;
-    font-weight: 900;
-  }
-
-  small {
-    color: ${(props) => (props.$percent > 0 ? 'var(--habit-green)' : 'var(--habit-dim)')};
-  }
-
-  span {
-    color: ${(props) => getWeekendAccent(props.$weekendTone, 'text', 'inherit')};
-  }
 `;
 
 const StatsColumn = styled.div`
@@ -5957,7 +5746,7 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
   const [hasLoaded, setHasLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
-  const [dailyRecordLayout, setDailyRecordLayout] = useState<DailyRecordLayout>('simple');
+  const { dailyRecordLayout, setDailyRecordLayout } = useDailyRecordLayout('simple');
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('weekly');
   const [selectedStatsHabitId, setSelectedStatsHabitId] = useState('');
   const [itemStatsChartMode, setItemStatsChartMode] = useState<ItemStatsChartMode>('progress');
@@ -5970,17 +5759,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
   const [habitDraft, setHabitDraft] = useState<HabitDraft>(() => createHabitDraft());
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [showAdvancedHabitSettings, setShowAdvancedHabitSettings] = useState(false);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const storedLayout = window.localStorage.getItem(DAILY_RECORD_LAYOUT_STORAGE_KEY);
-      if (isDailyRecordLayoutValue(storedLayout)) {
-        setDailyRecordLayout(storedLayout);
-      }
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, []);
 
   const orderedCategories = useMemo(() => sortCategoriesByOrder(workspace.categories), [workspace.categories]);
   const orderedHabits = useMemo(() => sortHabitsByOrder(workspace.habits, workspace.categories), [workspace.categories, workspace.habits]);
@@ -6176,18 +5954,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
   const activeRecordDays = useMemo(() => {
     return activeStatsDateKeys.filter((dateKey) => calculateDayStats(workspace, dateKey).touched > 0).length;
   }, [activeStatsDateKeys, workspace]);
-  const weeklyDayData = useMemo(() => {
-    return activeStatsDateKeys.slice(0, 7).map((dateKey, index) => {
-      const date = parseDateKey(dateKey);
-      return {
-        dateKey,
-        dayLabel: WEEKDAY_LABELS[index] ?? DATE_LABELS[date.getDay()],
-        dateLabel: formatMonthDay(dateKey),
-        weekendTone: getWeekendTone(date),
-        stats: calculateDayStats(workspace, dateKey),
-      };
-    });
-  }, [activeStatsDateKeys, workspace]);
 
   const bestStreak = useMemo(() => {
     return orderedHabits.reduce(
@@ -6306,16 +6072,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     const total = selectedScoredMetricSummaries.reduce((sum, metric) => sum + metric.progress, 0);
     return Math.round(total / selectedScoredMetricSummaries.length);
   }, [selectedScoredMetricSummaries]);
-  const selectedMetricComparableCount = useMemo(() => {
-    return selectedScoredMetricSummaries.filter((metric) => metric.average !== undefined && metric.previousAverage !== undefined).length;
-  }, [selectedScoredMetricSummaries]);
-  const selectedMetricImprovedCount = useMemo(() => {
-    return selectedScoredMetricSummaries.filter((metric) => (
-      metric.average !== undefined &&
-      metric.previousAverage !== undefined &&
-      metric.progress > metric.previousProgress
-    )).length;
-  }, [selectedScoredMetricSummaries]);
   const selectedHabitRecordData = useMemo<HabitRecordPoint[]>(() => {
     if (!selectedStatsHabit) return [];
 
@@ -6406,20 +6162,12 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     () => selectedHabitRecordRows.slice(0, HISTORY_ROW_LIMIT),
     [selectedHabitRecordRows],
   );
-  const selectedHabitBestScore = useMemo(
-    () => selectedHabitRecordData.reduce((best, point) => Math.max(best, point.score), 0),
-    [selectedHabitRecordData],
-  );
   const selectedHabitOverGoalPercent = useMemo(() => {
     const progress = selectedHabitHasMetricBreakdown && selectedMetricProgressAverage !== undefined
       ? selectedMetricProgressAverage
       : selectedHabitTrendStats?.progress ?? selectedHabitStats.percent;
     return Math.max(progress - 100, 0);
   }, [selectedHabitHasMetricBreakdown, selectedHabitStats.percent, selectedHabitTrendStats, selectedMetricProgressAverage]);
-  const selectedHabitBestOverGoalPoint = useMemo(
-    () => selectedHabitRecordData.filter((point) => point.score > 100).sort((a, b) => b.score - a.score)[0],
-    [selectedHabitRecordData],
-  );
   const chartAccessibilitySummary = useMemo(() => {
     if (!selectedStatsHabit) return '선택된 항목이 없습니다.';
     const overGoalText = selectedHabitOverGoalPercent > 0 ? ` 목표를 ${selectedHabitOverGoalPercent}% 초과했습니다.` : '';
@@ -6524,10 +6272,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     },
     [persistWorkspace, workspace],
   );
-  const handleExportWorkspaceJson = useCallback(() => {
-    const payload = JSON.stringify(sanitizeWorkspaceForFirestore(workspace), null, 2);
-    downloadTextFile(`habit-tracker-backup-${selectedDate}.json`, payload, 'application/json;charset=utf-8');
-  }, [selectedDate, workspace]);
   const handleExportSelectedHabitCsv = useCallback(() => {
     if (!selectedStatsHabit) return;
 
@@ -6995,26 +6739,12 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
 
   const handleDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
     setDailyRecordLayout(layout);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(DAILY_RECORD_LAYOUT_STORAGE_KEY, layout);
-    }
-  }, []);
+  }, [setDailyRecordLayout]);
 
   const handleDefaultDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
     handleDailyRecordLayoutChange(layout);
     toast.success('기록 기본 방식이 저장되었습니다.', { id: 'habit-default-record-layout' });
   }, [handleDailyRecordLayoutChange]);
-
-  const shiftStatsPeriod = useCallback(
-    (amount: number) => {
-      setSelectedDate((prev) => {
-        const current = parseDateKey(prev);
-        if (statsPeriod === 'weekly') return toDateKey(addDays(current, amount * 7));
-        return toDateKey(addMonths(current, amount));
-      });
-    },
-    [statsPeriod],
-  );
 
   const addHabitDraftOption = useCallback(() => {
     setHabitDraft((prev) => ({

@@ -33,6 +33,7 @@ import {
   USER_ROLE_OPTIONS,
   type AdminUserUpdateResponse,
   type AdminUsersResponse,
+  type ManagedUserAccess,
   type ManagedUserMenuAccess,
   type ManagedUserPermissionKey,
   type ManagedUserPermissions,
@@ -43,6 +44,7 @@ import {
 } from '@/types/userAccess';
 
 type FilterRole = ManagedUserRole | 'all';
+type AdminUsersCurrentUser = NonNullable<ReturnType<typeof useAuth>['currentUser']>;
 type UserDraft = {
   role: ManagedUserRole;
   position: ManagedUserPosition;
@@ -109,6 +111,8 @@ const PERMISSION_ITEMS: Array<{
 ];
 
 const USERS_QUERY_KEY = ['admin-users'] as const;
+const ADMIN_USERS_VERIFY_FIXTURE_PARAM = '__adminUsersFixture';
+const ADMIN_USERS_VERIFY_TOKEN = 'admin-users-fixture-token';
 
 function isManagedUserRole(value: string): value is ManagedUserRole {
   return USER_ROLE_OPTIONS.includes(value as ManagedUserRole);
@@ -140,6 +144,19 @@ function getAllTruePermissions(): ManagedUserPermissions {
     storageManagement: true,
   };
 }
+
+const ADMIN_USERS_VERIFY_ACCESS: ManagedUserAccess = {
+  role: 'admin',
+  position: 'ceo',
+  siteAccess: {
+    admin: true,
+    corp: true,
+    propig: true,
+    shop: true,
+  },
+  menuAccess: {},
+  permissions: getAllTruePermissions(),
+};
 
 function getMenuAccessKey(siteId: string, item: MenuItem): string {
   return `${siteId}:${item.id}`;
@@ -212,7 +229,7 @@ function buildDraft(user: ManagedUserRecord, siteIds: string[]): UserDraft {
   };
 }
 
-async function fetchAdminUsers(currentUser: NonNullable<ReturnType<typeof useAuth>['currentUser']>) {
+async function fetchAdminUsers(currentUser: AdminUsersCurrentUser) {
   const token = await currentUser.getIdToken();
   const response = await fetch('/api/admin/users', {
     headers: {
@@ -233,7 +250,7 @@ async function saveUserAccess({
   uid,
   draft,
 }: {
-  currentUser: NonNullable<ReturnType<typeof useAuth>['currentUser']>;
+  currentUser: AdminUsersCurrentUser;
   uid: string;
   draft: UserDraft;
 }) {
@@ -263,14 +280,69 @@ async function saveUserAccess({
   return (await response.json()) as AdminUserUpdateResponse;
 }
 
+function readInitialUsersSearch(): string {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('q') ?? params.get('search') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function readInitialSelectedUid(): string {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    return new URLSearchParams(window.location.search).get('uid') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function isAdminUsersVerifyFixtureEnabled(): boolean {
+  if (process.env.NODE_ENV === 'production' || typeof window === 'undefined') return false;
+
+  try {
+    return new URLSearchParams(window.location.search).get(ADMIN_USERS_VERIFY_FIXTURE_PARAM) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function createAdminUsersVerifyUser(): AdminUsersCurrentUser {
+  return {
+    uid: 'admin-users-fixture-admin',
+    email: 'admin-users-fixture@example.com',
+    displayName: 'Admin Users Fixture',
+    getIdToken: async () => ADMIN_USERS_VERIFY_TOKEN,
+    getIdTokenResult: async () =>
+      ({
+        claims: { admin: true, role: 'admin' },
+        token: ADMIN_USERS_VERIFY_TOKEN,
+        authTime: '',
+        issuedAtTime: '',
+        expirationTime: '',
+        signInProvider: null,
+        signInSecondFactor: null,
+      }) as Awaited<ReturnType<AdminUsersCurrentUser['getIdTokenResult']>>,
+  } as AdminUsersCurrentUser;
+}
+
 export default function AdminUsersPage() {
   const queryClient = useQueryClient();
   const { loginWithGoogle, isConfigured } = useAuth();
   const { siteData: contextSiteData } = useMenuContext();
-  const { currentUser, access, isLoading: isAccessLoading, refetch: refetchUserAccess } = useCurrentUserAccess();
+  const currentUserAccess = useCurrentUserAccess();
   const menuSitesQuery = useMenuSitesQuery();
-  const [selectedUid, setSelectedUid] = useState('');
-  const [search, setSearch] = useState('');
+  const [verificationUser, setVerificationUser] = useState<AdminUsersCurrentUser | null>(null);
+  const currentUser = verificationUser ?? currentUserAccess.currentUser;
+  const access = verificationUser ? ADMIN_USERS_VERIFY_ACCESS : currentUserAccess.access;
+  const isAccessLoading = verificationUser ? false : currentUserAccess.isLoading;
+  const refetchUserAccess = currentUserAccess.refetch;
+  const [selectedUid, setSelectedUid] = useState(readInitialSelectedUid);
+  const [search, setSearch] = useState(readInitialUsersSearch);
   const [roleFilter, setRoleFilter] = useState<FilterRole>('all');
   const [draft, setDraft] = useState<UserDraft | null>(null);
   const [selectedMenuSiteId, setSelectedMenuSiteId] = useState('');
@@ -313,6 +385,16 @@ export default function AdminUsersPage() {
     [menuAccessGroups],
   );
   const isMenuAccessLoading = menuSitesQuery.isLoading && Object.keys(contextSiteData).length === 0;
+
+  useEffect(() => {
+    if (!isAdminUsersVerifyFixtureEnabled()) return undefined;
+
+    const timer = window.setTimeout(() => {
+      setVerificationUser(createAdminUsersVerifyUser());
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const usersQuery = useQuery({
     queryKey: USERS_QUERY_KEY,
@@ -1053,6 +1135,10 @@ const UserPanel = styled.aside`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  @media (max-width: 980px) {
+    min-height: 320px;
+  }
 `;
 
 const DetailPanel = styled.section`
@@ -1615,7 +1701,7 @@ const ActionBar = styled.footer`
   margin-top: auto;
   position: sticky;
   bottom: 0;
-  padding: 14px 18px;
+  padding: 14px 154px 14px 18px;
   border-top: 1px solid rgba(23, 33, 29, 0.08);
   display: flex;
   align-items: center;
@@ -1627,6 +1713,20 @@ const ActionBar = styled.footer`
     color: #687872;
     font-size: 0.78rem;
     font-weight: 800;
+  }
+
+  @media (max-width: 980px) {
+    padding-right: 96px;
+  }
+
+  @media (max-width: 640px) {
+    padding: 12px 68px 12px 12px;
+    flex-direction: column;
+    align-items: stretch;
+
+    span {
+      line-height: 1.35;
+    }
   }
 `;
 
@@ -1647,6 +1747,10 @@ const SaveButton = styled.button`
   &:disabled {
     opacity: 0.62;
     cursor: not-allowed;
+  }
+
+  @media (max-width: 640px) {
+    width: 100%;
   }
 `;
 

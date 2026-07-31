@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getSwitchableSiteEntries } from '@/constants/accountMenu';
@@ -8,6 +8,15 @@ import { useMenuSitesQuery } from '@/hooks/useMenuSitesQuery';
 import { PHOTO_ALBUMS_QUERY_KEY, usePhotoAlbumsQuery } from '@/hooks/usePhotoAlbumsQuery';
 import { photoService } from '@/services/photoService';
 import { generateImage, generateVideo, saveGenerationHistory } from '@/services/imageGenerationService';
+import type { ImageStoryboardGenerationPayload } from '@/schemas/imageStoryboard';
+import {
+    MAX_IMAGE_REFERENCE_ASSETS,
+    MAX_IMAGE_REFERENCE_REQUESTS,
+    type ImageReferenceAsset,
+    type ImageReferenceDraft,
+    type ImageReferenceInput,
+    type ImageReferenceRole,
+} from '@/types/imageReference';
 
 export type GeneratedImage = {
     id: string;
@@ -15,13 +24,34 @@ export type GeneratedImage = {
     prompt: string;
     createdAt: Date;
     type?: 'image' | 'video';
-    provider?: 'gemini' | 'grok';
+    provider?: 'openrouter';
 };
 
 export type AspectRatio = '1:1' | '9:16' | '16:9' | '4:3' | '3:4' | 'custom';
 
+type GenerationRequest = {
+    prompt: string;
+    negativePrompt: string;
+    aspectRatio: AspectRatio;
+    width: number;
+    height: number;
+    stylePreset: string;
+    referenceImage: string | null;
+    referenceImages: ImageReferenceInput[];
+    generationMode: 'image' | 'video';
+};
+
+function createReferenceAsset(draft: ImageReferenceDraft): ImageReferenceAsset {
+    return {
+        ...draft,
+        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `reference-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    };
+}
+
 export function useImageGeneratorControls() {
-    const [provider, setProvider] = useState<'gemini' | 'grok'>('gemini');
+    const provider = 'openrouter' as const;
     const [generationMode, setGenerationMode] = useState<'image' | 'video'>('image');
     const [prompt, setPrompt] = useState('');
     const [negativePrompt, setNegativePrompt] = useState('');
@@ -29,11 +59,45 @@ export function useImageGeneratorControls() {
     const [width, setWidth] = useState<number>(1024);
     const [height, setHeight] = useState<number>(1024);
     const [stylePreset, setStylePreset] = useState<string>('none');
-    const [referenceImage, setReferenceImage] = useState<string | null>(null);
+    const [referenceAssets, setReferenceAssets] = useState<ImageReferenceAsset[]>([]);
     const [activeImage, setActiveImage] = useState<GeneratedImage | null>(null);
     const didApplyInitialParamsRef = useRef(false);
 
     const { currentUser } = useAuth();
+    const referenceImage = referenceAssets[0]?.image ?? null;
+
+    const addReferenceAssets = useCallback((drafts: ImageReferenceDraft[]) => {
+        setReferenceAssets((current) => {
+            const available = Math.max(0, MAX_IMAGE_REFERENCE_ASSETS - current.length);
+            if (!available) return current;
+            return [...current, ...drafts.slice(0, available).map(createReferenceAsset)];
+        });
+    }, []);
+
+    const removeReferenceAsset = useCallback((assetId: string) => {
+        setReferenceAssets((current) => current.filter((asset) => asset.id !== assetId));
+    }, []);
+
+    const updateReferenceAssetRole = useCallback((assetId: string, role: ImageReferenceRole) => {
+        setReferenceAssets((current) => current.map((asset) => (
+            asset.id === assetId ? { ...asset, role } : asset
+        )));
+    }, []);
+
+    const replaceReferenceAssets = useCallback((references: ImageReferenceInput[]) => {
+        setReferenceAssets(references.slice(0, MAX_IMAGE_REFERENCE_ASSETS).map((reference, index) => createReferenceAsset({
+            ...reference,
+            name: `스토리보드 참조 ${index + 1}`,
+        })));
+    }, []);
+
+    const setReferenceImage = useCallback((image: string | null) => {
+        setReferenceAssets(image ? [createReferenceAsset({
+            image,
+            role: 'style',
+            name: '참조 이미지',
+        })] : []);
+    }, []);
 
     useEffect(() => {
         if (didApplyInitialParamsRef.current || typeof window === 'undefined') return;
@@ -66,8 +130,8 @@ export function useImageGeneratorControls() {
     }, []);
 
     const generateMutation = useMutation({
-        mutationFn: async (): Promise<GeneratedImage> => {
-            const trimmedPrompt = prompt.trim();
+        mutationFn: async (request: GenerationRequest): Promise<GeneratedImage> => {
+            const trimmedPrompt = request.prompt.trim();
             if (!trimmedPrompt) {
                 throw new Error('프롬프트를 입력해 주세요.');
             }
@@ -76,12 +140,12 @@ export function useImageGeneratorControls() {
                 throw new Error('로그인이 필요합니다.');
             }
 
-            if (generationMode === 'video') {
+            if (request.generationMode === 'video') {
                 const authToken = await currentUser.getIdToken();
                 const result = await generateVideo({
                     prompt: trimmedPrompt,
-                    image: referenceImage || undefined,
-                    provider,
+                    image: request.referenceImage || undefined,
+                    provider: 'openrouter',
                     authToken,
                 });
 
@@ -97,7 +161,7 @@ export function useImageGeneratorControls() {
                         type: 'video',
                         generatedId: result.videoId,
                         prompt: trimmedPrompt,
-                        provider,
+                        provider: 'openrouter',
                     });
                     toast.success('비디오 생성과 저장이 완료되었습니다.', {
                         id: 'image-generator-save',
@@ -109,7 +173,7 @@ export function useImageGeneratorControls() {
                         prompt: trimmedPrompt,
                         createdAt: new Date(),
                         type: 'video',
-                        provider,
+                        provider: 'openrouter',
                     };
                 } catch (error) {
                     console.error(error);
@@ -123,12 +187,13 @@ export function useImageGeneratorControls() {
             const authToken = await currentUser.getIdToken();
             const result = await generateImage({
                 prompt: trimmedPrompt,
-                negativePrompt,
-                aspectRatio,
-                width,
-                height,
-                stylePreset,
-                image: referenceImage || undefined,
+                negativePrompt: request.negativePrompt,
+                aspectRatio: request.aspectRatio,
+                width: request.width,
+                height: request.height,
+                stylePreset: request.stylePreset,
+                image: request.referenceImages.length ? undefined : request.referenceImage || undefined,
+                referenceImages: request.referenceImages.length ? request.referenceImages : undefined,
                 provider,
                 authToken,
             });
@@ -145,7 +210,7 @@ export function useImageGeneratorControls() {
                     type: 'image',
                     generatedId: result.imageId,
                     prompt: trimmedPrompt,
-                    negativePrompt,
+                    negativePrompt: request.negativePrompt,
                     provider,
                 });
                 toast.success('이미지 생성과 저장이 완료되었습니다.', {
@@ -177,16 +242,55 @@ export function useImageGeneratorControls() {
         },
     });
 
+    const buildGenerationRequest = useCallback((overrides: Partial<GenerationRequest> = {}): GenerationRequest => ({
+        prompt,
+        negativePrompt,
+        aspectRatio,
+        width,
+        height,
+        stylePreset,
+        referenceImage,
+        referenceImages: referenceAssets.map(({ image, role }) => ({ image, role })),
+        generationMode,
+        ...overrides,
+    }), [aspectRatio, generationMode, height, negativePrompt, prompt, referenceAssets, referenceImage, stylePreset, width]);
+
     const handleGenerate = () => {
-        if (!prompt.trim()) {
+        const request = buildGenerationRequest();
+        if (!request.prompt.trim()) {
             toast.error('프롬프트를 입력해 주세요.');
             return;
         }
-        generateMutation.mutate();
+        generateMutation.mutate(request);
+    };
+
+    const generateStoryboardScene = async (payload: ImageStoryboardGenerationPayload): Promise<GeneratedImage> => {
+        const currentReferences = referenceAssets.map(({ image, role }) => ({ image, role }));
+        const storyboardReferences = payload.referenceImages?.length
+            ? payload.referenceImages
+            : currentReferences;
+        const referencesForRequest = payload.referenceImage && !storyboardReferences.some((reference) => reference.image === payload.referenceImage)
+            ? [...storyboardReferences, { image: payload.referenceImage, role: 'style' as const }].slice(0, MAX_IMAGE_REFERENCE_REQUESTS)
+            : storyboardReferences;
+        const referenceForRequest = payload.referenceImage ?? referencesForRequest[0]?.image ?? null;
+        const request = buildGenerationRequest({
+            ...payload,
+            referenceImage: referenceForRequest,
+            referenceImages: referencesForRequest,
+            generationMode: 'image',
+        });
+        setGenerationMode('image');
+        setPrompt(payload.prompt);
+        setNegativePrompt(payload.negativePrompt);
+        setAspectRatio(payload.aspectRatio);
+        setWidth(payload.width);
+        setHeight(payload.height);
+        setStylePreset(payload.stylePreset);
+        return generateMutation.mutateAsync(request);
     };
 
     return {
-        provider, setProvider,
+        provider,
         generationMode, setGenerationMode,
         prompt, setPrompt,
         negativePrompt, setNegativePrompt,
@@ -195,9 +299,15 @@ export function useImageGeneratorControls() {
         height, setHeight,
         stylePreset, setStylePreset,
         referenceImage, setReferenceImage,
+        referenceAssets,
+        addReferenceAssets,
+        removeReferenceAsset,
+        updateReferenceAssetRole,
+        replaceReferenceAssets,
         activeImage, setActiveImage,
         generateMutation,
-        handleGenerate
+        handleGenerate,
+        generateStoryboardScene,
     };
 }
 

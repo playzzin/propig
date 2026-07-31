@@ -2,41 +2,15 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeYoutubeVideo = void 0;
 const v2_1 = require("firebase-functions/v2");
-const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
-const admin = require("firebase-admin");
+const openrouter_1 = require("./openrouter");
 const secrets_1 = require("./secrets");
-if (!admin.apps.length) {
-    admin.initializeApp();
-}
-const getGeminiEnv = async () => {
-    var _a;
-    try {
-        const docSnap = await admin.firestore().doc('system_settings/gemini_keys').get();
-        if (docSnap.exists) {
-            const data = docSnap.data();
-            if (data === null || data === void 0 ? void 0 : data.geminiApiKey) {
-                return {
-                    apiKey: data.geminiApiKey,
-                    model: data.geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-                };
-            }
-        }
-    }
-    catch (e) {
-        v2_1.logger.error('Failed to read gemini_keys from Firestore', e);
-    }
-    return {
-        apiKey: process.env.GEMINI_API_KEY || '',
-        model: (_a = process.env.GEMINI_MODEL) !== null && _a !== void 0 ? _a : 'gemini-2.5-flash',
-    };
-};
-const createGeminiModel = async () => {
-    const env = await getGeminiEnv();
+const getOpenRouterEnv = async () => (0, openrouter_1.getOpenRouterRuntimeConfig)();
+const createOpenRouterTextModel = async () => {
+    const env = await getOpenRouterEnv();
     if (!env.apiKey)
         return null;
-    const genAI = new generative_ai_1.GoogleGenerativeAI(env.apiKey);
-    return genAI.getGenerativeModel({ model: env.model });
+    return (0, openrouter_1.createOpenRouterModel)(env.model);
 };
 const AnalyzeYoutubeVideoRequestSchema = zod_1.z.object({
     youtube_url: zod_1.z.string().min(1),
@@ -88,7 +62,7 @@ const extractJsonObjectText = (text) => {
     const cleaned = cleanModelText(text);
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) {
-        throw new Error('Gemini 응답에서 JSON 객체를 찾지 못했습니다.');
+        throw new Error('OpenRouter 응답에서 JSON 객체를 찾지 못했습니다.');
     }
     return match[0];
 };
@@ -330,7 +304,7 @@ const buildFallback = (args) => {
     };
 };
 // 2026 Recommended Config: Timeouts extended for long context processing
-exports.analyzeYoutubeVideo = v2_1.https.onCall({ timeoutSeconds: 300, memory: '1GiB', secrets: [secrets_1.geminiApiKey] }, async (request) => {
+exports.analyzeYoutubeVideo = v2_1.https.onCall({ timeoutSeconds: 300, memory: '1GiB', secrets: [secrets_1.openRouterApiKey] }, async (request) => {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
         throw new v2_1.https.HttpsError('unauthenticated', 'Login is required');
@@ -346,14 +320,14 @@ exports.analyzeYoutubeVideo = v2_1.https.onCall({ timeoutSeconds: 300, memory: '
     }
     const urls = buildYoutubeUrls(youtubeId);
     const summarySource = resolveSummarySource(input);
-    const model = await createGeminiModel();
+    const model = await createOpenRouterTextModel();
     if (!model) {
-        v2_1.logger.error('analyzeYoutubeVideo:missing_gemini_key', {
+        v2_1.logger.error('analyzeYoutubeVideo:missing_openrouter_key', {
             youtubeId,
-            model: (_a = process.env.GEMINI_MODEL) !== null && _a !== void 0 ? _a : 'gemini-2.5-flash',
-            message: 'GEMINI_API_KEY is not set',
+            model: (_a = process.env.OPENROUTER_MODEL) !== null && _a !== void 0 ? _a : 'openai/gpt-4.1-mini',
+            message: 'OPENROUTER_API_KEY is not set',
         });
-        throw new v2_1.https.HttpsError('failed-precondition', 'Gemini API Key가 설정되지 않았습니다. Firebase Functions Secret(GEMINI_API_KEY) 설정 후 재배포하세요.');
+        throw new v2_1.https.HttpsError('failed-precondition', 'OpenRouter API 키가 설정되지 않았습니다. Firebase Functions Secret(OPENROUTER_API_KEY) 설정 후 재배포하세요.');
     }
     v2_1.logger.info('analyzeYoutubeVideo:start', {
         youtubeId,
@@ -382,7 +356,7 @@ exports.analyzeYoutubeVideo = v2_1.https.onCall({ timeoutSeconds: 300, memory: '
     const ldPublishedAt = ((ldVideo === null || ldVideo === void 0 ? void 0 : ldVideo.uploadDate) || '').trim();
     const transcriptForPrompt = transcript.length > 90000 ? `${transcript.slice(0, 90000)}…` : transcript;
     const descriptionForPrompt = baseDescription.length > 12000 ? `${baseDescription.slice(0, 12000)}…` : baseDescription;
-    const systemPrompt = `너는 Gemini 2.5 Based "유튜브 영상 심층 분석 및 지식화 AI"다.
+    const systemPrompt = `너는 "유튜브 영상 심층 분석 및 지식화 AI"다.
 단순한 요약이 아니라, **대학 강의 노트나 실무 기술 블로그 수준의 깊이 있는 지식 정리**를 수행해야 한다.
 
 목표: 다 바쁜 전문가가 이 글만 보고도 "영상 전체 내용을 완벽히 파악했다"고 느낄 수 있을 정도로 상세하고 구조적인 분석 결과 도출.
@@ -476,7 +450,7 @@ Output JSON Schema(반드시 이 구조 그대로):
     try {
         v2_1.logger.info('analyzeYoutubeVideo:prompt_prepared', {
             youtubeId,
-            modelName: process.env.GEMINI_MODEL,
+            modelName: process.env.OPENROUTER_MODEL,
             systemPromptLength: systemPrompt.length,
             userPromptLength: userPrompt.length,
         });
@@ -610,7 +584,7 @@ Output JSON Schema(반드시 이 구조 그대로):
             finalError: lastError instanceof Error ? lastError.message : String(lastError)
         });
         const lastErrorMessage = lastError instanceof Error ? lastError.message : String(lastError || 'unknown');
-        throw new v2_1.https.HttpsError('internal', `Gemini Analysis Failed after 3 attempts. Last error: ${lastErrorMessage}`);
+        throw new v2_1.https.HttpsError('internal', `OpenRouter analysis failed after 3 attempts. Last error: ${lastErrorMessage}`);
     }
     catch (error) {
         if (error instanceof v2_1.https.HttpsError)

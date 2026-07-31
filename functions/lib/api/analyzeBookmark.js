@@ -2,12 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeBookmark = void 0;
 const https_1 = require("firebase-functions/v2/https");
-const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
 const logger = require("firebase-functions/logger");
 const security_1 = require("./security");
+const openrouter_1 = require("../openrouter");
 const secrets_1 = require("../secrets");
-// Zod schema for the Gemini response
+// Zod schema for the OpenRouter response
 const AnalysisResponseSchema = zod_1.z.object({
     title: zod_1.z.string(),
     description: zod_1.z.string(),
@@ -15,6 +15,14 @@ const AnalysisResponseSchema = zod_1.z.object({
     tags: zod_1.z.array(zod_1.z.string()),
     keyTakeaways: zod_1.z.array(zod_1.z.string()).optional(),
 });
+const AnalyzeBookmarkRequestSchema = zod_1.z.object({
+    url: zod_1.z.string().trim().min(1).max(2048),
+});
+const MAX_BOOKMARK_HTML_BYTES = 512 * 1024;
+const BOOKMARK_ANALYSIS_RATE_LIMIT = {
+    maxRequests: 12,
+    windowMs: 60000,
+};
 /**
  * Extracts YouTube Video ID from various URL formats
  */
@@ -39,7 +47,8 @@ async function fetchYoutubeOembed(videoId) {
         return null;
     }
 }
-exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets_1.geminiApiKey] }, async (req, res) => {
+exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets_1.openRouterApiKey] }, async (req, res) => {
+    var _a;
     try {
         if (req.method === 'OPTIONS') {
             res.status(204).send('');
@@ -50,11 +59,18 @@ exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets
             res.status(authResult.status).json({ error: authResult.message });
             return;
         }
-        const { url } = req.body;
-        if (!url) {
-            res.status(400).json({ error: 'URL is required' });
+        const rateLimit = await (0, security_1.enforceUserRateLimit)(Object.assign({ namespace: 'bookmark-analysis', uid: authResult.uid }, BOOKMARK_ANALYSIS_RATE_LIMIT));
+        if (!rateLimit.allowed) {
+            res.set('Retry-After', String(rateLimit.retryAfterSeconds));
+            res.status(429).json({ error: 'Too many bookmark analysis requests. Please try again shortly.' });
             return;
         }
+        const input = AnalyzeBookmarkRequestSchema.safeParse(req.body);
+        if (!input.success) {
+            res.status(400).json({ error: 'A valid URL is required.' });
+            return;
+        }
+        const { url } = input.data;
         let safeUrl;
         try {
             safeUrl = (0, security_1.normalizeExternalHttpUrl)(String(url));
@@ -90,12 +106,15 @@ exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets
                     },
                 });
                 if (response.ok) {
-                    const html = await response.text();
-                    htmlContext = html.substring(0, 50000); // Truncate
+                    const html = await (0, security_1.readCappedTextResponse)(response, MAX_BOOKMARK_HTML_BYTES);
+                    htmlContext = html.substring(0, 50000);
                     const titleMatch = html.match(/<title>(.*?)<\/title>/i);
                     const metaDescMatch = html.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i);
                     basicMetadata.title = (titleMatch === null || titleMatch === void 0 ? void 0 : titleMatch[1]) || '';
                     basicMetadata.description = (metaDescMatch === null || metaDescMatch === void 0 ? void 0 : metaDescMatch[1]) || '';
+                }
+                else {
+                    await ((_a = response.body) === null || _a === void 0 ? void 0 : _a.cancel());
                 }
             }
             catch (fetchError) {
@@ -131,13 +150,15 @@ exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets
       Content Context: 
       ${htmlContext}
     `;
-        // 3. Call Gemini
-        logger.info('[API] Initializing Gemini...');
-        const apiKey = process.env.GEMINI_API_KEY || ''; // Cloud Functions access secrets via process.env if loaded, or we trust defineSecret?
-        // In v2 onRequest with 'secrets' option, it is available in process.env
-        const genAI = new generative_ai_1.GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
-        logger.info('[API] Sending Request to Gemini...');
+        // 3. Call OpenRouter
+        logger.info('[API] Initializing OpenRouter...');
+        const runtimeConfig = (0, openrouter_1.getOpenRouterRuntimeConfig)();
+        if (!runtimeConfig.apiKey) {
+            res.status(503).json({ error: 'OPENROUTER_API_KEY is not configured.' });
+            return;
+        }
+        const model = (0, openrouter_1.createOpenRouterModel)(runtimeConfig.model);
+        logger.info('[API] Sending request to OpenRouter...');
         const completion = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: systemPrompt + "\n\n" + userMessage }] }],
             generationConfig: {
@@ -147,7 +168,7 @@ exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets
         });
         const text = completion.response.text();
         const content = text.trim().replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        logger.info('[API] Gemini Response:', content);
+        logger.info('[API] OpenRouter response received', { length: content.length });
         let parsedData;
         try {
             parsedData = JSON.parse(content);
@@ -167,7 +188,7 @@ exports.analyzeBookmark = (0, https_1.onRequest)({ cors: true, secrets: [secrets
     }
     catch (error) {
         logger.error('[API] Unhandled Error:', error);
-        res.status(500).json({ error: 'Failed to analyze bookmark', details: String(error) });
+        res.status(500).json({ error: 'Failed to analyze bookmark' });
     }
 });
 //# sourceMappingURL=analyzeBookmark.js.map

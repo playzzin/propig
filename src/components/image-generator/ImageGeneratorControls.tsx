@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { toast } from 'sonner';
 import { IMAGE_STYLE_PRESETS } from '@/constants/imageStylePresets';
+import ReferenceImageAssetManager from '@/components/image-generator/ReferenceImageAssetManager';
+import type {
+    ImageReferenceAsset,
+    ImageReferenceDraft,
+    ImageReferenceRole,
+} from '@/types/imageReference';
 
 type AspectRatio = '1:1' | '9:16' | '16:9' | '4:3' | '3:4' | 'custom';
 
@@ -20,12 +26,12 @@ interface ImageGeneratorControlsProps {
     setHeight: (value: number) => void;
     stylePreset: string;
     setStylePreset: (value: string) => void;
-    referenceImage: string | null;
-    setReferenceImage: (value: string | null) => void;
+    referenceAssets: ImageReferenceAsset[];
+    onAddReferenceAssets: (assets: ImageReferenceDraft[]) => void;
+    onRemoveReferenceAsset: (assetId: string) => void;
+    onUpdateReferenceAssetRole: (assetId: string, role: ImageReferenceRole) => void;
     isGenerating: boolean;
     onGenerate: () => void;
-    provider: 'gemini' | 'grok';
-    setProvider: (value: 'gemini' | 'grok') => void;
     generationMode: 'image' | 'video';
     setGenerationMode: (value: 'image' | 'video') => void;
 }
@@ -609,83 +615,6 @@ const SmallInput = styled.input`
     }
 `;
 
-const UploadZone = styled.button<{ $dragging?: boolean }>`
-    width: 100%;
-    padding: 20px;
-    border: 2px dashed ${({ $dragging }) => ($dragging ? 'var(--primary)' : 'var(--border-subtle)')};
-    border-radius: 10px;
-    background: ${({ $dragging }) => ($dragging ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255, 255, 255, 0.02)')};
-    text-align: center;
-    cursor: pointer;
-    transition: background-color 0.2s ease, border-color 0.2s ease;
-
-    &:hover {
-        border-color: var(--primary);
-        background: rgba(16, 185, 129, 0.03);
-    }
-
-    &:focus-visible {
-        outline: 2px solid var(--primary);
-        outline-offset: 2px;
-    }
-`;
-
-const UploadIcon = styled.i`
-    font-size: 2rem;
-    color: var(--text-dim);
-    margin-bottom: 8px;
-`;
-
-const UploadText = styled.p`
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin: 0;
-`;
-
-const HiddenInput = styled.input`
-    display: none;
-`;
-
-const PreviewContainer = styled.div`
-    position: relative;
-    display: inline-block;
-    max-width: 100%;
-`;
-
-const PreviewImg = styled.img`
-    max-width: 100%;
-    max-height: 120px;
-    border-radius: 8px;
-    object-fit: cover;
-`;
-
-const RemoveButton = styled.button`
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 50%;
-    background: #ef4444;
-    color: white;
-    font-size: 0.75rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background-color 0.2s ease;
-
-    &:hover {
-        background: #dc2626;
-    }
-
-    &:focus-visible {
-        outline: 2px solid white;
-        outline-offset: 2px;
-    }
-`;
-
 const GenerateButton = styled.button<{ $generating?: boolean }>`
     position: sticky;
     bottom: 16px;
@@ -771,12 +700,12 @@ export default function ImageGeneratorControls({
     setHeight,
     stylePreset,
     setStylePreset,
-    referenceImage,
-    setReferenceImage,
+    referenceAssets,
+    onAddReferenceAssets,
+    onRemoveReferenceAsset,
+    onUpdateReferenceAssetRole,
     isGenerating,
     onGenerate,
-    provider,
-    setProvider,
     generationMode,
     setGenerationMode,
 }: ImageGeneratorControlsProps) {
@@ -785,15 +714,11 @@ export default function ImageGeneratorControls({
     const negativePromptId = useId();
     const widthId = useId();
     const heightId = useId();
-    const fileInputId = useId();
 
     const [showAdvanced, setShowAdvanced] = useState(false);
-    const [isDragging, setIsDragging] = useState(false);
     const [promptTouched, setPromptTouched] = useState(false);
     const promptRef = useRef<HTMLTextAreaElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const isGeminiVideoDisabled = generationMode === 'video';
     const isPromptInvalid = promptTouched && prompt.trim().length === 0;
     const selectedType = useMemo(
         () => IMAGE_TYPES.find((type) => type.width === width && type.height === height)?.id ?? 'custom',
@@ -821,43 +746,6 @@ export default function ImageGeneratorControls({
         toast.success('랜덤 프롬프트를 적용했습니다.');
     };
 
-    const handleImageUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        if (!file.type.startsWith('image/')) {
-            toast.error('이미지 파일만 업로드할 수 있습니다.');
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setReferenceImage(reader.result as string);
-            toast.success('참조 이미지를 추가했습니다.');
-        };
-        reader.readAsDataURL(file);
-    }, [setReferenceImage]);
-
-    const handleDrop = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
-        event.preventDefault();
-        setIsDragging(false);
-
-        const file = event.dataTransfer.files[0];
-        if (!file) return;
-
-        if (!file.type.startsWith('image/')) {
-            toast.error('이미지 파일만 업로드할 수 있습니다.');
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setReferenceImage(reader.result as string);
-            toast.success('참조 이미지를 추가했습니다.');
-        };
-        reader.readAsDataURL(file);
-    }, [setReferenceImage]);
-
     const handleGenerateClick = () => {
         setPromptTouched(true);
 
@@ -878,27 +766,7 @@ export default function ImageGeneratorControls({
     return (
         <Container>
             <Section aria-label="생성 엔진과 모드">
-                <SegmentedControl role="group" aria-label="생성 엔진 선택">
-                    <SegmentButton
-                        type="button"
-                        $active={provider === 'gemini'}
-                        aria-pressed={provider === 'gemini'}
-                        onClick={() => setProvider('gemini')}
-                        disabled={isGeminiVideoDisabled}
-                    >
-                        <i className="fas fa-sparkles" aria-hidden="true" style={{ marginRight: 6 }} />
-                        Gemini
-                    </SegmentButton>
-                    <SegmentButton
-                        type="button"
-                        $active={provider === 'grok'}
-                        aria-pressed={provider === 'grok'}
-                        onClick={() => setProvider('grok')}
-                    >
-                        <i className="fas fa-bolt" aria-hidden="true" style={{ marginRight: 6 }} />
-                        Grok
-                    </SegmentButton>
-                </SegmentedControl>
+                <HelperText>텍스트·이미지·영상 생성은 모두 OpenRouter를 통해 실행됩니다.</HelperText>
 
                 <SegmentedControl role="group" aria-label="생성 모드 선택">
                     <SegmentButton
@@ -914,10 +782,7 @@ export default function ImageGeneratorControls({
                         type="button"
                         $active={generationMode === 'video'}
                         aria-pressed={generationMode === 'video'}
-                        onClick={() => {
-                            setGenerationMode('video');
-                            setProvider('grok');
-                        }}
+                        onClick={() => setGenerationMode('video')}
                     >
                         <i className="fas fa-video" aria-hidden="true" style={{ marginRight: 6 }} />
                         동영상 생성
@@ -925,7 +790,7 @@ export default function ImageGeneratorControls({
                 </SegmentedControl>
 
                 {generationMode === 'video' ? (
-                    <HelperText>동영상 생성은 현재 Grok 엔진만 지원합니다.</HelperText>
+                    <HelperText>동영상 생성은 OpenRouter 비동기 영상 API를 사용합니다.</HelperText>
                 ) : null}
             </Section>
 
@@ -1028,6 +893,17 @@ export default function ImageGeneratorControls({
                 </PromptActions>
             </Section>
 
+            <ReferenceImageAssetManager
+                assets={referenceAssets}
+                onAddAssets={onAddReferenceAssets}
+                onRemoveAsset={onRemoveReferenceAsset}
+                onUpdateRole={onUpdateReferenceAssetRole}
+                disabled={isGenerating}
+                description={generationMode === 'image'
+                    ? '사진을 여러 장 놓고 역할을 지정하면, 건물·제품·캐릭터·배경의 특징을 모든 생성에 우선 반영합니다.'
+                    : '동영상 생성에는 가장 앞의 참조 사진을 첫 장면 기준으로 사용합니다.'}
+            />
+
             <Section>
                 <AdvancedToggle
                     type="button"
@@ -1085,45 +961,6 @@ export default function ImageGeneratorControls({
                             </SmallField>
                         </ControlGrid>
 
-                        {referenceImage ? (
-                            <PreviewContainer>
-                                <PreviewImg src={referenceImage} alt="참조 이미지 미리보기" />
-                                <RemoveButton
-                                    type="button"
-                                    aria-label="참조 이미지 삭제"
-                                    onClick={() => setReferenceImage(null)}
-                                >
-                                    <i className="fas fa-times" aria-hidden="true" />
-                                </RemoveButton>
-                            </PreviewContainer>
-                        ) : (
-                            <>
-                                <UploadZone
-                                    type="button"
-                                    $dragging={isDragging}
-                                    aria-label="참조 이미지 업로드"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    onDragOver={(event) => {
-                                        event.preventDefault();
-                                        setIsDragging(true);
-                                    }}
-                                    onDragLeave={() => setIsDragging(false)}
-                                    onDrop={handleDrop}
-                                >
-                                    <UploadIcon className="fas fa-cloud-upload-alt" aria-hidden="true" />
-                                    <UploadText>참조 이미지 업로드</UploadText>
-                                </UploadZone>
-                                <HiddenInput
-                                    id={fileInputId}
-                                    name="referenceImage"
-                                    type="file"
-                                    ref={fileInputRef}
-                                    accept="image/*"
-                                    aria-label="참조 이미지 파일 선택"
-                                    onChange={handleImageUpload}
-                                />
-                            </>
-                        )}
                     </AdvancedInner>
                 </AdvancedContent>
             </Section>

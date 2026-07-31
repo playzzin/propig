@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUserAuth } from '@/lib/server/user-auth';
-import { getGeminiRuntimeConfig } from '@/lib/server/gemini';
+import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
 
 export const runtime = 'nodejs';
 
@@ -11,14 +11,14 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ success: false, error: auth.message }, { status: auth.status });
         }
 
-        const runtimeConfig = await getGeminiRuntimeConfig();
+        const runtimeConfig = await getAIRuntimeConfig();
 
         return NextResponse.json({
             success: true,
             status: {
-                provider: 'grok',
+                provider: 'openrouter',
                 devMode: process.env.NEXT_PUBLIC_VIDEO_STUDIO_DEV_MODE === 'true',
-                grokApiKeyConfigured: Boolean(runtimeConfig.grokApiKey),
+                openRouterApiKeyConfigured: Boolean(runtimeConfig.openRouterApiKey),
                 configSource: runtimeConfig.source,
                 processorSecretConfigured: Boolean(process.env.VIDEO_STUDIO_PROCESSOR_SECRET),
             },

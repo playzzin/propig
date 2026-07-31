@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { LLMAdapterFactory } from '@/agents/llm/LLMAdapter';
-import { getGeminiRuntimeConfig } from '@/lib/server/gemini';
+import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
 import { requireAdminOrPermissionAuth } from '@/lib/server/admin-auth';
 
 const SectionSchema = z.enum(['current', 'plan', 'goal']);
@@ -76,14 +76,14 @@ function extractJsonObjectText(text: string): string {
   const objectEnd = cleaned.lastIndexOf('}');
 
   if (objectStart === -1) {
-    throw new Error('Gemini response does not contain a JSON object.');
+    throw new Error('AI response does not contain a JSON object.');
   }
 
   if (objectEnd !== -1 && objectEnd > objectStart) {
     return cleaned.substring(objectStart, objectEnd + 1);
   }
 
-  throw new Error('Gemini response contains incomplete JSON.');
+  throw new Error('AI response contains incomplete JSON.');
 }
 
 function repairJsonObjectText(text: string): string {
@@ -108,7 +108,7 @@ function parseGeneratedJson(text: string): unknown {
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Gemini response is not valid JSON.');
+  throw lastError instanceof Error ? lastError : new Error('AI response is not valid JSON.');
 }
 
 function sanitizeHtmlFragment(value: unknown): string | undefined {
@@ -248,15 +248,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'HTML로 꾸밀 본문을 먼저 입력하세요.' }, { status: 400 });
     }
 
-    const runtimeConfig = await getGeminiRuntimeConfig();
-    if (!runtimeConfig.apiKey) {
-      return NextResponse.json({ error: 'Gemini API 키가 설정되어 있지 않습니다.' }, { status: 503 });
+    const runtimeConfig = await getAIRuntimeConfig();
+    if (!runtimeConfig.openRouterApiKey) {
+      return NextResponse.json({ error: 'OpenRouter API 키가 설정되어 있지 않습니다.' }, { status: 503 });
     }
 
-    const adapter = LLMAdapterFactory.create('gemini', {
-      gemini: {
-        apiKey: runtimeConfig.apiKey,
+    const adapter = LLMAdapterFactory.create('openrouter', {
+      openrouter: {
+        apiKey: runtimeConfig.openRouterApiKey,
         model: runtimeConfig.model,
+        fallbackModels: runtimeConfig.fallbackModels,
+        siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
+        siteName: 'ProPig',
       },
     });
 
@@ -275,21 +278,21 @@ export async function POST(req: NextRequest) {
     const content = normalizeGeneratedContent(raw, payload.section);
 
     if (Object.keys(content).length === 0) {
-      return NextResponse.json({ error: 'Gemini가 사용할 수 있는 HTML 디자인을 반환하지 않았습니다.' }, { status: 502 });
+      return NextResponse.json({ error: 'AI가 사용할 수 있는 HTML 디자인을 반환하지 않았습니다.' }, { status: 502 });
     }
 
     return NextResponse.json({
       success: true,
-      provider: 'gemini',
+      provider: 'openrouter',
       model: runtimeConfig.model,
       content,
     });
   } catch (error) {
-    console.error('[ProjectBoardContent] Gemini HTML generation failed:', error);
+    console.error('[ProjectBoardContent] OpenRouter HTML generation failed:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Gemini HTML 디자인 생성 중 오류가 발생했습니다.',
+        error: error instanceof Error ? error.message : 'AI HTML 디자인 생성 중 오류가 발생했습니다.',
       },
       { status: 500 },
     );

@@ -514,7 +514,7 @@ export const BookmarkApp: React.FC = () => {
     return parsed.data;
   };
 
-  // 빠른 URL 저장 (Gemini 자동 분석)
+  // 빠른 URL 저장 (OpenRouter 자동 분석)
   const handleQuickAdd = async () => {
     if (!quickAddUrl.trim()) return;
 
@@ -537,13 +537,13 @@ export const BookmarkApp: React.FC = () => {
       return;
     }
 
-    setQuickAddStatus({ type: 'loading', message: 'Gemini가 내용을 분석하고 있습니다...' });
+    setQuickAddStatus({ type: 'loading', message: 'AI가 내용을 분석하고 있습니다...' });
 
     try {
       const metadata = await analyzeBookmarkMetadata(quickAddUrl);
 
       if (process.env.NODE_ENV !== 'production') {
-        console.log('[QuickAdd] extractBookmarkMetadata response:', metadata);
+        console.info('[QuickAdd] extractBookmarkMetadata response:', metadata);
       }
 
       // 카테고리 매칭
@@ -925,7 +925,7 @@ export const BookmarkApp: React.FC = () => {
               autoComplete="url"
               inputMode="url"
               spellCheck={false}
-              placeholder="🔗 URL을 붙여넣고 Enter를 누르면 Gemini가 자동 분석해서 저장합니다…"
+              placeholder="🔗 URL을 붙여넣고 Enter를 누르면 AI가 자동 분석해서 저장합니다…"
               value={quickAddUrl}
               onChange={(e) => setQuickAddUrl(e.target.value)}
               onKeyDown={handleQuickAddKeyDown}

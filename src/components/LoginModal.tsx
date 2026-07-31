@@ -2,10 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
-import { authFormSchema, type AuthFormValues } from '@/schemas/authSchema';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -20,6 +17,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const [mode, setMode] = useState<'sign_in' | 'sign_up'>('sign_in');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
 
   const {
     loginWithEmail,
@@ -30,21 +30,26 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     error: configError,
   } = useAuth();
 
-  const {
-    register,
-    handleSubmit,
-    trigger,
-    getValues,
-    reset,
-    formState: { errors },
-  } = useForm<AuthFormValues>({
-    resolver: zodResolver(authFormSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
-    mode: 'onBlur',
-  });
+  const validateEmail = (value: string) => {
+    if (!value.trim()) return '이메일을 입력해 주세요.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) return '올바른 이메일 형식이 아닙니다.';
+    return '';
+  };
+
+  const validatePassword = (value: string) => {
+    if (!value) return '비밀번호를 입력해 주세요.';
+    if (value.length < 6) return '비밀번호는 최소 6자 이상이어야 합니다.';
+    return '';
+  };
+
+  const validateCredentials = () => {
+    const nextErrors = {
+      email: validateEmail(email) || undefined,
+      password: validatePassword(password) || undefined,
+    };
+    setFieldErrors(nextErrors);
+    return !nextErrors.email && !nextErrors.password;
+  };
 
   const getErrorMessage = (err: unknown, fallback: string) => {
     if (err && typeof err === 'object' && 'code' in err) {
@@ -89,7 +94,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
-    reset();
+    setEmail('');
+    setPassword('');
+    setFieldErrors({});
     setError('');
     setInfo('');
     setLoading(false);
@@ -97,11 +104,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     setShowPassword(false);
     setIsAnimating(false);
     setMode('sign_in');
-  }, [isOpen, reset]);
+  }, [isOpen]);
 
-  const handleEmailLogin = handleSubmit(async ({ email, password }) => {
+  const handleEmailLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError('');
     setInfo('');
+
+    if (!validateCredentials()) return;
 
     if (!isConfigured) {
       setError(configError ?? 'Firebase가 설정되지 않았습니다.');
@@ -127,7 +137,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       );
       setLoading(false);
     }
-  });
+  };
 
   const handleGoogleLogin = async () => {
     setError('');
@@ -161,15 +171,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
-    const isEmailValid = await trigger('email');
-    if (!isEmailValid) {
+    const emailError = validateEmail(email);
+    setFieldErrors((current) => ({ ...current, email: emailError || undefined }));
+    if (emailError) {
       return;
     }
 
     setLoading(true);
 
     try {
-      await sendPasswordReset(getValues('email'));
+      await sendPasswordReset(email.trim());
       setInfo('비밀번호 재설정 이메일을 보냈습니다. 메일함을 확인해 주세요.');
     } catch (err: unknown) {
       setError(getErrorMessage(err, '비밀번호 재설정 이메일 전송에 실패했습니다.'));
@@ -240,9 +251,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 className="auth-input"
                 placeholder="name@example.com"
                 autoComplete="email"
-                {...register('email')}
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  if (fieldErrors.email) {
+                    setFieldErrors((current) => ({ ...current, email: undefined }));
+                  }
+                }}
+                onBlur={() => {
+                  const emailError = validateEmail(email);
+                  setFieldErrors((current) => ({ ...current, email: emailError || undefined }));
+                }}
+                aria-invalid={Boolean(fieldErrors.email)}
               />
-              {errors.email?.message ? <div className="auth-alert error">{errors.email.message}</div> : null}
+              {fieldErrors.email ? <div className="auth-alert error">{fieldErrors.email}</div> : null}
             </div>
 
             <div className="auth-field">
@@ -256,7 +278,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                   className="auth-input"
                   placeholder="비밀번호를 입력해 주세요"
                   autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
-                  {...register('password')}
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    if (fieldErrors.password) {
+                      setFieldErrors((current) => ({ ...current, password: undefined }));
+                    }
+                  }}
+                  onBlur={() => {
+                    const passwordError = validatePassword(password);
+                    setFieldErrors((current) => ({ ...current, password: passwordError || undefined }));
+                  }}
+                  aria-invalid={Boolean(fieldErrors.password)}
                 />
                 <button
                   type="button"
@@ -268,8 +301,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                   <i className={showPassword ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye'} />
                 </button>
               </div>
-              {errors.password?.message ? (
-                <div className="auth-alert error">{errors.password.message}</div>
+              {fieldErrors.password ? (
+                <div className="auth-alert error">{fieldErrors.password}</div>
               ) : null}
             </div>
 

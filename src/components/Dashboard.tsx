@@ -67,7 +67,6 @@ const defaultQuickLinks: DashboardQuickLink[] = [
     { id: 'notes', label: '스티커 메모', path: '/sticky-notes', icon: 'note-sticky' },
     { id: 'bookmarks', label: '스마트 북마크', path: '/bookmarks', icon: 'bookmark' },
     { id: 'youtube', label: 'YouTube 분석', path: '/youtube-analyze', icon: 'circle-play' },
-    { id: 'mandalart', label: '만다라트', path: '/mandalart', icon: 'bullseye' },
     { id: 'habit-tracker', label: '습관 트래커', path: '/habit-tracker', icon: 'calendar-check' },
     { id: 'todo-list', label: '할일 일정표', path: '/todo-list', icon: 'list-check' },
     { id: 'user-admin', label: '유저 관리', path: '/admin/users', icon: 'user-shield' },
@@ -477,12 +476,12 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
 
     const handleAddQuickLink = () => {
         if (!selectedPage) {
-            showMessage('?곕떽?????륁뵠筌왖???醫뤾문??뤾쉭??');
+            showMessage('추가할 페이지를 선택해 주세요.');
             return;
         }
 
         if (quickLinks.some((item) => item.path === selectedPage.path)) {
-            showMessage('??? ?곕떽?????륁뵠筌왖??낅빍??');
+            showMessage('이미 추가된 페이지입니다.');
             return;
         }
 
@@ -495,7 +494,7 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
 
         setQuickLinks((prev) => [...prev, next]);
         resetAddSelection();
-        showMessage('??쥓????猷?甕곌쑵????곕떽???됰뮸??덈뼄.');
+        showMessage('빠른 링크에 페이지를 추가했습니다.');
     };
 
     const handleSaveEditedQuickLink = () => {
@@ -504,7 +503,7 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
         const icon = draft.icon.trim() || 'link';
 
         if (!editingId || !label || !path) {
-            showMessage('??已ユ?野껋럥以덄몴???낆젾??뤾쉭??');
+            showMessage('버튼 이름과 이동 경로를 입력해 주세요.');
             return;
         }
 
@@ -512,7 +511,7 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
             prev.map((item) => (item.id === editingId ? { ...item, label, path, icon } : item)),
         );
         resetDraft();
-        showMessage('??쥓????猷?甕곌쑵?????륁젟??됰뮸??덈뼄.');
+        showMessage('빠른 링크를 수정했습니다.');
     };
 
     const handleEditQuickLink = (item: DashboardQuickLink) => {
@@ -527,7 +526,7 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
         if (editingId === id) {
             resetDraft();
         }
-        showMessage('??쥓????猷?甕곌쑵????????됰뮸??덈뼄.');
+        showMessage('빠른 링크를 삭제했습니다.');
     };
 
     const handleDragEnd = (event: DragEndEvent) => {
@@ -616,7 +615,7 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
 
                     <SectionIconToggleButton
                         icon={isSettingsMode ? 'xmark' : 'gear'}
-                        title={isSettingsMode ? '??쇱젟 筌뤴뫀諭???る┛' : '??쇱젟 筌뤴뫀諭???용┛'}
+                        title={isSettingsMode ? '빠른 링크 설정 닫기' : '빠른 링크 설정 열기'}
                         active={isSettingsMode}
                         onClick={toggleSettingsMode}
                     />
@@ -649,10 +648,10 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
                                     }}
                                 >
                                     <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#f8fafc' }}>
-                                        筌롫뗀??癒?퐣 ?곕떽?
+                                        빠른 링크 추가
                                     </span>
                                     <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                                        {addablePages.length}揶???μ벉
+                                        {addablePages.length}개 남음
                                     </span>
                                 </div>
 
@@ -662,7 +661,7 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
                                         onChange={(event) => setSelectedPageId(event.target.value)}
                                         style={fieldStyle}
                                     >
-                                        <option value="">?곕떽?????륁뵠筌왖 ?醫뤾문</option>
+                                        <option value="">추가할 페이지 선택</option>
                                         {addablePages.map((page) => (
                                             <option key={page.id} value={page.id}>
                                                 {page.label}
@@ -724,7 +723,7 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
                                             </>
                                         ) : (
                                             <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
-                                                ??륁뵠筌왖???醫뤾문??롢늺 野껋럥以덂첎? ??뽯뻻??몃빍??
+                                                추가할 페이지를 선택하면 미리보기가 표시됩니다.
                                             </span>
                                         )}
                                     </div>
@@ -736,14 +735,14 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
                                             disabled={!selectedPage}
                                             style={{ ...primaryButtonStyle, minWidth: 72 }}
                                         >
-                                            ?곕떽?
+                                            추가
                                         </button>
                                         <button
                                             className="toggle-btn"
                                             onClick={resetAddSelection}
                                             style={{ ...secondaryButtonStyle, minWidth: 86 }}
                                         >
-                                            ?醫뤾문 ??곸젫
+                                            선택 초기화
                                         </button>
                                     </div>
                                 </div>
@@ -783,13 +782,15 @@ export default function Dashboard({ title, description, topSlot }: DashboardProp
                                                 onClick={handleSaveEditedQuickLink}
                                                 style={{ ...primaryButtonStyle, minWidth: 88 }}
                                             >
-                                                ????                                            </button>
+                                                저장
+                                            </button>
                                             <button
                                                 className="toggle-btn"
                                                 onClick={resetDraft}
                                                 style={{ ...secondaryButtonStyle, minWidth: 88 }}
                                             >
-                                                ?紐꾩춿 ?띯뫁??                                            </button>
+                                                편집 취소
+                                            </button>
                                         </div>
                                     </div>
                                 </section>

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import styled from 'styled-components';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -42,6 +43,7 @@ import type { PhotoItem } from '@/services/photoService';
 
 type BoardMode = 'project' | 'portfolio';
 type DetailTab = 'plan' | 'tasks' | 'goal';
+type StatusFilter = 'all' | 'active' | 'overdue' | 'done';
 
 interface BoardCategory {
   id: string;
@@ -53,6 +55,7 @@ interface BoardCategory {
 interface BoardTask {
   id: string;
   title: string;
+  description?: string;
   done: boolean;
   imageUrl?: string;
 }
@@ -100,7 +103,6 @@ interface BoardItemDraft {
   currentHtml: string;
   planBody: string;
   planHtml: string;
-  planStages: BoardPlanStageDraft[];
   tasks: BoardTaskDraft[];
   goalBody: string;
   goalHtml: string;
@@ -111,14 +113,8 @@ interface BoardItemDraft {
 interface BoardTaskDraft {
   id: string;
   title: string;
+  description: string;
   done: boolean;
-  imageUrl: string;
-}
-
-interface BoardPlanStageDraft {
-  id: string;
-  title: string;
-  body: string;
   imageUrl: string;
 }
 
@@ -135,10 +131,7 @@ interface ProjectBoardPageProps {
   canManage?: boolean;
 }
 
-type ImageTarget =
-  | { type: 'cover' }
-  | { type: 'plan-stage'; stageId: string }
-  | { type: 'task'; taskId: string };
+type ImageTarget = { type: 'cover' } | { type: 'task'; taskId: string };
 
 type ContentGenerationTarget = Exclude<DetailTab, 'tasks'>;
 
@@ -216,6 +209,117 @@ const detailTabs: Record<
 
 const detailTabOrder: DetailTab[] = ['plan', 'tasks', 'goal'];
 const contentGenerationTabs: ContentGenerationTarget[] = ['plan', 'goal'];
+const statusFilterCopy: Record<StatusFilter, { label: string; description: string; Icon: typeof Layers3 }> = {
+  all: { label: '전체', description: '모든 게시물', Icon: Layers3 },
+  active: { label: '진행', description: '아직 완료되지 않은 항목', Icon: Circle },
+  overdue: { label: '지연', description: '일정이 지난 항목', Icon: AlertTriangle },
+  done: { label: '완료', description: '모든 과제가 완료된 항목', Icon: CheckCircle2 },
+};
+const statusFilterOrder: StatusFilter[] = ['all', 'active', 'overdue', 'done'];
+const BUSINESS_AREA_CATEGORY: BoardCategory = {
+  id: 'business-area',
+  name: '사업영역',
+  description: '현장 실행부터 기술 구축, 콘텐츠, 프로젝트 운영까지의 핵심 수행 영역',
+  color: '#7c3aed',
+};
+const BUSINESS_AREA_ITEMS: BoardItem[] = [
+  {
+    id: 'business-legwork',
+    title: '레그워크',
+    categoryId: BUSINESS_AREA_CATEGORY.id,
+    owner: '사업개발팀',
+    dueDate: '',
+    imageUrl: 'https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1400&q=82',
+    summary: '현장과 고객, 파트너 사이를 먼저 움직이며 사업 기회가 실제 실행으로 이어지도록 정리합니다.',
+    currentBody: '현장 요구와 파트너 상황을 확인하고, 말로만 남은 요청을 담당자·일정·다음 행동으로 나누어 실행 기준으로 관리합니다.',
+    planBody: '현장 확인에서 확보한 정보와 고객 반응을 한곳에 모아, 다음 제안과 사업 판단에 바로 활용할 수 있는 실행 리포트로 정리합니다.',
+    planStages: [
+      { id: 'business-legwork-stage-1', title: '현장 확인', body: '고객·파트너 접점에서 실제 요구와 제약 조건을 확인합니다.' },
+      { id: 'business-legwork-stage-2', title: '실행 정리', body: '요청을 담당자, 일정, 다음 행동으로 구분해 실행 가능한 형태로 만듭니다.' },
+      { id: 'business-legwork-stage-3', title: '리포트 반영', body: '확인한 반응과 이슈를 다음 사업 판단에 쓸 수 있도록 기록합니다.' },
+    ],
+    tasks: [
+      { id: 'business-legwork-task-1', title: '현장 요구 확인', done: true },
+      { id: 'business-legwork-task-2', title: '파트너 접점 정리', done: false },
+      { id: 'business-legwork-task-3', title: '실행 리포트 작성', done: false },
+    ],
+    goalBody: '현장의 정보를 빠르게 실행 기준으로 바꾸고, 고객과 파트너가 다음 행동을 바로 결정할 수 있게 합니다.',
+    stageLabel: '현장 실행',
+    statusLabel: '운영 중',
+  },
+  {
+    id: 'business-engineering',
+    title: '엔지니어링',
+    categoryId: BUSINESS_AREA_CATEGORY.id,
+    owner: '기술개발팀',
+    dueDate: '',
+    imageUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=82',
+    summary: '아이디어를 실제 제품, 자동화, 데이터 흐름으로 바꾸는 기술 설계와 구현 영역입니다.',
+    currentBody: '내부 도구와 자동화 흐름, 데이터 수집·분석·리포트 구조를 서비스 안에 연결하고 운영 기준까지 함께 설계합니다.',
+    planBody: '반복 업무를 줄이는 자동화와 데이터 연결을 우선 설계하고, 새 기능이 현장에서 안정적으로 유지되도록 배포·운영 기준을 함께 만듭니다.',
+    planStages: [
+      { id: 'business-engineering-stage-1', title: '기술 설계', body: '제품, 자동화, 데이터 흐름의 요구사항과 구조를 정의합니다.' },
+      { id: 'business-engineering-stage-2', title: '구현 및 연결', body: '내부 도구와 서비스 기능을 구현하고 데이터 흐름을 연결합니다.' },
+      { id: 'business-engineering-stage-3', title: '운영 검증', body: '배포 후 현장 사용성과 안정성을 확인해 운영 기준에 반영합니다.' },
+    ],
+    tasks: [
+      { id: 'business-engineering-task-1', title: '자동화 요구사항 설계', done: true },
+      { id: 'business-engineering-task-2', title: '데이터 흐름 연결', done: true },
+      { id: 'business-engineering-task-3', title: '운영 기준 검증', done: false },
+    ],
+    goalBody: '아이디어가 실제 서비스와 자동화로 이어지고, 운영 환경에서도 지속 가능한 구조를 만듭니다.',
+    stageLabel: '기술 구축',
+    statusLabel: '운영 중',
+  },
+  {
+    id: 'business-media',
+    title: '미디어',
+    categoryId: BUSINESS_AREA_CATEGORY.id,
+    owner: '콘텐츠팀',
+    dueDate: '',
+    imageUrl: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1400&q=82',
+    summary: '브랜드 메시지, 제품 화면, 프로젝트 결과를 콘텐츠로 만들고 채널에 맞게 편집합니다.',
+    currentBody: '소개 영상, 이미지, 숏폼, 발표 자료의 메시지를 구성하고 사업 결과물을 고객이 이해하기 쉬운 장면과 문장으로 바꿉니다.',
+    planBody: '핵심 메시지와 시각 자료를 먼저 정리한 뒤 웹, SNS, 제안서 등 채널별 포맷과 톤으로 편집해 일관된 브랜드 경험을 만듭니다.',
+    planStages: [
+      { id: 'business-media-stage-1', title: '메시지 기획', body: '사업과 제품의 핵심 메시지를 대상 고객 기준으로 정리합니다.' },
+      { id: 'business-media-stage-2', title: '콘텐츠 제작', body: '영상, 이미지, 문서 등 필요한 형식의 콘텐츠를 제작합니다.' },
+      { id: 'business-media-stage-3', title: '채널 편집', body: '웹, SNS, 제안서 등 발행 채널에 맞게 톤과 포맷을 조정합니다.' },
+    ],
+    tasks: [
+      { id: 'business-media-task-1', title: '핵심 메시지 정리', done: true },
+      { id: 'business-media-task-2', title: '시각 콘텐츠 제작', done: false },
+      { id: 'business-media-task-3', title: '채널별 발행 구성', done: false },
+    ],
+    goalBody: '사업의 가치와 결과가 고객에게 명확히 전달되도록, 이해하기 쉬운 콘텐츠 경험을 제공합니다.',
+    stageLabel: '콘텐츠 운영',
+    statusLabel: '운영 중',
+  },
+  {
+    id: 'business-agency',
+    title: '에이전시',
+    categoryId: BUSINESS_AREA_CATEGORY.id,
+    owner: '프로젝트운영팀',
+    dueDate: '',
+    imageUrl: 'https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1400&q=82',
+    summary: '기획, 제안, 실행, 운영을 묶어 고객과 파트너가 바로 움직일 수 있는 프로젝트 형태로 제공합니다.',
+    currentBody: '브랜드, 캠페인, 서비스 프로젝트의 방향성과 실행 범위를 정리하고 고객·파트너 간 역할과 일정을 조율합니다.',
+    planBody: '실행 가능한 역할표와 일정표를 기반으로 제안을 구성하고, 진행 중 이슈와 결과를 한 흐름 안에서 관리합니다.',
+    planStages: [
+      { id: 'business-agency-stage-1', title: '프로젝트 기획', body: '목표, 실행 범위, 역할을 정리해 프로젝트의 기준을 합의합니다.' },
+      { id: 'business-agency-stage-2', title: '제안 및 조율', body: '고객과 파트너의 요구를 조율해 실행 가능한 제안과 일정표를 만듭니다.' },
+      { id: 'business-agency-stage-3', title: '운영 관리', body: '진행 이슈, 결과, 다음 행동을 추적하며 프로젝트 운영을 지원합니다.' },
+    ],
+    tasks: [
+      { id: 'business-agency-task-1', title: '실행 범위 정의', done: true },
+      { id: 'business-agency-task-2', title: '역할 및 일정 조율', done: false },
+      { id: 'business-agency-task-3', title: '운영 현황 관리', done: false },
+    ],
+    goalBody: '좋은 제안을 실제 실행까지 연결해 고객과 파트너가 예측 가능한 방식으로 협업하도록 합니다.',
+    stageLabel: '프로젝트 운영',
+    statusLabel: '운영 중',
+  },
+];
 const allowedDecoratedHtmlTags = new Set([
   'article',
   'section',
@@ -243,12 +347,13 @@ const allowedDecoratedHtmlTags = new Set([
   'br',
 ]);
 
-const DEFAULT_BOARDS: Record<BoardMode, BoardData> = {
+const _legacyDefaultBoards: Record<BoardMode, BoardData> = {
   project: {
     categories: [
       { id: 'strategy', name: '전략기획', description: '목표와 범위를 먼저 정리하는 프로젝트', color: '#0f9f87' },
       { id: 'operation', name: '운영개선', description: '반복 업무와 병목을 줄이는 실행 과제', color: '#2563eb' },
       { id: 'growth', name: '성장실험', description: '성과 지표를 빠르게 검증하는 프로젝트', color: '#d97706' },
+      BUSINESS_AREA_CATEGORY,
     ],
     items: [
       {
@@ -374,6 +479,7 @@ const DEFAULT_BOARDS: Record<BoardMode, BoardData> = {
         stageLabel: '실험',
         statusLabel: '준비',
       },
+      ...BUSINESS_AREA_ITEMS,
     ],
   },
   portfolio: {
@@ -510,19 +616,6 @@ const DEFAULT_BOARDS: Record<BoardMode, BoardData> = {
   },
 };
 
-function cloneBoardData(data: BoardData): BoardData {
-  const normalized = normalizeBoardData(data);
-
-  return {
-    categories: normalized.categories.map((category) => ({ ...category })),
-    items: normalized.items.map((item) => ({
-      ...item,
-      planStages: item.planStages?.map((stage) => ({ ...stage })),
-      tasks: item.tasks.map((task) => ({ ...task })),
-    })),
-  };
-}
-
 function sanitizeDecoratedHtml(value?: string): string | undefined {
   if (!value || typeof value !== 'string') return undefined;
 
@@ -565,9 +658,9 @@ function normalizeBoardData(data: BoardData): BoardData {
         `${item.statusLabel} 단계입니다. 과제 진행 현황과 다음 실행 내용을 확인하세요.`,
       currentHtml: sanitizeDecoratedHtml(item.currentHtml),
       planHtml: sanitizeDecoratedHtml(item.planHtml),
-      planStages: getPlanStages(item),
       tasks: item.tasks.map((task) => ({
         ...task,
+        description: task.description?.trim() ?? '',
         imageUrl: task.imageUrl || item.imageUrl,
       })),
       goalHtml: sanitizeDecoratedHtml(item.goalHtml),
@@ -586,104 +679,33 @@ function getProgress(item: BoardItem) {
   return { total, done, percent };
 }
 
-function getPlanStages(item: BoardItem): BoardPlanStage[] {
-  const normalized =
-    item.planStages
-      ?.map((stage, index) => ({
-        id: stage.id || `${item.id}-plan-stage-${index + 1}`,
-        title: stage.title.trim() || `계획 ${index + 1}단계`,
-        body: stage.body.trim() || item.planBody,
-        imageUrl: stage.imageUrl || item.imageUrl,
-      }))
-      .filter((stage) => stage.title.length > 0 || stage.body.length > 0 || Boolean(stage.imageUrl)) ?? [];
-
-  if (normalized.length > 0) {
-    return normalized;
-  }
-
-  if (item.tasks.length > 0) {
-    return item.tasks.map((task, index) => ({
-      id: `${item.id}-plan-stage-${index + 1}`,
-      title: task.title || `계획 ${index + 1}단계`,
-      body: index === 0 ? item.planBody || item.summary : item.summary || item.planBody,
-      imageUrl: task.imageUrl || item.imageUrl,
-    }));
-  }
-
-  return [
-    {
-      id: `${item.id}-plan-stage-overview`,
-      title: item.stageLabel || '계획 개요',
-      body: item.planBody || '계획 본문을 입력하세요.',
-      imageUrl: item.imageUrl,
-    },
-  ];
+function getTodayKey() {
+  const now = new Date();
+  const localTime = now.getTime() - now.getTimezoneOffset() * 60_000;
+  return new Date(localTime).toISOString().slice(0, 10);
 }
 
-function createEmptyPlanStageDraft(): BoardPlanStageDraft {
-  return {
-    id: createId('plan-stage-draft'),
-    title: '',
-    body: '',
-    imageUrl: '',
-  };
+function isBoardItemDone(item: BoardItem) {
+  return getProgress(item).percent >= 100 || item.statusLabel.includes('완료') || item.statusLabel.includes('100');
 }
 
-function planStagesToDraft(item: BoardItem): BoardPlanStageDraft[] {
-  return getPlanStages(item).map((stage) => ({
-    id: stage.id,
-    title: stage.title,
-    body: stage.body,
-    imageUrl: stage.imageUrl ?? '',
-  }));
+function isBoardItemOverdue(item: BoardItem, todayKey: string) {
+  if (!item.dueDate || isBoardItemDone(item)) return false;
+  return item.dueDate < todayKey;
 }
 
-function draftPlanStagesToBoardPlanStages(
-  stages: BoardPlanStageDraft[],
-  fallbackImageUrl: string,
-  fallbackBody: string,
-  fallbackTitle: string
-): BoardPlanStage[] {
-  const normalized = stages
-    .map((stage, index) => {
-      const title = stage.title.trim();
-      const body = stage.body.trim();
-      const imageUrl = stage.imageUrl.trim();
-
-      return {
-        id: stage.id.startsWith('plan-stage-draft') ? createId('plan-stage') : stage.id,
-        title: title || `계획 ${index + 1}단계`,
-        body: body || fallbackBody,
-        imageUrl: imageUrl || fallbackImageUrl,
-        hasContent: Boolean(title || body || imageUrl),
-      };
-    })
-    .filter((stage) => stage.hasContent)
-    .map((stage) => ({
-      id: stage.id,
-      title: stage.title,
-      body: stage.body,
-      imageUrl: stage.imageUrl,
-    }));
-
-  if (normalized.length > 0) {
-    return normalized;
-  }
-
-  return [
-    {
-      id: createId('plan-stage'),
-      title: fallbackTitle,
-      body: fallbackBody,
-      imageUrl: fallbackImageUrl,
-    },
-  ];
+function matchesStatusFilter(item: BoardItem, filter: StatusFilter, todayKey: string) {
+  if (filter === 'all') return true;
+  if (filter === 'done') return isBoardItemDone(item);
+  if (filter === 'overdue') return isBoardItemOverdue(item, todayKey);
+  return !isBoardItemDone(item) && !isBoardItemOverdue(item, todayKey);
 }
 
 function createEmptyTaskDraft(): BoardTaskDraft {
   return {
     id: createId('task-draft'),
     title: '',
+    description: '',
     done: false,
     imageUrl: '',
   };
@@ -697,6 +719,7 @@ function tasksToDraft(tasks: BoardTask[]): BoardTaskDraft[] {
   return tasks.map((task) => ({
     id: task.id,
     title: task.title,
+    description: task.description ?? '',
     done: task.done,
     imageUrl: task.imageUrl ?? '',
   }));
@@ -707,6 +730,7 @@ function draftTasksToBoardTasks(tasks: BoardTaskDraft[], fallbackImageUrl: strin
     .map((task) => ({
       id: task.id.startsWith('task-draft') ? createId('task') : task.id,
       title: task.title.trim(),
+      description: task.description.trim(),
       done: task.done,
       imageUrl: task.imageUrl.trim() || fallbackImageUrl,
     }))
@@ -725,7 +749,6 @@ function emptyItemDraft(categoryId: string): BoardItemDraft {
     currentHtml: '',
     planBody: '',
     planHtml: '',
-    planStages: [createEmptyPlanStageDraft()],
     tasks: [createEmptyTaskDraft()],
     goalBody: '',
     goalHtml: '',
@@ -746,7 +769,6 @@ function itemToDraft(item: BoardItem): BoardItemDraft {
     currentHtml: item.currentHtml ?? '',
     planBody: item.planBody,
     planHtml: item.planHtml ?? '',
-    planStages: planStagesToDraft(item),
     tasks: tasksToDraft(item.tasks),
     goalBody: item.goalBody,
     goalHtml: item.goalHtml ?? '',
@@ -761,7 +783,6 @@ function getCategory(categories: BoardCategory[], categoryId: string) {
 
 function getImageTargetLabel(target: ImageTarget) {
   if (target.type === 'cover') return '대표 이미지';
-  if (target.type === 'plan-stage') return '계획 단계 이미지';
   return '과제 이미지';
 }
 
@@ -771,25 +792,34 @@ function isImagePhotoItem(item: PhotoItem) {
 
 export default function ProjectBoardPage({ page, mode, management = false, canManage = false }: ProjectBoardPageProps) {
   const copy = boardCopy[mode];
-  const initialBoard = React.useMemo(() => cloneBoardData(DEFAULT_BOARDS[mode]), [mode]);
+  const pathname = usePathname();
+  const activePathname = pathname ?? (mode === 'portfolio' ? '/corp/portfolio' : '/corp/project');
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeSearchParams = React.useMemo(
+    () => searchParams ?? new URLSearchParams(),
+    [searchParams]
+  );
+  const requestedCategoryId = activeSearchParams.get('category') ?? 'all';
   const { currentUser } = useAuth();
   const queryClient = useQueryClient();
   const canManageBoard = canManage && Boolean(currentUser);
   const canManageCategories = management && canManageBoard;
   const { data: photoAlbums = [], isLoading: isPhotoAlbumsLoading } = usePhotoAlbumsQuery(canManageBoard);
-  const [categories, setCategories] = React.useState<BoardCategory[]>(initialBoard.categories);
-  const [items, setItems] = React.useState<BoardItem[]>(initialBoard.items);
+  const [categories, setCategories] = React.useState<BoardCategory[]>([]);
+  const [items, setItems] = React.useState<BoardItem[]>([]);
   const [isBoardLoading, setIsBoardLoading] = React.useState(true);
   const [boardLoadError, setBoardLoadError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
-  const [selectedCategoryId, setSelectedCategoryId] = React.useState('all');
+  const [selectedCategoryId, setSelectedCategoryId] = React.useState(requestedCategoryId);
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all');
   const [searchTerm, setSearchTerm] = React.useState('');
   const [selectedItemId, setSelectedItemId] = React.useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = React.useState<DetailTab>('plan');
   const [cardPreviewTabs, setCardPreviewTabs] = React.useState<Record<string, DetailTab>>({});
   const [isComposerOpen, setIsComposerOpen] = React.useState(false);
   const [editingItemId, setEditingItemId] = React.useState<string | null>(null);
-  const [itemDraft, setItemDraft] = React.useState<BoardItemDraft>(() => emptyItemDraft(initialBoard.categories[0].id));
+  const [itemDraft, setItemDraft] = React.useState<BoardItemDraft>(() => emptyItemDraft(''));
   const [editingCategoryId, setEditingCategoryId] = React.useState<string | null>(null);
   const [categoryDraft, setCategoryDraft] = React.useState<CategoryDraft>({
     name: '',
@@ -811,26 +841,43 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
   React.useEffect(() => {
     setIsBoardLoading(true);
     setBoardLoadError(null);
+    setCategories([]);
+    setItems([]);
 
     return projectBoardService.subscribe(
       mode,
-      initialBoard,
       (boardData) => {
         const normalized = normalizeBoardData(boardData);
         setCategories(normalized.categories);
         setItems(normalized.items);
+        setBoardLoadError(null);
         setIsBoardLoading(false);
       },
       (error) => {
         console.error('[ProjectBoard] Firestore sync failed:', error);
-        const fallback = cloneBoardData(DEFAULT_BOARDS[mode]);
-        setCategories(fallback.categories);
-        setItems(fallback.items);
-        setBoardLoadError('Firestore 데이터를 불러오지 못해 샘플 데이터를 표시합니다.');
+        setCategories([]);
+        setItems([]);
+        setBoardLoadError('프로젝트 보드 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
         setIsBoardLoading(false);
       }
     );
-  }, [initialBoard, mode]);
+  }, [mode]);
+
+  React.useEffect(() => {
+    if (requestedCategoryId === 'all' || categories.some((category) => category.id === requestedCategoryId)) {
+      setSelectedCategoryId(requestedCategoryId);
+      return;
+    }
+
+    if (!isBoardLoading) {
+      setSelectedCategoryId('all');
+
+      const nextParams = new URLSearchParams(activeSearchParams.toString());
+      nextParams.delete('category');
+      const query = nextParams.toString();
+      router.replace(query ? `${activePathname}?${query}` : activePathname, { scroll: false });
+    }
+  }, [activePathname, activeSearchParams, categories, isBoardLoading, requestedCategoryId, router]);
 
   React.useEffect(() => {
     if (!canManageBoard || selectedAlbumId || photoAlbums.length === 0) return;
@@ -872,14 +919,6 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
   const applyImageUrlToDraft = React.useCallback((target: ImageTarget, imageUrl: string) => {
     if (target.type === 'cover') {
       setItemDraft((draft) => ({ ...draft, imageUrl }));
-      return;
-    }
-
-    if (target.type === 'plan-stage') {
-      setItemDraft((draft) => ({
-        ...draft,
-        planStages: draft.planStages.map((stage) => (stage.id === target.stageId ? { ...stage, imageUrl } : stage)),
-      }));
       return;
     }
 
@@ -971,7 +1010,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
 
   const generateBoardContent = async (target: ContentGenerationTarget) => {
     if (!canManageBoard || !currentUser) {
-      toast.error('관리자 권한이 있어야 Gemini 콘텐츠를 생성할 수 있습니다.');
+      toast.error('관리자 권한이 있어야 AI 콘텐츠를 생성할 수 있습니다.');
       return;
     }
 
@@ -988,7 +1027,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
 
     setAiContentTarget(target);
     const toastId = `project-board-content-${target}`;
-    toast.loading('Gemini로 표시용 HTML 디자인을 생성 중입니다.', { id: toastId });
+    toast.loading('OpenRouter로 표시용 HTML 디자인을 생성 중입니다.', { id: toastId });
 
     try {
       const response = await fetch('/api/generate-project-board-content', {
@@ -1016,23 +1055,34 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
       const payload = (await response.json()) as GenerateProjectBoardContentResponse;
 
       if (!response.ok || !payload.success || !payload.content) {
-        throw new Error(payload.error || 'Gemini HTML 디자인 생성에 실패했습니다.');
+        throw new Error(payload.error || 'AI HTML 디자인 생성에 실패했습니다.');
       }
 
       applyGeneratedContentToDraft(payload.content);
-      toast.success('Gemini HTML 디자인을 적용했습니다. 저장하면 본문 화면에 반영됩니다.', { id: toastId });
+      toast.success('AI HTML 디자인을 적용했습니다. 저장하면 본문 화면에 반영됩니다.', { id: toastId });
     } catch (error) {
-      console.error('[ProjectBoard] Gemini content generation failed:', error);
-      toast.error(error instanceof Error ? error.message : 'Gemini HTML 디자인 생성에 실패했습니다.', { id: toastId });
+      console.error('[ProjectBoard] OpenRouter content generation failed:', error);
+      toast.error(error instanceof Error ? error.message : 'AI HTML 디자인 생성에 실패했습니다.', { id: toastId });
     } finally {
       setAiContentTarget(null);
     }
   };
 
+  const todayKey = getTodayKey();
+  const statusFilterOptions = React.useMemo(
+    () =>
+      statusFilterOrder.map((filter) => ({
+        id: filter,
+        ...statusFilterCopy[filter],
+        count: items.filter((item) => matchesStatusFilter(item, filter, todayKey)).length,
+      })),
+    [items, todayKey]
+  );
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const visibleItems = React.useMemo(() => {
     return items.filter((item) => {
       const matchesCategory = selectedCategoryId === 'all' || item.categoryId === selectedCategoryId;
+      const matchesStatus = matchesStatusFilter(item, statusFilter, todayKey);
       const matchesSearch =
         normalizedSearch.length === 0 ||
         [
@@ -1041,20 +1091,21 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
           item.owner,
           item.statusLabel,
           item.stageLabel,
-          ...getPlanStages(item).flatMap((stage) => [stage.title, stage.body]),
+          ...item.tasks.flatMap((task) => [task.title, task.description ?? '']),
         ].some((value) =>
           value.toLowerCase().includes(normalizedSearch)
         );
 
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesStatus && matchesSearch;
     });
-  }, [items, normalizedSearch, selectedCategoryId]);
+  }, [items, normalizedSearch, selectedCategoryId, statusFilter, todayKey]);
 
   const selectedItem = React.useMemo(
     () => (selectedItemId ? visibleItems.find((item) => item.id === selectedItemId) ?? null : null),
     [selectedItemId, visibleItems]
   );
-  const activeItem = selectedItem ?? visibleItems[0] ?? null;
+  const activeItem = selectedItem ?? (management ? visibleItems[0] ?? null : null);
+  const hasBoardFilters = selectedCategoryId !== 'all' || statusFilter !== 'all' || normalizedSearch.length > 0;
 
   const boardStats = React.useMemo(() => {
     const taskCount = items.reduce((sum, item) => sum + item.tasks.length, 0);
@@ -1085,11 +1136,44 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
     setCardPreviewTabs((tabs) => ({ ...tabs, [itemId]: tab }));
   };
 
+  const updateCategoryLocation = React.useCallback(
+    (categoryId: string) => {
+      const nextParams = new URLSearchParams(activeSearchParams.toString());
+
+      if (categoryId === 'all') {
+        nextParams.delete('category');
+      } else {
+        nextParams.set('category', categoryId);
+      }
+
+      const query = nextParams.toString();
+      const nextHref = query ? `${activePathname}?${query}` : activePathname;
+      const currentQuery = activeSearchParams.toString();
+      const currentHref = currentQuery ? `${activePathname}?${currentQuery}` : activePathname;
+
+      if (nextHref !== currentHref) {
+        router.push(nextHref, { scroll: false });
+      }
+    },
+    [activePathname, activeSearchParams, router]
+  );
+
   const selectCategory = (categoryId: string) => {
     detailScrollTokenRef.current = 0;
     setSelectedCategoryId(categoryId);
     setSelectedItemId(null);
     setActiveDetailTab('plan');
+    updateCategoryLocation(categoryId);
+  };
+
+  const clearBoardFilters = () => {
+    detailScrollTokenRef.current = 0;
+    setSelectedCategoryId('all');
+    setStatusFilter('all');
+    setSearchTerm('');
+    setSelectedItemId(null);
+    setActiveDetailTab('plan');
+    updateCategoryLocation('all');
   };
 
   React.useEffect(() => {
@@ -1156,12 +1240,6 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
       itemDraft.imageUrl.trim() ||
       'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=1400&q=80';
     const planBody = itemDraft.planBody.trim() || '계획 본문을 입력하세요.';
-    const planStages = draftPlanStagesToBoardPlanStages(
-      itemDraft.planStages,
-      fallbackImageUrl,
-      planBody,
-      itemDraft.stageLabel.trim() || '계획 개요'
-    );
     const tasks = draftTasksToBoardTasks(itemDraft.tasks, fallbackImageUrl);
     const nextItem: BoardItem = {
       id: editingItemId ?? createId('board'),
@@ -1175,11 +1253,10 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
       currentHtml: sanitizeDecoratedHtml(itemDraft.currentHtml),
       planBody,
       planHtml: sanitizeDecoratedHtml(itemDraft.planHtml),
-      planStages,
       tasks:
         tasks.length > 0
           ? tasks
-          : [{ id: createId('task'), title: '첫 번째 과제', done: false, imageUrl: fallbackImageUrl }],
+          : [{ id: createId('task'), title: '첫 번째 과제', description: '', done: false, imageUrl: fallbackImageUrl }],
       goalBody: itemDraft.goalBody.trim() || '목표 본문을 입력하세요.',
       goalHtml: sanitizeDecoratedHtml(itemDraft.goalHtml),
       stageLabel: itemDraft.stageLabel.trim() || '신규',
@@ -1309,53 +1386,6 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
     await persistBoard({ categories, items: nextItems });
   };
 
-  const resetBoard = async () => {
-    setConfirmRequest({
-      title: '샘플 데이터로 초기화',
-      body: `현재 ${copy.title}의 카테고리 ${categories.length}개와 게시물 ${items.length}개가 샘플 데이터로 교체됩니다.`,
-      confirmLabel: '초기화',
-      tone: 'warning',
-      onConfirm: async () => {
-        const freshBoard = cloneBoardData(DEFAULT_BOARDS[mode]);
-        await persistBoard(freshBoard, '보드를 초기화했습니다.');
-        selectCategory('all');
-        setEditingCategoryId(null);
-        setCategoryDraft({ name: '', description: '', color: palette[0] });
-        setIsComposerOpen(false);
-      },
-    });
-  };
-
-  const addDraftPlanStage = () => {
-    setItemDraft((draft) => ({
-      ...draft,
-      planStages: [...draft.planStages, createEmptyPlanStageDraft()],
-    }));
-  };
-
-  const updateDraftPlanStage = (stageId: string, updates: Partial<BoardPlanStageDraft>) => {
-    setItemDraft((draft) => ({
-      ...draft,
-      planStages: draft.planStages.map((stage) => (stage.id === stageId ? { ...stage, ...updates } : stage)),
-    }));
-  };
-
-  const removeDraftPlanStage = (stageId: string) => {
-    setItemDraft((draft) => {
-      if (draft.planStages.length <= 1) {
-        return {
-          ...draft,
-          planStages: [createEmptyPlanStageDraft()],
-        };
-      }
-
-      return {
-        ...draft,
-        planStages: draft.planStages.filter((stage) => stage.id !== stageId),
-      };
-    });
-  };
-
   const addDraftTask = () => {
     setItemDraft((draft) => ({
       ...draft,
@@ -1424,7 +1454,6 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
 
   const renderCardPreview = (item: BoardItem, tab: DetailTab) => {
     const progress = getProgress(item);
-    const stages = getPlanStages(item);
 
     if (tab === 'tasks') {
       return (
@@ -1486,16 +1515,14 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
     }
 
     const isPlan = tab === 'plan';
-    const body = isPlan
-      ? item.planBody || stages[0]?.body || item.summary
-      : item.goalBody || item.summary;
-    const chips = isPlan ? stages.slice(0, 2).map((stage) => stage.title) : [item.stageLabel, item.statusLabel].filter(Boolean);
+    const body = isPlan ? item.planBody || item.summary : item.goalBody || item.summary;
+    const chips = [item.stageLabel, item.statusLabel].filter(Boolean);
 
     return (
       <CardPreviewPanel>
         <CardPreviewHeader>
           <span>{isPlan ? '계획 요약' : '목표 요약'}</span>
-          <strong>{isPlan ? `${stages.length}단계` : `${progress.percent}%`}</strong>
+          <strong>{isPlan ? item.stageLabel : `${progress.percent}%`}</strong>
         </CardPreviewHeader>
         <CardPreviewText>{body}</CardPreviewText>
         <CardPreviewChips>
@@ -1522,7 +1549,14 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
           $image={item.imageUrl}
           onClick={() => openImagePreview(item.imageUrl, item.title, '대표 이미지')}
           aria-label={`${item.title} 대표 사진 크게 보기`}
-        />
+        >
+          {isBoardItemDone(item) && (
+            <CompletionStamp data-completion-stamp="true" aria-hidden="true">
+              <CheckCircle2 size={15} />
+              <span>완료</span>
+            </CompletionStamp>
+          )}
+        </DetailImageFrame>
         <DetailTitleRow $hasAction={!options?.pinned || canManageBoard}>
           <div>
             <span>{getCategory(categories, item.categoryId)?.name ?? '카테고리 없음'}</span>
@@ -1567,39 +1601,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
 
       <DetailBody>
         {activeDetailTab === 'plan' && (
-          <>
-            <PlanStageArticle>
-              <PlanStageHeader>
-                <div>
-                  <h3>계획 단계</h3>
-                  <span>{getPlanStages(item).length}단계로 나누어 실행합니다.</span>
-                </div>
-                <strong>{item.stageLabel}</strong>
-              </PlanStageHeader>
-              <PlanStageList>
-                {getPlanStages(item).map((stage, index) => (
-                  <PlanStageCard key={stage.id}>
-                    <PlanStagePhoto
-                      type="button"
-                      $image={stage.imageUrl || item.imageUrl}
-                      onClick={() =>
-                        openImagePreview(stage.imageUrl || item.imageUrl, stage.title, `${item.title} 계획 단계 이미지`)
-                      }
-                      aria-label={`${stage.title} 계획 단계 이미지 크게 보기`}
-                    >
-                      <span>{String(index + 1).padStart(2, '0')}</span>
-                    </PlanStagePhoto>
-                    <div>
-                      <small>STEP {index + 1}</small>
-                      <h4>{stage.title}</h4>
-                      <p>{stage.body}</p>
-                    </div>
-                  </PlanStageCard>
-                ))}
-              </PlanStageList>
-            </PlanStageArticle>
-            {renderBodyArticle('계획 본문', item.planBody, item.planHtml)}
-          </>
+          renderBodyArticle('계획 본문', item.planBody, item.planHtml)
         )}
 
         {activeDetailTab === 'tasks' && (
@@ -1632,6 +1634,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                   }}
                   $done={task.done}
                   $interactive={canManageBoard}
+                  data-performance-region="detail-task-row"
                 >
                   <DetailTaskPhoto
                     type="button"
@@ -1642,8 +1645,13 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                     }}
                     aria-label={`${task.title} 과제 이미지 크게 보기`}
                   />
-                  <span className="task-state">{task.done ? <CheckCircle2 size={18} /> : <Circle size={18} />}</span>
-                  <span className="task-title">{task.title}</span>
+                  <div className="task-copy">
+                    <div className="task-title-row">
+                      <span className="task-state">{task.done ? <CheckCircle2 size={18} /> : <Circle size={18} />}</span>
+                      <strong className="task-title">{task.title}</strong>
+                    </div>
+                    <p className="task-description">{task.description?.trim() || '상세 내역 없음'}</p>
+                  </div>
                 </DetailTaskButton>
               ))}
             </DetailTaskList>
@@ -1682,10 +1690,14 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
           <SearchBox>
             <Search size={17} />
             <input
+              id="project-board-search"
+              name="projectBoardSearch"
+              type="search"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="검색"
               aria-label="게시물 검색"
+              autoComplete="off"
             />
           </SearchBox>
           {canManageBoard && (
@@ -1715,6 +1727,8 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
         </BoardNotice>
       )}
 
+      {!isBoardLoading && (
+        <>
       <StatsStrip aria-label="보드 진행 현황">
         <StatItem>
           <Archive size={18} />
@@ -1740,11 +1754,29 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
         </StatProgress>
       </StatsStrip>
 
+      <StatusFilterBar aria-label="상태 필터">
+        {statusFilterOptions.map(({ id, label, description, Icon, count }) => (
+          <StatusFilterChip key={id} type="button" $active={statusFilter === id} onClick={() => setStatusFilter(id)}>
+            <Icon size={16} />
+            <span>
+              <strong>{label}</strong>
+              <small>{description}</small>
+            </span>
+            <b>{count}</b>
+          </StatusFilterChip>
+        ))}
+      </StatusFilterBar>
+
       <Workspace $management={management}>
         <CategoryPanel $management={management} aria-label={management ? '카테고리 관리' : '카테고리 필터'}>
           <CategoryHeader>
             <strong>카테고리</strong>
-            <button type="button" onClick={() => selectCategory('all')} aria-label="전체 카테고리 보기">
+            <button
+              type="button"
+              onClick={() => selectCategory('all')}
+              aria-label="전체 카테고리 보기"
+              aria-pressed={selectedCategoryId === 'all'}
+            >
               전체
             </button>
           </CategoryHeader>
@@ -1756,6 +1788,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
               $color="#111827"
               $horizontal={!management}
               onClick={() => selectCategory('all')}
+              aria-pressed={selectedCategoryId === 'all'}
             >
               <span className="swatch" />
               <span className="name">전체</span>
@@ -1773,6 +1806,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                     $color={category.color}
                     $horizontal={!management}
                     onClick={() => selectCategory(category.id)}
+                    aria-pressed={selectedCategoryId === category.id}
                   >
                     <span className="swatch" />
                     <span className="name">{category.name}</span>
@@ -1798,6 +1832,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                   $color={category.color}
                   $horizontal={!management}
                   onClick={() => selectCategory(category.id)}
+                  aria-pressed={selectedCategoryId === category.id}
                 >
                   <span className="swatch" />
                   <span className="name">{category.name}</span>
@@ -1858,9 +1893,6 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                 </CategoryEditorActions>
               </CategoryEditor>
 
-              <ResetButton type="button" onClick={resetBoard}>
-                샘플로 초기화
-              </ResetButton>
             </>
           ) : !canManageBoard ? (
             <ReadOnlyNote $compact={!management}>
@@ -1870,69 +1902,75 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
         </CategoryPanel>
 
         <BoardArea>
-          {visibleItems.length > 0 && activeItem ? (
+          {visibleItems.length > 0 ? (
             <>
-              <FocusBoard $hasSelector={showProjectSelector}>
-                {showProjectSelector && (
-                  <ProjectSelector aria-label={mode === 'portfolio' ? '포트폴리오 선택 목록' : '프로젝트 선택 목록'}>
-                    <ProjectSelectorHead>
-                      <div>
-                        <span>
-                          <Eye size={14} />
-                          선택 목록
-                        </span>
-                        <strong>{mode === 'portfolio' ? '포트폴리오' : '프로젝트'}</strong>
-                      </div>
-                      <small>{visibleItems.length}개</small>
-                    </ProjectSelectorHead>
+              {activeItem && (
+                <FocusBoard $hasSelector={showProjectSelector}>
+                  {showProjectSelector && (
+                    <ProjectSelector aria-label={mode === 'portfolio' ? '포트폴리오 선택 목록' : '프로젝트 선택 목록'}>
+                      <ProjectSelectorHead>
+                        <div>
+                          <span>
+                            <Eye size={14} />
+                            선택 목록
+                          </span>
+                          <strong>{mode === 'portfolio' ? '포트폴리오' : '프로젝트'}</strong>
+                        </div>
+                        <small>{visibleItems.length}개</small>
+                      </ProjectSelectorHead>
 
-                    <ProjectSelectList>
-                      {visibleItems.map((item) => {
-                        const category = getCategory(categories, item.categoryId);
-                        const progress = getProgress(item);
+                      <ProjectSelectList>
+                        {visibleItems.map((item) => {
+                          const category = getCategory(categories, item.categoryId);
+                          const progress = getProgress(item);
 
-                        return (
-                          <ProjectSelectButton
-                            key={item.id}
-                            type="button"
-                            $active={activeItem.id === item.id}
-                            $color={category?.color ?? '#0f9f87'}
-                            onClick={() => openDetail(item.id, 'plan')}
-                          >
-                            <span className="project-index-thumb" style={{ backgroundImage: `url(${item.imageUrl})` }} />
-                            <span className="project-index-body">
-                              <span className="project-index-top">
-                                <b>{category?.name ?? '카테고리 없음'}</b>
-                              </span>
-                              <strong>{item.title}</strong>
-                              <span className="project-index-meta">
-                                {item.owner}
-                                <i />
-                                {item.dueDate || '일정 미정'}
-                              </span>
-                              <span className="project-index-progress">
-                                <span>
-                                  <span style={{ width: `${progress.percent}%` }} />
+                          return (
+                            <ProjectSelectButton
+                              key={item.id}
+                              type="button"
+                              $active={activeItem.id === item.id}
+                              $color={category?.color ?? '#0f9f87'}
+                              onClick={() => openDetail(item.id, 'plan')}
+                            >
+                              <span className="project-index-thumb" style={{ backgroundImage: `url(${item.imageUrl})` }} />
+                              <span className="project-index-body">
+                                <span className="project-index-top">
+                                  <b>{category?.name ?? '카테고리 없음'}</b>
                                 </span>
-                                <b>{progress.percent}%</b>
+                                <strong>{item.title}</strong>
+                                <span className="project-index-meta">
+                                  {item.owner}
+                                  <i />
+                                  {item.dueDate || '일정 미정'}
+                                </span>
+                                <span className="project-index-progress">
+                                  <span>
+                                    <span style={{ width: `${progress.percent}%` }} />
+                                  </span>
+                                  <b>{progress.percent}%</b>
+                                </span>
                               </span>
-                            </span>
-                          </ProjectSelectButton>
-                        );
-                      })}
-                    </ProjectSelectList>
-                  </ProjectSelector>
-                )}
+                            </ProjectSelectButton>
+                          );
+                        })}
+                      </ProjectSelectList>
+                    </ProjectSelector>
+                  )}
 
-                <FocusDetailSlot>{renderDetailPanel(activeItem, { pinned: true })}</FocusDetailSlot>
-              </FocusBoard>
+                  <FocusDetailSlot>{renderDetailPanel(activeItem, { pinned: showProjectSelector })}</FocusDetailSlot>
+                </FocusBoard>
+              )}
 
               <BoardListHeader>
                 <div>
                   <strong>{mode === 'portfolio' ? '포트폴리오 목록' : '프로젝트 목록'}</strong>
-                  <span>필터 조건에 맞는 항목을 제목과 본문 중심으로 정리했습니다.</span>
+                  <span>
+                    {hasBoardFilters
+                      ? '선택한 조건에 맞는 프로젝트만 표시합니다.'
+                      : '카드를 눌러 계획, 과제, 목표 상세를 펼쳐 보세요.'}
+                  </span>
                 </div>
-                <small>{gridItems.length}개 항목</small>
+                <small>{hasBoardFilters ? `${gridItems.length}/${items.length}개 항목` : `${gridItems.length}개 항목`}</small>
               </BoardListHeader>
 
               <AnimatePresence initial={false}>
@@ -1944,15 +1982,23 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                     return (
                       <ProjectCard
                         key={item.id}
-                        $selected={activeItem.id === item.id}
+                        $selected={activeItem?.id === item.id}
                         style={{ '--accent': category?.color ?? '#0f9f87' } as React.CSSProperties}
+                        data-performance-region="project-card"
                       >
                         <CardPhoto
                           type="button"
                           $image={item.imageUrl}
                           onClick={() => openDetail(item.id, 'plan')}
                           aria-label={`${item.title} 본문 보기`}
-                        />
+                        >
+                          {isBoardItemDone(item) && (
+                            <CompletionStamp $compact data-completion-stamp="true" aria-hidden="true">
+                              <CheckCircle2 size={14} />
+                              <span>완료</span>
+                            </CompletionStamp>
+                          )}
+                        </CardPhoto>
 
                         <CardBody>
                           <CardMeta>
@@ -1970,7 +2016,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                               {item.title}
                             </CardTitleButton>
                           </h3>
-                          <p>{item.summary}</p>
+                          <CardSummary>{item.summary}</CardSummary>
 
                           <ProgressBlock>
                             <ProgressCopy>
@@ -2030,6 +2076,11 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
               <ImageIcon size={42} />
               <strong>{copy.emptyTitle}</strong>
               <span>{copy.emptyDescription}</span>
+              {hasBoardFilters && (
+                <QuietButton type="button" onClick={clearBoardFilters}>
+                  필터 초기화
+                </QuietButton>
+              )}
               {canManageBoard && (
                 <ActionButton type="button" onClick={openNewItem}>
                   <Plus size={17} />
@@ -2040,6 +2091,8 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
           )}
         </BoardArea>
       </Workspace>
+        </>
+      )}
 
       <AnimatePresence>
         {isComposerOpen && (
@@ -2185,7 +2238,7 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                 <AiContentPanel>
                   <AiContentHead>
                     <div>
-                      <strong>Gemini 콘텐츠 꾸미기</strong>
+                      <strong>AI 콘텐츠 꾸미기</strong>
                       <small>본문 원문은 그대로 두고 표시용 HTML 섹션과 표만 생성합니다.</small>
                     </div>
                   </AiContentHead>
@@ -2235,77 +2288,6 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                   />
                 </HtmlDesignField>
 
-                <PlanStageDraftSection>
-                  <TaskDraftHead>
-                    <span>계획 단계</span>
-                    <button type="button" onClick={addDraftPlanStage}>
-                      <Plus size={15} />
-                      단계 추가
-                    </button>
-                  </TaskDraftHead>
-                  {itemDraft.planStages.map((stage, index) => (
-                    <PlanStageDraftCard key={stage.id}>
-                      <PlanStageDraftCardTop>
-                        <strong>계획 {index + 1}단계</strong>
-                        <button type="button" onClick={() => removeDraftPlanStage(stage.id)} aria-label={`계획 ${index + 1}단계 삭제`}>
-                          <Trash2 size={15} />
-                        </button>
-                      </PlanStageDraftCardTop>
-                      <input
-                        value={stage.title}
-                        onChange={(event) => updateDraftPlanStage(stage.id, { title: event.target.value })}
-                        placeholder="단계 제목"
-                      />
-                      <textarea
-                        value={stage.body}
-                        onChange={(event) => updateDraftPlanStage(stage.id, { body: event.target.value })}
-                        placeholder="단계 설명"
-                        rows={3}
-                      />
-                      <input
-                        value={stage.imageUrl}
-                        onChange={(event) => updateDraftPlanStage(stage.id, { imageUrl: event.target.value })}
-                        placeholder="단계 사진"
-                      />
-                      <TaskAssetTools>
-                        <TaskAssetPreview
-                          type="button"
-                          $image={stage.imageUrl || itemDraft.imageUrl}
-                          onClick={() =>
-                            openImagePreview(stage.imageUrl || itemDraft.imageUrl, stage.title || `계획 ${index + 1}단계`, '계획 단계 이미지 미리보기')
-                          }
-                          disabled={!stage.imageUrl && !itemDraft.imageUrl}
-                          aria-label={`계획 ${index + 1}단계 이미지 미리보기 크게 보기`}
-                        >
-                          {!stage.imageUrl && !itemDraft.imageUrl && <ImageIcon size={15} />}
-                        </TaskAssetPreview>
-                        <button type="button" onClick={() => openImageUpload({ type: 'plan-stage', stageId: stage.id })} disabled={isUploadingImage}>
-                          {isUploadingImage && imageUploadTarget?.type === 'plan-stage' && imageUploadTarget.stageId === stage.id ? (
-                            <Loader2 size={14} className="spin" />
-                          ) : (
-                            <UploadCloud size={14} />
-                          )}
-                          업로드
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPhotoPickerTarget({ type: 'plan-stage', stageId: stage.id })}
-                          disabled={photoAlbums.length === 0}
-                        >
-                          <FolderOpen size={14} />
-                          사진첩
-                        </button>
-                        {stage.imageUrl && (
-                          <button type="button" onClick={() => updateDraftPlanStage(stage.id, { imageUrl: '' })}>
-                            <X size={14} />
-                            삭제
-                          </button>
-                        )}
-                      </TaskAssetTools>
-                    </PlanStageDraftCard>
-                  ))}
-                </PlanStageDraftSection>
-
                 <TaskDraftSection>
                   <TaskDraftHead>
                     <span>과제 목록</span>
@@ -2334,6 +2316,12 @@ export default function ProjectBoardPage({ page, mode, management = false, canMa
                         value={task.title}
                         onChange={(event) => updateDraftTask(task.id, { title: event.target.value })}
                         placeholder="과제명"
+                      />
+                      <textarea
+                        value={task.description}
+                        onChange={(event) => updateDraftTask(task.id, { description: event.target.value })}
+                        placeholder="상세 내역"
+                        rows={3}
                       />
                       <input
                         value={task.imageUrl}
@@ -2924,6 +2912,94 @@ const StatProgress = styled.div`
   }
 `;
 
+const StatusFilterBar = styled.div`
+  width: min(100%, 1500px);
+  margin: 0 auto;
+  padding: 0 28px 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 680px) {
+    padding: 0 16px 10px;
+    gap: 7px;
+  }
+
+  @media (max-width: 420px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const StatusFilterChip = styled.button<{ $active: boolean }>`
+  min-width: 0;
+  min-height: 58px;
+  padding: 9px 11px;
+  border: 1px solid ${(props) => (props.$active ? 'rgba(15, 159, 135, 0.58)' : 'rgba(23, 33, 29, 0.1)')};
+  border-radius: 8px;
+  background: ${(props) => (props.$active ? 'rgba(15, 159, 135, 0.1)' : 'rgba(255, 255, 255, 0.72)')};
+  color: #17211d;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: ${(props) => (props.$active ? '0 0 0 3px rgba(15, 159, 135, 0.1)' : 'none')};
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+
+  svg {
+    color: ${(props) => (props.$active ? '#0f766e' : '#63756f')};
+  }
+
+  span {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+
+  strong {
+    color: #17211d;
+    font-size: 0.88rem;
+    font-weight: 950;
+  }
+
+  small {
+    min-width: 0;
+    color: #63756f;
+    font-size: 0.72rem;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  b {
+    min-width: 30px;
+    min-height: 28px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: ${(props) => (props.$active ? '#0f9f87' : 'rgba(23, 33, 29, 0.07)')};
+    color: ${(props) => (props.$active ? '#ffffff' : '#52645e')};
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 950;
+  }
+
+  &:hover,
+  &:focus-visible {
+    border-color: rgba(15, 159, 135, 0.5);
+    background: rgba(255, 255, 255, 0.94);
+    transform: translateY(-1px);
+    outline: 0;
+  }
+`;
+
 const ProgressTrack = styled.div`
   width: 100%;
   height: 9px;
@@ -3022,9 +3098,17 @@ const CategoryList = styled.div<{ $horizontal: boolean }>`
   }
 
   @media (max-width: 680px) {
+    display: ${(props) => (props.$horizontal ? 'grid' : 'grid')};
+    grid-template-columns: ${(props) => (props.$horizontal ? 'repeat(2, minmax(0, 1fr))' : '1fr')};
     gap: 8px;
+    overflow-x: visible;
     padding-bottom: 0;
+    scroll-snap-type: none;
     scrollbar-width: none;
+  }
+
+  @media (max-width: 360px) {
+    grid-template-columns: 1fr;
   }
 `;
 
@@ -3051,6 +3135,7 @@ const CategoryFilterButton = styled.button<{ $active: boolean; $color: string; $
   cursor: pointer;
   text-align: left;
   scroll-snap-align: start;
+  touch-action: manipulation;
 
   .swatch {
     width: 10px;
@@ -3072,8 +3157,18 @@ const CategoryFilterButton = styled.button<{ $active: boolean; $color: string; $
     font-weight: 900;
   }
 
+  &:hover {
+    border-color: ${(props) => props.$color};
+    background: ${(props) => (props.$active ? 'rgba(15, 159, 135, 0.13)' : 'rgba(15, 159, 135, 0.05)')};
+  }
+
+  &:focus-visible {
+    outline: 3px solid color-mix(in srgb, ${(props) => props.$color} 34%, transparent);
+    outline-offset: 2px;
+  }
+
   @media (max-width: 680px) {
-    min-width: ${(props) => (props.$horizontal ? '150px' : '0')};
+    min-width: 0;
     min-height: 42px;
     padding: 0 10px;
   }
@@ -3165,24 +3260,6 @@ const CategoryEditorActions = styled.div`
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-`;
-
-const ResetButton = styled.button`
-  width: 100%;
-  min-height: 38px;
-  margin-top: 12px;
-  border: 1px solid rgba(23, 33, 29, 0.12);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
-  color: #52645e;
-  font-weight: 900;
-  cursor: pointer;
-
-  &:hover,
-  &:focus-visible {
-    background: #ffffff;
-    color: #17211d;
-  }
 `;
 
 const ReadOnlyNote = styled.div<{ $compact?: boolean }>`
@@ -3525,6 +3602,7 @@ const ProjectCard = styled(motion.article)<{ $selected?: boolean }>`
   --accent: #0f9f87;
   min-width: 0;
   height: 100%;
+  align-self: stretch;
   position: relative;
   border: 1px solid ${(props) => (props.$selected ? 'var(--accent)' : 'rgba(23, 33, 29, 0.1)')};
   border-radius: 8px;
@@ -3538,7 +3616,10 @@ const ProjectCard = styled(motion.article)<{ $selected?: boolean }>`
       ? '0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent), 0 18px 38px rgba(15, 159, 135, 0.14)'
       : '0 10px 24px rgba(23, 33, 29, 0.065)'};
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 620px;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
@@ -3554,6 +3635,7 @@ const ProjectCard = styled(motion.article)<{ $selected?: boolean }>`
   }
 
   @media (max-width: 760px) {
+    contain-intrinsic-size: auto 720px;
     box-shadow: ${(props) =>
       props.$selected
         ? '0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), 0 14px 30px rgba(15, 159, 135, 0.12)'
@@ -3567,9 +3649,8 @@ const CardPhoto = styled.button<{ $image: string }>`
   min-height: 176px;
   max-height: 232px;
   border: 0;
-  background:
-    linear-gradient(180deg, rgba(10, 15, 13, 0.02), rgba(10, 15, 13, 0.12)),
-    url(${(props) => props.$image}) center / cover no-repeat;
+  position: relative;
+  background: url(${(props) => props.$image}) center / cover no-repeat;
   display: block;
   cursor: pointer;
   transition:
@@ -3590,16 +3671,69 @@ const CardPhoto = styled.button<{ $image: string }>`
   }
 `;
 
+const CompletionStamp = styled.span<{ $compact?: boolean }>`
+  position: absolute;
+  top: ${(props) => (props.$compact ? '12px' : '14px')};
+  right: ${(props) => (props.$compact ? '12px' : '14px')};
+  z-index: 2;
+  min-width: ${(props) => (props.$compact ? '64px' : '72px')};
+  min-height: ${(props) => (props.$compact ? '34px' : '38px')};
+  padding: 0 ${(props) => (props.$compact ? '10px' : '12px')};
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(232, 255, 246, 0.94)),
+    #ffffff;
+  color: #0f766e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: ${(props) => (props.$compact ? '0.76rem' : '0.8rem')};
+  font-weight: 950;
+  letter-spacing: 0;
+  box-shadow:
+    0 12px 28px rgba(7, 88, 75, 0.24),
+    inset 0 0 0 1px rgba(15, 159, 135, 0.18);
+  pointer-events: none;
+  transform: rotate(2deg);
+
+  svg {
+    flex: 0 0 auto;
+    color: #0f9f87;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.8));
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border: 1px dashed rgba(15, 118, 110, 0.28);
+    border-radius: inherit;
+  }
+
+  @media (max-width: 520px) {
+    top: 10px;
+    right: 10px;
+    min-width: 60px;
+    min-height: 32px;
+    padding: 0 9px;
+    font-size: 0.72rem;
+  }
+`;
+
 const CardBody = styled.div`
+  min-width: 0;
   padding: 14px;
   display: grid;
-  grid-template-rows: 28px calc(1.24em * 2) calc(1.48em * 2) 38px 42px 154px;
+  grid-template-rows: 28px calc(1.24em * 2) calc(1.48em * 2) 38px 44px 184px;
   gap: 10px;
   align-content: start;
   overflow: hidden;
 
   h3 {
     margin: 0;
+    min-height: calc(1.24em * 2);
     color: #17211d;
     font-size: 1.14rem;
     line-height: 1.24;
@@ -3607,30 +3741,19 @@ const CardBody = styled.div`
     word-break: keep-all;
   }
 
-  p {
-    margin: 0;
-    color: #52645e;
-    line-height: 1.48;
-    word-break: keep-all;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
   @media (max-width: 760px) {
     padding: 14px 14px 15px;
-    grid-template-rows: 28px auto auto 38px 42px 154px;
+    grid-template-rows: 28px calc(1.28em * 2) calc(1.48em * 2) 38px 44px 184px;
     gap: 9px;
 
     h3 {
       font-size: 1.08rem;
       line-height: 1.28;
     }
+  }
 
-    p {
-      -webkit-line-clamp: 2;
-    }
+  @media (max-width: 420px) {
+    grid-template-rows: 64px calc(1.28em * 2) calc(1.48em * 2) 38px 44px 184px;
   }
 `;
 
@@ -3641,15 +3764,16 @@ const CardTitleButton = styled.button`
   background: transparent;
   color: inherit;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   padding: 0;
   font: inherit;
   font-weight: inherit;
   line-height: inherit;
   text-align: left;
   word-break: keep-all;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   cursor: pointer;
 
   &:hover,
@@ -3659,6 +3783,21 @@ const CardTitleButton = styled.button`
     text-decoration: underline;
     text-underline-offset: 4px;
   }
+`;
+
+const CardSummary = styled.p`
+  min-width: 0;
+  height: calc(1.48em * 2);
+  margin: 0;
+  color: #52645e;
+  font-size: 1rem;
+  line-height: 1.48;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 `;
 
 const CardMeta = styled.div`
@@ -3721,21 +3860,23 @@ const StageStrip = styled.div`
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-  height: 42px;
+  min-height: 44px;
+  height: 44px;
   margin-top: 0;
 
   @media (max-width: 480px) {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    height: auto;
+    min-height: 44px;
+    height: 44px;
   }
 `;
 
 const StagePhotoButton = styled.button<{ $image: string; $active: boolean }>`
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid ${(props) => (props.$active ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 18%, rgba(23, 33, 29, 0.1))')};
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   background: ${(props) => (props.$active ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 7%, #ffffff)')};
   color: ${(props) => (props.$active ? '#ffffff' : '#34443f')};
@@ -3769,9 +3910,11 @@ const StagePhotoButton = styled.button<{ $image: string; $active: boolean }>`
 
 const CardPreviewPanel = styled.div`
   min-width: 0;
-  min-height: 154px;
+  min-height: 184px;
+  height: 184px;
+  max-height: 184px;
   border-top: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(23, 33, 29, 0.08));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, #ffffff), rgba(255, 255, 255, 0.66));
+  background: #ffffff;
   padding: 10px 2px 0;
   display: grid;
   grid-template-rows: 24px minmax(0, 1fr) auto;
@@ -3813,21 +3956,25 @@ const CardPreviewText = styled.p`
   font-size: 0.86rem;
   line-height: 1.52;
   word-break: keep-all;
+  overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   overflow: hidden;
 `;
 
 const CardPreviewChips = styled.div`
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  align-content: start;
+  max-height: 58px;
   overflow: hidden;
 
   span {
     min-width: 0;
-    max-width: 50%;
+    max-width: 100%;
     min-height: 26px;
     padding: 0 8px;
     border-radius: 999px;
@@ -3837,9 +3984,7 @@ const CardPreviewChips = styled.div`
     align-items: center;
     font-size: 0.72rem;
     font-weight: 850;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 `;
 
@@ -3892,9 +4037,7 @@ const TaskPreviewPhoto = styled.button<{ $image: string }>`
   height: 28px;
   border: 0;
   border-radius: 7px;
-  background:
-    linear-gradient(180deg, rgba(10, 15, 13, 0.04), rgba(10, 15, 13, 0.22)),
-    url(${(props) => props.$image}) center / cover;
+  background: url(${(props) => props.$image}) center / cover;
   cursor: pointer;
 
   &:hover,
@@ -3920,9 +4063,7 @@ const TaskPlaceholder = styled.div`
     width: 36px;
     height: 28px;
     border-radius: 7px;
-    background:
-      linear-gradient(135deg, rgba(23, 33, 29, 0.06), rgba(23, 33, 29, 0.02)),
-      repeating-linear-gradient(45deg, rgba(23, 33, 29, 0.08) 0 1px, transparent 1px 7px);
+    background: rgba(23, 33, 29, 0.08);
   }
 
   svg {
@@ -4024,6 +4165,7 @@ const DetailImageFrame = styled.button<{ $image: string }>`
   height: 100%;
   min-height: 188px;
   border: 0;
+  position: relative;
   background-color: #111a17;
   background-image: url(${(props) => props.$image});
   background-position: center;
@@ -4299,144 +4441,6 @@ const HtmlArticle = styled.article`
   }
 `;
 
-const PlanStageArticle = styled.article`
-  display: grid;
-  gap: 13px;
-  margin-bottom: 18px;
-`;
-
-const PlanStageHeader = styled.div`
-  min-height: 40px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-
-  div {
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-
-  h3 {
-    margin: 0;
-    color: #17211d;
-    font-size: 1.2rem;
-  }
-
-  span {
-    color: #63756f;
-    font-size: 0.86rem;
-    font-weight: 800;
-    word-break: keep-all;
-  }
-
-  strong {
-    min-height: 30px;
-    padding: 0 10px;
-    border-radius: 999px;
-    background: rgba(15, 159, 135, 0.09);
-    color: #0f766e;
-    display: inline-flex;
-    align-items: center;
-    flex: 0 0 auto;
-    font-size: 0.82rem;
-    font-weight: 950;
-  }
-
-  @media (max-width: 520px) {
-    flex-direction: column;
-  }
-`;
-
-const PlanStageList = styled.div`
-  display: grid;
-  gap: 10px;
-`;
-
-const PlanStageCard = styled.section`
-  min-width: 0;
-  border: 1px solid rgba(23, 33, 29, 0.1);
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(15, 159, 135, 0.07), #ffffff 42%);
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: minmax(132px, 0.28fr) minmax(0, 1fr);
-
-  > div {
-    min-width: 0;
-    padding: 16px;
-    display: grid;
-    align-content: center;
-    gap: 7px;
-  }
-
-  small {
-    color: #0f766e;
-    font-size: 0.75rem;
-    font-weight: 950;
-  }
-
-  h4 {
-    margin: 0;
-    color: #17211d;
-    font-size: 1.05rem;
-    line-height: 1.35;
-    font-weight: 950;
-    word-break: keep-all;
-  }
-
-  p {
-    margin: 0;
-    color: #40504b;
-    line-height: 1.62;
-    white-space: pre-line;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 620px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const PlanStagePhoto = styled.button<{ $image: string }>`
-  min-height: 140px;
-  border: 0;
-  position: relative;
-  background:
-    linear-gradient(180deg, rgba(10, 15, 13, 0.02), rgba(10, 15, 13, 0.2)),
-    url(${(props) => props.$image}) center / cover;
-  cursor: zoom-in;
-
-  span {
-    position: absolute;
-    left: 10px;
-    top: 10px;
-    min-width: 38px;
-    height: 28px;
-    padding: 0 8px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.9);
-    color: #17211d;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.78rem;
-    font-weight: 950;
-  }
-
-  &:hover,
-  &:focus-visible {
-    outline: 3px solid rgba(15, 159, 135, 0.26);
-    outline-offset: -3px;
-  }
-
-  @media (max-width: 620px) {
-    min-height: 150px;
-    aspect-ratio: 16 / 8;
-  }
-`;
-
 const TaskArticle = styled.article`
   display: grid;
   gap: 14px;
@@ -4466,59 +4470,78 @@ const DetailTaskList = styled.div`
 `;
 
 const DetailTaskButton = styled.div<{ $done: boolean; $interactive: boolean }>`
-  min-height: 74px;
+  min-width: 0;
   border: 1px solid rgba(23, 33, 29, 0.1);
   border-radius: 8px;
   background: ${(props) => (props.$done ? 'rgba(15, 159, 135, 0.08)' : '#ffffff')};
   color: ${(props) => (props.$done ? '#0f766e' : '#63756f')};
   display: grid;
-  grid-template-columns: 82px 22px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px 8px 8px;
+  grid-template-columns: minmax(132px, 0.28fr) minmax(0, 1fr);
+  overflow: hidden;
   text-align: left;
   cursor: ${(props) => (props.$interactive ? 'pointer' : 'default')};
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+
+  .task-copy {
+    min-width: 0;
+    padding: 16px;
+    display: grid;
+    align-content: center;
+    gap: 10px;
+  }
+
+  .task-title-row {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
   .task-state {
     display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: center;
   }
 
   .task-title {
+    min-width: 0;
     color: #17211d;
+    font-size: 1rem;
     font-weight: 850;
     text-decoration: ${(props) => (props.$done ? 'line-through' : 'none')};
   }
 
-  @media (max-width: 520px) {
-    grid-template-columns: 64px minmax(0, 1fr);
+  .task-description {
+    margin: 0;
+    color: #40504b;
+    line-height: 1.62;
+    white-space: pre-line;
+    word-break: keep-all;
+  }
 
-    .task-state {
-      display: none;
-    }
+  @media (max-width: 620px) {
+    grid-template-columns: 1fr;
+    contain-intrinsic-size: auto 330px;
   }
 `;
 
 const DetailTaskPhoto = styled.button<{ $image: string }>`
-  width: 74px;
-  height: 56px;
+  min-height: 140px;
   border: 0;
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(10, 15, 13, 0.04), rgba(10, 15, 13, 0.26)),
-    url(${(props) => props.$image}) center / cover;
+  background: url(${(props) => props.$image}) center / cover;
   cursor: zoom-in;
 
   &:hover,
   &:focus-visible {
     outline: 3px solid rgba(15, 159, 135, 0.24);
-    outline-offset: -2px;
+    outline-offset: -3px;
   }
 
-  @media (max-width: 520px) {
-    width: 56px;
-    height: 48px;
+  @media (max-width: 620px) {
+    min-height: 150px;
+    aspect-ratio: 16 / 8;
   }
 `;
 
@@ -4931,75 +4954,6 @@ const TwoFields = styled.div`
   }
 `;
 
-const PlanStageDraftSection = styled.div`
-  display: grid;
-  gap: 9px;
-`;
-
-const PlanStageDraftCard = styled.div`
-  border: 1px solid rgba(15, 159, 135, 0.16);
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(15, 159, 135, 0.08), #f8faf8 42%);
-  padding: 10px;
-  display: grid;
-  gap: 8px;
-
-  input,
-  textarea {
-    width: 100%;
-    min-width: 0;
-    border: 1px solid rgba(23, 33, 29, 0.12);
-    border-radius: 8px;
-    background: #ffffff;
-    color: #17211d;
-    outline: 0;
-    font: inherit;
-  }
-
-  input {
-    min-height: 38px;
-    padding: 0 10px;
-  }
-
-  textarea {
-    resize: vertical;
-    padding: 10px;
-    line-height: 1.5;
-  }
-
-  input:focus,
-  textarea:focus {
-    border-color: rgba(15, 159, 135, 0.48);
-    box-shadow: 0 0 0 3px rgba(15, 159, 135, 0.12);
-  }
-`;
-
-const PlanStageDraftCardTop = styled.div`
-  min-height: 28px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
-  align-items: center;
-  gap: 8px;
-
-  strong {
-    color: #17211d;
-    font-size: 0.86rem;
-  }
-
-  button {
-    width: 30px;
-    height: 30px;
-    border: 1px solid rgba(220, 74, 87, 0.18);
-    border-radius: 8px;
-    background: rgba(220, 74, 87, 0.07);
-    color: #dc4a57;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-`;
-
 const TaskDraftSection = styled.div`
   display: grid;
   gap: 9px;
@@ -5042,7 +4996,8 @@ const TaskDraftCard = styled.div`
   gap: 8px;
 
   input[type='text'],
-  input:not([type]) {
+  input:not([type]),
+  textarea {
     width: 100%;
     min-height: 38px;
     border: 1px solid rgba(23, 33, 29, 0.12);
@@ -5051,10 +5006,21 @@ const TaskDraftCard = styled.div`
     color: #17211d;
     outline: 0;
     font: inherit;
+  }
+
+  input[type='text'],
+  input:not([type]) {
     padding: 0 10px;
   }
 
-  input:focus {
+  textarea {
+    resize: vertical;
+    padding: 10px;
+    line-height: 1.5;
+  }
+
+  input:focus,
+  textarea:focus {
     border-color: rgba(15, 159, 135, 0.48);
     box-shadow: 0 0 0 3px rgba(15, 159, 135, 0.12);
   }

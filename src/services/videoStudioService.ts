@@ -24,6 +24,11 @@ import {
     type VideoStudioProjectStarterSource,
     type VideoStudioResolution,
 } from '@/lib/video-studio';
+import type {
+    StoryboardAudioMixPreset,
+    StoryboardVideoAudioMode,
+    StoryboardVideoQualityMode,
+} from '@/schemas/imageStoryboard';
 
 type CreateProjectInput = {
     userId: string;
@@ -103,12 +108,32 @@ type RunStudioJobInput = {
     repeatCount?: number;
     autoMergeAfterLoop?: boolean;
     referenceImage?: string;
+    endReferenceImage?: string;
+    visualReferenceImages?: string[];
     continuityNotes?: string;
     cameraNotes?: string;
     subjectLock?: string;
     sourceClipId?: string;
     mergeClipIds?: string[];
+    mergeClipEdits?: Array<{
+        clipId: string;
+        trimStartSeconds?: number;
+        trimEndSeconds?: number;
+        playbackRate?: number;
+        audioVolume?: number;
+        transitionStyle?: 'cut' | 'crossfade' | 'match-cut' | 'bridge';
+        transitionSeconds?: number;
+    }>;
+    backgroundMusicUrl?: string;
+    audioMixPreset?: StoryboardAudioMixPreset;
+    backgroundMusicVolume?: number;
+    sceneAudioVolume?: number;
+    audioCrossfadeSeconds?: number;
     forceRealRun?: boolean;
+    qualityMode?: StoryboardVideoQualityMode;
+    generateAudio?: boolean;
+    audioMode?: StoryboardVideoAudioMode;
+    dialogue?: string;
 };
 
 type RunStudioJobResult = {
@@ -117,6 +142,7 @@ type RunStudioJobResult = {
     clipId?: string;
     videoUrl?: string;
     lastFrameUrl?: string;
+    pending?: boolean;
 };
 
 type SubmitStudioJobResult = {
@@ -144,11 +170,42 @@ type DeleteClipResult = {
 };
 
 export type VideoStudioRuntimeStatus = {
-    provider: 'grok';
+    provider: 'openrouter';
     devMode: boolean;
-    grokApiKeyConfigured: boolean;
-    configSource: 'firestore' | 'functions_env' | 'server_env' | 'public_env' | 'none';
+    openRouterApiKeyConfigured: boolean;
+    configSource: 'firestore' | 'functions_env' | 'server_env' | 'none';
     processorSecretConfigured: boolean;
+};
+
+export type VideoStudioEstimate = {
+    selection: 'automatic';
+    modelId: string;
+    modelName: string;
+    requestedResolution: VideoStudioResolution;
+    resolvedResolution: string;
+    requestedDuration: number;
+    resolvedDuration: number;
+    aspectRatio: VideoStudioAspectRatio;
+    rateUsdPerSecond: number | null;
+    estimatedCostUsd: number | null;
+};
+
+export type VideoStudioStorageFile = {
+    path: string;
+    sizeBytes: number;
+    updatedAt: string | null;
+    kind: 'video' | 'frame' | 'other';
+};
+
+export type VideoStudioStorageOverview = {
+    projectId: string;
+    cleanupLocked: boolean;
+    activeJobCount: number;
+    protectedFileCount: number;
+    cleanupCandidateCount: number;
+    cleanupCandidateBytes: number;
+    cleanupCandidates: VideoStudioStorageFile[];
+    truncated: boolean;
 };
 
 type GetVideoStudioRuntimeStatusResult = {
@@ -156,7 +213,61 @@ type GetVideoStudioRuntimeStatusResult = {
     status: VideoStudioRuntimeStatus;
 };
 
+type GetVideoStudioEstimateResult = {
+    success: true;
+    estimate: VideoStudioEstimate;
+};
+
+type GetVideoStudioStorageOverviewResult = {
+    success: true;
+    overview: VideoStudioStorageOverview;
+};
+
+type DeleteVideoStudioStorageResidualsResult = {
+    success: true;
+    deletedStoragePaths: string[];
+    failed: Array<{ storagePath: string; message: string }>;
+};
+
 class VideoStudioService {
+    async getVideoEstimate(params: {
+        authToken: string;
+        duration: number;
+        resolution: VideoStudioResolution;
+        aspectRatio: VideoStudioAspectRatio;
+        qualityMode: StoryboardVideoQualityMode;
+        hasReferenceImage: boolean;
+        hasEndReferenceImage: boolean;
+        hasVisualReferenceImages: boolean;
+        audioMode: StoryboardVideoAudioMode;
+        signal?: AbortSignal;
+    }): Promise<VideoStudioEstimate> {
+        const search = new URLSearchParams({
+            duration: String(params.duration),
+            resolution: params.resolution,
+            aspectRatio: params.aspectRatio,
+            qualityMode: params.qualityMode,
+            hasReferenceImage: String(params.hasReferenceImage),
+            hasEndReferenceImage: String(params.hasEndReferenceImage),
+            hasVisualReferenceImages: String(params.hasVisualReferenceImages),
+            audioMode: params.audioMode,
+        });
+        const response = await fetch(`/api/video-studio/estimate?${search.toString()}`, {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${params.authToken}`,
+            },
+            signal: params.signal,
+        });
+        const payload = (await response.json().catch(() => null)) as
+            | ({ error?: string } & Partial<GetVideoStudioEstimateResult>)
+            | null;
+        if (!response.ok || !payload?.success || !payload.estimate) {
+            throw new Error(payload?.error || '영상 예상 비용을 계산하지 못했습니다.');
+        }
+        return payload.estimate;
+    }
+
     async getStudioRuntimeStatus(params: {
         authToken: string;
     }): Promise<VideoStudioRuntimeStatus> {
@@ -219,7 +330,7 @@ class VideoStudioService {
             prompt: input.prompt.trim(),
             mode: input.mode,
             status: input.status || 'ready',
-            provider: 'grok',
+            provider: 'openrouter',
             sequence: input.sequence,
             videoUrl: input.videoUrl,
             posterUrl: input.posterUrl || null,
@@ -312,11 +423,23 @@ class VideoStudioService {
                 repeatCount: input.repeatCount,
                 autoMergeAfterLoop: input.autoMergeAfterLoop,
                 referenceImage: input.referenceImage,
+                endReferenceImage: input.endReferenceImage,
+                visualReferenceImages: input.visualReferenceImages,
                 continuityNotes: input.continuityNotes,
                 cameraNotes: input.cameraNotes,
                 subjectLock: input.subjectLock,
                 sourceClipId: input.sourceClipId,
                 mergeClipIds: input.mergeClipIds,
+               mergeClipEdits: input.mergeClipEdits,
+               backgroundMusicUrl: input.backgroundMusicUrl,
+                audioMixPreset: input.audioMixPreset,
+               backgroundMusicVolume: input.backgroundMusicVolume,
+                sceneAudioVolume: input.sceneAudioVolume,
+                audioCrossfadeSeconds: input.audioCrossfadeSeconds,
+                qualityMode: input.qualityMode,
+                generateAudio: input.generateAudio,
+                audioMode: input.audioMode,
+                dialogue: input.dialogue,
             }),
         });
 
@@ -349,6 +472,17 @@ class VideoStudioService {
         const payload = (await response.json().catch(() => null)) as
             | ({ error?: string } & Partial<RunStudioJobResult>)
             | null;
+
+        if (
+            response.status === 409
+            && payload?.error
+            && /already (?:being processed|completed)/i.test(payload.error)
+        ) {
+            return {
+                success: true,
+                jobId: params.jobId,
+            };
+        }
 
         if (!response.ok || !payload?.success || !payload.jobId) {
             throw new Error(payload?.error || 'Failed to process the queued video studio job.');
@@ -479,6 +613,52 @@ class VideoStudioService {
         }
 
         return payload as ResequenceTimelineResult;
+    }
+
+    async getProjectStorageOverview(params: {
+        authToken: string;
+        projectId: string;
+        signal?: AbortSignal;
+    }): Promise<VideoStudioStorageOverview> {
+        const response = await fetch(`/api/video-studio/projects/${params.projectId}/storage`, {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${params.authToken}`,
+            },
+            cache: 'no-store',
+            signal: params.signal,
+        });
+        const payload = (await response.json().catch(() => null)) as
+            | ({ error?: string } & Partial<GetVideoStudioStorageOverviewResult>)
+            | null;
+
+        if (!response.ok || !payload?.success || !payload.overview) {
+            throw new Error(payload?.error || 'Failed to inspect generated video files.');
+        }
+        return payload.overview;
+    }
+
+    async deleteProjectStorageResiduals(params: {
+        authToken: string;
+        projectId: string;
+        storagePaths: string[];
+    }): Promise<DeleteVideoStudioStorageResidualsResult> {
+        const response = await fetch(`/api/video-studio/projects/${params.projectId}/storage`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${params.authToken}`,
+            },
+            body: JSON.stringify({ storagePaths: params.storagePaths }),
+        });
+        const payload = (await response.json().catch(() => null)) as
+            | ({ error?: string } & Partial<DeleteVideoStudioStorageResidualsResult>)
+            | null;
+
+        if (!response.ok || !payload?.success) {
+            throw new Error(payload?.error || 'Failed to clean up generated video files.');
+        }
+        return payload as DeleteVideoStudioStorageResidualsResult;
     }
 }
 

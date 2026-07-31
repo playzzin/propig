@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MenuItem, SiteDataType, SiteId } from '@/types/menu';
 import { menuService } from '@/services/menuService';
@@ -18,6 +18,7 @@ import { MENU_SITES_QUERY_KEY } from '@/hooks/useMenuSitesQuery';
 import { ACCOUNT_MENU_SITE_ID, getSwitchableSiteIds, isAccountMenuSite } from '@/constants/accountMenu';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentUserAccess } from '@/hooks/useCurrentUserAccess';
+import { recordActivityLog } from '@/services/activityLogService';
 
 type WorkspacePanel = 'tools' | 'menu' | 'details';
 type SaveMode = 'manual' | 'auto';
@@ -88,6 +89,17 @@ function collectRegisteredPaths(menu: MenuItem[]): string[] {
 
   visit(menu);
   return Array.from(paths);
+}
+
+function countMenuItems(items: MenuItem[]): number {
+  return items.reduce((total, item) => {
+    const childCount = (item.sub || []).reduce((childTotal, subItem) => {
+      if (typeof subItem === 'string') return childTotal;
+      return childTotal + countMenuItems([subItem]);
+    }, 0);
+
+    return total + 1 + childCount;
+  }, 0);
 }
 
 function formatSavedAt(value: Date | null): string {
@@ -173,6 +185,7 @@ export default function AdvancedMenuManagerPage() {
   const [isSiteModeManagerOpen, setIsSiteModeManagerOpen] = useState(false);
   const [siteDraft, setSiteDraft] = useState({ id: '', name: '', icon: 'globe', color: '#3b82f6' });
   const [siteCreateDraft, setSiteCreateDraft] = useState({ id: '', name: '', icon: 'globe', color: '#3b82f6' });
+  const hasAppliedInitialSiteRef = useRef(false);
 
   const menuSitesQuery = useQuery({
     queryKey: MENU_SITES_QUERY_KEY,
@@ -231,6 +244,23 @@ export default function AdvancedMenuManagerPage() {
 
       try {
         await persistSitesData(nextSitesData);
+        void recordActivityLog(currentUser, {
+          action: 'menu.save',
+          target: {
+            type: 'menuSettings',
+            id: 'sites',
+            label: '통합 메뉴',
+          },
+          summary: mode === 'auto' ? '통합 메뉴 자동 저장' : '통합 메뉴 수동 저장',
+          metadata: {
+            mode,
+            siteCount: Object.keys(nextSitesData).length,
+            menuItemCount: Object.values(nextSitesData).reduce(
+              (total, site) => total + countMenuItems(site.menu || []),
+              0,
+            ),
+          },
+        });
         setLastSavedAt(new Date());
         setHasUnsavedChanges(false);
         setSaveMessage(mode === 'auto' ? '자동 저장됨' : '저장됨');
@@ -240,7 +270,7 @@ export default function AdvancedMenuManagerPage() {
         console.error('Save failed:', error);
       }
     },
-    [persistSitesData],
+    [currentUser, persistSitesData],
   );
 
   useEffect(() => {
@@ -272,6 +302,27 @@ export default function AdvancedMenuManagerPage() {
       });
     });
   }, [currentSite, sitesData]);
+
+  useEffect(() => {
+    if (hasAppliedInitialSiteRef.current || Object.keys(sitesData).length === 0) return;
+
+    const requestedSite =
+      typeof window !== 'undefined'
+        ? window.sessionStorage.getItem('admin_menu_requested_site')
+        : null;
+    const preferredSite =
+      (requestedSite && sitesData[requestedSite] ? requestedSite : null) ??
+      (sitesData.admin ? 'admin' : null) ??
+      (sitesData[sidebarSite] ? sidebarSite : null) ??
+      getSwitchableSiteIds(sitesData)[0] ??
+      Object.keys(sitesData)[0];
+
+    if (preferredSite && preferredSite !== currentSite) {
+      queueMicrotask(() => setCurrentSite(preferredSite));
+    }
+
+    hasAppliedInitialSiteRef.current = true;
+  }, [currentSite, sidebarSite, sitesData]);
 
   useEffect(() => {
     if (!menuSitesQuery.error) return;
@@ -673,6 +724,24 @@ export default function AdvancedMenuManagerPage() {
       <div className="admin-menu-loading" role="status" aria-live="polite">
         <i className="fa fa-spinner fa-spin" aria-hidden="true" />
         <span>메뉴 데이터를 불러오는 중…</span>
+      </div>
+    );
+  }
+
+  if (menuSitesQuery.error && Object.keys(sitesData).length === 0) {
+    return (
+      <div className="admin-menu-loading" role="alert" aria-live="assertive">
+        <i className="fa fa-triangle-exclamation" aria-hidden="true" />
+        <span>메뉴 설정을 불러오지 못했습니다. Firestore 권한 또는 네트워크 상태를 확인해 주세요.</span>
+      </div>
+    );
+  }
+
+  if (!currentSiteData) {
+    return (
+      <div className="admin-menu-loading" role="status" aria-live="polite">
+        <i className="fa fa-circle-info" aria-hidden="true" />
+        <span>선택 가능한 사이트 모드가 없습니다. 메뉴 설정 데이터를 확인해 주세요.</span>
       </div>
     );
   }

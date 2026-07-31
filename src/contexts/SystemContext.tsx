@@ -1,14 +1,17 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { deleteField, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/firebase/config';
+import { sanitizeBrandAssetMap, sanitizeBrandAssetUrl } from '@/constants/brandAssets';
 
 export interface SystemSettings {
     logoUrl?: string;
     envLogos?: Record<string, string>;
     faviconUrl?: string;
     envFavicons?: Record<string, string>;
+    brandAssetsVersion?: number;
+    updatedAt?: unknown;
     themeColor?: string;
     heroBannerUrl?: string;
 }
@@ -23,6 +26,88 @@ interface SystemContextType {
 const SETTINGS_DOC = doc(db, 'system_settings', 'general');
 const SystemContext = createContext<SystemContextType | undefined>(undefined);
 
+function withNonEmptyMap(value: Record<string, string>) {
+    return Object.keys(value).length > 0 ? value : deleteField();
+}
+
+function sanitizeSettingsSnapshot(data: Record<string, unknown>): SystemSettings {
+    const envLogos = sanitizeBrandAssetMap(data.envLogos as Record<string, string | null | undefined> | undefined);
+    const envFavicons = sanitizeBrandAssetMap(data.envFavicons as Record<string, string | null | undefined> | undefined);
+    const logoUrl = sanitizeBrandAssetUrl(data.logoUrl as string | undefined);
+    const faviconUrl = sanitizeBrandAssetUrl(data.faviconUrl as string | undefined);
+    const brandAssetsVersion = Number(data.brandAssetsVersion);
+
+    return {
+        ...(logoUrl ? { logoUrl } : {}),
+        ...(Object.keys(envLogos).length > 0 ? { envLogos } : {}),
+        ...(faviconUrl ? { faviconUrl } : {}),
+        ...(Object.keys(envFavicons).length > 0 ? { envFavicons } : {}),
+        ...(Number.isFinite(brandAssetsVersion) ? { brandAssetsVersion } : {}),
+        ...(typeof data.themeColor === 'string' && data.themeColor.trim() ? { themeColor: data.themeColor.trim() } : {}),
+        ...(typeof data.heroBannerUrl === 'string' && data.heroBannerUrl.trim()
+            ? { heroBannerUrl: data.heroBannerUrl.trim() }
+            : {}),
+        ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}),
+    };
+}
+
+function buildSettingsUpdatePayload(newSettings: Partial<SystemSettings>): Record<string, unknown> {
+    const payload: Record<string, unknown> = {};
+    let touchedBrandAssets = false;
+
+    if ('logoUrl' in newSettings) {
+        const logoUrl = sanitizeBrandAssetUrl(newSettings.logoUrl);
+        payload.logoUrl = logoUrl || deleteField();
+        touchedBrandAssets = true;
+    }
+
+    if ('faviconUrl' in newSettings) {
+        const faviconUrl = sanitizeBrandAssetUrl(newSettings.faviconUrl);
+        payload.faviconUrl = faviconUrl || deleteField();
+        touchedBrandAssets = true;
+    }
+
+    if ('envLogos' in newSettings) {
+        payload.envLogos = withNonEmptyMap(
+            sanitizeBrandAssetMap(newSettings.envLogos as Record<string, string | null | undefined> | undefined),
+        );
+        touchedBrandAssets = true;
+    }
+
+    if ('envFavicons' in newSettings) {
+        payload.envFavicons = withNonEmptyMap(
+            sanitizeBrandAssetMap(newSettings.envFavicons as Record<string, string | null | undefined> | undefined),
+        );
+        touchedBrandAssets = true;
+    }
+
+    if ('themeColor' in newSettings) {
+        const themeColor = newSettings.themeColor?.trim();
+        payload.themeColor = themeColor || deleteField();
+    }
+
+    if ('heroBannerUrl' in newSettings) {
+        const heroBannerUrl = newSettings.heroBannerUrl?.trim();
+        payload.heroBannerUrl = heroBannerUrl || deleteField();
+    }
+
+    if (touchedBrandAssets) {
+        payload.brandAssetsVersion = Date.now();
+    }
+
+    payload.updatedAt = serverTimestamp();
+    return payload;
+}
+
+function isMissingDocumentError(error: unknown): boolean {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code?: unknown }).code === 'not-found'
+    );
+}
+
 export function SystemProvider({ children }: { children: React.ReactNode }) {
     const [settings, setSettings] = useState<SystemSettings>({});
     const [loading, setLoading] = useState(true);
@@ -30,7 +115,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         const unsubscribe = onSnapshot(SETTINGS_DOC, (snapshot) => {
             if (snapshot.exists()) {
-                setSettings(snapshot.data() as SystemSettings);
+                setSettings(sanitizeSettingsSnapshot(snapshot.data() as Record<string, unknown>));
             } else {
                 setSettings({});
             }
@@ -41,20 +126,25 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const updateSettings = async (newSettings: Partial<SystemSettings>) => {
-        await setDoc(SETTINGS_DOC, newSettings, { merge: true });
+        const payload = buildSettingsUpdatePayload(newSettings);
+        try {
+            await updateDoc(SETTINGS_DOC, payload);
+        } catch (error) {
+            if (!isMissingDocumentError(error)) {
+                throw error;
+            }
+
+            await setDoc(SETTINGS_DOC, payload, { merge: true });
+        }
     };
 
     const updateEnvLogo = async (siteId: string, logoUrl: string) => {
-        await setDoc(
-            SETTINGS_DOC,
-            {
-                envLogos: {
-                    ...(settings.envLogos ?? {}),
-                    [siteId]: logoUrl,
-                },
+        await updateSettings({
+            envLogos: {
+                ...(settings.envLogos ?? {}),
+                [siteId]: logoUrl,
             },
-            { merge: true },
-        );
+        });
     };
 
     return (

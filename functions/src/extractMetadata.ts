@@ -1,6 +1,6 @@
 import { https, logger } from 'firebase-functions/v2';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from 'zod';
+import { createOpenRouterModel, getOpenRouterRuntimeConfig } from './openrouter';
 
 // 메타데이터 스키마
 const MetadataSchema = z.object({
@@ -13,8 +13,6 @@ const MetadataSchema = z.object({
   publishedDate: z.string().optional(),
 });
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-
 // URL에서 메타데이터 추출
 export const extractMetadata = https.onCall(async (request) => {
   const { url } = request.data;
@@ -24,8 +22,12 @@ export const extractMetadata = https.onCall(async (request) => {
   }
 
   try {
-    // Gemini Pro 모델 초기화
-    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+    // OpenRouter 모델 초기화
+    const runtimeConfig = getOpenRouterRuntimeConfig();
+    if (!runtimeConfig.apiKey) {
+      throw new https.HttpsError('failed-precondition', 'OPENROUTER_API_KEY is not configured');
+    }
+    const model = createOpenRouterModel(runtimeConfig.model);
 
     const prompt = `다음 URL의 웹페이지 내용을 분석하여 메타데이터를 추출해주세요:
 URL: ${url}
@@ -94,7 +96,11 @@ export const extractBatchMetadata = https.onCall(async (request) => {
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+    const runtimeConfig = getOpenRouterRuntimeConfig();
+    if (!runtimeConfig.apiKey) {
+      throw new https.HttpsError('failed-precondition', 'OPENROUTER_API_KEY is not configured');
+    }
+    const model = createOpenRouterModel(runtimeConfig.model);
     const results = [];
 
     for (const url of urls) {

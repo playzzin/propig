@@ -1,6 +1,12 @@
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '@/firebase/config';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db } from '@/firebase/config';
+import { functions } from '@/firebase/functions';
+import { storage } from '@/firebase/storage';
+import type { ImageReferenceInput } from '@/types/imageReference';
 
+const shouldLogGenerationDebug = process.env.NODE_ENV !== 'production';
 
 export interface GenerateImageParams {
     prompt: string;
@@ -10,7 +16,8 @@ export interface GenerateImageParams {
     height?: number;
     stylePreset?: string;
     image?: string; // Base64 encoded image for Image-to-Image
-    provider?: 'gemini' | 'grok';
+    referenceImages?: ImageReferenceInput[];
+    provider?: 'openrouter';
     authToken?: string;
 }
 
@@ -57,13 +64,13 @@ function buildGuidedErrorMessage(params: {
     reasonCode?: string;
 }): string {
     if (params.reasonCode === 'api_key_expired') {
-        return `Gemini API 키 만료: 새 키 발급 후 \`.env.local\`/ \`functions/.env\`의 GEMINI_API_KEY를 교체하세요. (${params.apiError})`;
+        return `OpenRouter API 키를 확인하세요. 로컬에서는 \`.env.local\`, 운영에서는 서버 환경변수 또는 Firebase Secret의 OPENROUTER_API_KEY를 갱신합니다. (${params.apiError})`;
     }
     if (params.reasonCode === 'billing_disabled') {
         return `GCP 결제 계정 비활성 상태입니다. 결제 계정 활성화 후 프로젝트에 다시 연결하세요. (${params.apiError})`;
     }
     if (params.reasonCode === 'permission_denied') {
-        return `Gemini API 권한/활성화 문제입니다. API 활성화와 키 제한(HTTP referrer/IP)을 확인하세요. (${params.apiError})`;
+        return `OpenRouter API 인증 또는 권한 문제입니다. 키와 계정 크레딧 상태를 확인하세요. (${params.apiError})`;
     }
 
     return [
@@ -90,7 +97,7 @@ function isFinalInfraError(reasonCode?: string, message?: string): boolean {
 }
 
 function shouldFallbackToCallable(params: {
-    provider?: 'gemini' | 'grok';
+    provider?: 'openrouter';
     reasonCode?: string;
     message?: string;
 }): boolean {
@@ -105,7 +112,7 @@ export const generateImage = async (params: GenerateImageParams): Promise<Genera
     let apiErrorMessage = '';
     let apiReasonCode: string | undefined;
 
-    // 1) Prefer Next.js API route (same backend style as other Gemini features).
+    // 1) Prefer the Next.js API route so provider keys stay server-side.
     try {
         const apiResult = await callNextApi(params);
         if (apiResult.success) {
@@ -168,7 +175,7 @@ export const generateImage = async (params: GenerateImageParams): Promise<Genera
 export interface GenerateVideoParams {
     prompt: string;
     image?: string; // Reference image (first frame or base image)
-    provider?: 'gemini' | 'grok'; // Even if specific video models are used, this is the selected engine on the UI
+    provider?: 'openrouter';
     mode?: 'generate' | 'extend' | 'edit';
     videoUrl?: string;
     duration?: number;
@@ -181,13 +188,15 @@ export interface GenerateVideoResult {
     success: boolean;
     videoUrl?: string;
     videoId?: string;
-    provider?: 'gemini' | 'grok';
+    provider?: 'openrouter';
     metadata?: unknown;
     error?: string;
 }
 
 export const generateVideo = async (params: GenerateVideoParams): Promise<GenerateVideoResult> => {
-    console.log('[generateVideo] Sending request to API:', params.provider);
+    if (shouldLogGenerationDebug) {
+        console.info('[generateVideo] Sending request to API:', params.provider);
+    }
 
     try {
         const { authToken, ...bodyParams } = params;
@@ -218,10 +227,6 @@ export const generateVideo = async (params: GenerateVideoParams): Promise<Genera
     }
 };
 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db, storage } from '@/firebase/config';
-
 export interface SaveHistoryParams {
     userId: string;
     url: string;
@@ -229,7 +234,7 @@ export interface SaveHistoryParams {
     generatedId: string;
     prompt: string;
     negativePrompt?: string;
-    provider: 'gemini' | 'grok';
+    provider: 'openrouter';
 }
 
 export const saveGenerationHistory = async (params: SaveHistoryParams) => {

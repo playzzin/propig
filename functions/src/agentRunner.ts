@@ -2,7 +2,8 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 import { OrchestratorAgent } from './agents/Orchestrator';
 import { AgentManager } from './agents/AgentManager';
-import { geminiApiKey } from './secrets';
+import { openRouterApiKey } from './secrets';
+import { FIRESTORE_DATABASE_ID } from './firestore';
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -20,7 +21,8 @@ if (!admin.apps.length) {
 export const onAgentJobCreated = onDocumentCreated(
     {
         document: 'agent_jobs/{jobId}',
-        secrets: [geminiApiKey],
+        database: FIRESTORE_DATABASE_ID,
+        secrets: [openRouterApiKey],
         timeoutSeconds: 540,
         memory: '1GiB',
         region: 'asia-northeast3',
@@ -47,9 +49,9 @@ export const onAgentJobCreated = onDocumentCreated(
         });
 
         try {
-            process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-            process.env.LLM_PROVIDER = 'gemini';
-            process.env.GEMINI_MODEL = 'gemini-2.5-flash';
+            process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+            process.env.LLM_PROVIDER = 'openrouter';
+            process.env.OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini';
 
             const orchestrator = new OrchestratorAgent();
 
@@ -94,7 +96,8 @@ export const onAgentJobCreated = onDocumentCreated(
 export const onSubAgentJobCreated = onDocumentCreated(
     {
         document: 'sub_agent_jobs/{jobId}',
-        secrets: [geminiApiKey],
+        database: FIRESTORE_DATABASE_ID,
+        secrets: [openRouterApiKey],
         timeoutSeconds: 540,
         memory: '1GiB',
         region: 'asia-northeast3',
@@ -123,9 +126,9 @@ export const onSubAgentJobCreated = onDocumentCreated(
         });
 
         try {
-            process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-            process.env.LLM_PROVIDER = 'gemini';
-            process.env.GEMINI_MODEL = 'gemini-2.5-flash';
+            process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+            process.env.LLM_PROVIDER = 'openrouter';
+            process.env.OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini';
 
             // Use AgentManager for sub-agent orchestration
             const agentManager = new AgentManager();

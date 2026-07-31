@@ -89,7 +89,7 @@ const parseBearerToken = (request: NextRequest): string | null => {
 };
 
 const parseAdminUidAllowList = (): string[] => {
-    const raw = process.env.GEMINI_ADMIN_UIDS || process.env.ADMIN_UIDS || '';
+    const raw = process.env.ADMIN_UIDS || '';
     return raw
         .split(',')
         .map((item) => item.trim())

@@ -3,25 +3,39 @@ import { SiteDataType, SiteData, MenuItem, MenuServiceInterface } from '@/types/
 import { validateAllSites, validateSiteData } from '@/schemas/menuSchema';
 import { ACCOUNT_MENU_SITE_ID, createDefaultAccountMenuSite } from '@/constants/accountMenu';
 import { DEFAULT_SITE_HOME_MENU_ITEMS } from '@/constants/siteHome';
+import { COMPANY_MENU_ITEMS } from '@/constants/companyMenu';
 import { PROPIG_STORE_MENU_ITEMS, PROPIG_STORE_PAGE_MENU_ITEM } from '@/constants/propigStore';
 import { auth, db } from '@/firebase/config';
+import { USER_PERMISSION_KEYS, USER_POSITION_OPTIONS, USER_ROLE_OPTIONS } from '@/types/userAccess';
 
 class MenuService implements MenuServiceInterface {
   private readonly STORAGE_KEY = 'advanced_menu_manager_data';
   private readonly STORAGE_VERSION_KEY = 'advanced_menu_manager_data_version';
   private readonly REMOTE_COLLECTION = 'menuSettings';
   private readonly REMOTE_DOC_ID = 'sites';
-  private readonly CURRENT_DATA_VERSION = 29;
+  private readonly REMOTE_LOAD_TIMEOUT_MS = 1200;
+  private readonly CURRENT_DATA_VERSION = 42;
+  private readonly RETIRED_MENU_PATHS = new Set(['/mandalart']);
+  private readonly RETIRED_MENU_ITEM_IDS = new Set(['admin-5']);
   private readonly DEPRECATED_CORP_COMPANY_MENU_PATHS = new Set([
+    '/corp/company/founding-background',
     '/corp/company/vision',
+    '/corp/company/vision-mission',
     '/corp/company/company-values',
-    '/corp/company/history',
+    '/corp/company/social-contribution',
+    '/corp/company/technology',
+    '/corp/company/location',
   ]);
   private readonly DEPRECATED_CORP_COMPANY_MENU_ITEM_IDS = new Set([
+    'corp-company-intro-4',
     'corp-company-intro-5',
+    'corp-company-intro-6',
     'corp-company-intro-8',
     'corp-company-intro-9',
   ]);
+  private readonly CURRENT_CORP_COMPANY_MENU_PATHS = new Set<string>(
+    COMPANY_MENU_ITEMS.map((item) => item.href),
+  );
   private readonly DEPRECATED_PROPIG_PAGE_PATHS = new Set([
     '/propig/tasks',
     '/propig/routines',
@@ -31,17 +45,43 @@ class MenuService implements MenuServiceInterface {
     '/shop/returns',
   ]);
   private readonly DEPRECATED_PROPIG_MENU_ITEM_IDS = new Set(['shop-1-1', 'shop-1-2', 'shop-1-3']);
+  private readonly VALID_MENU_TYPES = new Set(['folder', 'link', 'divider']);
   private subscribers: Map<string, Set<(data: SiteData) => void>> = new Map();
+  private allSitesCache: SiteDataType | null = null;
+  private loadAllSitesPromise: Promise<SiteDataType> | null = null;
+  private remoteMenuUnsubscribe: (() => void) | null = null;
+  private remoteMenuSubscriberCount = 0;
 
   async loadAllSites(): Promise<SiteDataType> {
+    if (this.allSitesCache) {
+      return this.serializeSites(this.allSitesCache);
+    }
+
+    if (this.loadAllSitesPromise) {
+      return this.loadAllSitesPromise;
+    }
+
+    this.loadAllSitesPromise = this.loadAllSitesUncached().finally(() => {
+      this.loadAllSitesPromise = null;
+    });
+
+    return this.loadAllSitesPromise;
+  }
+
+  getDefaultSites(): SiteDataType {
+    return this.serializeSites(this.getDefaultData());
+  }
+
+  getCachedSites(): SiteDataType | null {
+    return this.allSitesCache ? this.serializeSites(this.allSitesCache) : null;
+  }
+
+  private async loadAllSitesUncached(): Promise<SiteDataType> {
     try {
-      const remote = await this.loadRemoteSites();
+      const remote = await this.loadRemoteSitesWithTimeout();
       if (remote) {
-        this.persistLocal(remote.data);
-        if (remote.changed) {
-          void this.saveRemoteSites(remote.data);
-        }
-        return remote.data;
+        this.persistLocal(remote);
+        return this.rememberSites(remote);
       }
 
       const stored = this.readLocalStorage(this.STORAGE_KEY);
@@ -50,12 +90,16 @@ class MenuService implements MenuServiceInterface {
         const parsed = JSON.parse(stored);
         if (validateAllSites(parsed)) {
           const normalized = this.normalizeMenuData(parsed);
+          const normalizedChanged = this.hasDataChanged(parsed as SiteDataType, normalized);
           const { data: migratedData, changed } = this.migrateData(normalized);
-          if (changed) {
+          if (normalizedChanged || changed) {
             this.persistLocal(migratedData);
           }
-          void this.saveRemoteSites(migratedData);
-          return migratedData;
+
+          // A timed-out remote read is not evidence that the remote document is
+          // missing. Keep the offline fallback read-only so app startup cannot
+          // compete with navigation or overwrite a newer remote menu snapshot.
+          return this.rememberSites(migratedData);
         }
       }
 
@@ -64,27 +108,32 @@ class MenuService implements MenuServiceInterface {
       if (changed) {
         this.persistLocal(migratedDefaults);
       }
-      void this.saveRemoteSites(migratedDefaults);
-      return migratedDefaults;
+      return this.rememberSites(migratedDefaults);
     } catch (error) {
       console.error('Failed to load sites:', error);
-      return this.getDefaultData();
+      return this.rememberSites(this.getDefaultData());
     }
   }
 
   async saveSite(siteId: string, data: SiteData): Promise<void> {
     try {
-      if (!validateSiteData(data)) {
+      const normalizedSite = this.normalizeSiteData(data);
+      const cleanedSite = this.cleanupRetiredMenuItems({
+        [siteId]: normalizedSite,
+      }).data[siteId];
+
+      if (!validateSiteData(cleanedSite)) {
         throw new Error('Invalid site data');
       }
 
       const allSites = await this.loadAllSites();
-      allSites[siteId] = data;
+      allSites[siteId] = cleanedSite;
 
       this.persistLocal(allSites);
+      this.rememberSites(allSites);
       await this.saveRemoteSites(allSites);
 
-      this.notifySubscribers(siteId, data);
+      this.notifySubscribers(siteId, cleanedSite);
     } catch (error) {
       console.error('Failed to save site:', error);
       throw error;
@@ -99,30 +148,26 @@ class MenuService implements MenuServiceInterface {
     this.subscribers.get(siteId)!.add(callback);
 
     let disposed = false;
-    this.loadAllSites().then((allSites) => {
-      if (disposed) return;
-      if (allSites[siteId]) {
-        callback(allSites[siteId]);
-      }
-    });
+    if (this.allSitesCache?.[siteId]) {
+      queueMicrotask(() => {
+        if (!disposed && this.allSitesCache?.[siteId]) {
+          callback(this.allSitesCache[siteId]);
+        }
+      });
+    } else {
+      this.loadAllSites().then((allSites) => {
+        if (disposed) return;
+        if (allSites[siteId]) {
+          callback(allSites[siteId]);
+        }
+      });
+    }
 
-    const unsubscribeRemote = onSnapshot(
-      this.getRemoteDocRef(),
-      (snapshot) => {
-        if (!snapshot.exists()) return;
-        const remote = this.parseRemoteSnapshot(snapshot.data());
-        if (!remote) return;
-        this.persistLocal(remote.data);
-        this.notifyAllSubscribers(remote.data);
-      },
-      (error) => {
-        console.warn('Failed to subscribe to remote menu data:', error);
-      },
-    );
+    const releaseRemoteSubscription = this.retainRemoteMenuSubscription();
 
     return () => {
       disposed = true;
-      unsubscribeRemote();
+      releaseRemoteSubscription();
       const subs = this.subscribers.get(siteId);
       if (subs) {
         subs.delete(callback);
@@ -149,20 +194,63 @@ class MenuService implements MenuServiceInterface {
     return doc(db, this.REMOTE_COLLECTION, this.REMOTE_DOC_ID);
   }
 
+  private retainRemoteMenuSubscription(): () => void {
+    this.remoteMenuSubscriberCount += 1;
+
+    if (!this.remoteMenuUnsubscribe) {
+      this.remoteMenuUnsubscribe = onSnapshot(
+        this.getRemoteDocRef(),
+        (snapshot) => {
+          if (!snapshot.exists()) return;
+          const remote = this.parseRemoteSnapshot(snapshot.data());
+          if (!remote) return;
+          this.persistLocal(remote);
+          this.rememberSites(remote);
+          this.notifyAllSubscribers(remote);
+        },
+        (error) => {
+          console.warn('Failed to subscribe to remote menu data:', error);
+        },
+      );
+    }
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.remoteMenuSubscriberCount = Math.max(0, this.remoteMenuSubscriberCount - 1);
+
+      if (this.remoteMenuSubscriberCount === 0) {
+        this.remoteMenuUnsubscribe?.();
+        this.remoteMenuUnsubscribe = null;
+      }
+    };
+  }
+
   private serializeSites(data: SiteDataType): SiteDataType {
     return JSON.parse(JSON.stringify(data)) as SiteDataType;
   }
 
-  private parseRemoteSnapshot(value: unknown): { data: SiteDataType; changed: boolean } | null {
+  private rememberSites(data: SiteDataType): SiteDataType {
+    this.allSitesCache = this.serializeSites(data);
+    return data;
+  }
+
+  private hasDataChanged(left: SiteDataType, right: SiteDataType): boolean {
+    return JSON.stringify(left) !== JSON.stringify(right);
+  }
+
+  private parseRemoteSnapshot(value: unknown): SiteDataType | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const payload = value as { sites?: unknown; version?: unknown };
     if (!validateAllSites(payload.sites)) return null;
 
     const normalized = this.normalizeMenuData(payload.sites as SiteDataType);
-    return this.migrateData(normalized, Number(payload.version || '1'));
+    const migration = this.migrateData(normalized, Number(payload.version || '1'));
+    return migration.data;
   }
 
-  private async loadRemoteSites(): Promise<{ data: SiteDataType; changed: boolean } | null> {
+  private async loadRemoteSites(): Promise<SiteDataType | null> {
     try {
       const snapshot = await getDoc(this.getRemoteDocRef());
       if (!snapshot.exists()) return null;
@@ -171,6 +259,31 @@ class MenuService implements MenuServiceInterface {
       console.warn('Failed to load remote menu data:', error);
       return null;
     }
+  }
+
+  private async loadRemoteSitesWithTimeout(): Promise<SiteDataType | null> {
+    const timedOut = { timedOut: true } as const;
+    const remotePromise = this.loadRemoteSites();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<typeof timedOut>((resolve) => {
+      timeoutId = setTimeout(() => resolve(timedOut), this.REMOTE_LOAD_TIMEOUT_MS);
+    });
+
+    const result = await Promise.race([remotePromise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+
+    if (result && 'timedOut' in result) {
+      void remotePromise.then((remote) => {
+        if (!remote) return;
+        this.persistLocal(remote);
+        this.rememberSites(remote);
+        this.notifyAllSubscribers(remote);
+      });
+
+      return null;
+    }
+
+    return result;
   }
 
   private async saveRemoteSites(data: SiteDataType): Promise<void> {
@@ -235,46 +348,180 @@ class MenuService implements MenuServiceInterface {
     const normalized: SiteDataType = {};
 
     for (const [siteId, siteData] of Object.entries(data)) {
-      normalized[siteId] = {
-        ...siteData,
-        menu: this.normalizeMenuItems(siteData.menu),
-      };
+      const normalizedSiteId = siteId.trim();
+      if (!normalizedSiteId || !siteData) continue;
+      normalized[normalizedSiteId] = this.normalizeSiteData(siteData);
     }
 
     return normalized;
   }
 
-  private normalizeMenuItems(items: MenuItem[]): MenuItem[] {
-    return items.map((item) => {
-      const normalized: MenuItem = { ...item };
+  private normalizeSiteData(siteData: SiteData): SiteData {
+    const positions = Array.isArray(siteData.positions)
+      ? this.sanitizeStringArray(siteData.positions, USER_POSITION_OPTIONS) as SiteData['positions'] | undefined
+      : undefined;
 
-      if (item.sub && Array.isArray(item.sub)) {
-        normalized.sub = item.sub.map((subItem) => {
-          if (typeof subItem === 'string') {
-            return subItem;
+    return {
+      name: siteData.name.trim(),
+      icon: siteData.icon.trim() || 'globe',
+      ...(typeof siteData.color === 'string' && siteData.color.trim() ? { color: siteData.color.trim() } : {}),
+      ...(positions?.length ? { positions } : {}),
+      menu: this.normalizeMenuItems(siteData.menu || []),
+      trash: this.normalizeMenuItems(siteData.trash || []),
+    };
+  }
+
+  private normalizeMenuItems(items: MenuItem[]): MenuItem[] {
+    const seenIds = new Set<string>();
+    const seenPaths = new Set<string>();
+
+    const normalizeList = (rawItems: Array<MenuItem | string>, allowStrings: boolean): Array<MenuItem | string> => {
+      const normalizedItems: Array<MenuItem | string> = [];
+      const seenStrings = new Set<string>();
+
+      for (const rawItem of rawItems) {
+        if (typeof rawItem === 'string') {
+          const label = rawItem.trim();
+          if (allowStrings && label && !seenStrings.has(label)) {
+            seenStrings.add(label);
+            normalizedItems.push(label);
           }
-          return this.normalizeMenuItems([subItem])[0];
-        });
+          continue;
+        }
+
+        const normalizedItem = normalizeItem(rawItem);
+        if (normalizedItem) {
+          normalizedItems.push(normalizedItem);
+        }
+      }
+
+      return normalizedItems;
+    };
+
+    const normalizeItem = (item: MenuItem): MenuItem | null => {
+      const id = item.id?.trim();
+      const text = item.text?.trim();
+      if (!id || !text || seenIds.has(id)) return null;
+
+      const path = this.normalizeMenuPath(item.path);
+      if (path && seenPaths.has(path)) return null;
+
+      seenIds.add(id);
+      if (path) seenPaths.add(path);
+
+      const requestedType = typeof item.type === 'string' && this.VALID_MENU_TYPES.has(item.type)
+        ? item.type
+        : undefined;
+      const normalizedSub = Array.isArray(item.sub) ? normalizeList(item.sub, true) : [];
+      const type = requestedType ?? (normalizedSub.length > 0 ? 'folder' : 'link');
+      const icon = typeof item.icon === 'string' && item.icon.trim() ? item.icon.trim() : undefined;
+      const roles = this.sanitizeStringArray(item.roles, USER_ROLE_OPTIONS);
+      const permissions = this.sanitizeStringArray(item.permissions, USER_PERMISSION_KEYS) as MenuItem['permissions'] | undefined;
+      const position = this.sanitizeStringArray(item.position, USER_POSITION_OPTIONS) as MenuItem['position'] | undefined;
+      const badge =
+        typeof item.badge === 'number'
+          ? item.badge
+          : typeof item.badge === 'string' && item.badge.trim()
+            ? item.badge.trim()
+            : undefined;
+
+      const normalized: MenuItem = {
+        id,
+        text,
+        type,
+      };
+
+      if (type !== 'divider' && path) normalized.path = path;
+      if (type !== 'divider' && icon) normalized.icon = icon;
+      if (roles?.length) normalized.roles = roles;
+      if (permissions?.length) normalized.permissions = permissions;
+      if (position?.length) normalized.position = position;
+      if (badge !== undefined) normalized.badge = badge;
+      if (item.external === true) normalized.external = true;
+      if (item.hidden === true) normalized.hidden = true;
+      if (typeof item.expanded === 'boolean') normalized.expanded = item.expanded;
+      if (typeof item.propigAppId === 'string' && item.propigAppId.trim()) {
+        normalized.propigAppId = item.propigAppId.trim();
+      }
+      if (normalizedSub.length > 0 || type === 'folder') {
+        normalized.sub = normalizedSub;
       }
 
       return normalized;
-    });
+    };
+
+    return normalizeList(items, false).filter((item): item is MenuItem => typeof item !== 'string');
   }
 
-  private migrateData(data: SiteDataType, sourceVersion = this.getSavedLocalVersion()): { data: SiteDataType; changed: boolean } {
+  private normalizeMenuPath(path: unknown): string | undefined {
+    if (typeof path !== 'string') return undefined;
+    const trimmedPath = path.trim();
+    if (!trimmedPath) return undefined;
+    if (trimmedPath.startsWith('/')) return trimmedPath;
+    if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmedPath)) return trimmedPath;
+    return undefined;
+  }
+
+  private sanitizeStringArray(
+    value: unknown,
+    allowedValues?: readonly string[],
+  ): string[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const allowed = allowedValues ? new Set(allowedValues) : null;
+    const normalized = value.reduce<string[]>((acc, item) => {
+      if (typeof item !== 'string') return acc;
+      const trimmed = item.trim();
+      if (!trimmed || acc.includes(trimmed)) return acc;
+      if (allowed && !allowed.has(trimmed)) return acc;
+      acc.push(trimmed);
+      return acc;
+    }, []);
+
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private migrateData(
+    data: SiteDataType,
+    sourceVersion = this.getSavedLocalVersion(),
+    persistLocalVersion = true,
+  ): { data: SiteDataType; changed: boolean } {
     const savedVersion = sourceVersion;
     const accountMenuMigration = this.ensureAccountMenuSite(data);
     let nextData = accountMenuMigration.data;
     let changed = accountMenuMigration.changed;
+
+    const blogDashboardMigration = this.ensureBlogDashboardSite(nextData);
+    nextData = blogDashboardMigration.data;
+    changed = changed || blogDashboardMigration.changed;
+
+    const retiredMenuCleanup = this.cleanupRetiredMenuItems(nextData);
+    nextData = retiredMenuCleanup.data;
+    changed = changed || retiredMenuCleanup.changed;
 
     if (!Number.isFinite(savedVersion) || savedVersion < this.CURRENT_DATA_VERSION) {
       const migrationResult = this.applyCorpBusinessTemplate(nextData);
       nextData = migrationResult.data;
       changed = changed || migrationResult.changed;
 
-      const adminMigration = this.applyAdminGeminiMenu(nextData);
+      const corpHomeCleanup = this.cleanupCorpHomeMenu(nextData);
+      nextData = corpHomeCleanup.data;
+      changed = changed || corpHomeCleanup.changed;
+
+      const adminMigration = this.applyAdminOpenRouterMenu(nextData);
       nextData = adminMigration.data;
       changed = changed || adminMigration.changed;
+
+      const emoticonStudioMigration = this.applyAdminEmoticonStudioMenu(nextData);
+      nextData = emoticonStudioMigration.data;
+      changed = changed || emoticonStudioMigration.changed;
+
+      const storyboardStudioMigration = this.applyAdminStoryboardStudioMenu(nextData);
+      nextData = storyboardStudioMigration.data;
+      changed = changed || storyboardStudioMigration.changed;
+
+      const openRouterUsageMigration = this.applyAdminOpenRouterUsageMenu(nextData);
+      nextData = openRouterUsageMigration.data;
+      changed = changed || openRouterUsageMigration.changed;
 
       const photosMigration = this.applyAdminPhotosMenu(nextData);
       nextData = photosMigration.data;
@@ -287,6 +534,14 @@ class MenuService implements MenuServiceInterface {
       const usersMigration = this.applyAdminUsersMenu(nextData);
       nextData = usersMigration.data;
       changed = changed || usersMigration.changed;
+
+      const activityLogsMigration = this.applyAdminActivityLogsMenu(nextData);
+      nextData = activityLogsMigration.data;
+      changed = changed || activityLogsMigration.changed;
+
+      const workspaceFilesCleanup = this.cleanupAdminWorkspaceFilesMenu(nextData);
+      nextData = workspaceFilesCleanup.data;
+      changed = changed || workspaceFilesCleanup.changed;
 
       const permissionMenuMigration = this.applyAdminPermissionMenuAccess(nextData);
       nextData = permissionMenuMigration.data;
@@ -321,6 +576,10 @@ class MenuService implements MenuServiceInterface {
       nextData = homeMigration.data;
       changed = changed || homeMigration.changed;
 
+      const postHomeCorpCleanup = this.cleanupCorpHomeMenu(nextData);
+      nextData = postHomeCorpCleanup.data;
+      changed = changed || postHomeCorpCleanup.changed;
+
       const propigMigration = this.applyPropigSelfManagementMenu(nextData);
       nextData = propigMigration.data;
       changed = changed || propigMigration.changed;
@@ -333,7 +592,7 @@ class MenuService implements MenuServiceInterface {
       nextData = deprecatedPropigPageMigration.data;
       changed = changed || deprecatedPropigPageMigration.changed;
 
-      if (typeof window !== 'undefined') {
+      if (persistLocalVersion && typeof window !== 'undefined') {
         window.localStorage.setItem(this.STORAGE_VERSION_KEY, String(this.CURRENT_DATA_VERSION));
       }
       if (savedVersion !== this.CURRENT_DATA_VERSION) {
@@ -357,7 +616,88 @@ class MenuService implements MenuServiceInterface {
     nextData = pageMakerCleanup.data;
     changed = changed || pageMakerCleanup.changed;
 
+    const workspaceFilesCleanup = this.cleanupAdminWorkspaceFilesMenu(nextData);
+    nextData = workspaceFilesCleanup.data;
+    changed = changed || workspaceFilesCleanup.changed;
+
+    const storyboardStudioSync = this.applyAdminStoryboardStudioMenu(nextData);
+    nextData = storyboardStudioSync.data;
+    changed = changed || storyboardStudioSync.changed;
+
+    const corpBusinessTemplateSync = this.applyCorpBusinessTemplate(nextData);
+    nextData = corpBusinessTemplateSync.data;
+    changed = changed || corpBusinessTemplateSync.changed;
+
+    const corpHomeCleanup = this.cleanupCorpHomeMenu(nextData);
+    nextData = corpHomeCleanup.data;
+    changed = changed || corpHomeCleanup.changed;
+
     return { data: nextData, changed };
+  }
+
+  private cleanupRetiredMenuItems(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    let nextData = data;
+    let changed = false;
+
+    for (const [siteId, site] of Object.entries(data)) {
+      const menuCleanup = this.removeRetiredMenuItems(site.menu);
+      const trashCleanup = this.removeRetiredMenuItems(site.trash);
+
+      if (!menuCleanup.changed && !trashCleanup.changed) {
+        continue;
+      }
+
+      nextData = {
+        ...nextData,
+        [siteId]: {
+          ...site,
+          menu: menuCleanup.items,
+          trash: trashCleanup.items,
+        },
+      };
+      changed = true;
+    }
+
+    return { data: nextData, changed };
+  }
+
+  private removeRetiredMenuItems(items: MenuItem[]): { items: MenuItem[]; changed: boolean } {
+    let changed = false;
+    const nextItems: MenuItem[] = [];
+
+    for (const item of items) {
+      if (
+        this.RETIRED_MENU_ITEM_IDS.has(item.id) ||
+        (typeof item.path === 'string' && this.RETIRED_MENU_PATHS.has(item.path))
+      ) {
+        changed = true;
+        continue;
+      }
+
+      if (!item.sub || !Array.isArray(item.sub)) {
+        nextItems.push(item);
+        continue;
+      }
+
+      const nextSub: (string | MenuItem)[] = [];
+      for (const subItem of item.sub) {
+        if (typeof subItem === 'string') {
+          nextSub.push(subItem);
+          continue;
+        }
+
+        const nestedCleanup = this.removeRetiredMenuItems([subItem]);
+        changed = changed || nestedCleanup.changed;
+        nextSub.push(...nestedCleanup.items);
+      }
+
+      nextItems.push({
+        ...item,
+        sub: nextSub,
+      });
+    }
+
+    return { items: nextItems, changed };
   }
 
   private ensureAccountMenuSite(data: SiteDataType): { data: SiteDataType; changed: boolean } {
@@ -369,6 +709,63 @@ class MenuService implements MenuServiceInterface {
       data: {
         ...data,
         [ACCOUNT_MENU_SITE_ID]: createDefaultAccountMenuSite(),
+      },
+      changed: true,
+    };
+  }
+
+  private createDefaultBlogSite(): SiteData {
+    return {
+      name: '블로그',
+      icon: 'pen-nib',
+      color: '#f59e0b',
+      positions: ['ceo', 'manager', 'staff'],
+      menu: [{ ...DEFAULT_SITE_HOME_MENU_ITEMS.blog }],
+      trash: [],
+    };
+  }
+
+  private ensureBlogDashboardSite(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const defaultHome = DEFAULT_SITE_HOME_MENU_ITEMS.blog;
+    const blogSite = data.blog;
+
+    if (!blogSite) {
+      return {
+        data: {
+          ...data,
+          blog: this.createDefaultBlogSite(),
+        },
+        changed: true,
+      };
+    }
+
+    const existingIndex = blogSite.menu.findIndex(
+      (item) => item.id === defaultHome.id || item.path === defaultHome.path,
+    );
+    const existingHome = existingIndex >= 0 ? blogSite.menu[existingIndex] : undefined;
+    const nextHome: MenuItem = {
+      ...existingHome,
+      ...defaultHome,
+      roles: existingHome?.roles ?? defaultHome.roles,
+      position: existingHome?.position ?? defaultHome.position,
+    };
+    const nextMenu = [
+      nextHome,
+      ...blogSite.menu.filter((item, index) => index !== existingIndex && item.id !== defaultHome.id && item.path !== defaultHome.path),
+    ];
+    const nextBlogSite: SiteData = {
+      ...blogSite,
+      menu: nextMenu,
+    };
+
+    if (JSON.stringify(nextBlogSite) === JSON.stringify(blogSite)) {
+      return { data, changed: false };
+    }
+
+    return {
+      data: {
+        ...data,
+        blog: nextBlogSite,
       },
       changed: true,
     };
@@ -422,6 +819,29 @@ class MenuService implements MenuServiceInterface {
     }
 
     return { data: nextData, changed };
+  }
+
+  private cleanupCorpHomeMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const corpSite = data.corp;
+    if (!corpSite) {
+      return { data, changed: false };
+    }
+
+    const nextMenu = corpSite.menu.filter((item) => item.id !== 'corp-home' && item.path !== '/corp');
+    if (nextMenu.length === corpSite.menu.length) {
+      return { data, changed: false };
+    }
+
+    return {
+      data: {
+        ...data,
+        corp: {
+          ...corpSite,
+          menu: nextMenu,
+        },
+      },
+      changed: true,
+    };
   }
 
   private applyPropigSelfManagementMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
@@ -702,7 +1122,6 @@ class MenuService implements MenuServiceInterface {
 
   private isAdminPageMakerMenuItem(item: MenuItem): boolean {
     return (
-      item.id === 'admin-17' ||
       item.path === '/admin/company-pages' ||
       item.path === '/admin/company-introduction-editor' ||
       item.path === '/admin/ceo-intro-media'
@@ -771,8 +1190,8 @@ class MenuService implements MenuServiceInterface {
       path: '/admin/tax/purchase-sales/full-inquiry',
       icon: 'calculator',
       type: 'link',
-      roles: ['admin'],
-      position: ['ceo', 'manager'],
+      roles: [],
+      position: [],
     };
   }
 
@@ -899,15 +1318,36 @@ class MenuService implements MenuServiceInterface {
     for (const templateChild of templateSub) {
       if (typeof templateChild === 'string') continue;
 
-      const existingIndex = existingItems.findIndex(
+      const existingPathIndex = existingItems.findIndex(
         (item, index) =>
           !usedExistingIndexes.has(index) &&
           typeof item !== 'string' &&
-          (item.id === templateChild.id || Boolean(item.path && templateChild.path && item.path === templateChild.path)),
+          Boolean(item.path && templateChild.path && item.path === templateChild.path),
       );
+      const existingIndex =
+        existingPathIndex >= 0
+          ? existingPathIndex
+          : existingItems.findIndex(
+              (item, index) =>
+                !usedExistingIndexes.has(index) &&
+                typeof item !== 'string' &&
+                !this.isDeprecatedCorpBusinessMenuItem(item) &&
+                item.id === templateChild.id,
+            );
 
       if (existingIndex >= 0) {
-        nextSub.push(existingItems[existingIndex]);
+        const existingItem = existingItems[existingIndex];
+        nextSub.push(
+          typeof existingItem === 'string'
+            ? existingItem
+            : {
+                ...existingItem,
+                text: templateChild.text,
+                path: templateChild.path,
+                icon: templateChild.icon,
+                type: templateChild.type,
+              },
+        );
         usedExistingIndexes.add(existingIndex);
         continue;
       }
@@ -916,41 +1356,143 @@ class MenuService implements MenuServiceInterface {
     }
 
     existingItems.forEach((item, index) => {
-      if (!usedExistingIndexes.has(index) && !this.isDeprecatedCorpCompanyMenuItem(item)) {
+      if (!usedExistingIndexes.has(index) && !this.isDeprecatedCorpBusinessMenuItem(item)) {
         nextSub.push(item);
       }
     });
 
-    const changed =
-      nextSub.length !== existingItems.length ||
-      nextSub.some((item, index) => item !== existingItems[index]);
+    const seenKeys = new Set<string>();
+    const dedupedSub: NonNullable<MenuItem['sub']> = [];
+    let dedupedChanged = false;
 
-    return { sub: nextSub, changed };
+    for (const item of nextSub) {
+      const key =
+        typeof item === 'string'
+          ? `string:${item}`
+          : item.id
+            ? `id:${item.id}`
+            : item.path
+              ? `path:${item.path}`
+              : '';
+
+      if (key && seenKeys.has(key)) {
+        dedupedChanged = true;
+        continue;
+      }
+
+      if (key) {
+        seenKeys.add(key);
+      }
+      dedupedSub.push(item);
+    }
+
+    const changed =
+      dedupedChanged ||
+      dedupedSub.length !== existingItems.length ||
+      dedupedSub.some((item, index) => item !== existingItems[index]);
+
+    return { sub: dedupedSub, changed };
   }
 
   private isDeprecatedCorpCompanyMenuItem(item: string | MenuItem): boolean {
     if (typeof item === 'string') return false;
+    if (item.path && this.CURRENT_CORP_COMPANY_MENU_PATHS.has(item.path)) {
+      return false;
+    }
     return (
       this.DEPRECATED_CORP_COMPANY_MENU_ITEM_IDS.has(item.id) ||
       Boolean(item.path && this.DEPRECATED_CORP_COMPANY_MENU_PATHS.has(item.path))
     );
   }
 
-  private applyAdminGeminiMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+  private isDeprecatedCorpBusinessMenuItem(item: string | MenuItem): boolean {
+    if (this.isDeprecatedCorpCompanyMenuItem(item)) return true;
+    if (typeof item === 'string') return false;
+
+    return item.id === 'corp-career-1' || item.path === '/corp/careers/talent';
+  }
+
+  private menuTreeContains(
+    items: MenuItem[],
+    predicate: (item: MenuItem) => boolean,
+  ): boolean {
+    return items.some((item) => {
+      if (predicate(item)) return true;
+      const childItems = (item.sub || []).filter((subItem): subItem is MenuItem => typeof subItem !== 'string');
+      return childItems.length > 0 && this.menuTreeContains(childItems, predicate);
+    });
+  }
+
+  private siteHasMenuTarget(site: SiteData, id: string, path?: string): boolean {
+    const matchesTarget = (item: MenuItem) => item.id === id || Boolean(path && item.path === path);
+    return this.menuTreeContains(site.menu, matchesTarget) || this.menuTreeContains(site.trash, matchesTarget);
+  }
+
+  private migrateOpenRouterMenuItems(items: MenuItem[]): { items: MenuItem[]; changed: boolean } {
+    let changed = false;
+
+    const nextItems = items.map((item) => {
+      let nextSub = item.sub;
+      if (item.sub?.some((subItem) => typeof subItem !== 'string')) {
+        const nestedItems = item.sub.filter((subItem): subItem is MenuItem => typeof subItem !== 'string');
+        const nestedMigration = this.migrateOpenRouterMenuItems(nestedItems);
+        if (nestedMigration.changed) {
+          let nestedIndex = 0;
+          nextSub = item.sub.map((subItem) =>
+            typeof subItem === 'string' ? subItem : nestedMigration.items[nestedIndex++],
+          );
+          changed = true;
+        }
+      }
+
+      const isOpenRouterMenu = item.id === 'admin-8';
+      if (!isOpenRouterMenu) {
+        return nextSub === item.sub ? item : { ...item, sub: nextSub };
+      }
+
+      changed = true;
+      return {
+        ...item,
+        text: 'OpenRouter 운영 센터',
+        path: '/admin/openrouter-settings',
+        ...(nextSub ? { sub: nextSub } : {}),
+      };
+    });
+
+    return { items: nextItems, changed };
+  }
+
+  private applyAdminOpenRouterMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
     const adminSite = data.admin;
     if (!adminSite) {
       return { data, changed: false };
     }
 
-    const exists = adminSite.menu.some((item) => item.id === 'admin-8');
+    const menuMigration = this.migrateOpenRouterMenuItems(adminSite.menu);
+    const trashMigration = this.migrateOpenRouterMenuItems(adminSite.trash);
+    if (menuMigration.changed || trashMigration.changed) {
+      return {
+        data: {
+          ...data,
+          admin: {
+            ...adminSite,
+            menu: menuMigration.items,
+            trash: trashMigration.items,
+          },
+        },
+        changed: true,
+      };
+    }
+
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-8', '/admin/openrouter-settings');
     if (exists) {
       return { data, changed: false };
     }
 
-    const geminiMenu: MenuItem = {
+    const openRouterMenu: MenuItem = {
       id: 'admin-8',
-      text: 'Gemini 설정 센터',
-      path: '/admin/gemini-settings',
+      text: 'OpenRouter 운영 센터',
+      path: '/admin/openrouter-settings',
       icon: 'key',
       type: 'link',
       roles: ['admin'],
@@ -961,7 +1503,150 @@ class MenuService implements MenuServiceInterface {
     const dividerIndex = adminSite.menu.findIndex((item) => item.id === 'admin-divider-1');
     const insertIndex = dividerIndex >= 0 ? dividerIndex : adminSite.menu.length;
     const nextMenu = [...adminSite.menu];
-    nextMenu.splice(insertIndex, 0, geminiMenu);
+    nextMenu.splice(insertIndex, 0, openRouterMenu);
+
+    return {
+      data: {
+        ...data,
+        admin: {
+          ...adminSite,
+          menu: nextMenu,
+        },
+      },
+      changed: true,
+    };
+  }
+
+  private applyAdminOpenRouterUsageMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const adminSite = data.admin;
+    if (!adminSite) {
+      return { data, changed: false };
+    }
+
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-19', '/admin/openrouter-usage');
+    if (exists) {
+      return { data, changed: false };
+    }
+
+    const usageMenu: MenuItem = {
+      id: 'admin-19',
+      text: 'OpenRouter 사용량',
+      path: '/admin/openrouter-usage',
+      icon: 'chart-line',
+      type: 'link',
+      roles: ['admin'],
+      position: ['ceo', 'manager'],
+      badge: 'USAGE',
+    };
+
+    const settingsIndex = adminSite.menu.findIndex(
+      (item) => item.id === 'admin-8' || item.path === '/admin/openrouter-settings',
+    );
+    const insertIndex = settingsIndex >= 0 ? settingsIndex + 1 : adminSite.menu.length;
+    const nextMenu = [...adminSite.menu];
+    nextMenu.splice(insertIndex, 0, usageMenu);
+
+    return {
+      data: {
+        ...data,
+        admin: {
+          ...adminSite,
+          menu: nextMenu,
+        },
+      },
+      changed: true,
+    };
+  }
+
+  private applyAdminEmoticonStudioMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const adminSite = data.admin;
+    if (!adminSite) {
+      return { data, changed: false };
+    }
+
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-20', '/admin/emoticon-studio');
+    if (exists) {
+      return { data, changed: false };
+    }
+
+    const emoticonStudioMenu: MenuItem = {
+      id: 'admin-20',
+      text: 'AI 이모티콘 스튜디오',
+      path: '/admin/emoticon-studio',
+      icon: 'face-smile',
+      type: 'link',
+      roles: ['admin'],
+      position: ['ceo', 'manager'],
+      badge: 'AI',
+    };
+
+    const imageGeneratorIndex = adminSite.menu.findIndex(
+      (item) => item.id === 'admin-6' || item.path === '/admin/image-generator',
+    );
+    const openRouterIndex = adminSite.menu.findIndex(
+      (item) => item.id === 'admin-8' || item.path === '/admin/openrouter-settings',
+    );
+    const dividerIndex = adminSite.menu.findIndex((item) => item.id === 'admin-divider-1');
+    const insertIndex = imageGeneratorIndex >= 0
+      ? imageGeneratorIndex + 1
+      : openRouterIndex >= 0
+        ? openRouterIndex
+        : dividerIndex >= 0
+          ? dividerIndex
+          : adminSite.menu.length;
+    const nextMenu = [...adminSite.menu];
+    nextMenu.splice(insertIndex, 0, emoticonStudioMenu);
+
+    return {
+      data: {
+        ...data,
+        admin: {
+          ...adminSite,
+          menu: nextMenu,
+        },
+      },
+      changed: true,
+    };
+  }
+
+  private applyAdminStoryboardStudioMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const adminSite = data.admin;
+    if (!adminSite) {
+      return { data, changed: false };
+    }
+
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-21', '/admin/storyboard');
+    if (exists) {
+      return { data, changed: false };
+    }
+
+    const storyboardStudioMenu: MenuItem = {
+      id: 'admin-21',
+      text: '스토리보드 영상 제작',
+      path: '/admin/storyboard',
+      icon: 'clapperboard',
+      type: 'link',
+      roles: ['admin'],
+      position: ['ceo', 'manager'],
+      badge: 'VIDEO',
+    };
+
+    const imageGeneratorIndex = adminSite.menu.findIndex(
+      (item) => item.id === 'admin-6' || item.path === '/admin/image-generator',
+    );
+    const emoticonStudioIndex = adminSite.menu.findIndex(
+      (item) => item.id === 'admin-20' || item.path === '/admin/emoticon-studio',
+    );
+    const dividerIndex = adminSite.menu.findIndex((item) => item.id === 'admin-divider-1');
+    const insertIndex = imageGeneratorIndex >= 0
+      ? imageGeneratorIndex + 1
+      : emoticonStudioIndex >= 0
+        ? emoticonStudioIndex
+        : dividerIndex >= 0
+          ? dividerIndex
+          : adminSite.menu.length;
+    const nextMenu = [...adminSite.menu];
+    nextMenu.splice(insertIndex, 0, storyboardStudioMenu);
 
     return {
       data: {
@@ -981,7 +1666,7 @@ class MenuService implements MenuServiceInterface {
       return { data, changed: false };
     }
 
-    const exists = adminSite.menu.some((item) => item.id === 'admin-9');
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-9', '/admin/photos');
     if (exists) {
       return { data, changed: false };
     }
@@ -1020,7 +1705,7 @@ class MenuService implements MenuServiceInterface {
       return { data, changed: false };
     }
 
-    const exists = adminSite.menu.some((item) => item.id === 'admin-11' || item.path === '/admin/storage');
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-11', '/admin/storage');
     if (exists) {
       return { data, changed: false };
     }
@@ -1060,7 +1745,7 @@ class MenuService implements MenuServiceInterface {
       return { data, changed: false };
     }
 
-    const exists = adminSite.menu.some((item) => item.id === 'admin-13' || item.path === '/admin/users');
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-13', '/admin/users');
     if (exists) {
       return { data, changed: false };
     }
@@ -1092,6 +1777,109 @@ class MenuService implements MenuServiceInterface {
       },
       changed: true,
     };
+  }
+
+  private applyAdminActivityLogsMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const adminSite = data.admin;
+    if (!adminSite) {
+      return { data, changed: false };
+    }
+
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-17', '/admin/activity-logs');
+    if (exists) {
+      return { data, changed: false };
+    }
+
+    const activityLogsMenu: MenuItem = {
+      id: 'admin-17',
+      text: '작업 히스토리',
+      path: '/admin/activity-logs',
+      icon: 'clock-rotate-left',
+      type: 'link',
+      roles: ['admin'],
+      position: ['ceo', 'manager'],
+      badge: 'LOG',
+    };
+
+    const usersIndex = adminSite.menu.findIndex((item) => item.id === 'admin-13' || item.path === '/admin/users');
+    const targetIndex = adminSite.menu.findIndex((item) => item.id === 'admin-divider-1');
+    const insertIndex = usersIndex >= 0 ? usersIndex + 1 : targetIndex >= 0 ? targetIndex : adminSite.menu.length;
+    const nextMenu = [...adminSite.menu];
+    nextMenu.splice(insertIndex, 0, activityLogsMenu);
+
+    return {
+      data: {
+        ...data,
+        admin: {
+          ...adminSite,
+          menu: nextMenu,
+        },
+      },
+      changed: true,
+    };
+  }
+
+  private cleanupAdminWorkspaceFilesMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    let nextData = data;
+    let changed = false;
+
+    for (const [siteId, site] of Object.entries(data)) {
+      const menuCleanup = this.removeAdminWorkspaceFilesMenuItems(site.menu);
+      const trashCleanup = this.removeAdminWorkspaceFilesMenuItems(site.trash);
+
+      if (!menuCleanup.changed && !trashCleanup.changed) {
+        continue;
+      }
+
+      nextData = {
+        ...nextData,
+        [siteId]: {
+          ...site,
+          menu: menuCleanup.items,
+          trash: trashCleanup.items,
+        },
+      };
+      changed = true;
+    }
+
+    return { data: nextData, changed };
+  }
+
+  private removeAdminWorkspaceFilesMenuItems(items: MenuItem[]): { items: MenuItem[]; changed: boolean } {
+    let changed = false;
+    const nextItems: MenuItem[] = [];
+
+    for (const item of items) {
+      if (item.id === 'admin-18' || item.path === '/admin/workspace-files') {
+        changed = true;
+        continue;
+      }
+
+      if (item.sub && Array.isArray(item.sub)) {
+        const nextSub: (string | MenuItem)[] = [];
+
+        for (const subItem of item.sub) {
+          if (typeof subItem === 'string') {
+            nextSub.push(subItem);
+            continue;
+          }
+
+          const cleanupResult = this.removeAdminWorkspaceFilesMenuItems([subItem]);
+          changed = changed || cleanupResult.changed;
+          nextSub.push(...cleanupResult.items);
+        }
+
+        nextItems.push({
+          ...item,
+          sub: nextSub,
+        });
+        continue;
+      }
+
+      nextItems.push(item);
+    }
+
+    return { items: nextItems, changed };
   }
 
   private applyAdminPermissionMenuAccess(data: SiteDataType): { data: SiteDataType; changed: boolean } {
@@ -1195,7 +1983,7 @@ class MenuService implements MenuServiceInterface {
       return { data, changed: false };
     }
 
-    const exists = adminSite.menu.some((item) => item.id === 'admin-14' || item.path === '/habit-tracker');
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-14', '/habit-tracker');
     if (exists) {
       return { data, changed: false };
     }
@@ -1233,7 +2021,7 @@ class MenuService implements MenuServiceInterface {
       return { data, changed: false };
     }
 
-    const exists = adminSite.menu.some((item) => item.id === 'admin-15' || item.path === '/bucket-list');
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-15', '/bucket-list');
     if (exists) {
       return { data, changed: false };
     }
@@ -1273,7 +2061,7 @@ class MenuService implements MenuServiceInterface {
       return { data, changed: false };
     }
 
-    const exists = adminSite.menu.some((item) => item.id === 'admin-16' || item.path === '/todo-list');
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-16', '/todo-list');
     if (exists) {
       return { data, changed: false };
     }
@@ -1309,6 +2097,17 @@ class MenuService implements MenuServiceInterface {
     };
   }
 
+  private getCorpCompanyTemplateMenuItems(): MenuItem[] {
+    return COMPANY_MENU_ITEMS.map((item) => ({
+      id: `corp-company-intro-${item.id}`,
+      text: item.label,
+      path: item.href,
+      icon: item.icon,
+      type: 'link',
+      roles: [],
+    }));
+  }
+
   private getCorpBusinessTemplateMenu(): MenuItem[] {
     return [
       {
@@ -1318,64 +2117,7 @@ class MenuService implements MenuServiceInterface {
         type: 'folder',
         roles: [],
         position: ['ceo', 'manager', 'staff'],
-        sub: [
-          {
-            id: 'corp-company-intro-0',
-            text: '회사소개',
-            path: '/corp/company/introduction',
-            icon: 'building',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-company-intro-1',
-            text: '창업배경',
-            path: '/corp/company/founding-background',
-            icon: 'lightbulb',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-company-intro-2',
-            text: '대표소개',
-            path: '/corp/company/ceo-intro',
-            icon: 'user-tie',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-company-intro-3',
-            text: '직원소개',
-            path: '/corp/company/staff-intro',
-            icon: 'users',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-company-intro-4',
-            text: '기업기술',
-            path: '/corp/company/technology',
-            icon: 'microchip',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-company-intro-6',
-            text: '사업영역',
-            path: '/corp/company/business-area',
-            icon: 'briefcase',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-company-intro-7',
-            text: '사회공헌',
-            path: '/corp/company/social-contribution',
-            icon: 'hands-holding-heart',
-            type: 'link',
-            roles: [],
-          },
-        ],
+        sub: this.getCorpCompanyTemplateMenuItems(),
       },
       {
         id: 'corp-project',
@@ -1453,14 +2195,6 @@ class MenuService implements MenuServiceInterface {
         roles: [],
         position: ['ceo', 'manager', 'staff'],
         sub: [
-          {
-            id: 'corp-career-1',
-            text: '인재상',
-            path: '/corp/careers/talent',
-            icon: 'star',
-            type: 'link',
-            roles: [],
-          },
           {
             id: 'corp-career-2',
             text: '채용정보',
@@ -1548,15 +2282,6 @@ class MenuService implements MenuServiceInterface {
             position: ['staff'],
           },
           {
-            id: 'admin-5',
-            text: '만다라트',
-            path: '/mandalart',
-            icon: 'bullseye',
-            type: 'link',
-            roles: ['admin', 'user'],
-            position: ['manager', 'staff'],
-          },
-          {
             id: 'admin-14',
             text: '습관 트래커',
             path: '/habit-tracker',
@@ -1585,14 +2310,44 @@ class MenuService implements MenuServiceInterface {
             position: ['ceo', 'manager'],
           },
           {
+            id: 'admin-21',
+            text: '스토리보드 영상 제작',
+            path: '/admin/storyboard',
+            icon: 'clapperboard',
+            type: 'link',
+            roles: ['admin'],
+            position: ['ceo', 'manager'],
+            badge: 'VIDEO',
+          },
+          {
+            id: 'admin-20',
+            text: 'AI 이모티콘 스튜디오',
+            path: '/admin/emoticon-studio',
+            icon: 'face-smile',
+            type: 'link',
+            roles: ['admin'],
+            position: ['ceo', 'manager'],
+            badge: 'AI',
+          },
+          {
             id: 'admin-8',
-            text: 'Gemini 설정 센터',
-            path: '/admin/gemini-settings',
+            text: 'OpenRouter 운영 센터',
+            path: '/admin/openrouter-settings',
             icon: 'key',
             type: 'link',
             roles: ['admin'],
             position: ['ceo', 'manager'],
             badge: 'AI',
+          },
+          {
+            id: 'admin-19',
+            text: 'OpenRouter 사용량',
+            path: '/admin/openrouter-usage',
+            icon: 'chart-line',
+            type: 'link',
+            roles: ['admin'],
+            position: ['ceo', 'manager'],
+            badge: 'USAGE',
           },
           {
             id: 'admin-9',
@@ -1627,13 +2382,23 @@ class MenuService implements MenuServiceInterface {
             badge: 'AUTH',
           },
           {
+            id: 'admin-17',
+            text: '작업 히스토리',
+            path: '/admin/activity-logs',
+            icon: 'clock-rotate-left',
+            type: 'link',
+            roles: ['admin'],
+            position: ['ceo', 'manager'],
+            badge: 'LOG',
+          },
+          {
             id: 'admin-10',
             text: '세무관리',
             path: '/admin/tax/purchase-sales/full-inquiry',
             icon: 'calculator',
             type: 'link',
-            roles: ['admin'],
-            position: ['ceo', 'manager'],
+            roles: [],
+            position: [],
           },
           {
             id: 'admin-divider-1',
@@ -1654,12 +2419,13 @@ class MenuService implements MenuServiceInterface {
         ],
         trash: [],
       },
+      blog: this.createDefaultBlogSite(),
       corp: {
         name: '기업 관리',
         icon: 'building',
         color: '#6366f1',
         positions: ['ceo', 'manager', 'staff'],
-        menu: [DEFAULT_SITE_HOME_MENU_ITEMS.corp, ...this.getCorpBusinessTemplateMenu()],
+        menu: this.getCorpBusinessTemplateMenu(),
         trash: [],
       },
       shop: {
@@ -1681,14 +2447,17 @@ class MenuService implements MenuServiceInterface {
 
   async saveAllSites(data: SiteDataType): Promise<void> {
     try {
-      if (!validateAllSites(data)) {
+      const normalizedData = this.normalizeMenuData(data);
+      const cleanedData = this.cleanupRetiredMenuItems(normalizedData).data;
+
+      if (!validateAllSites(cleanedData)) {
         throw new Error('Invalid data structure');
       }
 
-      const normalizedData = this.normalizeMenuData(data);
-      this.persistLocal(normalizedData);
-      await this.saveRemoteSites(normalizedData);
-      this.notifyAllSubscribers(normalizedData);
+      this.persistLocal(cleanedData);
+      this.rememberSites(cleanedData);
+      await this.saveRemoteSites(cleanedData);
+      this.notifyAllSubscribers(cleanedData);
     } catch (error) {
       console.error('Failed to save all sites:', error);
       throw error;

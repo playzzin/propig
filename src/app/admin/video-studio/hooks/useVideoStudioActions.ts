@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
-import { storage } from '@/firebase/config';
+import { storage } from '@/firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import { videoStudioService } from '@/services/videoStudioService';
 import type { 

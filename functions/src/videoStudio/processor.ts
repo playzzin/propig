@@ -1,16 +1,29 @@
+import { randomUUID } from 'node:crypto';
 import * as admin from 'firebase-admin';
 import {
+    OpenRouterVideoPendingError,
     deriveVideoInfraHint,
-    generateGrokVideo,
-} from './xai';
-import { extractVideoFrame, mergeVideos } from './ffmpeg';
+    downloadOpenRouterVideo,
+    generateOpenRouterVideo,
+    readOpenRouterVideoCheckpoint,
+    type OpenRouterVideoCheckpoint,
+} from './openrouter';
+import {
+    extractVideoFrame,
+    getVideoCanvasSize,
+    inspectVideoBufferQuality,
+    mergeVideos,
+    type VideoAudioInspection,
+    type VideoQualityInspection,
+} from './ffmpeg';
 import { videoStudioJobRequestSchema } from './request';
+import { db } from '../firestore';
+
+const FUNCTION_VIDEO_PROVIDER_POLL_WINDOW_MS = 4 * 60 * 1000;
 
 if (!admin.apps.length) {
     admin.initializeApp();
 }
-
-const db = admin.firestore();
 
 type VideoStudioJobStatus =
     | 'queued'
@@ -38,6 +51,9 @@ type VideoStudioJobDoc = {
     resultFrameUrl?: string | null;
     errorMessage?: string | null;
     attemptCount?: number | null;
+    nextAttemptAt?: unknown;
+    heartbeatAt?: unknown;
+    leaseExpiresAt?: unknown;
     metadata?: Record<string, unknown> | null;
 };
 
@@ -46,7 +62,7 @@ type VideoStudioProjectDoc = {
     title: string;
     synopsis?: string;
     aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '3:2' | '2:3';
-    resolution: '480p' | '720p';
+    resolution: '480p' | '720p' | '1080p';
 };
 
 type VideoStudioClipDoc = {
@@ -56,7 +72,7 @@ type VideoStudioClipDoc = {
     prompt: string;
     mode: VideoStudioClipMode;
     status: 'ready' | 'processing' | 'failed';
-    provider: 'grok';
+    provider: 'openrouter';
     sequence: number;
     videoUrl: string;
     posterUrl?: string | null;
@@ -163,25 +179,14 @@ function getStorageBucket() {
     return admin.storage().bucket();
 }
 
-async function getStorageFileUrl(path: string): Promise<string> {
-    const [url] = await getStorageBucket().file(path).getSignedUrl({
-        action: 'read',
-        expires: new Date('2500-03-01T00:00:00.000Z'),
-    });
-    return url;
-}
-
-async function fetchRemoteBuffer(url: string): Promise<{ buffer: Buffer; contentType: string }> {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-        throw new VideoStudioWorkerError(502, `Failed to download media asset. HTTP ${response.status}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    return {
-        buffer: Buffer.from(arrayBuffer),
-        contentType: response.headers.get('content-type') || 'application/octet-stream',
-    };
+function buildFirebaseStorageDownloadUrl(params: {
+    bucketName: string;
+    path: string;
+    downloadToken: string;
+}): string {
+    const encodedPath = encodeURIComponent(params.path);
+    const encodedToken = encodeURIComponent(params.downloadToken);
+    return `https://firebasestorage.googleapis.com/v0/b/${params.bucketName}/o/${encodedPath}?alt=media&token=${encodedToken}`;
 }
 
 async function uploadBufferToVideoStudioStorage(params: {
@@ -191,38 +196,90 @@ async function uploadBufferToVideoStudioStorage(params: {
     pathSuffix: string;
     contentType: string;
 }): Promise<string> {
-    const file = getStorageBucket().file(`video_studio/${params.userId}/${params.projectId}/${params.pathSuffix}`);
+    const bucket = getStorageBucket();
+    const file = bucket.file(`video_studio/${params.userId}/${params.projectId}/${params.pathSuffix}`);
+    const downloadToken = randomUUID();
     await file.save(params.buffer, {
         metadata: {
             contentType: params.contentType,
+            metadata: {
+                firebaseStorageDownloadTokens: downloadToken,
+            },
         },
     });
 
-    return getStorageFileUrl(file.name);
-}
-
-async function uploadRemoteFileToVideoStudioStorage(params: {
-    sourceUrl: string;
-    userId: string;
-    projectId: string;
-    pathSuffix: string;
-    fallbackContentType: string;
-}): Promise<string> {
-    const downloaded = await fetchRemoteBuffer(params.sourceUrl);
-    return uploadBufferToVideoStudioStorage({
-        buffer: downloaded.buffer,
-        userId: params.userId,
-        projectId: params.projectId,
-        pathSuffix: params.pathSuffix,
-        contentType: downloaded.contentType || params.fallbackContentType,
+    return buildFirebaseStorageDownloadUrl({
+        bucketName: bucket.name,
+        path: file.name,
+        downloadToken,
     });
 }
 
 async function updateJob(jobId: string, data: Partial<VideoStudioJobDoc> & Record<string, unknown>) {
+    const terminal =
+        data.status === 'completed'
+        || data.status === 'failed'
+        || data.status === 'canceled';
     await db.collection('video_studio_jobs').doc(jobId).update({
         ...data,
+        heartbeatAt: admin.firestore.FieldValue.serverTimestamp(),
+        leaseExpiresAt: terminal
+            ? null
+            : admin.firestore.Timestamp.fromMillis(Date.now() + 12 * 60 * 1000),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+}
+
+function timestampMillis(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (value instanceof Date) return value.getTime();
+    if (!value || typeof value !== 'object') return null;
+    const candidate = value as { toMillis?: () => number; seconds?: number };
+    if (typeof candidate.toMillis === 'function') {
+        const millis = candidate.toMillis();
+        return Number.isFinite(millis) ? millis : null;
+    }
+    return typeof candidate.seconds === 'number' && Number.isFinite(candidate.seconds)
+        ? candidate.seconds * 1000
+        : null;
+}
+
+function isTransientVideoStudioError(error: unknown): boolean {
+    if (error instanceof VideoStudioWorkerError) {
+        return error.status === 429 || error.status >= 500;
+    }
+    const message = error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
+    return [
+        'timeout',
+        'timed out',
+        'rate limit',
+        '429',
+        '500',
+        '502',
+        '503',
+        '504',
+        'econnreset',
+        'enotfound',
+        'fetch failed',
+        'network',
+        'socket hang up',
+    ].some((signal) => message.includes(signal));
+}
+
+function hasResumableProviderVideo(metadata: VideoStudioJobDoc['metadata']): boolean {
+    if (!metadata || typeof metadata !== 'object') return false;
+    const checkpoint = metadata.providerVideo;
+    if (!checkpoint || typeof checkpoint !== 'object') return false;
+    const candidate = checkpoint as { jobId?: unknown; status?: unknown };
+    return typeof candidate.jobId === 'string'
+        && candidate.jobId.length > 0
+        && (
+            candidate.status === 'pending'
+            || candidate.status === 'in_progress'
+            || candidate.status === 'completed'
+        );
 }
 
 async function claimJob(jobId: string): Promise<{ id: string; data: VideoStudioJobDoc }> {
@@ -235,6 +292,13 @@ async function claimJob(jobId: string): Promise<{ id: string; data: VideoStudioJ
         }
 
         const job = snapshot.data() as VideoStudioJobDoc;
+        const nextAttemptAt = timestampMillis(job.nextAttemptAt);
+        if (nextAttemptAt !== null && nextAttemptAt > Date.now()) {
+            throw new VideoStudioWorkerError(
+                425,
+                'This job is waiting for its automatic retry window.',
+            );
+        }
         if (job.status === 'running' || job.status === 'uploading') {
             throw new VideoStudioWorkerError(409, 'This job is already being processed.');
         }
@@ -245,13 +309,20 @@ async function claimJob(jobId: string): Promise<{ id: string; data: VideoStudioJ
             throw new VideoStudioWorkerError(409, 'Canceled jobs cannot be processed.');
         }
 
+        const currentAttempt = Number(job.attemptCount ?? 0);
+        const nextAttempt = hasResumableProviderVideo(job.metadata)
+            ? Math.max(1, currentAttempt)
+            : currentAttempt + 1;
         transaction.update(jobRef, {
             status: 'running',
             progress: 8,
             message: 'Preparing project assets on the worker.',
-            attemptCount: Number(job.attemptCount ?? 0) + 1,
+            attemptCount: nextAttempt,
             claimedAt: admin.firestore.FieldValue.serverTimestamp(),
             startedAt: admin.firestore.FieldValue.serverTimestamp(),
+            heartbeatAt: admin.firestore.FieldValue.serverTimestamp(),
+            leaseExpiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 12 * 60 * 1000),
+            nextAttemptAt: null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             errorMessage: null,
         });
@@ -263,7 +334,7 @@ async function claimJob(jobId: string): Promise<{ id: string; data: VideoStudioJ
                 status: 'running',
                 progress: 8,
                 message: 'Preparing project assets on the worker.',
-                attemptCount: Number(job.attemptCount ?? 0) + 1,
+                attemptCount: nextAttempt,
             },
         };
     });
@@ -307,10 +378,7 @@ async function getClip(clipId: string, userId: string, projectId?: string) {
 }
 
 async function getClips(clipIds: string[], userId: string, projectId: string) {
-    const clips = await Promise.all(clipIds.map((clipId) => getClip(clipId, userId, projectId)));
-    return clips.sort(
-        (a, b) => a.data.sequence - b.data.sequence || String(a.id).localeCompare(String(b.id)),
-    );
+    return Promise.all(clipIds.map((clipId) => getClip(clipId, userId, projectId)));
 }
 
 async function extractAndStoreLastFrame(params: {
@@ -438,7 +506,7 @@ async function createClipRecord(params: {
             prompt: params.prompt.trim(),
             mode: params.mode,
             status: 'ready',
-            provider: 'grok',
+            provider: 'openrouter',
             sequence: nextSequence,
             videoUrl: params.videoUrl,
             posterUrl: params.posterUrl || params.lastFrameUrl || null,
@@ -496,6 +564,21 @@ function requireMergeClipIds(mergeClipIds: string[] | undefined) {
 
 function normalizeRepeatCount(repeatCount?: number) {
     return Math.max(1, Math.min(repeatCount ?? 1, 12));
+}
+
+function requirePassingVideoQuality(
+    inspection: VideoQualityInspection,
+    context: string,
+): void {
+    if (inspection.passed) return;
+    const details = inspection.issues
+        .slice(0, 3)
+        .map((issue) => issue.message)
+        .join(' ');
+    throw new VideoStudioWorkerError(
+        422,
+        `${context} quality validation failed. ${details}`.trim(),
+    );
 }
 
 function buildLoopClipTitle(baseTitle: string, segmentIndex: number, totalSegments: number) {
@@ -560,15 +643,15 @@ function readRequest(job: VideoStudioJobDoc) {
 
 export async function processQueuedVideoStudioJob(jobId: string) {
     const claimed = await claimJob(jobId);
+    const baseJobMetadata =
+        claimed.data.metadata && typeof claimed.data.metadata === 'object'
+            ? claimed.data.metadata
+            : {};
 
     try {
         const request = readRequest(claimed.data);
         const project = await getProject(request.projectId, claimed.data.userId);
         const title = claimed.data.title;
-        const baseJobMetadata =
-            claimed.data.metadata && typeof claimed.data.metadata === 'object'
-                ? claimed.data.metadata
-                : {};
         let sourceClipForContinuity: { id: string; data: VideoStudioClipDoc } | null = null;
 
         if (request.operation === 'extract-frame') {
@@ -604,6 +687,9 @@ export async function processQueuedVideoStudioJob(jobId: string) {
         if (request.operation === 'merge') {
             const mergeSourceClipIds = requireMergeClipIds(request.mergeClipIds);
             const clips = await getClips(mergeSourceClipIds, claimed.data.userId, request.projectId);
+            const editsByClipId = new Map(
+                (request.mergeClipEdits || []).map((edit) => [edit.clipId, edit]),
+            );
             const continuity = resolveContinuityFields(request);
 
             await updateJob(jobId, {
@@ -612,16 +698,44 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             });
 
             const mergedBuffer = await mergeVideos({
-                clips: clips.map((clip) => ({ url: clip.data.videoUrl })),
+                clips: clips.map((clip) => ({
+                    url: clip.data.videoUrl,
+                    ...editsByClipId.get(clip.id),
+                })),
                 aspectRatio: project.data.aspectRatio,
                 resolution: project.data.resolution,
                 fps: 30,
+                backgroundMusicUrl: request.backgroundMusicUrl,
+                audioMixPreset: request.audioMixPreset,
+                backgroundMusicVolume: request.backgroundMusicVolume,
+                sceneAudioVolume: request.sceneAudioVolume,
+                audioCrossfadeSeconds: request.audioCrossfadeSeconds,
             });
+            const mergeCanvas = getVideoCanvasSize(
+                project.data.aspectRatio,
+                project.data.resolution,
+            );
+            const finalQualityInspection = await inspectVideoBufferQuality(
+                mergedBuffer,
+                {
+                    expectedWidth: mergeCanvas.width,
+                    expectedHeight: mergeCanvas.height,
+                    expectedAspectRatio: mergeCanvas.width / mergeCanvas.height,
+                    requireAudibleAudio: Boolean(request.backgroundMusicUrl),
+                    maxBlackFrameRatio: 0.2,
+                },
+            );
+            requirePassingVideoQuality(finalQualityInspection, 'Final merged video');
 
             await updateJob(jobId, {
                 status: 'uploading',
                 progress: 72,
                 message: 'Uploading merged clip and extracting its continuity frame.',
+                metadata: {
+                    ...baseJobMetadata,
+                    mergeSourceClipIds,
+                    finalQualityInspection,
+                },
             });
 
             const token = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
@@ -664,6 +778,11 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 clipId: savedClip.clipId,
                 resultVideoUrl: savedVideoUrl,
                 resultFrameUrl: lastFrameUrl,
+                metadata: {
+                    ...baseJobMetadata,
+                    mergeSourceClipIds,
+                    finalQualityInspection,
+                },
                 finishedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
 
@@ -676,7 +795,7 @@ export async function processQueuedVideoStudioJob(jobId: string) {
         let sourceClipId: string | null = null;
         let sourceVideoUrl: string | null = null;
         let referenceImage = request.referenceImage;
-        let generationMode: 'generate' | 'extend' | 'edit' = 'generate';
+        const generationMode = 'generate' as const;
         let operationMode: VideoStudioClipMode =
             request.operation === 'generate' ? 'generate' : 'continue';
 
@@ -690,7 +809,11 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.data.videoUrl;
-            generationMode = request.operation;
+            referenceImage = await ensureStoredLastFrame({
+                clipId: sourceClip.id,
+                clip: sourceClip.data,
+                userId: claimed.data.userId,
+            });
             operationMode = request.operation;
         } else if (request.operation === 'continue') {
             const sourceClip = await getClip(
@@ -707,7 +830,6 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 clip: sourceClip.data,
                 userId: claimed.data.userId,
             });
-            generationMode = 'generate';
             operationMode = 'continue';
         } else {
             operationMode = 'generate';
@@ -723,15 +845,43 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             subjectLock: continuity.subjectLock,
         });
 
-        const generatedClipIds: string[] = [];
+        const storedGeneratedClipIds = Array.isArray(baseJobMetadata.generatedClipIds)
+            ? baseJobMetadata.generatedClipIds.filter(
+                (clipId): clipId is string => typeof clipId === 'string' && clipId.length > 0,
+            )
+            : [];
+        const generatedClipIds = [...storedGeneratedClipIds];
         let finalClipId: string | undefined;
         let finalVideoUrl: string | undefined;
         let finalFrameUrl: string | undefined;
         let currentSourceClipId = sourceClipId;
         let currentSourceVideoUrl = sourceVideoUrl;
         let currentReferenceImage = referenceImage;
+        let lastRenderResult: Awaited<ReturnType<typeof generateOpenRouterVideo>>['metadata'] | null = null;
+        let lastAudioInspection: VideoAudioInspection | null = null;
+        let lastQualityInspection: VideoQualityInspection | null = null;
+        let finalQualityInspection: VideoQualityInspection | null = null;
+        let activeProviderCheckpoint = readOpenRouterVideoCheckpoint(baseJobMetadata.providerVideo);
 
-        for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
+        if (generatedClipIds.length > 0) {
+            const latestGeneratedClip = await getClip(
+                generatedClipIds[generatedClipIds.length - 1],
+                claimed.data.userId,
+                request.projectId,
+            );
+            finalClipId = latestGeneratedClip.id;
+            finalVideoUrl = latestGeneratedClip.data.videoUrl;
+            finalFrameUrl = latestGeneratedClip.data.lastFrameUrl || undefined;
+            currentSourceClipId = latestGeneratedClip.id;
+            currentSourceVideoUrl = latestGeneratedClip.data.videoUrl;
+            currentReferenceImage = latestGeneratedClip.data.lastFrameUrl || currentReferenceImage;
+        }
+
+        for (
+            let segmentIndex = Math.min(generatedClipIds.length, totalSegments);
+            segmentIndex < totalSegments;
+            segmentIndex += 1
+        ) {
             const isFirstSegment = segmentIndex === 0;
             const segmentMode: 'generate' | 'extend' | 'edit' = isFirstSegment ? generationMode : 'generate';
             const clipMode: VideoStudioClipMode = isFirstSegment ? operationMode : 'continue';
@@ -746,21 +896,27 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 totalSegments,
             });
             const segmentTitle = buildLoopClipTitle(title, segmentIndex, totalSegments);
+            const checkpointKey = `${jobId}:${segmentIndex}`;
+            const resumeCheckpoint =
+                activeProviderCheckpoint?.checkpointKey === checkpointKey
+                    ? activeProviderCheckpoint
+                    : null;
 
             await updateJob(jobId, {
                 progress: 12 + Math.round((segmentIndex / totalSegments) * 58),
                 message:
                     totalSegments > 1
-                        ? `Rendering segment ${segmentIndex + 1}/${totalSegments} with Grok.`
+                        ? `Rendering segment ${segmentIndex + 1}/${totalSegments} with OpenRouter.`
                         : request.operation === 'continue'
-                            ? 'Submitting the continuation render to Grok.'
-                            : `Submitting ${request.operation} render to Grok.`,
+                            ? 'Submitting the continuation render to OpenRouter.'
+                            : `Submitting ${request.operation} render to OpenRouter.`,
                 metadata: {
                     ...baseJobMetadata,
                     repeatCount: totalSegments,
                     autoMergeAfterLoop,
                     continuity,
                     generatedClipIds,
+                    providerVideo: resumeCheckpoint,
                     loopProgress: buildLoopProgress({
                         totalSegments,
                         segmentIndex,
@@ -773,15 +929,53 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 },
             });
 
-            const generated = await generateGrokVideo({
-                prompt: segmentPrompt,
-                mode: segmentMode,
-                image: currentReferenceImage,
-                videoUrl: currentSourceVideoUrl || undefined,
-                duration: request.duration,
-                aspectRatio: project.data.aspectRatio,
-                resolution: project.data.resolution,
-            });
+            const generated = await generateOpenRouterVideo(
+                {
+                    prompt: segmentPrompt,
+                    mode: segmentMode,
+                    image: currentReferenceImage,
+                    endImage: segmentIndex === totalSegments - 1 ? request.endReferenceImage : undefined,
+                    referenceImages: request.visualReferenceImages,
+                    videoUrl: currentSourceVideoUrl || undefined,
+                    duration: request.duration,
+                    aspectRatio: project.data.aspectRatio,
+                    resolution: project.data.resolution,
+                    qualityMode: request.qualityMode,
+                    generateAudio: request.generateAudio,
+                    audioMode: request.audioMode,
+                    dialogue: request.dialogue,
+                },
+                {
+                    checkpointKey,
+                    resumeCheckpoint,
+                    pollTimeoutMs: FUNCTION_VIDEO_PROVIDER_POLL_WINDOW_MS,
+                    onCheckpoint: async (checkpoint: OpenRouterVideoCheckpoint) => {
+                        activeProviderCheckpoint = checkpoint;
+                        await updateJob(jobId, {
+                            progress: 18 + Math.round((segmentIndex / totalSegments) * 52),
+                            message: `OpenRouter is rendering scene ${segmentIndex + 1}/${totalSegments}.`,
+                            metadata: {
+                                ...baseJobMetadata,
+                                repeatCount: totalSegments,
+                                autoMergeAfterLoop,
+                                continuity,
+                                generatedClipIds,
+                                providerVideo: checkpoint,
+                                loopProgress: buildLoopProgress({
+                                    totalSegments,
+                                    segmentIndex,
+                                    completedSegments: generatedClipIds.length,
+                                    phase: 'rendering',
+                                    autoMergeAfterLoop,
+                                    currentClipTitle: segmentTitle,
+                                    generatedClipIds,
+                                }),
+                            },
+                        });
+                    },
+                },
+            );
+            lastRenderResult = generated.metadata;
 
             await updateJob(jobId, {
                 status: 'uploading',
@@ -798,6 +992,8 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                     lastSegmentPrompt: segmentPrompt,
                     continuity,
                     renderResult: generated.metadata,
+                    qualityInspection: lastQualityInspection,
+                    providerVideo: activeProviderCheckpoint,
                     generatedClipIds,
                     loopProgress: buildLoopProgress({
                         totalSegments,
@@ -812,12 +1008,62 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             });
 
             const token = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
-            const savedVideoUrl = await uploadRemoteFileToVideoStudioStorage({
-                sourceUrl: generated.videoUrl,
+            const downloadedVideo = await downloadOpenRouterVideo(generated.videoUrl);
+            const appliedResolution =
+                generated.metadata.resolvedResolution === '480p'
+                || generated.metadata.resolvedResolution === '720p'
+                || generated.metadata.resolvedResolution === '1080p'
+                    ? generated.metadata.resolvedResolution
+                    : project.data.resolution;
+            const generatedCanvas = getVideoCanvasSize(
+                project.data.aspectRatio,
+                appliedResolution,
+            );
+            lastQualityInspection = await inspectVideoBufferQuality(
+                downloadedVideo.buffer,
+                {
+                    expectedDurationSeconds: generated.metadata.durationApplied,
+                    expectedWidth: generatedCanvas.width,
+                    expectedHeight: generatedCanvas.height,
+                    expectedAspectRatio: generatedCanvas.width / generatedCanvas.height,
+                    requireAudibleAudio: generated.metadata.audioApplied,
+                    maxBlackFrameRatio: 0.18,
+                },
+            );
+            lastAudioInspection = lastQualityInspection.audio;
+            if (!lastQualityInspection.passed) {
+                const discardReason =
+                    lastQualityInspection.issues[0]?.code
+                    || 'quality_validation_failed';
+                await updateJob(jobId, {
+                    metadata: {
+                        ...baseJobMetadata,
+                        repeatCount: totalSegments,
+                        autoMergeAfterLoop,
+                        resolvedPrompt: renderPrompt,
+                        lastSegmentPrompt: segmentPrompt,
+                        continuity,
+                        renderResult: generated.metadata,
+                        providerVideo: null,
+                        providerVideoDiscarded: {
+                            reason: discardReason,
+                            providerJobId: activeProviderCheckpoint?.jobId || null,
+                            modelId: generated.metadata.modelUsed,
+                            discardedAt: new Date().toISOString(),
+                        },
+                        audioInspection: lastAudioInspection,
+                        qualityInspection: lastQualityInspection,
+                        generatedClipIds,
+                    },
+                });
+                requirePassingVideoQuality(lastQualityInspection, 'OpenRouter scene video');
+            }
+            const savedVideoUrl = await uploadBufferToVideoStudioStorage({
+                buffer: downloadedVideo.buffer,
                 userId: claimed.data.userId,
                 projectId: request.projectId,
                 pathSuffix: `clips/${token}.mp4`,
-                fallbackContentType: 'video/mp4',
+                contentType: downloadedVideo.contentType || 'video/mp4',
             });
 
             await updateJob(jobId, {
@@ -834,6 +1080,7 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                     lastSegmentPrompt: segmentPrompt,
                     continuity,
                     renderResult: generated.metadata,
+                    providerVideo: activeProviderCheckpoint,
                     generatedClipIds,
                     loopProgress: buildLoopProgress({
                         totalSegments,
@@ -870,7 +1117,7 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 parentTakeClipId,
                 sourceClipId: currentSourceClipId,
                 sourceVideoUrl: currentSourceVideoUrl,
-                duration: request.duration ?? null,
+                duration: generated.metadata.durationApplied,
                 aspectRatio: project.data.aspectRatio,
                 resolution: project.data.resolution,
             });
@@ -882,6 +1129,31 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             currentSourceClipId = savedClip.clipId;
             currentSourceVideoUrl = savedVideoUrl;
             currentReferenceImage = lastFrameUrl;
+
+            await updateJob(jobId, {
+                progress: 24 + Math.round(((segmentIndex + 1) / totalSegments) * 58),
+                message: `Saved scene ${segmentIndex + 1}/${totalSegments}.`,
+                metadata: {
+                    ...baseJobMetadata,
+                    repeatCount: totalSegments,
+                    autoMergeAfterLoop,
+                    resolvedPrompt: renderPrompt,
+                    continuity,
+                    renderResult: generated.metadata,
+                    qualityInspection: lastQualityInspection,
+                    providerVideo: activeProviderCheckpoint,
+                    generatedClipIds,
+                    loopProgress: buildLoopProgress({
+                        totalSegments,
+                        segmentIndex,
+                        completedSegments: generatedClipIds.length,
+                        phase: 'extracting',
+                        autoMergeAfterLoop,
+                        currentClipTitle: segmentTitle,
+                        generatedClipIds,
+                    }),
+                },
+            });
         }
 
         if (autoMergeAfterLoop && generatedClipIds.length > 1) {
@@ -915,6 +1187,28 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 resolution: project.data.resolution,
                 fps: 30,
             });
+            const finalCanvas = getVideoCanvasSize(
+                project.data.aspectRatio,
+                project.data.resolution,
+            );
+            const expectedMergedDuration = generatedClips.reduce(
+                (total, clip) => total + Math.max(0, Number(clip.data.duration ?? 0)),
+                0,
+            );
+            finalQualityInspection = await inspectVideoBufferQuality(
+                mergedBuffer,
+                {
+                    ...(expectedMergedDuration > 0
+                        ? { expectedDurationSeconds: expectedMergedDuration }
+                        : {}),
+                    expectedWidth: finalCanvas.width,
+                    expectedHeight: finalCanvas.height,
+                    expectedAspectRatio: finalCanvas.width / finalCanvas.height,
+                    requireAudibleAudio: Boolean(lastRenderResult?.audioApplied),
+                    maxBlackFrameRatio: 0.2,
+                },
+            );
+            requirePassingVideoQuality(finalQualityInspection, 'Auto-merged final video');
 
             const mergeToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
             const mergedVideoUrl = await uploadBufferToVideoStudioStorage({
@@ -973,6 +1267,11 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 resolvedPrompt: renderPrompt,
                 continuity,
                 generatedClipIds,
+                providerVideo: activeProviderCheckpoint,
+                ...(lastRenderResult ? { renderResult: lastRenderResult } : {}),
+                ...(lastAudioInspection ? { audioInspection: lastAudioInspection } : {}),
+                ...(lastQualityInspection ? { qualityInspection: lastQualityInspection } : {}),
+                ...(finalQualityInspection ? { finalQualityInspection } : {}),
                 loopProgress: buildLoopProgress({
                     totalSegments,
                     segmentIndex: Math.max(0, totalSegments - 1),
@@ -988,7 +1287,42 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             finishedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
     } catch (error) {
+        if (error instanceof OpenRouterVideoPendingError) {
+            await updateJob(jobId, {
+                status: 'queued',
+                progress: 18,
+                message: 'OpenRouter is still rendering. The same provider job will resume automatically.',
+                errorMessage: null,
+                nextAttemptAt: null,
+                finishedAt: null,
+            });
+            return;
+        }
+
         const rawMessage = error instanceof Error ? error.message : 'Video studio job failed.';
+        const retryCount = Number(baseJobMetadata.workerRetryCount ?? 0);
+        if (isTransientVideoStudioError(error) && retryCount < 3) {
+            const nextRetryCount = retryCount + 1;
+            const retryDelayMs = Math.min(
+                5 * 60 * 1000,
+                30 * 1000 * (2 ** (nextRetryCount - 1)),
+            );
+            await updateJob(jobId, {
+                status: 'queued',
+                progress: Math.max(8, Math.min(90, Number(claimed.data.progress ?? 8))),
+                message: `Temporary provider or network failure. Automatic retry ${nextRetryCount}/3 is scheduled.`,
+                errorMessage: null,
+                nextAttemptAt: admin.firestore.Timestamp.fromMillis(Date.now() + retryDelayMs),
+                finishedAt: null,
+                'metadata.workerRetryCount': nextRetryCount,
+                'metadata.lastWorkerError': {
+                    message: rawMessage.slice(0, 1000),
+                    occurredAt: new Date().toISOString(),
+                },
+            });
+            return;
+        }
+
         await updateJob(jobId, {
             status: 'failed',
             progress: 100,
@@ -997,6 +1331,7 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                     ? rawMessage
                     : deriveVideoInfraHint(rawMessage),
             errorMessage: rawMessage,
+            nextAttemptAt: null,
             finishedAt: admin.firestore.FieldValue.serverTimestamp(),
         }).catch((updateError) => {
             console.error('[VideoStudioWorker] failed to update job status:', updateError);

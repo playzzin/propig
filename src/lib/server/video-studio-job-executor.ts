@@ -1,4 +1,11 @@
-import { deriveVideoInfraHint, generateGrokVideo } from '@/lib/server/video-generation';
+import {
+    OpenRouterVideoPendingError,
+    deriveVideoInfraHint,
+    downloadOpenRouterVideo,
+    generateOpenRouterVideo,
+    readOpenRouterVideoCheckpoint,
+    type OpenRouterVideoCheckpoint,
+} from '@/lib/server/video-generation';
 import type { VideoStudioClipMode, VideoStudioJob } from '@/lib/video-studio';
 import {
     VideoStudioServerError,
@@ -11,13 +18,20 @@ import {
     getOwnedProject,
     updateVideoStudioJob,
     uploadBufferToVideoStudioStorage,
-    uploadRemoteFileToVideoStudioStorage,
     mergeVideoStudioClips,
 } from '@/lib/server/video-studio-admin';
 import {
     VideoStudioJobRequest,
     VideoStudioJobRequestSchema,
 } from '@/lib/video-studio-job-request';
+import {
+    getVideoCanvasSize,
+    inspectVideoBufferQuality,
+    type VideoAudioInspection,
+    type VideoQualityInspection,
+} from '@/lib/server/ffmpeg';
+
+const NEXT_VIDEO_PROVIDER_POLL_WINDOW_MS = 75 * 1000;
 
 function normalizeOptionalStudioText(value?: string | null): string | null {
     const trimmed = value?.trim();
@@ -123,6 +137,21 @@ function normalizeRepeatCount(repeatCount?: number) {
     return Math.max(1, Math.min(repeatCount ?? 1, 12));
 }
 
+function requirePassingVideoQuality(
+    inspection: VideoQualityInspection,
+    context: string,
+): void {
+    if (inspection.passed) return;
+    const details = inspection.issues
+        .slice(0, 3)
+        .map((issue) => issue.message)
+        .join(' ');
+    throw new VideoStudioServerError(
+        422,
+        `${context} quality validation failed. ${details}`.trim(),
+    );
+}
+
 function buildLoopClipTitle(baseTitle: string, segmentIndex: number, totalSegments: number) {
     if (totalSegments <= 1) {
         return baseTitle;
@@ -191,6 +220,7 @@ export async function executeQueuedVideoStudioJob(params: {
     clipId?: string;
     videoUrl?: string;
     lastFrameUrl?: string;
+    pending?: boolean;
 }> {
     const job = await claimVideoStudioJobForProcessing({
         jobId: params.jobId,
@@ -261,12 +291,38 @@ export async function executeQueuedVideoStudioJob(params: {
                 aspectRatio: project.aspectRatio,
                 resolution: project.resolution,
                 fps: 30,
+                mergeClipEdits: request.mergeClipEdits,
+                backgroundMusicUrl: request.backgroundMusicUrl,
+                audioMixPreset: request.audioMixPreset,
+                backgroundMusicVolume: request.backgroundMusicVolume,
+                sceneAudioVolume: request.sceneAudioVolume,
+                audioCrossfadeSeconds: request.audioCrossfadeSeconds,
             });
+            const mergeCanvas = getVideoCanvasSize(
+                project.aspectRatio,
+                project.resolution,
+            );
+            const finalQualityInspection = await inspectVideoBufferQuality(
+                mergedBuffer,
+                {
+                    expectedWidth: mergeCanvas.width,
+                    expectedHeight: mergeCanvas.height,
+                    expectedAspectRatio: mergeCanvas.width / mergeCanvas.height,
+                    requireAudibleAudio: Boolean(request.backgroundMusicUrl),
+                    maxBlackFrameRatio: 0.2,
+                },
+            );
+            requirePassingVideoQuality(finalQualityInspection, 'Final merged video');
 
             await updateVideoStudioJob(job.id, {
                 status: 'uploading',
                 progress: 72,
                 message: 'Uploading merged clip and extracting its continuity frame.',
+                metadata: {
+                    ...baseJobMetadata,
+                    mergeSourceClipIds,
+                    finalQualityInspection,
+                },
             });
 
             const token = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
@@ -309,6 +365,11 @@ export async function executeQueuedVideoStudioJob(params: {
                 clipId: savedClip.clipId,
                 resultVideoUrl: savedVideoUrl,
                 resultFrameUrl: lastFrameUrl,
+                metadata: {
+                    ...baseJobMetadata,
+                    mergeSourceClipIds,
+                    finalQualityInspection,
+                },
                 finishedAt: new Date().toISOString(),
             });
 
@@ -326,7 +387,7 @@ export async function executeQueuedVideoStudioJob(params: {
         let sourceClipId: string | null = null;
         let sourceVideoUrl: string | null = null;
         let referenceImage = request.referenceImage;
-        let generationMode: 'generate' | 'extend' | 'edit' = 'generate';
+        const generationMode = 'generate' as const;
         let operationMode: VideoStudioClipMode = request.operation;
 
         if (request.operation === 'extend' || request.operation === 'edit') {
@@ -339,7 +400,10 @@ export async function executeQueuedVideoStudioJob(params: {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.videoUrl;
-            generationMode = request.operation;
+            referenceImage = await ensureStoredLastFrame({
+                clip: sourceClip,
+                userId: params.userId,
+            });
         } else if (request.operation === 'continue') {
             const sourceClip = await getOwnedClip({
                 userId: params.userId,
@@ -354,7 +418,6 @@ export async function executeQueuedVideoStudioJob(params: {
                 clip: sourceClip,
                 userId: params.userId,
             });
-            generationMode = 'generate';
             operationMode = 'continue';
         } else {
             operationMode = 'generate';
@@ -370,15 +433,43 @@ export async function executeQueuedVideoStudioJob(params: {
             subjectLock: continuity.subjectLock,
         });
 
-        const generatedClipIds: string[] = [];
+        const storedGeneratedClipIds = Array.isArray(baseJobMetadata.generatedClipIds)
+            ? baseJobMetadata.generatedClipIds.filter(
+                (clipId): clipId is string => typeof clipId === 'string' && clipId.length > 0,
+            )
+            : [];
+        const generatedClipIds = [...storedGeneratedClipIds];
         let finalClipId: string | undefined;
         let finalVideoUrl: string | undefined;
         let finalFrameUrl: string | undefined;
         let currentSourceClipId = sourceClipId;
         let currentSourceVideoUrl = sourceVideoUrl;
         let currentReferenceImage = referenceImage;
+        let lastRenderResult: Awaited<ReturnType<typeof generateOpenRouterVideo>>['metadata'] | null = null;
+        let lastAudioInspection: VideoAudioInspection | null = null;
+        let lastQualityInspection: VideoQualityInspection | null = null;
+        let finalQualityInspection: VideoQualityInspection | null = null;
+        let activeProviderCheckpoint = readOpenRouterVideoCheckpoint(baseJobMetadata.providerVideo);
 
-        for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
+        if (generatedClipIds.length > 0) {
+            const latestGeneratedClip = await getOwnedClip({
+                userId: params.userId,
+                clipId: generatedClipIds[generatedClipIds.length - 1],
+                projectId: request.projectId,
+            });
+            finalClipId = latestGeneratedClip.id;
+            finalVideoUrl = latestGeneratedClip.videoUrl;
+            finalFrameUrl = latestGeneratedClip.lastFrameUrl || undefined;
+            currentSourceClipId = latestGeneratedClip.id;
+            currentSourceVideoUrl = latestGeneratedClip.videoUrl;
+            currentReferenceImage = latestGeneratedClip.lastFrameUrl || currentReferenceImage;
+        }
+
+        for (
+            let segmentIndex = Math.min(generatedClipIds.length, totalSegments);
+            segmentIndex < totalSegments;
+            segmentIndex += 1
+        ) {
             const isFirstSegment = segmentIndex === 0;
             const segmentMode: 'generate' | 'extend' | 'edit' = isFirstSegment ? generationMode : 'generate';
             const clipMode: VideoStudioClipMode = isFirstSegment ? operationMode : 'continue';
@@ -393,21 +484,27 @@ export async function executeQueuedVideoStudioJob(params: {
                 totalSegments,
             });
             const segmentTitle = buildLoopClipTitle(title, segmentIndex, totalSegments);
+            const checkpointKey = `${job.id}:${segmentIndex}`;
+            const resumeCheckpoint =
+                activeProviderCheckpoint?.checkpointKey === checkpointKey
+                    ? activeProviderCheckpoint
+                    : null;
 
             await updateVideoStudioJob(job.id, {
                 progress: 12 + Math.round((segmentIndex / totalSegments) * 58),
                 message:
                     totalSegments > 1
-                        ? `Rendering segment ${segmentIndex + 1}/${totalSegments} with Grok.`
+                        ? `Rendering segment ${segmentIndex + 1}/${totalSegments} with OpenRouter.`
                         : request.operation === 'continue'
-                            ? 'Submitting the continuation render to Grok.'
-                            : `Submitting ${request.operation} render to Grok.`,
+                            ? 'Submitting the continuation render to OpenRouter.'
+                            : `Submitting ${request.operation} render to OpenRouter.`,
                 metadata: {
                     ...baseJobMetadata,
                     repeatCount: totalSegments,
                     autoMergeAfterLoop,
                     continuity,
                     generatedClipIds,
+                    providerVideo: resumeCheckpoint,
                     loopProgress: buildLoopProgress({
                         totalSegments,
                         segmentIndex,
@@ -420,16 +517,54 @@ export async function executeQueuedVideoStudioJob(params: {
                 },
             });
 
-            const generated = await generateGrokVideo({
-                prompt: segmentPrompt,
-                provider: 'grok',
-                mode: segmentMode,
-                image: currentReferenceImage,
-                videoUrl: currentSourceVideoUrl || undefined,
-                duration: request.duration,
-                aspectRatio: project.aspectRatio,
-                resolution: project.resolution,
-            });
+            const generated = await generateOpenRouterVideo(
+                {
+                    prompt: segmentPrompt,
+                    provider: 'openrouter',
+                    mode: segmentMode,
+                    image: currentReferenceImage,
+                    endImage: segmentIndex === totalSegments - 1 ? request.endReferenceImage : undefined,
+                    referenceImages: request.visualReferenceImages,
+                    videoUrl: currentSourceVideoUrl || undefined,
+                    duration: request.duration,
+                    aspectRatio: project.aspectRatio,
+                    resolution: project.resolution,
+                    qualityMode: request.qualityMode,
+                    generateAudio: request.generateAudio,
+                    audioMode: request.audioMode,
+                    dialogue: request.dialogue,
+                },
+                {
+                    checkpointKey,
+                    resumeCheckpoint,
+                    pollTimeoutMs: NEXT_VIDEO_PROVIDER_POLL_WINDOW_MS,
+                    onCheckpoint: async (checkpoint: OpenRouterVideoCheckpoint) => {
+                        activeProviderCheckpoint = checkpoint;
+                        await updateVideoStudioJob(job.id, {
+                            progress: 18 + Math.round((segmentIndex / totalSegments) * 52),
+                            message: `OpenRouter에서 장면 ${segmentIndex + 1}/${totalSegments}을 제작 중입니다.`,
+                            metadata: {
+                                ...baseJobMetadata,
+                                repeatCount: totalSegments,
+                                autoMergeAfterLoop,
+                                continuity,
+                                generatedClipIds,
+                                providerVideo: checkpoint,
+                                loopProgress: buildLoopProgress({
+                                    totalSegments,
+                                    segmentIndex,
+                                    completedSegments: generatedClipIds.length,
+                                    phase: 'rendering',
+                                    autoMergeAfterLoop,
+                                    currentClipTitle: segmentTitle,
+                                    generatedClipIds,
+                                }),
+                            },
+                        });
+                    },
+                },
+            );
+            lastRenderResult = generated.metadata;
 
             await updateVideoStudioJob(job.id, {
                 status: 'uploading',
@@ -446,6 +581,7 @@ export async function executeQueuedVideoStudioJob(params: {
                     lastSegmentPrompt: segmentPrompt,
                     continuity,
                     renderResult: generated.metadata,
+                    providerVideo: activeProviderCheckpoint,
                     generatedClipIds,
                     loopProgress: buildLoopProgress({
                         totalSegments,
@@ -460,12 +596,65 @@ export async function executeQueuedVideoStudioJob(params: {
             });
 
             const token = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
-            const savedVideoUrl = await uploadRemoteFileToVideoStudioStorage({
-                sourceUrl: generated.videoUrl,
+            const downloadedVideo = await downloadOpenRouterVideo(generated.videoUrl);
+            const appliedResolution =
+                generated.metadata.resolvedResolution === '480p'
+                || generated.metadata.resolvedResolution === '720p'
+                || generated.metadata.resolvedResolution === '1080p'
+                    ? generated.metadata.resolvedResolution
+                    : project.resolution;
+            const outputCanvas = getVideoCanvasSize(
+                project.aspectRatio,
+                appliedResolution,
+            );
+            lastQualityInspection = await inspectVideoBufferQuality(
+                downloadedVideo.buffer,
+                {
+                    expectedDurationSeconds: generated.metadata.durationApplied,
+                    durationToleranceSeconds: 1.25,
+                    expectedWidth: outputCanvas.width,
+                    expectedHeight: outputCanvas.height,
+                    expectedAspectRatio: outputCanvas.width / outputCanvas.height,
+                    requireAudibleAudio: generated.metadata.audioApplied,
+                    maxBlackFrameRatio: 0.18,
+                },
+            );
+            lastAudioInspection = lastQualityInspection.audio;
+            if (!lastQualityInspection.passed) {
+                const discardReason =
+                    lastQualityInspection.issues[0]?.code || 'quality_validation_failed';
+                await updateVideoStudioJob(job.id, {
+                    metadata: {
+                        ...baseJobMetadata,
+                        repeatCount: totalSegments,
+                        autoMergeAfterLoop,
+                        resolvedPrompt: renderPrompt,
+                        lastSegmentPrompt: segmentPrompt,
+                        continuity,
+                        renderResult: generated.metadata,
+                        providerVideo: null,
+                        providerVideoDiscarded: {
+                            reason: discardReason,
+                            providerJobId: activeProviderCheckpoint?.jobId || null,
+                            modelId: generated.metadata.modelUsed,
+                            discardedAt: new Date().toISOString(),
+                        },
+                        audioInspection: lastAudioInspection,
+                        qualityInspection: lastQualityInspection,
+                        generatedClipIds,
+                    },
+                });
+                requirePassingVideoQuality(
+                    lastQualityInspection,
+                    'OpenRouter rendered video',
+                );
+            }
+            const savedVideoUrl = await uploadBufferToVideoStudioStorage({
+                buffer: downloadedVideo.buffer,
                 userId: params.userId,
                 projectId: request.projectId,
                 pathSuffix: `clips/${token}.mp4`,
-                fallbackContentType: 'video/mp4',
+                contentType: downloadedVideo.contentType || 'video/mp4',
             });
 
             await updateVideoStudioJob(job.id, {
@@ -482,6 +671,7 @@ export async function executeQueuedVideoStudioJob(params: {
                     lastSegmentPrompt: segmentPrompt,
                     continuity,
                     renderResult: generated.metadata,
+                    providerVideo: activeProviderCheckpoint,
                     generatedClipIds,
                     loopProgress: buildLoopProgress({
                         totalSegments,
@@ -518,7 +708,7 @@ export async function executeQueuedVideoStudioJob(params: {
                 parentTakeClipId,
                 sourceClipId: currentSourceClipId,
                 sourceVideoUrl: currentSourceVideoUrl,
-                duration: request.duration ?? null,
+                duration: generated.metadata.durationApplied,
                 aspectRatio: project.aspectRatio,
                 resolution: project.resolution,
             });
@@ -530,6 +720,32 @@ export async function executeQueuedVideoStudioJob(params: {
             currentSourceClipId = savedClip.clipId;
             currentSourceVideoUrl = savedVideoUrl;
             currentReferenceImage = lastFrameUrl;
+
+            await updateVideoStudioJob(job.id, {
+                progress: 24 + Math.round(((segmentIndex + 1) / totalSegments) * 58),
+                message: `장면 ${segmentIndex + 1}/${totalSegments} 저장을 완료했습니다.`,
+                metadata: {
+                    ...baseJobMetadata,
+                    repeatCount: totalSegments,
+                    autoMergeAfterLoop,
+                    resolvedPrompt: renderPrompt,
+                    continuity,
+                    renderResult: generated.metadata,
+                    audioInspection: lastAudioInspection,
+                    qualityInspection: lastQualityInspection,
+                    providerVideo: activeProviderCheckpoint,
+                    generatedClipIds,
+                    loopProgress: buildLoopProgress({
+                        totalSegments,
+                        segmentIndex,
+                        completedSegments: generatedClipIds.length,
+                        phase: 'extracting',
+                        autoMergeAfterLoop,
+                        currentClipTitle: segmentTitle,
+                        generatedClipIds,
+                    }),
+                },
+            });
         }
 
         if (autoMergeAfterLoop && generatedClipIds.length > 1) {
@@ -567,6 +783,31 @@ export async function executeQueuedVideoStudioJob(params: {
                 resolution: project.resolution,
                 fps: 30,
             });
+            const finalCanvas = getVideoCanvasSize(
+                project.aspectRatio,
+                project.resolution,
+            );
+            const expectedMergedDuration = generatedClips.reduce(
+                (sum, clip) => sum + Math.max(0, clip.duration || 0),
+                0,
+            );
+            finalQualityInspection = await inspectVideoBufferQuality(
+                mergedBuffer,
+                {
+                    expectedDurationSeconds:
+                        expectedMergedDuration > 0 ? expectedMergedDuration : undefined,
+                    durationToleranceSeconds: Math.max(1.5, generatedClips.length * 0.35),
+                    expectedWidth: finalCanvas.width,
+                    expectedHeight: finalCanvas.height,
+                    expectedAspectRatio: finalCanvas.width / finalCanvas.height,
+                    requireAudibleAudio: lastRenderResult?.audioApplied === true,
+                    maxBlackFrameRatio: 0.2,
+                },
+            );
+            requirePassingVideoQuality(
+                finalQualityInspection,
+                'Auto-merged final video',
+            );
 
             const mergeToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
             const mergedVideoUrl = await uploadBufferToVideoStudioStorage({
@@ -625,6 +866,11 @@ export async function executeQueuedVideoStudioJob(params: {
                 resolvedPrompt: renderPrompt,
                 continuity,
                 generatedClipIds,
+                providerVideo: activeProviderCheckpoint,
+                ...(lastRenderResult ? { renderResult: lastRenderResult } : {}),
+                ...(lastAudioInspection ? { audioInspection: lastAudioInspection } : {}),
+                ...(lastQualityInspection ? { qualityInspection: lastQualityInspection } : {}),
+                ...(finalQualityInspection ? { finalQualityInspection } : {}),
                 loopProgress: buildLoopProgress({
                     totalSegments,
                     segmentIndex: Math.max(0, totalSegments - 1),
@@ -647,6 +893,20 @@ export async function executeQueuedVideoStudioJob(params: {
             lastFrameUrl: finalFrameUrl,
         };
     } catch (error) {
+        if (error instanceof OpenRouterVideoPendingError) {
+            await updateVideoStudioJob(job.id, {
+                status: 'queued',
+                progress: 18,
+                message: 'OpenRouter에서 영상을 계속 제작 중입니다. 같은 작업을 자동으로 이어서 확인합니다.',
+                errorMessage: null,
+                finishedAt: null,
+            });
+            return {
+                jobId: job.id,
+                pending: true,
+            };
+        }
+
         const rawMessage = error instanceof Error ? error.message : 'Video studio job failed.';
         const hintMessage =
             error instanceof VideoStudioServerError

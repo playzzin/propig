@@ -1,0 +1,3818 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <title>프로피그 4대 제품소개</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --navy-950: #020a17;
+      --navy-900: #06162a;
+      --navy-800: #092742;
+      --ink: #0a213b;
+      --muted: #60738a;
+      --blue: #178fda;
+      --blue-bright: #73cfff;
+      --teal: #19ad9d;
+      --gold: #e8c87f;
+      --line: #d8e2ec;
+      --surface: #ffffff;
+      --soft: #f3f7fb;
+      --radius: 16px;
+      --shadow: 0 24px 70px rgba(7, 28, 52, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--soft);
+    }
+
+    body {
+      margin: 0;
+      min-width: 0;
+      overflow-x: hidden;
+      color: var(--ink);
+      background: var(--soft);
+      font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    button,
+    a {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+    }
+
+    button,
+    a[href] {
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    button:focus-visible,
+    a:focus-visible {
+      outline: 3px solid #7dd3fc;
+      outline-offset: 4px;
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    p {
+      margin-top: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+      scroll-margin-top: 24px;
+      text-wrap: balance;
+    }
+
+    .skip-link {
+      position: fixed;
+      top: 10px;
+      left: 12px;
+      z-index: 999;
+      padding: 10px 14px;
+      border-radius: 9px;
+      color: #06223a;
+      background: #7dd8ff;
+      font-size: 0.84rem;
+      font-weight: 900;
+      text-decoration: none;
+      transform: translateY(-160%);
+      transition: transform 160ms ease;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .wrap {
+      width: min(1360px, calc(100% - 64px));
+      margin-inline: auto;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 18px;
+      color: var(--blue);
+      font-size: 0.74rem;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      width: 26px;
+      height: 2px;
+      content: "";
+      background: currentColor;
+    }
+
+    .section-title {
+      max-width: 850px;
+      margin-bottom: 18px;
+      color: var(--ink);
+      font-size: clamp(2rem, 4vw, 4rem);
+      line-height: 1.1;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+      word-break: keep-all;
+    }
+
+    .section-lead {
+      max-width: 770px;
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.4vw, 1.18rem);
+      line-height: 1.8;
+      font-weight: 560;
+      word-break: keep-all;
+    }
+
+    .showcase {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      color: #fff;
+      background:
+        radial-gradient(circle at 84% 5%, rgba(22, 127, 216, 0.2), transparent 25%),
+        linear-gradient(180deg, #020a17 0%, #061528 100%);
+    }
+
+    .showcase::before {
+      position: absolute;
+      z-index: 0;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      background-image:
+        linear-gradient(rgba(125, 217, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(125, 217, 255, 0.035) 1px, transparent 1px);
+      background-size: 54px 54px;
+      mask-image: linear-gradient(to bottom, #000 0%, transparent 82%);
+    }
+
+    .showcase-starfall {
+      position: absolute;
+      z-index: 0;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .showcase-starfall::before {
+      position: absolute;
+      inset: 0;
+      content: "";
+      opacity: 0.66;
+      background-image:
+        radial-gradient(circle at 8% 19%, rgba(228, 249, 255, 0.9) 0 1px, transparent 1.8px),
+        radial-gradient(circle at 24% 72%, rgba(109, 214, 255, 0.78) 0 1px, transparent 1.7px),
+        radial-gradient(circle at 38% 13%, rgba(255, 223, 168, 0.8) 0 1px, transparent 1.8px),
+        radial-gradient(circle at 52% 44%, rgba(206, 183, 255, 0.76) 0 1px, transparent 1.8px),
+        radial-gradient(circle at 66% 8%, rgba(184, 235, 255, 0.88) 0 1px, transparent 1.8px),
+        radial-gradient(circle at 79% 59%, rgba(255, 211, 245, 0.74) 0 1px, transparent 1.8px),
+        radial-gradient(circle at 93% 31%, rgba(151, 223, 255, 0.88) 0 1px, transparent 1.8px),
+        radial-gradient(circle at 13% 91%, rgba(157, 231, 255, 0.68) 0 1px, transparent 1.7px),
+        radial-gradient(circle at 47% 88%, rgba(255, 235, 170, 0.72) 0 1px, transparent 1.8px),
+        radial-gradient(circle at 88% 90%, rgba(194, 174, 255, 0.75) 0 1px, transparent 1.8px);
+      mask-image: linear-gradient(to bottom, transparent, #000 9%, #000 88%, transparent);
+    }
+
+    .shooting-stars {
+      position: absolute;
+      inset: -20% -8%;
+    }
+
+    .shooting-star {
+      position: absolute;
+      top: var(--star-y);
+      left: var(--star-x);
+      width: var(--trail);
+      height: var(--thickness, 1px);
+      border-radius: 999px;
+      color: var(--star-color, #c7f5ff);
+      background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, currentColor 12%, transparent) 30%, currentColor 82%, #ffffff 100%);
+      box-shadow: 0 0 7px currentColor, 0 0 18px color-mix(in srgb, currentColor 58%, transparent);
+      opacity: 0;
+      transform: translate3d(-16vw, -18vh, 0) rotate(124deg);
+      transform-origin: right center;
+      animation: shooting-star-fall var(--duration) cubic-bezier(0.18, 0.58, 0.32, 1) var(--delay) infinite;
+    }
+
+    @keyframes shooting-star-fall {
+      0%, 5% {
+        opacity: 0;
+        transform: translate3d(-16vw, -18vh, 0) rotate(124deg);
+      }
+      11% {
+        opacity: var(--star-opacity, 0.82);
+      }
+      61% {
+        opacity: 0;
+        transform: translate3d(36vw, 135vh, 0) rotate(124deg);
+      }
+      62%, 100% {
+        opacity: 0;
+        transform: translate3d(36vw, 135vh, 0) rotate(124deg);
+      }
+    }
+
+    .showcase-inner {
+      position: relative;
+      z-index: 1;
+      padding-block: 30px 44px;
+    }
+
+    .showcase-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+
+    .showcase .eyebrow {
+      color: #2aa8f1;
+    }
+
+    .showcase h1 {
+      max-width: none;
+      margin: 0;
+      color: #fff;
+      font-size: clamp(1.8rem, 2.8vw, 3rem);
+      line-height: 1.08;
+      font-weight: 950;
+      letter-spacing: -0.05em;
+      white-space: nowrap;
+      word-break: keep-all;
+    }
+
+    .hero-controls {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 4px;
+    }
+
+    .round-button {
+      width: 46px;
+      height: 46px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid rgba(125, 217, 255, 0.22);
+      border-radius: 50%;
+      color: #d8efff;
+      background: rgba(11, 38, 68, 0.72);
+      cursor: pointer;
+      transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+    }
+
+    .round-button:hover {
+      border-color: rgba(125, 217, 255, 0.58);
+      background: rgba(23, 143, 218, 0.22);
+      transform: translateY(-2px);
+    }
+
+    .slide-count {
+      min-width: 64px;
+      color: rgba(219, 240, 255, 0.5);
+      font-size: 0.78rem;
+      font-weight: 850;
+      text-align: center;
+    }
+
+    .slide-count strong {
+      color: #6fc9ff;
+      font-size: 1rem;
+    }
+
+    .hero-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(125, 217, 255, 0.18);
+      border-radius: 14px;
+      background: rgba(5, 22, 40, 0.7);
+    }
+
+    .hero-tab {
+      position: relative;
+      flex: none;
+      min-width: 0;
+      min-height: 52px;
+      padding: 9px 10px;
+      border-right: 1px solid rgba(125, 217, 255, 0.12);
+      color: rgba(218, 239, 255, 0.58);
+      background: transparent;
+      cursor: pointer;
+      font-size: 0.83rem;
+      font-weight: 800;
+      white-space: nowrap;
+      transition: color 180ms ease, background 180ms ease;
+    }
+
+    .hero-tab:last-child {
+      border-right: 0;
+    }
+
+    .hero-tab span {
+      margin-right: 7px;
+      color: #38a9ef;
+      font-size: 0.72rem;
+      font-weight: 950;
+    }
+
+    .hero-tab::after {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      content: "";
+      background: linear-gradient(90deg, #168fda, #73cfff);
+      opacity: 0;
+      transform: scaleX(0.35);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .hero-tab[aria-selected="true"] {
+      color: #fff;
+      background: linear-gradient(180deg, rgba(21, 118, 181, 0.28), rgba(22, 143, 218, 0.12));
+    }
+
+    .hero-tab[aria-selected="true"]::after {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+
+    .showcase-card {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "figure"
+        "copy";
+      overflow: hidden;
+      border: 1px solid rgba(125, 217, 255, 0.22);
+      border-radius: 18px;
+      background: rgba(2, 14, 29, 0.82);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.26);
+    }
+
+    .showcase-copy {
+      grid-area: copy;
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 236px;
+      padding: clamp(28px, 3vw, 42px);
+      border-top: 1px solid rgba(125, 217, 255, 0.16);
+      background: linear-gradient(160deg, rgba(10, 39, 67, 0.72), rgba(3, 18, 34, 0.92));
+    }
+
+    .showcase-index {
+      position: absolute;
+      top: 24px;
+      right: 32px;
+      color: rgba(49, 139, 208, 0.12);
+      font-size: clamp(4.5rem, 8vw, 8rem);
+      line-height: 1;
+      font-weight: 950;
+    }
+
+    .showcase-label {
+      position: relative;
+      margin-bottom: 20px;
+      color: var(--gold);
+      font-size: 0.71rem;
+      font-weight: 900;
+      letter-spacing: 0.17em;
+    }
+
+    .showcase-copy h2 {
+      position: relative;
+      margin-bottom: 22px;
+      color: #fff;
+      font-size: clamp(1.8rem, 3vw, 3.4rem);
+      line-height: 1.18;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+      word-break: keep-all;
+    }
+
+    .showcase-copy p {
+      position: relative;
+      margin-bottom: 28px;
+      color: rgba(216, 235, 249, 0.68);
+      font-size: 0.96rem;
+      line-height: 1.78;
+      font-weight: 540;
+      word-break: keep-all;
+    }
+
+    .copy-rule {
+      position: relative;
+      width: 72%;
+      height: 2px;
+      background: linear-gradient(90deg, #43b7f3 0 48%, rgba(116, 201, 250, 0.14) 48%);
+    }
+
+    .showcase-figure {
+      grid-area: figure;
+      position: relative;
+      min-width: 0;
+      aspect-ratio: 3 / 2;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 60% 48%, rgba(25, 128, 205, 0.22), transparent 36%),
+        #020c1a;
+      --shine-x: 50%;
+      --shine-y: 42%;
+    }
+
+    .showcase-figure::before {
+      position: absolute;
+      z-index: 2;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      background:
+        radial-gradient(circle 180px at var(--shine-x) var(--shine-y), rgba(225, 249, 255, 0.46), rgba(125, 220, 255, 0.16) 22%, transparent 62%),
+        linear-gradient(118deg, transparent 30%, rgba(255, 255, 255, 0.18) 47%, transparent 62%);
+      background-position: center, -150% 0;
+      background-size: 100% 100%, 240% 100%;
+      mix-blend-mode: screen;
+      opacity: 0.32;
+      transform: translateZ(0);
+      transition: opacity 220ms ease, transform 460ms cubic-bezier(0.2, 0.75, 0.2, 1);
+      animation: showcase-auto-sheen 5.8s ease-in-out infinite;
+    }
+
+    .showcase-figure::after {
+      position: absolute;
+      z-index: 1;
+      inset: auto 0 0;
+      height: 20%;
+      pointer-events: none;
+      content: "";
+      background: linear-gradient(transparent, rgba(1, 8, 18, 0.74));
+    }
+
+    .showcase-image {
+      position: relative;
+      z-index: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+      filter: brightness(0.98) saturate(1.04);
+      transition: opacity 220ms ease, transform 520ms cubic-bezier(0.2, 0.75, 0.2, 1), filter 240ms ease;
+    }
+
+    .showcase-figure.is-light-tracking::before,
+    .showcase-figure:hover::before {
+      background-position: center, 50% 0;
+      opacity: 0.9;
+      transform: translateX(0);
+      animation: none;
+    }
+
+    .showcase-figure:hover .showcase-image {
+      filter: brightness(1.1) saturate(1.13) drop-shadow(0 0 22px color-mix(in srgb, var(--business-accent, #55c7ff) 46%, transparent));
+    }
+
+    @keyframes showcase-auto-sheen {
+      0%, 100% {
+        background-position: center, -150% 0;
+        opacity: 0.16;
+      }
+      48% {
+        background-position: center, 150% 0;
+        opacity: 0.58;
+      }
+      58% {
+        background-position: center, 150% 0;
+        opacity: 0.2;
+      }
+    }
+
+    .showcase-card.is-changing .showcase-image {
+      opacity: 0;
+      transform: translateX(-9%) scale(1.018);
+    }
+
+    .showcase-card.is-changing .showcase-copy > * {
+      opacity: 0.18;
+      transform: translateX(-22px);
+    }
+
+    .showcase-card.is-entering .showcase-image {
+      animation: business-media-from-right 560ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    }
+
+    .showcase-card.is-entering .showcase-copy > * {
+      animation: business-copy-from-right 520ms 70ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    }
+
+    @keyframes business-media-from-right {
+      from { opacity: 0; transform: translateX(10%) scale(1.02); }
+      to { opacity: 1; transform: translateX(0) scale(1); }
+    }
+
+    @keyframes business-copy-from-right {
+      from { opacity: 0; transform: translateX(30px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .showcase-media-tabs {
+      position: absolute;
+      z-index: 3;
+      top: 16px;
+      right: 16px;
+      display: inline-flex;
+      gap: 4px;
+      padding: 5px;
+      border: 1px solid rgba(164, 220, 255, 0.28);
+      border-radius: 999px;
+      background: rgba(2, 13, 28, 0.78);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+      backdrop-filter: blur(12px);
+    }
+
+    .showcase-media-tab {
+      min-height: 34px;
+      padding: 0 13px;
+      border: 0;
+      border-radius: 999px;
+      color: rgba(216, 239, 255, 0.68);
+      background: transparent;
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      transition: color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+
+    .showcase-media-tab:hover,
+    .showcase-media-tab:focus-visible,
+    .showcase-media-tab[aria-selected="true"] {
+      color: #061220;
+      background: #dff5ff;
+      box-shadow: 0 0 18px color-mix(in srgb, var(--business-accent, #55c7ff) 42%, transparent);
+    }
+
+    .showcase-media-tab:focus-visible {
+      outline: 3px solid #dff5ff;
+      outline-offset: 3px;
+    }
+
+    .showcase-media-badge {
+      position: absolute;
+      z-index: 2;
+      bottom: 18px;
+      left: 18px;
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid color-mix(in srgb, var(--business-accent, #55c7ff) 68%, transparent);
+      border-radius: 999px;
+      color: #eefaff;
+      background: color-mix(in srgb, var(--business-accent, #55c7ff) 22%, rgba(1, 11, 24, 0.9));
+      box-shadow: 0 0 22px color-mix(in srgb, var(--business-accent, #55c7ff) 26%, transparent);
+      font-size: 0.66rem;
+      font-weight: 950;
+      letter-spacing: 0.12em;
+    }
+
+    .showcase-mode-status {
+      position: relative;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      align-items: center;
+      margin: -12px 0 20px;
+      color: rgba(212, 236, 253, 0.72);
+      font-size: 0.76rem;
+      font-weight: 800;
+      line-height: 1.5;
+    }
+
+    .showcase-mode-status > span {
+      color: var(--business-accent, #6fc9ff);
+      font-size: 0.68rem;
+      font-weight: 950;
+      letter-spacing: 0.1em;
+    }
+
+    .showcase-mode-status strong {
+      color: rgba(237, 248, 255, 0.82);
+      font-weight: 800;
+    }
+
+    .business-flow {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.42fr) minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      margin-top: 14px;
+      padding: 14px 16px;
+      border: 1px solid rgba(125, 217, 255, 0.2);
+      border-radius: 16px;
+      background: linear-gradient(115deg, rgba(6, 29, 52, 0.88), rgba(2, 13, 28, 0.92));
+      box-shadow: 0 20px 46px rgba(0, 0, 0, 0.2);
+    }
+
+    .business-flow-intro {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      padding-inline: 4px;
+    }
+
+    .business-flow-intro > span {
+      color: var(--business-accent, #6fc9ff);
+      font-size: 0.66rem;
+      font-weight: 950;
+      letter-spacing: 0.14em;
+    }
+
+    .business-flow-intro strong {
+      overflow: hidden;
+      color: #f0f9ff;
+      font-size: 0.78rem;
+      font-weight: 900;
+      letter-spacing: 0.03em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .business-flow-tabs {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: stretch;
+      min-width: 0;
+    }
+
+    .business-flow-tab {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas:
+        "number title"
+        "number copy";
+      column-gap: 9px;
+      align-items: center;
+      min-width: 0;
+      min-height: 58px;
+      padding: 10px 12px;
+      border: 1px solid rgba(151, 211, 252, 0.16);
+      border-radius: 11px;
+      color: rgba(215, 238, 255, 0.64);
+      background: rgba(1, 12, 26, 0.48);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease, transform 180ms ease;
+    }
+
+    .business-flow-tab > span {
+      grid-area: number;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      color: var(--business-accent, #6fc9ff);
+      font-size: 0.66rem;
+      font-weight: 950;
+    }
+
+    .business-flow-tab strong {
+      grid-area: title;
+      color: inherit;
+      font-size: 0.82rem;
+      font-weight: 900;
+      word-break: keep-all;
+    }
+
+    .business-flow-tab small {
+      grid-area: copy;
+      overflow: hidden;
+      margin-top: 3px;
+      color: rgba(202, 229, 248, 0.54);
+      font-size: 0.66rem;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .business-flow-tab:hover,
+    .business-flow-tab:focus-visible,
+    .business-flow-tab[aria-selected="true"] {
+      border-color: color-mix(in srgb, var(--business-accent, #55c7ff) 72%, transparent);
+      color: #fff;
+      background: color-mix(in srgb, var(--business-accent, #55c7ff) 16%, rgba(2, 15, 29, 0.92));
+      transform: translateY(-1px);
+    }
+
+    .business-flow-tab:focus-visible,
+    .business-flow-next:focus-visible {
+      outline: 3px solid #dff5ff;
+      outline-offset: 3px;
+    }
+
+    .business-flow-arrow {
+      align-self: center;
+      color: var(--business-accent, #6fc9ff);
+      font-size: 1.15rem;
+      font-weight: 900;
+    }
+
+    .business-flow-next {
+      min-height: 44px;
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 14px;
+      border: 1px solid color-mix(in srgb, var(--business-accent, #55c7ff) 72%, transparent);
+      border-radius: 11px;
+      color: #edfaff;
+      background: color-mix(in srgb, var(--business-accent, #55c7ff) 16%, rgba(4, 20, 36, 0.92));
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 900;
+      white-space: nowrap;
+      transition: transform 180ms ease, background 180ms ease;
+    }
+
+    .business-flow-next:hover {
+      background: color-mix(in srgb, var(--business-accent, #55c7ff) 28%, rgba(4, 20, 36, 0.92));
+      transform: translateX(2px);
+    }
+
+    .workflow-showcase {
+      --workflow-accent: #58c8ff;
+      position: relative;
+      overflow: hidden;
+      padding-block: 112px;
+      color: #eff8ff;
+      background:
+        radial-gradient(circle at 10% 18%, rgba(42, 128, 229, 0.2), transparent 28%),
+        radial-gradient(circle at 88% 82%, rgba(176, 77, 240, 0.16), transparent 26%),
+        linear-gradient(180deg, #030b17 0%, #061426 55%, #030b17 100%);
+    }
+
+    .workflow-showcase::before,
+    .workflow-showcase::after {
+      position: absolute;
+      pointer-events: none;
+      content: "";
+    }
+
+    .workflow-showcase::before {
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(119, 195, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(119, 195, 255, 0.045) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+    }
+
+    .workflow-showcase::after {
+      top: 20%;
+      right: -18%;
+      width: min(48vw, 720px);
+      aspect-ratio: 1;
+      border: 1px solid rgba(94, 183, 255, 0.16);
+      border-radius: 50%;
+      box-shadow: 0 0 0 54px rgba(94, 183, 255, 0.025), 0 0 0 108px rgba(190, 99, 255, 0.018);
+    }
+
+    .workflow-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    .workflow-header {
+      max-width: 900px;
+      margin-inline: auto;
+      text-align: center;
+    }
+
+    .workflow-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 18px;
+      padding: 9px 16px;
+      border: 1px solid color-mix(in srgb, var(--workflow-accent) 58%, transparent);
+      border-radius: 999px;
+      color: var(--workflow-accent);
+      background: color-mix(in srgb, var(--workflow-accent) 9%, transparent);
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .workflow-kicker::before,
+    .workflow-kicker::after {
+      width: 18px;
+      height: 1px;
+      content: "";
+      background: currentColor;
+    }
+
+    .workflow-header h2 {
+      margin: 0;
+      color: #f9fcff;
+      font-size: clamp(2rem, 4vw, 4.1rem);
+      line-height: 1.1;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+      word-break: keep-all;
+      text-wrap: balance;
+    }
+
+    .workflow-header h2 em {
+      color: transparent;
+      font-style: normal;
+      background: linear-gradient(90deg, #3cb5ff, #8b8cff, #ec7eff);
+      background-clip: text;
+      -webkit-background-clip: text;
+    }
+
+    .workflow-header p {
+      max-width: 700px;
+      margin: 18px auto 0;
+      color: rgba(221, 239, 255, 0.72);
+      font-size: clamp(0.96rem, 1.4vw, 1.12rem);
+      line-height: 1.75;
+      font-weight: 620;
+      word-break: keep-all;
+    }
+
+    .workflow-switcher {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 48px 0 18px;
+    }
+
+    .workflow-switch {
+      --item-accent: #58c8ff;
+      position: relative;
+      min-width: 0;
+      min-height: 84px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      overflow: hidden;
+      border: 1px solid rgba(125, 201, 255, 0.17);
+      border-radius: 14px;
+      color: rgba(225, 241, 255, 0.64);
+      background: rgba(4, 17, 33, 0.74);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 180ms ease, background 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+    }
+
+    .workflow-switch::before {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      background: linear-gradient(115deg, transparent 20%, color-mix(in srgb, var(--item-accent) 18%, transparent) 50%, transparent 80%);
+      opacity: 0;
+      transform: translateX(-105%);
+    }
+
+    .workflow-switch:hover,
+    .workflow-switch:focus-visible,
+    .workflow-switch[aria-selected="true"] {
+      border-color: color-mix(in srgb, var(--item-accent) 78%, transparent);
+      color: #fff;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--item-accent) 18%, transparent), rgba(4, 17, 33, 0.86));
+      box-shadow: 0 14px 34px color-mix(in srgb, var(--item-accent) 13%, transparent);
+      transform: translateY(-2px);
+    }
+
+    .workflow-switch:hover::before,
+    .workflow-switch[aria-selected="true"]::before {
+      opacity: 1;
+      animation: workflow-shimmer 1.1s ease both;
+    }
+
+    .workflow-switch:focus-visible {
+      outline: 3px solid #c6efff;
+      outline-offset: 3px;
+    }
+
+    .workflow-switch-number {
+      width: 36px;
+      height: 36px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--item-accent) 60%, transparent);
+      border-radius: 50%;
+      color: var(--item-accent);
+      background: color-mix(in srgb, var(--item-accent) 10%, transparent);
+      font-size: 0.78rem;
+      font-weight: 950;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .workflow-switch strong,
+    .workflow-switch small {
+      display: block;
+      min-width: 0;
+    }
+
+    .workflow-switch strong {
+      font-size: 0.94rem;
+      line-height: 1.25;
+      font-weight: 900;
+      word-break: keep-all;
+    }
+
+    .workflow-switch small {
+      margin-top: 4px;
+      color: rgba(204, 229, 248, 0.58);
+      font-size: 0.72rem;
+      font-weight: 750;
+    }
+
+    .workflow-stage {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(280px, 0.62fr) minmax(0, 1.38fr);
+      overflow: hidden;
+      border: 1px solid rgba(124, 202, 255, 0.2);
+      border-radius: 22px;
+      background: rgba(2, 12, 26, 0.82);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.3);
+    }
+
+    .workflow-stage::before {
+      position: absolute;
+      z-index: 2;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      pointer-events: none;
+      content: "";
+      background: linear-gradient(90deg, transparent, var(--workflow-accent), transparent);
+      opacity: 0.75;
+    }
+
+    .workflow-copy {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      padding: clamp(28px, 4vw, 54px);
+      background:
+        radial-gradient(circle at 8% 14%, color-mix(in srgb, var(--workflow-accent) 18%, transparent), transparent 32%),
+        linear-gradient(160deg, rgba(10, 35, 62, 0.92), rgba(3, 14, 29, 0.96));
+    }
+
+    .workflow-step-count {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      margin-bottom: 22px;
+      color: var(--workflow-accent);
+      font-size: 0.76rem;
+      font-weight: 950;
+      letter-spacing: 0.14em;
+    }
+
+    .workflow-step-count::before {
+      width: 28px;
+      height: 2px;
+      content: "";
+      background: currentColor;
+    }
+
+    .workflow-copy h3 {
+      max-width: 500px;
+      margin: 0;
+      color: #fff;
+      font-size: clamp(1.75rem, 2.7vw, 3rem);
+      line-height: 1.2;
+      font-weight: 950;
+      letter-spacing: -0.035em;
+      word-break: keep-all;
+      text-wrap: balance;
+    }
+
+    .workflow-copy > p {
+      max-width: 500px;
+      margin: 18px 0 0;
+      color: rgba(220, 237, 252, 0.72);
+      font-size: 0.96rem;
+      line-height: 1.75;
+      font-weight: 600;
+      word-break: keep-all;
+    }
+
+    .workflow-facts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin: 28px 0 0;
+    }
+
+    .workflow-facts div {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid rgba(143, 209, 255, 0.14);
+      border-radius: 12px;
+      background: rgba(1, 11, 23, 0.42);
+    }
+
+    .workflow-facts dt {
+      color: rgba(200, 228, 250, 0.56);
+      font-size: 0.68rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+    }
+
+    .workflow-facts dd {
+      margin: 7px 0 0;
+      color: #fff;
+      font-size: 1rem;
+      line-height: 1.28;
+      font-weight: 900;
+      word-break: keep-all;
+    }
+
+    .workflow-progress {
+      margin-top: 28px;
+    }
+
+    .workflow-progress-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: rgba(210, 236, 255, 0.6);
+      font-size: 0.72rem;
+      font-weight: 850;
+    }
+
+    .workflow-progress-track {
+      height: 5px;
+      margin-top: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(125, 196, 244, 0.16);
+    }
+
+    .workflow-progress-fill {
+      width: 25%;
+      height: 100%;
+      display: block;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--workflow-accent), #edf9ff);
+      box-shadow: 0 0 16px var(--workflow-accent);
+      transition: width 620ms cubic-bezier(0.2, 0.75, 0.2, 1), background 220ms ease;
+    }
+
+    .workflow-media {
+      position: relative;
+      min-width: 0;
+      aspect-ratio: 16 / 9;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 52% 48%, color-mix(in srgb, var(--workflow-accent) 16%, transparent), transparent 36%),
+        #010714;
+    }
+
+    .workflow-media::before {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      content: "";
+      background: linear-gradient(120deg, transparent 36%, rgba(255, 255, 255, 0.08) 49%, transparent 62%);
+      opacity: 0;
+      transform: translateX(-120%);
+    }
+
+    .workflow-stage.is-changing .workflow-media::before {
+      animation: workflow-scan 620ms ease both;
+    }
+
+    .workflow-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+      transition: opacity 180ms ease, transform 520ms cubic-bezier(0.2, 0.75, 0.2, 1);
+    }
+
+    .workflow-stage.is-changing .workflow-image {
+      opacity: 0.2;
+      transform: scale(0.972);
+    }
+
+    .workflow-image.is-entering {
+      animation: workflow-image-in 620ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    }
+
+    .workflow-orbit {
+      position: absolute;
+      z-index: 2;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--workflow-accent);
+      border-radius: 50%;
+      box-shadow: 0 0 20px var(--workflow-accent);
+      opacity: 0.9;
+      animation: workflow-float 4.6s ease-in-out infinite;
+    }
+
+    .workflow-orbit.one {
+      top: 10%;
+      left: 8%;
+    }
+
+    .workflow-orbit.two {
+      right: 10%;
+      bottom: 12%;
+      width: 9px;
+      height: 9px;
+      animation-delay: -1.8s;
+    }
+
+    .workflow-orbit.three {
+      top: 17%;
+      right: 16%;
+      width: 7px;
+      height: 7px;
+      animation-delay: -3s;
+    }
+
+    .workflow-showcase:not(.is-visible) .workflow-header,
+    .workflow-showcase:not(.is-visible) .workflow-stage,
+    .workflow-showcase:not(.is-visible) .workflow-switch {
+      opacity: 0;
+      transform: translateY(22px);
+    }
+
+    .workflow-showcase.is-visible .workflow-header {
+      animation: workflow-reveal 620ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    }
+
+    .workflow-showcase.is-visible .workflow-switch {
+      animation: workflow-card-in 520ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    }
+
+    .workflow-showcase.is-visible .workflow-switch:nth-child(2) { animation-delay: 80ms; }
+    .workflow-showcase.is-visible .workflow-switch:nth-child(3) { animation-delay: 160ms; }
+    .workflow-showcase.is-visible .workflow-switch:nth-child(4) { animation-delay: 240ms; }
+
+    .workflow-showcase.is-visible .workflow-stage {
+      animation: workflow-reveal 680ms 210ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    }
+
+    @keyframes workflow-reveal {
+      from { opacity: 0; transform: translateY(22px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes workflow-card-in {
+      from { opacity: 0; transform: translateY(18px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes workflow-shimmer {
+      from { transform: translateX(-105%); }
+      to { transform: translateX(105%); }
+    }
+
+    @keyframes workflow-scan {
+      from { opacity: 0; transform: translateX(-120%); }
+      20% { opacity: 1; }
+      to { opacity: 0; transform: translateX(120%); }
+    }
+
+    @keyframes workflow-image-in {
+      from { opacity: 0.24; transform: scale(1.035); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes workflow-float {
+      0%, 100% { transform: translate3d(0, 0, 0); }
+      50% { transform: translate3d(0, -14px, 0); }
+    }
+
+    @media (max-width: 900px) {
+      .workflow-showcase {
+        padding-block: 82px;
+      }
+
+      .workflow-switcher {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 36px;
+      }
+
+      .workflow-stage {
+        grid-template-columns: 1fr;
+      }
+
+      .workflow-copy {
+        order: 2;
+      }
+
+      .workflow-media {
+        order: 1;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .workflow-showcase {
+        padding-block: 64px;
+      }
+
+      .workflow-switcher {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-top: 28px;
+      }
+
+      .workflow-switch {
+        min-height: 68px;
+        padding: 11px 13px;
+      }
+
+      .workflow-copy {
+        padding: 28px 22px 30px;
+      }
+
+      .workflow-facts {
+        grid-template-columns: 1fr;
+      }
+
+      .workflow-media {
+        aspect-ratio: 16 / 10;
+      }
+
+      .workflow-orbit {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .workflow-showcase *,
+      .workflow-showcase *::before,
+      .workflow-showcase *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+
+      .workflow-showcase .workflow-header,
+      .workflow-showcase .workflow-stage,
+      .workflow-showcase .workflow-switch {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .process {
+      position: relative;
+      padding-block: 96px 110px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 88% 8%, rgba(56, 163, 239, 0.12), transparent 23%),
+        #f3f7fb;
+    }
+
+    .process::after {
+      position: absolute;
+      right: -150px;
+      bottom: 8%;
+      width: 420px;
+      height: 420px;
+      border: 1px solid rgba(27, 125, 194, 0.08);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .process-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+      gap: 48px;
+      align-items: end;
+    }
+
+    .process-header .section-lead {
+      padding-bottom: 10px;
+    }
+
+    .process-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin: 46px 0 24px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: 0 18px 45px rgba(9, 36, 65, 0.06);
+    }
+
+    .process-metric {
+      min-height: 122px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 22px 26px;
+      border-right: 1px solid var(--line);
+    }
+
+    .process-metric:last-child {
+      border-right: 0;
+    }
+
+    .process-metric strong {
+      color: var(--ink);
+      font-size: clamp(1.35rem, 2vw, 2rem);
+      line-height: 1;
+      font-weight: 950;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .process-metric span {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 720;
+    }
+
+    .process-map,
+    .process-details {
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .map-head,
+    .details-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 30px 32px 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .map-head span,
+    .details-head span {
+      display: block;
+      margin-bottom: 9px;
+      color: var(--blue);
+      font-size: 0.7rem;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+    }
+
+    .map-head h3,
+    .details-head h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: clamp(1.35rem, 2vw, 2rem);
+      font-weight: 950;
+      letter-spacing: -0.035em;
+    }
+
+    .map-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .stage-tabs {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 12px;
+      padding: 22px;
+    }
+
+    .stage-tab {
+      position: relative;
+      min-width: 0;
+      min-height: 180px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 22px 18px;
+      overflow: hidden;
+      border: 1px solid #dce6ef;
+      border-radius: 13px;
+      color: var(--ink);
+      background: #f8fafc;
+      cursor: pointer;
+      text-align: left;
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .stage-tab:hover {
+      transform: translateY(-3px);
+      border-color: rgba(23, 143, 218, 0.35);
+      box-shadow: 0 18px 32px rgba(8, 42, 76, 0.09);
+    }
+
+    .stage-tab[aria-selected="true"] {
+      border-color: rgba(23, 143, 218, 0.4);
+      background: linear-gradient(150deg, #f4f9ff, #edfbf9);
+      box-shadow: 0 20px 38px rgba(15, 86, 142, 0.12);
+    }
+
+    .stage-tab::after {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 4px;
+      content: "";
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+      opacity: 0;
+    }
+
+    .stage-tab[aria-selected="true"]::after {
+      opacity: 1;
+    }
+
+    .stage-icon {
+      width: 44px;
+      height: 44px;
+      display: inline-grid;
+      place-items: center;
+      margin-bottom: 22px;
+      border-radius: 12px;
+      color: #fff;
+      background: linear-gradient(140deg, #3b8bfa, #1761d1 62%, #124798);
+      box-shadow: 0 12px 24px rgba(23, 97, 209, 0.24);
+      font-size: 1.12rem;
+      font-weight: 950;
+    }
+
+    .stage-tab small {
+      margin-bottom: 8px;
+      color: var(--blue);
+      font-size: 0.66rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+    }
+
+    .stage-tab strong {
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-size: 1.03rem;
+      line-height: 1.25;
+      font-weight: 900;
+      word-break: keep-all;
+    }
+
+    .stage-tab p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.75rem;
+      line-height: 1.6;
+      word-break: keep-all;
+    }
+
+    .process-details {
+      margin-top: 24px;
+      background: linear-gradient(#fff, #f1f5f9);
+    }
+
+    .detail-nav {
+      display: flex;
+      gap: 8px;
+    }
+
+    .detail-nav button {
+      min-height: 42px;
+      padding: 0 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--ink);
+      background: #fff;
+      cursor: pointer;
+      font-size: 0.83rem;
+      font-weight: 800;
+    }
+
+    .detail-nav button:hover:not(:disabled) {
+      border-color: rgba(23, 143, 218, 0.42);
+      color: #0d71bc;
+    }
+
+    .detail-nav button:disabled {
+      color: #9caaba;
+      background: #f3f6f9;
+      cursor: not-allowed;
+    }
+
+    .detail-panel {
+      padding: 24px;
+    }
+
+    .detail-summary {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 18px;
+      align-items: center;
+      padding: 24px;
+      border: 1px solid #dbe7f1;
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    .detail-number {
+      width: 58px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: #fff;
+      background: linear-gradient(140deg, #3b8bfa, #1761d1 62%, #124798);
+      box-shadow: 0 12px 28px rgba(23, 97, 209, 0.22);
+      font-size: 0.85rem;
+      font-weight: 950;
+    }
+
+    .detail-summary h4 {
+      margin: 0 0 6px;
+      color: var(--ink);
+      font-size: clamp(1.2rem, 2vw, 1.75rem);
+      font-weight: 950;
+      letter-spacing: -0.025em;
+      word-break: keep-all;
+    }
+
+    .detail-summary p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+      word-break: keep-all;
+    }
+
+    .detail-introduction {
+      margin: 18px 0;
+      padding: 20px 22px;
+      border-radius: 13px;
+      color: #334d66;
+      background: linear-gradient(135deg, #f7fbff, #f2fbf9);
+      font-size: 0.95rem;
+      line-height: 1.8;
+      word-break: keep-all;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .detail-card {
+      min-width: 0;
+      padding: 22px;
+      border: 1px solid #dfe7ee;
+      border-radius: 13px;
+      background: #f1f5f9;
+    }
+
+    .detail-card h4 {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 14px;
+      color: var(--ink);
+      font-size: 0.94rem;
+      font-weight: 900;
+    }
+
+    .detail-card h4::before {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      content: "";
+      background: linear-gradient(135deg, var(--blue), var(--teal));
+      box-shadow: 0 0 0 4px rgba(23, 143, 218, 0.1);
+    }
+
+    .detail-card ul {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .detail-card li {
+      position: relative;
+      padding-left: 16px;
+      color: #4a6177;
+      font-size: 0.84rem;
+      line-height: 1.5;
+      word-break: keep-all;
+    }
+
+    .detail-card li::before {
+      position: absolute;
+      top: 0.72em;
+      left: 0;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      content: "";
+      background: #4a9bce;
+    }
+
+    .quality-band {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      margin-top: 16px;
+      padding: 18px 20px;
+      border: 1px solid #d5e8f2;
+      border-radius: 13px;
+      color: #294d69;
+      background: linear-gradient(135deg, #eff8ff, #effbf7);
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+
+    .quality-band strong {
+      color: var(--ink);
+    }
+
+    .quality-badge {
+      flex: 0 0 auto;
+      min-width: 92px;
+      padding: 9px 13px;
+      border-radius: 999px;
+      color: #fff;
+      background: linear-gradient(140deg, #2685ef, #13ad9d);
+      font-size: 0.7rem;
+      font-weight: 950;
+      letter-spacing: 0.08em;
+      text-align: center;
+    }
+
+    .ticker {
+      overflow: hidden;
+      border-block: 1px solid rgba(125, 217, 255, 0.16);
+      color: #a6ddff;
+      background: #041426;
+    }
+
+    .ticker-track {
+      width: max-content;
+      display: flex;
+      gap: 46px;
+      align-items: center;
+      min-height: 74px;
+      padding-inline: 24px;
+      animation: ticker 26s linear infinite;
+    }
+
+    .ticker-track span {
+      display: inline-flex;
+      align-items: center;
+      gap: 46px;
+      font-size: 0.76rem;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+      white-space: nowrap;
+    }
+
+    .ticker-track span::after {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      content: "";
+      background: var(--gold);
+      box-shadow: 0 0 14px rgba(232, 200, 127, 0.55);
+    }
+
+    @keyframes ticker {
+      to {
+        transform: translateX(-50%);
+      }
+    }
+
+    .credentials {
+      padding-block: 138px 128px;
+      background: linear-gradient(160deg, #f6fafc 0%, #edf5f8 100%);
+    }
+
+    .credentials-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+      margin-top: 48px;
+    }
+
+    .credential-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid #d9e4ec;
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .credential-art {
+      width: 100%;
+      min-height: 310px;
+      aspect-ratio: 3 / 2;
+      object-fit: cover;
+      object-position: center;
+    }
+
+    .credential-copy {
+      padding: 30px;
+    }
+
+    .credential-copy .card-label {
+      color: var(--blue);
+      font-size: 0.7rem;
+      font-weight: 900;
+      letter-spacing: 0.15em;
+    }
+
+    .credential-copy h3 {
+      margin: 10px 0;
+      color: var(--ink);
+      font-size: clamp(1.55rem, 2.4vw, 2.35rem);
+      font-weight: 950;
+      letter-spacing: -0.04em;
+    }
+
+    .credential-copy > p {
+      margin-bottom: 24px;
+      color: var(--muted);
+      line-height: 1.75;
+      word-break: keep-all;
+    }
+
+    .degree-values {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .degree-value {
+      padding: 18px;
+      border-radius: 12px;
+      background: #f2f7fb;
+    }
+
+    .degree-value strong {
+      display: block;
+      color: var(--ink);
+      font-size: 2rem;
+      font-weight: 950;
+    }
+
+    .degree-value span {
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .credential-total {
+      display: inline-block;
+      margin-bottom: 16px;
+      color: var(--ink);
+      font-size: 2.1rem;
+      font-weight: 950;
+    }
+
+    .certificate-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 18px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .certificate-list li {
+      min-width: 0;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e6edf3;
+      color: #455d73;
+      font-size: 0.82rem;
+    }
+
+    .certificate-list strong {
+      flex: 0 0 auto;
+      color: var(--blue);
+    }
+
+    .credential-note {
+      margin: 18px 0 0 !important;
+      color: #7b8c9d !important;
+      font-size: 0.76rem;
+    }
+
+    .workflow {
+      padding-block: 132px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 10% 20%, rgba(38, 132, 204, 0.18), transparent 25%),
+        linear-gradient(120deg, #06162a 0%, #092742 100%);
+    }
+
+    .workflow .eyebrow {
+      color: #6acbff;
+    }
+
+    .workflow .section-title,
+    .workflow .section-lead {
+      color: #fff;
+    }
+
+    .workflow .section-lead {
+      color: rgba(220, 238, 251, 0.68);
+    }
+
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-top: 54px;
+      border-block: 1px solid rgba(125, 217, 255, 0.16);
+    }
+
+    .workflow-card {
+      position: relative;
+      min-height: 250px;
+      padding: 34px 28px;
+      border-right: 1px solid rgba(125, 217, 255, 0.16);
+    }
+
+    .workflow-card:last-child {
+      border-right: 0;
+    }
+
+    .workflow-number {
+      display: block;
+      margin-bottom: 54px;
+      color: #54bbf5;
+      font-size: 0.75rem;
+      font-weight: 950;
+    }
+
+    .workflow-card strong {
+      display: block;
+      margin-bottom: 14px;
+      color: #fff;
+      font-size: 1.25rem;
+      font-weight: 900;
+    }
+
+    .workflow-card p {
+      margin: 0;
+      color: rgba(215, 234, 248, 0.62);
+      font-size: 0.88rem;
+      line-height: 1.75;
+      word-break: keep-all;
+    }
+
+    .standards {
+      padding-block: 132px;
+      background:
+        radial-gradient(circle at 14% 80%, rgba(59, 151, 218, 0.11), transparent 24%),
+        #f2f6fa;
+    }
+
+    .standard-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 20px;
+      margin-top: 50px;
+    }
+
+    .standard-card {
+      position: relative;
+      min-height: 260px;
+      padding: 34px;
+      overflow: hidden;
+      border: 1px solid #d8e4ed;
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 20px 48px rgba(8, 36, 62, 0.07);
+    }
+
+    .standard-card::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      height: 4px;
+      content: "";
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+    }
+
+    .standard-mark {
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 44px;
+      border: 1px solid rgba(23, 143, 218, 0.24);
+      border-radius: 50%;
+      color: var(--blue);
+      background: rgba(23, 143, 218, 0.06);
+      font-size: 1rem;
+      font-weight: 950;
+    }
+
+    .standard-card h3 {
+      margin-bottom: 12px;
+      color: var(--ink);
+      font-size: 1.35rem;
+      font-weight: 950;
+    }
+
+    .standard-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.78;
+      word-break: keep-all;
+    }
+
+    .cta {
+      min-height: 440px;
+      display: flex;
+      align-items: center;
+      padding-block: 92px;
+      color: #fff;
+      background:
+        linear-gradient(90deg, rgba(32, 117, 182, 0.11) 1px, transparent 1px),
+        linear-gradient(rgba(32, 117, 182, 0.09) 1px, transparent 1px),
+        linear-gradient(118deg, #041223, #0a2e4e);
+      background-size: 48px 48px, 48px 48px, auto;
+    }
+
+    .cta-layout {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 56px;
+    }
+
+    .cta .eyebrow {
+      color: #6bcbff;
+    }
+
+    .cta h2 {
+      max-width: 790px;
+      margin-bottom: 18px;
+      color: #fff;
+      font-size: clamp(2.2rem, 4vw, 4.25rem);
+      line-height: 1.08;
+      font-weight: 950;
+      letter-spacing: -0.05em;
+      word-break: keep-all;
+    }
+
+    .cta p {
+      max-width: 700px;
+      margin: 0;
+      color: rgba(215, 235, 249, 0.68);
+      font-size: 1rem;
+      line-height: 1.8;
+      word-break: keep-all;
+    }
+
+    .cta-actions {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 10px;
+    }
+
+    .cta-button {
+      min-height: 52px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 20px;
+      border: 1px solid rgba(125, 217, 255, 0.25);
+      border-radius: 12px;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.07);
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 850;
+      text-decoration: none;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .cta-button.primary {
+      border-color: transparent;
+      color: #06223a;
+      background: linear-gradient(135deg, #7dd8ff, #50b5ee);
+    }
+
+    .cta-button:hover {
+      transform: translateY(-2px);
+      border-color: rgba(125, 217, 255, 0.58);
+    }
+
+    .footer {
+      padding-block: 54px 38px;
+      color: #dceafa;
+      background:
+        radial-gradient(circle at 12% 0, rgba(20, 132, 219, 0.2), transparent 34%),
+        linear-gradient(135deg, #020d1d 0%, #061a30 55%, #031120 100%);
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.3fr);
+      gap: 9%;
+      align-items: end;
+    }
+
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .footer-brand img {
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+    }
+
+    .footer-brand span {
+      display: block;
+      margin-bottom: 5px;
+      color: #68c8ff;
+      font-size: 0.68rem;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+    }
+
+    .footer-brand strong {
+      display: block;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 900;
+    }
+
+    .footer-contact {
+      display: grid;
+      gap: 7px;
+      justify-items: end;
+      color: rgba(220, 234, 250, 0.66);
+      font-size: 0.82rem;
+      line-height: 1.5;
+      text-align: right;
+      font-style: normal;
+    }
+
+    .footer-contact a {
+      color: #7ed3ff;
+      text-decoration: none;
+    }
+
+    .footer-bottom {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 34px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(125, 217, 255, 0.12);
+      color: rgba(220, 234, 250, 0.42);
+      font-size: 0.72rem;
+    }
+
+    /* The business-area experience ends before the legacy KIBA profile sections. */
+    .credentials,
+    .workflow,
+    .standards,
+    .cta,
+    .footer {
+      display: none !important;
+    }
+
+    @media (max-width: 1180px) {
+      .stage-tabs {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .stage-tab {
+        min-height: 158px;
+      }
+
+      .stage-icon {
+        margin-bottom: 16px;
+      }
+
+      .workflow-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .workflow-card:nth-child(2) {
+        border-right: 0;
+      }
+
+      .workflow-card:nth-child(-n + 2) {
+        border-bottom: 1px solid rgba(125, 217, 255, 0.16);
+      }
+    }
+
+    @media (max-width: 900px) {
+      .wrap {
+        width: min(100% - 36px, 760px);
+      }
+
+      .showcase {
+        min-height: 0;
+      }
+
+      .shooting-stars {
+        inset: -28% -48%;
+      }
+
+      .showcase-inner {
+        padding-block: 22px 34px;
+      }
+
+      .showcase-head,
+      .process-header,
+      .cta-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .showcase-head,
+      .cta-layout {
+        align-items: flex-start;
+      }
+
+      .showcase-head {
+        flex-direction: column;
+      }
+
+      .hero-controls {
+        align-self: flex-start;
+      }
+
+      .hero-tabs {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+      }
+
+      .hero-tabs::-webkit-scrollbar {
+        display: none;
+      }
+
+      .hero-tab {
+        flex: 0 0 150px;
+        scroll-snap-align: start;
+      }
+
+      .showcase-card {
+        grid-template-columns: 1fr;
+      }
+
+      .showcase-copy {
+        min-height: 0;
+        border-top: 1px solid rgba(125, 217, 255, 0.16);
+      }
+
+      .showcase-figure {
+        min-height: 0;
+      }
+
+      .business-flow {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .business-flow-next {
+        width: 100%;
+      }
+
+      .process {
+        padding-block: 72px 82px;
+      }
+
+      .process-header {
+        display: grid;
+        gap: 16px;
+      }
+
+      .process-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .process-metric:nth-child(2) {
+        border-right: 0;
+      }
+
+      .process-metric:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--line);
+      }
+
+      .credentials-grid,
+      .standard-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .credentials,
+      .workflow,
+      .standards {
+        padding-block: 96px;
+      }
+
+      .cta-layout {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .cta-actions {
+        align-self: stretch;
+      }
+
+      .cta-button {
+        flex: 1;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .wrap {
+        width: calc(100% - 28px);
+      }
+
+      .showcase h1,
+      .section-title,
+      .cta h2 {
+        letter-spacing: -0.035em;
+      }
+
+      .showcase h1 {
+        font-size: clamp(0.9rem, 4.1vw, 1.15rem);
+        letter-spacing: -0.075em;
+        white-space: nowrap;
+      }
+
+      .shooting-stars {
+        inset: -42% -72%;
+      }
+
+      .shooting-star {
+        opacity: 0.7;
+      }
+
+      .showcase-figure {
+        min-height: 0;
+      }
+
+      .showcase-image {
+        object-fit: contain;
+      }
+
+      .showcase-media-tabs {
+        top: 10px;
+        right: 10px;
+      }
+
+      .showcase-media-tab {
+        min-height: 30px;
+        padding: 0 10px;
+        font-size: 0.65rem;
+      }
+
+      .showcase-media-badge {
+        bottom: 10px;
+        left: 10px;
+        min-height: 24px;
+        font-size: 0.58rem;
+      }
+
+      .business-flow {
+        margin-top: 10px;
+        padding: 12px;
+      }
+
+      .business-flow-tabs {
+        gap: 6px;
+      }
+
+      .business-flow-tab {
+        min-height: 64px;
+        padding: 9px;
+      }
+
+      .business-flow-tab small {
+        font-size: 0.6rem;
+      }
+
+      .process-metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .process-metric,
+      .process-metric:nth-child(2) {
+        min-height: 96px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .process-metric:last-child {
+        border-bottom: 0;
+      }
+
+      .map-head,
+      .details-head {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 24px 20px 18px;
+      }
+
+      .stage-tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+        padding: 14px;
+      }
+
+      .stage-tab {
+        min-height: 160px;
+        padding: 16px 14px;
+      }
+
+      .stage-icon {
+        width: 38px;
+        height: 38px;
+        margin-bottom: 12px;
+      }
+
+      .stage-tab p {
+        display: none;
+      }
+
+      .detail-nav {
+        width: 100%;
+      }
+
+      .detail-nav button {
+        flex: 1;
+      }
+
+      .detail-panel {
+        padding: 14px;
+      }
+
+      .detail-summary {
+        grid-template-columns: 1fr;
+        padding: 18px;
+      }
+
+      .detail-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .quality-band {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .quality-badge {
+        align-self: flex-start;
+      }
+
+      .credential-art {
+        min-height: 210px;
+      }
+
+      .credential-copy {
+        padding: 22px;
+      }
+
+      .certificate-list {
+        grid-template-columns: 1fr;
+      }
+
+      .workflow-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .workflow-card,
+      .workflow-card:nth-child(2) {
+        min-height: 210px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(125, 217, 255, 0.16);
+      }
+
+      .workflow-card:last-child {
+        border-bottom: 0;
+      }
+
+      .workflow-number {
+        margin-bottom: 34px;
+      }
+
+      .cta {
+        min-height: 0;
+        padding-block: 78px;
+      }
+
+      .cta-actions {
+        flex-direction: column;
+      }
+
+      .footer-grid {
+        grid-template-columns: 1fr;
+        gap: 30px;
+      }
+
+      .footer-contact {
+        justify-items: start;
+        text-align: left;
+      }
+
+      .footer-bottom {
+        flex-direction: column;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+
+      .ticker-track {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: center;
+        padding-block: 22px;
+        transform: none;
+      }
+
+      .ticker-track [data-duplicate] {
+        display: none;
+      }
+
+      .shooting-star {
+        animation: none !important;
+        opacity: 0.3;
+      }
+
+      .showcase-figure::before {
+        animation: none !important;
+        background-position: center, 50% 0;
+        opacity: 0.16;
+      }
+    }
+    /* Business process: four service tracks with a detailed, accessible accordion. */
+    .business-process-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 42px;
+    }
+
+    .business-process-tab {
+      position: relative;
+      min-width: 0;
+      min-height: 184px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      overflow: hidden;
+      border: 1px solid #dbe5ef;
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.88);
+      padding: 22px 20px;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 14px 34px rgba(9, 36, 65, 0.055);
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .business-process-tab::after {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 4px;
+      content: "";
+      background: var(--tab-accent);
+      opacity: 0;
+    }
+
+    .business-process-tab:hover,
+    .business-process-tab[aria-selected="true"] {
+      border-color: var(--tab-accent);
+      background: var(--tab-soft);
+      box-shadow: 0 20px 42px color-mix(in srgb, var(--tab-accent) 16%, transparent);
+      transform: translateY(-3px);
+    }
+
+    .business-process-tab[aria-selected="true"]::after {
+      opacity: 1;
+    }
+
+    .business-process-tab:focus-visible,
+    .business-process-accordion-trigger:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--process-accent, var(--tab-accent)) 34%, transparent);
+      outline-offset: 3px;
+    }
+
+    .business-process-tab-number {
+      color: var(--tab-accent);
+      font-size: 0.72rem;
+      font-weight: 950;
+      letter-spacing: 0.09em;
+    }
+
+    .business-process-tab strong {
+      margin-top: 24px;
+      color: var(--ink);
+      font-size: 1.13rem;
+      font-weight: 950;
+      line-height: 1.2;
+      word-break: keep-all;
+    }
+
+    .business-process-tab small {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 720;
+      line-height: 1.55;
+      word-break: keep-all;
+    }
+
+    .business-process-panel {
+      --process-accent: var(--blue);
+      --process-soft: #eef6ff;
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--process-accent) 28%, #dce5ee);
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .business-process-panel-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: end;
+      padding: 30px 32px 26px;
+      border-bottom: 1px solid #e1e8ef;
+      background: linear-gradient(112deg, var(--process-soft), #fff 68%);
+    }
+
+    .business-process-panel-head > div:first-child > span {
+      display: block;
+      color: var(--process-accent);
+      font-size: 0.7rem;
+      font-weight: 950;
+      letter-spacing: 0.12em;
+    }
+
+    .business-process-panel-head h3 {
+      margin: 10px 0 0;
+      color: var(--ink);
+      font-size: clamp(1.4rem, 2.5vw, 2.15rem);
+      font-weight: 950;
+      line-height: 1.18;
+      letter-spacing: -0.035em;
+      text-wrap: balance;
+      word-break: keep-all;
+    }
+
+    .business-process-panel-head p {
+      max-width: 770px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 720;
+      line-height: 1.68;
+      word-break: keep-all;
+    }
+
+    .business-process-result {
+      min-width: 178px;
+      display: grid;
+      gap: 7px;
+      border: 1px solid color-mix(in srgb, var(--process-accent) 28%, #dce5ee);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      padding: 13px 15px;
+    }
+
+    .business-process-result span {
+      color: var(--process-accent);
+      font-size: 0.66rem;
+      font-weight: 950;
+      letter-spacing: 0.08em;
+    }
+
+    .business-process-result strong {
+      color: var(--ink);
+      font-size: 0.82rem;
+      font-weight: 900;
+      line-height: 1.45;
+      word-break: keep-all;
+    }
+
+    .business-process-accordions {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      background: #f7f9fc;
+    }
+
+    .business-process-accordion {
+      overflow: hidden;
+      border: 1px solid #dee7ee;
+      border-radius: 13px;
+      background: #fff;
+    }
+
+    .business-process-accordion[data-open="true"] {
+      border-color: color-mix(in srgb, var(--process-accent) 42%, #dce5ee);
+      box-shadow: 0 12px 28px color-mix(in srgb, var(--process-accent) 10%, transparent);
+    }
+
+    .business-process-accordion-trigger {
+      width: 100%;
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      border: 0;
+      background: transparent;
+      padding: 19px 20px;
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .business-process-stage-number {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      color: #fff;
+      background: var(--process-accent);
+      font-size: 0.72rem;
+      font-weight: 950;
+    }
+
+    .business-process-stage-copy {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .business-process-stage-copy small {
+      color: var(--process-accent);
+      font-size: 0.66rem;
+      font-weight: 950;
+      letter-spacing: 0.08em;
+    }
+
+    .business-process-stage-copy strong {
+      color: var(--ink);
+      font-size: 1rem;
+      font-weight: 950;
+      line-height: 1.25;
+      word-break: keep-all;
+    }
+
+    .business-process-stage-copy span {
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-weight: 700;
+      line-height: 1.5;
+      word-break: keep-all;
+    }
+
+    .business-process-chevron {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #dce5ee;
+      border-radius: 9px;
+      color: var(--process-accent);
+      font-size: 1.1rem;
+      line-height: 1;
+      transition: transform 180ms ease;
+    }
+
+    .business-process-accordion-trigger[aria-expanded="true"] .business-process-chevron {
+      transform: rotate(180deg);
+    }
+
+    .business-process-accordion-body {
+      border-top: 1px solid #e3eaf0;
+      padding: 20px 20px 22px 78px;
+      background: linear-gradient(90deg, var(--process-soft), #fff 56%);
+      animation: business-process-detail-in 180ms ease both;
+    }
+
+    .business-process-accordion-body > p {
+      max-width: 930px;
+      margin: 0;
+      color: #40516a;
+      font-size: 0.9rem;
+      font-weight: 700;
+      line-height: 1.72;
+      word-break: keep-all;
+    }
+
+    .business-process-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .business-process-detail-card {
+      min-width: 0;
+      border: 1px solid color-mix(in srgb, var(--process-accent) 18%, #dce5ee);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.8);
+      padding: 15px;
+    }
+
+    .business-process-detail-card span {
+      color: var(--process-accent);
+      font-size: 0.68rem;
+      font-weight: 950;
+      letter-spacing: 0.06em;
+    }
+
+    .business-process-detail-card p {
+      margin: 9px 0 0;
+      color: #40516a;
+      font-size: 0.84rem;
+      font-weight: 700;
+      line-height: 1.6;
+      word-break: keep-all;
+    }
+
+    .business-process-detail-card ul {
+      display: grid;
+      gap: 7px;
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .business-process-detail-card li {
+      display: grid;
+      grid-template-columns: 7px minmax(0, 1fr);
+      gap: 7px;
+      color: #40516a;
+      font-size: 0.8rem;
+      font-weight: 700;
+      line-height: 1.48;
+      word-break: keep-all;
+    }
+
+    .business-process-detail-card li::before {
+      width: 5px;
+      height: 5px;
+      margin-top: 0.45em;
+      border-radius: 50%;
+      content: "";
+      background: var(--process-accent);
+    }
+
+    .business-process-checkpoint {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-top: 15px;
+      color: var(--process-accent);
+      font-size: 0.8rem;
+      font-weight: 900;
+      line-height: 1.5;
+      word-break: keep-all;
+    }
+
+    .business-process-checkpoint::before {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      content: "✓";
+      color: #fff;
+      background: var(--process-accent);
+      font-size: 0.68rem;
+    }
+
+    @keyframes business-process-detail-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 980px) {
+      .business-process-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .business-process-detail-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .business-process-tabs { gap: 10px; margin-top: 30px; }
+      .business-process-tab { min-height: 158px; padding: 17px 15px; }
+      .business-process-tab strong { margin-top: 18px; font-size: 1rem; }
+      .business-process-tab small { font-size: 0.72rem; }
+      .business-process-panel-head { grid-template-columns: 1fr; gap: 16px; padding: 24px 20px 21px; }
+      .business-process-result { min-width: 0; }
+      .business-process-accordions { padding: 12px; }
+      .business-process-accordion-trigger { gap: 12px; padding: 16px; }
+      .business-process-stage-number { width: 38px; height: 38px; }
+      .business-process-stage-copy strong { font-size: 0.93rem; }
+      .business-process-stage-copy span { font-size: 0.76rem; }
+      .business-process-chevron { width: 30px; height: 30px; }
+      .business-process-accordion-body { padding: 17px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .business-process-tab,
+      .business-process-chevron { transition: none; }
+      .business-process-tab:hover { transform: none; }
+      .business-process-accordion-body { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">본문으로 건너뛰기</a>
+  <main id="main-content">
+    <section class="showcase" aria-labelledby="showcase-title">
+      <div class="showcase-starfall" aria-hidden="true">
+        <div class="shooting-stars">
+          <span class="shooting-star" style="--star-x: 2%; --star-y: -8%; --trail: 108px; --duration: 9.6s; --delay: -5.7s; --star-color: #aeeeff;"></span>
+          <span class="shooting-star" style="--star-x: 14%; --star-y: 4%; --trail: 74px; --thickness: 2px; --duration: 7.8s; --delay: -1.4s; --star-opacity: 0.62; --star-color: #d4b9ff;"></span>
+          <span class="shooting-star" style="--star-x: 26%; --star-y: -18%; --trail: 138px; --duration: 11.2s; --delay: -8.4s; --star-color: #85e5ff;"></span>
+          <span class="shooting-star" style="--star-x: 34%; --star-y: 28%; --trail: 64px; --duration: 8.9s; --delay: -4.2s; --star-opacity: 0.55; --star-color: #ffe2b2;"></span>
+          <span class="shooting-star" style="--star-x: 45%; --star-y: 8%; --trail: 122px; --thickness: 2px; --duration: 12.4s; --delay: -9.8s; --star-color: #b6d5ff;"></span>
+          <span class="shooting-star" style="--star-x: 53%; --star-y: -6%; --trail: 84px; --duration: 7.2s; --delay: -2.6s; --star-opacity: 0.68; --star-color: #f3c4ff;"></span>
+          <span class="shooting-star" style="--star-x: 61%; --star-y: 32%; --trail: 152px; --duration: 13.1s; --delay: -6.1s; --star-color: #8eefff;"></span>
+          <span class="shooting-star" style="--star-x: 70%; --star-y: -14%; --trail: 96px; --duration: 10.4s; --delay: -3.3s; --star-opacity: 0.62; --star-color: #f7dcad;"></span>
+          <span class="shooting-star" style="--star-x: 79%; --star-y: 12%; --trail: 126px; --thickness: 2px; --duration: 9.1s; --delay: -7.2s; --star-color: #b99bff;"></span>
+          <span class="shooting-star" style="--star-x: 88%; --star-y: -22%; --trail: 72px; --duration: 8.3s; --delay: -5.1s; --star-opacity: 0.58; --star-color: #a8efff;"></span>
+          <span class="shooting-star" style="--star-x: 93%; --star-y: 38%; --trail: 116px; --duration: 11.7s; --delay: -10.1s; --star-color: #ffc9ed;"></span>
+          <span class="shooting-star" style="--star-x: 7%; --star-y: 52%; --trail: 68px; --duration: 7.6s; --delay: -0.9s; --star-opacity: 0.5; --star-color: #89dfff;"></span>
+          <span class="shooting-star" style="--star-x: 19%; --star-y: 39%; --trail: 92px; --duration: 9s; --delay: -0.4s; --star-opacity: 0.58; --star-color: #d6f7ff;"></span>
+          <span class="shooting-star" style="--star-x: 41%; --star-y: -27%; --trail: 132px; --thickness: 2px; --duration: 10.2s; --delay: -3.9s; --star-color: #a6bcff;"></span>
+          <span class="shooting-star" style="--star-x: 57%; --star-y: 55%; --trail: 78px; --duration: 8.1s; --delay: -6.8s; --star-opacity: 0.52; --star-color: #ffdbab;"></span>
+          <span class="shooting-star" style="--star-x: 69%; --star-y: 20%; --trail: 144px; --duration: 12.9s; --delay: -1.8s; --star-color: #9beeff;"></span>
+          <span class="shooting-star" style="--star-x: 82%; --star-y: -4%; --trail: 88px; --duration: 7.4s; --delay: -4.8s; --star-opacity: 0.6; --star-color: #edc2ff;"></span>
+          <span class="shooting-star" style="--star-x: 98%; --star-y: 48%; --trail: 118px; --thickness: 2px; --duration: 11.5s; --delay: -9.2s; --star-color: #b8e8ff;"></span>
+        </div>
+      </div>
+      <div class="wrap showcase-inner">
+        <header class="showcase-head">
+          <div>
+            <p class="eyebrow">PROPIG · 4 CORE BUSINESS AREAS</p>
+            <h1 id="showcase-title">기술과 콘텐츠를 연결하는 4대 제품·서비스</h1>
+          </div>
+          <div class="hero-controls" aria-label="소개 이미지 이동">
+            <button class="round-button" id="heroPrev" type="button" aria-label="이전 이미지">←</button>
+            <span class="slide-count"><strong id="heroCurrent">01</strong> / <span id="heroTotal">08</span></span>
+            <button class="round-button" id="heroNext" type="button" aria-label="다음 이미지">→</button>
+          </div>
+        </header>
+
+        <div class="hero-tabs" id="heroTabs" role="tablist" aria-label="제품소개 항목"></div>
+
+        <article class="showcase-card" id="showcaseCard" role="tabpanel" aria-labelledby="hero-tab-0" aria-live="polite">
+          <div class="showcase-copy">
+            <span class="showcase-index" id="heroIndex" aria-hidden="true">01</span>
+            <span class="showcase-label" id="heroEyebrow">WEB APP DEVELOPMENT</span>
+            <h2 id="heroTitle">아이디어를 확장 가능한 웹 서비스로 만듭니다</h2>
+            <p id="heroDescription">기획과 디자인부터 프론트엔드, 백엔드, 데이터베이스, 클라우드 배포까지 웹 앱 개발의 전 과정을 연결합니다.</p>
+            <div class="showcase-mode-status" aria-live="polite">
+              <span id="heroModeLabel">TECH STACK</span>
+              <strong id="heroModeMeta">서비스를 구성하는 핵심 기술</strong>
+            </div>
+            <span class="copy-rule" aria-hidden="true"></span>
+          </div>
+          <figure class="showcase-figure" id="showcaseMedia">
+            <div class="showcase-media-tabs" id="mediaTabs" role="tablist" aria-label="제품·서비스 상세 보기">
+              <button class="showcase-media-tab" id="media-tab-0" type="button" role="tab" aria-controls="showcaseMedia" aria-selected="true">기술 스택</button>
+              <button class="showcase-media-tab" id="media-tab-1" type="button" role="tab" aria-controls="showcaseMedia" aria-selected="false" tabindex="-1">실행 과정</button>
+            </div>
+            <span class="showcase-media-badge" id="heroMediaBadge">TECH STACK</span>
+            <img
+              class="showcase-image"
+              id="heroImage"
+              src="/images/corp/technology/web-app-stack.png"
+              alt="웹 앱 개발 기술 스택을 소개하는 인포그래픽"
+              width="1536"
+              height="1024"
+              decoding="async"
+              fetchpriority="high"
+            />
+          </figure>
+        </article>
+
+        <section class="business-flow" aria-labelledby="business-flow-title">
+          <div class="business-flow-intro">
+            <span id="business-flow-title">BUSINESS FLOW</span>
+            <strong id="flowBusinessLabel">01 · WEB APP DEVELOPMENT</strong>
+          </div>
+          <div class="business-flow-tabs" id="flowTabs" role="tablist" aria-label="선택한 제품·서비스의 단계">
+            <button class="business-flow-tab" id="flow-tab-0" type="button" role="tab" aria-controls="showcaseCard" aria-selected="true">
+              <span>01</span><strong>기술 스택</strong><small>서비스를 구성하는 도구</small>
+            </button>
+            <span class="business-flow-arrow" aria-hidden="true">→</span>
+            <button class="business-flow-tab" id="flow-tab-1" type="button" role="tab" aria-controls="showcaseCard" aria-selected="false" tabindex="-1">
+              <span>02</span><strong>실행 과정</strong><small>아이디어부터 성장까지</small>
+            </button>
+          </div>
+          <button class="business-flow-next" id="flowNext" type="button">
+            <span id="flowNextLabel">다음 단계: 실행 과정</span><b aria-hidden="true">→</b>
+          </button>
+        </section>
+      </div>
+    </section>
+
+    <section class="workflow-showcase" id="business-workflow" aria-labelledby="business-workflow-title" hidden>
+      <div class="wrap workflow-inner">
+        <header class="workflow-header">
+          <p class="workflow-kicker">From idea to measurable growth</p>
+          <h2 id="business-workflow-title">사업의 아이디어를 <em>실행 가능한 과정</em>으로 연결합니다</h2>
+          <p>기획, 제작, 자동화, 운영까지 각 제품·서비스에 맞춘 실행 순서를 한눈에 확인하고, 다음 단계로 자연스럽게 이어갑니다.</p>
+        </header>
+
+        <div class="workflow-switcher" id="workflowTabs" role="tablist" aria-label="제품·서비스별 실행 워크플로"></div>
+
+        <article class="workflow-stage" id="workflowPanel" role="tabpanel" aria-labelledby="workflow-tab-0" aria-live="polite">
+          <div class="workflow-copy">
+            <span class="workflow-step-count" id="workflowStepCount">09 STEPS</span>
+            <h3 id="workflowPanelTitle">아이디어를 제품으로 완성하는 웹 앱 개발 여정</h3>
+            <p id="workflowPanelDescription">전략 수립부터 안정적인 운영과 개선까지, 서비스의 성장 주기를 고려해 웹 앱을 설계하고 구현합니다.</p>
+            <dl class="workflow-facts">
+              <div>
+                <dt>핵심 단계</dt>
+                <dd id="workflowFactSteps">기획 · 설계 · 구축</dd>
+              </div>
+              <div>
+                <dt>주요 결과</dt>
+                <dd id="workflowFactOutcome">확장 가능한 웹 서비스</dd>
+              </div>
+            </dl>
+            <div class="workflow-progress" aria-label="워크플로 선택 진행 상태">
+              <div class="workflow-progress-meta"><span id="workflowProgressLabel">WEB APP DEVELOPMENT</span><span id="workflowProgressCount">01 / 04</span></div>
+              <div class="workflow-progress-track"><span class="workflow-progress-fill" id="workflowProgressFill"></span></div>
+            </div>
+          </div>
+
+          <figure class="workflow-media">
+            <span class="workflow-orbit one" aria-hidden="true"></span>
+            <span class="workflow-orbit two" aria-hidden="true"></span>
+            <span class="workflow-orbit three" aria-hidden="true"></span>
+            <img
+              class="workflow-image"
+              id="workflowImage"
+              src="/images/corp/workflows/web-app-delivery-process.png"
+              alt="웹 앱 개발의 9단계 실행 프로세스 인포그래픽"
+              width="1536"
+              height="1024"
+              loading="lazy"
+              decoding="async"
+            />
+          </figure>
+        </article>
+      </div>
+    </section>
+
+    <section class="process" aria-labelledby="process-title">
+      <div class="wrap">
+        <header class="process-header">
+          <div>
+            <p class="eyebrow">Business Process</p>
+            <h2 class="section-title" id="process-title">사업진행방식</h2>
+          </div>
+          <p class="section-lead">의뢰 목적과 서비스 특성에 맞춰, 필요한 단계·산출물·검증 기준을 처음부터 투명하게 공유합니다.</p>
+        </header>
+
+        <div class="business-process-tabs" id="businessProcessTabs" role="tablist" aria-label="제품·서비스별 진행방식 선택"></div>
+        <section class="business-process-panel" id="businessProcessPanel" role="tabpanel" aria-live="polite"></section>
+      </div>
+    </section>
+
+    <div class="ticker" aria-label="연구원 핵심 키워드">
+      <div class="ticker-track">
+        <span>DATA ANALYSIS</span><span>COST ENGINEERING</span><span>EXPERT REVIEW</span><span>BUSINESS RESEARCH</span><span>VERIFICATION</span><span>STRATEGIC INSIGHT</span>
+        <span data-duplicate>DATA ANALYSIS</span><span data-duplicate>COST ENGINEERING</span><span data-duplicate>EXPERT REVIEW</span><span data-duplicate>BUSINESS RESEARCH</span><span data-duplicate>VERIFICATION</span><span data-duplicate>STRATEGIC INSIGHT</span>
+      </div>
+    </div>
+
+    <section class="credentials" aria-labelledby="credentials-title">
+      <div class="wrap">
+        <p class="eyebrow">People &amp; Credentials</p>
+        <h2 class="section-title" id="credentials-title">전문인력보유현황</h2>
+        <p class="section-lead">전문인력 DB에 등록된 인력·학위·자격 데이터를 기준으로, 과제를 뒷받침하는 실제 전문 역량을 투명하게 소개합니다.</p>
+
+        <div class="credentials-grid">
+          <article class="credential-card">
+            <img class="credential-art" src="/corp/kiba-dashboard/academic-credentials.png" alt="학위 보유 현황 인포그래픽" width="1122" height="1402" loading="lazy" decoding="async" />
+            <div class="credential-copy">
+              <span class="card-label">Academic Profile</span>
+              <h3>학위 보유 현황</h3>
+              <p>고등교육과 실무 경험을 함께 갖춘 전문인력이 과제의 분석과 검토를 수행합니다.</p>
+              <div class="degree-values">
+                <div class="degree-value"><strong>8명</strong><span>박사 학위 보유</span></div>
+                <div class="degree-value"><strong>21명</strong><span>석사 학위 보유</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="credential-card">
+            <img class="credential-art" src="/corp/kiba-dashboard/professional-certifications.png" alt="전문 자격 보유 현황 인포그래픽" width="1122" height="1402" loading="lazy" decoding="async" />
+            <div class="credential-copy">
+              <span class="card-label">Credential Portfolio</span>
+              <h3>주요 보유 자격</h3>
+              <p>총 98종, 148건의 전문 자격 정보를 관리합니다.</p>
+              <strong class="credential-total">148건</strong>
+              <ul class="certificate-list" aria-label="주요 보유 자격증">
+                <li><span>공인원가분석사</span><strong>12건</strong></li>
+                <li><span>경영지도사</span><strong>8건</strong></li>
+                <li><span>갈등조정전문가 1급</span><strong>5건</strong></li>
+                <li><span>가맹거래사</span><strong>3건</strong></li>
+                <li><span>건축기사</span><strong>3건</strong></li>
+                <li><span>건축시공기술사</span><strong>3건</strong></li>
+                <li><span>기술거래사</span><strong>3건</strong></li>
+                <li><span>물류관리사</span><strong>3건</strong></li>
+                <li><span>산업안전기사</span><strong>3건</strong></li>
+                <li><span>컴퓨터활용능력 2급</span><strong>3건</strong></li>
+              </ul>
+              <p class="credential-note">상위 보유 자격 기준 · 그 외 88종의 전문 자격 정보를 보유하고 있습니다.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="workflow" aria-labelledby="workflow-title">
+      <div class="wrap">
+        <p class="eyebrow">How We Work</p>
+        <h2 class="section-title" id="workflow-title">신뢰는 과정에서 만들어집니다</h2>
+        <p class="section-lead">모든 프로젝트는 명확한 기준을 세우고, 분석하고, 검증하고, 활용 가능한 결과로 완성하는 흐름을 따릅니다.</p>
+
+        <div class="workflow-grid">
+          <article class="workflow-card"><span class="workflow-number">01</span><strong>과제 정의</strong><p>목적과 범위를 명확히 하고 필요한 자료와 판단 기준을 설계합니다.</p></article>
+          <article class="workflow-card"><span class="workflow-number">02</span><strong>데이터 분석</strong><p>수집한 자료를 다각도로 분석해 핵심 근거와 의미 있는 패턴을 찾습니다.</p></article>
+          <article class="workflow-card"><span class="workflow-number">03</span><strong>전문가 검증</strong><p>분야별 전문가가 산출 과정과 결과의 타당성을 교차 검토합니다.</p></article>
+          <article class="workflow-card"><span class="workflow-number">04</span><strong>결과물 완성</strong><p>의사결정과 실무에 바로 활용할 수 있는 형태로 결과를 제공합니다.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="standards" aria-labelledby="standards-title">
+      <div class="wrap">
+        <p class="eyebrow">The Standard We Keep</p>
+        <h2 class="section-title" id="standards-title">결과의 품질을 결정하는 세 가지 기준</h2>
+
+        <div class="standard-grid">
+          <article class="standard-card"><span class="standard-mark" aria-hidden="true">01</span><h3>근거가 보이는 분석</h3><p>출처와 기준, 판단 과정을 투명하게 정리해 결과의 맥락까지 확인할 수 있습니다.</p></article>
+          <article class="standard-card"><span class="standard-mark" aria-hidden="true">02</span><h3>설명 가능한 산출</h3><p>숫자만 제시하지 않고 계산 구조와 해석을 함께 제공해 이해와 검토를 돕습니다.</p></article>
+          <article class="standard-card"><span class="standard-mark" aria-hidden="true">03</span><h3>활용 가능한 결과물</h3><p>보고서에 머무르지 않고 다음 행동과 의사결정으로 이어질 수 있게 완성합니다.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta" aria-labelledby="cta-title">
+      <div class="wrap cta-layout">
+        <div>
+          <p class="eyebrow">Start With Evidence</p>
+          <h2 id="cta-title">정확한 분석이 필요한 순간,<br />가장 먼저 상의하세요.</h2>
+          <p>과제의 목적과 보유 자료를 알려주시면 가장 적합한 분석 방향부터 제안해 드립니다.</p>
+        </div>
+        <div class="cta-actions">
+          <a class="cta-button primary" href="#contact">연락처 보기</a>
+          <a class="cta-button" href="/corp/company/introduction" target="_top">연구원 소개 보기</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer" id="contact">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <img src="/corp/kiba-dashboard/kiba-brand-mark.png" alt="KIBA 한국경영분석연구원" width="52" height="52" loading="lazy" />
+          <div><span>Contact</span><strong>사단법인 한국경영분석연구원</strong></div>
+        </div>
+        <address class="footer-contact">
+          <span>서울특별시 강남구 선릉로93길 54 일환빌딩 7층</span>
+          <span>Tel. 02-558-2045 · Fax. 02-554-2045</span>
+          <a href="mailto:ecost@kiba.re.kr">ecost@kiba.re.kr</a>
+        </address>
+      </div>
+      <div class="footer-bottom">
+        <span>사단법인 한국경영분석연구원은 정부공인 원가계산·검토전문기관으로, 공공성과 전문성을 기준으로 업무를 수행합니다.</span>
+        <span>© 2026 KIBA. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const heroSlides = [
+      {
+        label: '웹 앱 개발',
+        eyebrow: 'WEB APP DEVELOPMENT',
+        title: '아이디어를 확장 가능한 웹 서비스로 만듭니다',
+        description: '기획과 디자인부터 프론트엔드, 백엔드, 데이터베이스, 클라우드 배포까지 웹 앱 개발의 전 과정을 연결합니다.',
+        image: '/images/corp/technology/web-app-stack.png',
+        alt: '웹 앱 개발 기술 스택을 소개하는 인포그래픽'
+      },
+      {
+        label: '업무자동화',
+        eyebrow: 'BUSINESS AUTOMATION',
+        title: '반복 업무는 줄이고, 핵심 가치에 집중합니다',
+        description: '업무 흐름 분석부터 시스템 연동, RPA, API, AI 자동화와 모니터링까지 더 빠르고 정확한 업무 환경을 설계합니다.',
+        image: '/images/corp/technology/automation-stack.png',
+        alt: '업무자동화 기술 스택과 자동화 워크플로를 소개하는 인포그래픽'
+      },
+      {
+        label: '영상편집',
+        eyebrow: 'VIDEO EDITING',
+        title: 'AI와 편집 기술로 영상 제작의 전 과정을 연결합니다',
+        description: '기획, AI 영상·이미지 생성, 촬영, 편집, 후반 작업, 최적화와 배포까지 목적에 맞는 영상을 효율적으로 완성합니다.',
+        image: '/images/corp/technology/video-stack.png',
+        alt: 'AI 영상 제작과 영상편집 기술 스택을 소개하는 인포그래픽'
+      },
+      {
+        label: '리셀러 파트너',
+        eyebrow: 'RESELLER PARTNER',
+        title: '제품과 고객을 연결하는 리셀러 파트너 네트워크',
+        description: '파트너 발굴, 온보딩, 제품·가격 교육, 리드 협업, 고객 지원과 성과 분석까지 공동 성장의 전 과정을 함께 운영합니다.',
+        image: '/images/corp/technology/reseller-partner-stack.png',
+        alt: '리셀러 파트너 네트워크와 공동 영업 운영 기술 스택을 소개하는 인포그래픽'
+      }
+    ];
+
+    const workflowSlides = [
+      {
+        label: '웹 앱 개발',
+        shortLabel: 'WEB APP',
+        steps: '09 STEPS',
+        title: '아이디어를 제품으로 완성하는 웹 앱 개발 여정',
+        description: '전략 수립부터 안정적인 운영과 개선까지, 서비스의 성장 주기를 고려해 웹 앱을 설계하고 구현합니다.',
+        factSteps: '기획 · 설계 · 구축',
+        outcome: '확장 가능한 웹 서비스',
+        image: '/images/corp/workflows/web-app-delivery-process.png',
+        alt: '웹 앱 개발의 9단계 실행 프로세스 인포그래픽',
+        width: 1536,
+        height: 1024,
+        accent: '#55c7ff'
+      },
+      {
+        label: '업무자동화',
+        shortLabel: 'AUTOMATION',
+        steps: '09 STEPS',
+        title: '반복 업무를 성과로 바꾸는 자동화 구축 여정',
+        description: '현황 분석부터 데이터 연동, 검증, 모니터링과 고도화까지 업무 흐름 전체를 자동화 관점으로 다시 설계합니다.',
+        factSteps: '진단 · 연동 · 고도화',
+        outcome: '더 빠르고 정확한 운영',
+        image: '/images/corp/workflows/business-automation-process.png',
+        alt: '업무자동화의 9단계 실행 프로세스 인포그래픽',
+        width: 1536,
+        height: 1024,
+        accent: '#63f0cf'
+      },
+      {
+        label: '영상편집',
+        shortLabel: 'VIDEO EDITING',
+        steps: '10 STEPS',
+        title: 'AI와 함께 완성하는 스마트한 영상 편집 여정',
+        description: '아이디어와 소스 수집부터 AI 분석, 자동 편집, 자막, 품질 보정과 멀티플랫폼 배포까지 영상 제작의 전 과정을 연결합니다.',
+        factSteps: 'AI 분석 · 편집 · 배포',
+        outcome: '완성도 높은 영상 콘텐츠',
+        image: '/images/corp/workflows/video-editing-workflow.png',
+        alt: 'AI 영상편집의 10단계 워크플로 인포그래픽',
+        width: 1693,
+        height: 929,
+        accent: '#ee82d9'
+      },
+      {
+        label: '리셀러 파트너',
+        shortLabel: 'PARTNER',
+        steps: '10 STEPS',
+        title: '고객 가치를 함께 만드는 리셀러 파트너 여정',
+        description: '적합성 진단, 온보딩, 제품 교육, 공동 영업, 고객 지원과 성과 검토를 하나의 흐름으로 관리해 안정적인 파트너 성장을 만듭니다.',
+        factSteps: '검증 · 협업 · 성장',
+        outcome: '재현 가능한 리셀러 파트너 운영',
+        image: '/images/corp/workflows/reseller-partner-workflow.png',
+        alt: '리셀러 파트너의 10단계 공동 영업 워크플로 인포그래픽',
+        width: 1672,
+        height: 941,
+        accent: '#55c7ff'
+      }
+    ];
+
+    const businessSlides = heroSlides.map((technology, index) => ({
+      technology,
+      workflow: workflowSlides[index]
+    }));
+
+    const workflowSteps = [
+      {
+        shortTitle: '과업 정의',
+        title: '과업 정의 및 수행계획 수립',
+        summary: '프로젝트의 목적, 범위, 기준, 일정과 최종 산출물을 설정합니다.',
+        introduction: '최초 상담 단계에서 의뢰 목적과 사업 특성을 정확히 파악하고, 적용 법령과 산정기준, 수행범위, 제출기한, 담당자 역할, 최종 산출물 형식을 확정합니다. 이 단계의 정의가 불명확하면 이후 원가 산정과 검증 결과가 달라질 수 있으므로 가장 중요한 착수 절차로 관리합니다.',
+        groups: [
+          ['주요 수행업무', ['의뢰 목적과 요구사항 확인', '사업·계약 유형 및 대상 범위 설정', '관련 법령, 지침, 계약조건 확인', '적용할 원가계산 및 분석 기준 설정', '필요자료 목록과 제출일정 확정', '프로젝트 위험요인 사전 분석']],
+          ['전문가 역할', ['과업 목적과 분석방법 적정성 판단', '법적·계약적 쟁점 사전 검토', '분야별 담당 전문가 배정', '현장조사 필요 여부 판단', '보고서 구성과 검증수준 결정']],
+          ['필요자료', ['과업지시서 및 제안요청서', '계약서 및 계약조건', '사업계획서와 예산자료', '기존 원가계산서·보고서', '발주처 요구양식과 제출기준']],
+          ['주요 산출물', ['과업 수행계획서', '업무범위 및 역할분담표', '자료요청 목록', '세부 일정표', '적용기준 및 검증계획']]
+        ],
+        quality: '업무범위·기준일·적용법령·최종 산출물에 대한 발주처와 수행기관의 사전 합의를 확인합니다.',
+        status: 'CHECKED'
+      },
+      {
+        shortTitle: '자료 수집',
+        title: '자료 수집·정리 및 기초 검증',
+        summary: '계약·설계·원가·회계·현장자료를 수집하고 검증합니다.',
+        introduction: '원가계산과 타당성 분석에 필요한 계약서, 설계도서, 견적서, 내역서, 공정표, 회계자료, 인건비 자료, 현장사진, PDF와 Excel 파일을 수집합니다. 자료는 출처, 작성일, 기준일, 적용범위별로 분류하고 누락·중복·단위오류·산식오류를 검증합니다.',
+        groups: [
+          ['수집 대상 자료', ['계약서, 설계서, 내역서, 견적서', '도면, CAD, 물량산출서, 공정표', '인건비·재료비·경비 자료', '회계장부, 지출증빙, 세금계산서', 'PDF, Excel, 이미지, 현장사진', '유사사업 및 과거 실적자료']],
+          ['기초 검증', ['자료 누락과 중복 여부 확인', '단위·수량·단가 불일치 검토', '엑셀 계산식과 참조범위 점검', '기준일과 물가 적용시점 확인', '증빙과 회계자료 일치 여부 검토']],
+          ['AI 활용', ['문서 OCR 및 표 자동 추출', 'PDF·Excel 데이터 구조화', '비목·공종·계정 자동 분류', '중복자료와 누락 후보 탐지', '자료 간 불일치 자동 표시']],
+          ['주요 산출물', ['자료목록 및 수신현황표', '데이터 정제본', '오류·누락 점검표', '추가자료 요청서', '자료 출처 및 근거 연결표']]
+        ],
+        quality: '출처가 불분명하거나 검증되지 않은 자료는 최종 산정값에 직접 반영하지 않고 별도 관리합니다.',
+        status: 'CHECKED'
+      },
+      {
+        shortTitle: 'AI 분석',
+        title: 'AI 기반 원가·데이터 분석',
+        summary: '문서·산식·단가·이상치·유사사례를 자동 분석합니다.',
+        introduction: 'AI는 수집된 자료를 빠르게 분석하여 비목과 공종을 분류하고, 단가 차이, 이상 비율, 누락 가능성, 산식 오류, 유사사업 대비 편차를 탐지합니다. AI 분석 결과는 최종 결론이 아니라 전문가 검토를 위한 분석 근거와 후보군으로 활용합니다.',
+        groups: [
+          ['AI 수행업무', ['문서 OCR 및 표·수치 추출', '엑셀 시트·계산식 구조 분석', '비목·공종·계정과목 자동 분류', '단가·물량·비율 이상치 탐지', '유사사업 및 과거실적 비교', '법령·품셈·기준자료 검색 지원']],
+          ['분석 결과', ['원가구조 및 주요 비용요인', '과다·과소 계상 의심항목', '비정상 산식과 단가 후보', '추가 검토가 필요한 위험요소', '대안 시나리오별 추정결과']],
+          ['자동 생성 기능', ['원가분석표와 비교표', '막대그래프·추세그래프', '산출근거 요약', '검토 질문 목록', '보고서 초안과 목차']],
+          ['AI 사용 원칙', ['AI 결과를 최종결론으로 사용하지 않음', '모든 수치와 근거를 원자료로 재확인', '법령 적용은 전문가가 최종 판단', '분석 근거와 출처를 함께 기록', '민감정보와 자료보안을 별도 관리']]
+        ],
+        quality: 'AI가 표시한 이상치와 추론 결과는 원자료, 기준자료, 전문가 판단을 통해 반드시 재검증합니다.',
+        status: 'VERIFIED'
+      },
+      {
+        shortTitle: '전문가 검토',
+        title: '분야별 전문가 분석 및 보정',
+        summary: '법령·현장·계약조건을 반영해 결과를 보정합니다.',
+        introduction: '전문가가 AI 분석 결과와 원자료를 함께 검토하고, 법령·지침·계약조건·현장여건·공정특성을 반영하여 원가구조와 산정방식을 보정합니다. 특히 AI가 판단하기 어려운 예외조건과 실무적 쟁점은 전문가 책임검토로 확정합니다.',
+        groups: [
+          ['전문가 구성', ['원가계산 및 제조원가 전문가', '건설공사·수량산출 전문가', '회계·재무 및 경영분석 전문가', '계약금액 조정·클레임 전문가', '학술연구·정책분석 전문가']],
+          ['전문가 수행업무', ['법령·예규·지침 적용 검토', '현장여건과 공정난이도 반영', '단가·수량·적용률 적정성 검토', '간접비·일반관리비·이윤 검증', 'AI 결과와 전문가 산정값 비교', '예외사항과 판단근거 기록']],
+          ['보정 항목', ['현장 작업조건과 지역여건', '계약 특수조건과 발주기준', '시장가격과 실거래 가격 차이', '공정별 생산성 및 투입시간', '위험비용과 불확실성 요소']],
+          ['주요 산출물', ['전문가 검토의견서', '수정·보정 원가계산서', '적용기준 및 판단근거표', '쟁점별 검토결과', '최종 검증 대상 목록']]
+        ],
+        quality: 'AI 분석값과 전문가 산정값의 차이를 비교하고, 모든 보정에는 구체적인 근거를 기록합니다.',
+        status: 'APPROVED'
+      },
+      {
+        shortTitle: '교차검증',
+        title: '교차검증 및 다단계 품질관리',
+        summary: '작성자·AI·전문가·책임검토자가 다단계로 확인합니다.',
+        introduction: '작성자와 검토자를 분리하고 AI 자동검증, 분야별 전문가 검토, 책임자 최종검수의 다단계 구조로 품질을 관리합니다. 단가와 물량 변화에 따른 시나리오 분석과 민감도 검토를 통해 결과의 안정성도 확인합니다.',
+        groups: [
+          ['검증 체계', ['1차 작성자 자체검토', '2차 AI 산식·이상치 검증', '3차 분야별 전문가 검토', '4차 팀장·책임자 최종검수', '필요시 외부 전문가 자문']],
+          ['검증 항목', ['산식과 합계값 정확성', '자료 출처와 기준일 일치', '법령·계약조건 적합성', '누락·중복·오기 여부', '그래프와 표의 수치 일치']],
+          ['시나리오 검증', ['단가 상승·하락 영향 분석', '물량 변동 민감도 분석', '적용률 변화 시 결과 비교', '최소·기준·최대 시나리오', '위험요인별 재산정']],
+          ['최종 확인', ['보고서 본문과 부록 일치', '엑셀·PDF·표·그래프 일치', '검토의견 반영 여부', '제출양식과 요구사항 준수', '책임검토자 승인']]
+        ],
+        quality: '분석 담당자와 최종 검토자를 분리하여 동일한 오류가 반복될 가능성을 최소화합니다.',
+        status: 'FINAL QC'
+      },
+      {
+        shortTitle: '최종 보고서',
+        title: '최종 보고서 작성 및 결과 설명',
+        summary: '산출근거·계산식·그래프·의견을 통합 제공합니다.',
+        introduction: '최종 보고서는 결과값만 제시하지 않고 과업 목적, 적용 기준, 자료 출처, 계산방법, 산출근거, 비교분석, 전문가 의견, 위험요인과 개선방안까지 포함합니다. 발주기관과 의사결정자가 결과를 쉽게 이해할 수 있도록 요약페이지와 시각화 자료를 제공합니다.',
+        groups: [
+          ['제공 결과물', ['최종 원가계산서', '세부 산출근거 및 계산식', '엑셀 분석·산출내역서', 'PDF 최종 보고서', '비용구조 그래프와 비교표', '전문가 검토의견']],
+          ['보고서 구성', ['과업 개요와 목적', '적용 법령과 분석방법', '자료수집 및 검증결과', '원가계산과 분석결과', '위험요인과 개선방안', '부록과 증빙자료']],
+          ['시각화 자료', ['원가 비중 원형그래프', '항목별 비교 막대그래프', '시나리오별 비용 변화', '기간별 추세와 편차', '핵심 지표 요약 대시보드']],
+          ['결과 설명 및 지원', ['핵심 산정근거 설명', '발주처 질의 대응자료', '회의·보고용 요약자료', '수정·보완사항 반영', '후속 검토 및 컨설팅']]
+        ],
+        quality: '보고서, 엑셀, 표, 그래프의 모든 수치가 동일한지 최종 확인한 후 책임검토자의 승인을 거칩니다.',
+        status: 'DELIVERED'
+      }
+    ];
+
+    const heroTabs = document.getElementById('heroTabs');
+    const showcaseCard = document.getElementById('showcaseCard');
+    const heroIndex = document.getElementById('heroIndex');
+    const heroCurrent = document.getElementById('heroCurrent');
+    const heroTotal = document.getElementById('heroTotal');
+    const heroEyebrow = document.getElementById('heroEyebrow');
+    const heroTitle = document.getElementById('heroTitle');
+    const heroDescription = document.getElementById('heroDescription');
+    const heroImage = document.getElementById('heroImage');
+    const showcaseMedia = document.getElementById('showcaseMedia');
+    const mediaTabs = document.getElementById('mediaTabs');
+    const heroModeLabel = document.getElementById('heroModeLabel');
+    const heroModeMeta = document.getElementById('heroModeMeta');
+    const heroMediaBadge = document.getElementById('heroMediaBadge');
+    const flowTabs = document.getElementById('flowTabs');
+    const flowBusinessLabel = document.getElementById('flowBusinessLabel');
+    const flowNext = document.getElementById('flowNext');
+    const flowNextLabel = document.getElementById('flowNextLabel');
+    let activeHero = 0;
+    let activeMedia = 'technology';
+    let heroTimer = null;
+    let heroChangeTimer = null;
+    let shineFrame = null;
+    let shinePosition = null;
+
+    function renderTrackedLight() {
+      shineFrame = null;
+      if (!shinePosition) return;
+      showcaseMedia.style.setProperty('--shine-x', `${shinePosition.x}%`);
+      showcaseMedia.style.setProperty('--shine-y', `${shinePosition.y}%`);
+    }
+
+    if (!reducedMotion) {
+      showcaseMedia.addEventListener('pointermove', (event) => {
+        const rect = showcaseMedia.getBoundingClientRect();
+        shinePosition = {
+          x: ((event.clientX - rect.left) / rect.width) * 100,
+          y: ((event.clientY - rect.top) / rect.height) * 100
+        };
+        showcaseMedia.classList.add('is-light-tracking');
+        if (!shineFrame) shineFrame = window.requestAnimationFrame(renderTrackedLight);
+      });
+      showcaseMedia.addEventListener('pointerleave', () => {
+        shinePosition = null;
+        showcaseMedia.classList.remove('is-light-tracking');
+        showcaseMedia.style.removeProperty('--shine-x');
+        showcaseMedia.style.removeProperty('--shine-y');
+      });
+    }
+
+    heroTotal.textContent = String(heroSlides.length).padStart(2, '0');
+
+    heroSlides.forEach((slide, index) => {
+      const button = document.createElement('button');
+      button.className = 'hero-tab';
+      button.type = 'button';
+      button.role = 'tab';
+      button.id = `hero-tab-${index}`;
+      button.setAttribute('aria-controls', 'showcaseCard');
+      button.setAttribute('aria-selected', String(index === 0));
+      button.tabIndex = index === 0 ? 0 : -1;
+      button.innerHTML = `<span>${String(index + 1).padStart(2, '0')}</span>${slide.label}`;
+      button.addEventListener('click', () => setHero(index, true));
+      button.addEventListener('keydown', (event) => handleTabKeys(event, index, heroSlides.length, setHero, '#hero-tab-'));
+      heroTabs.appendChild(button);
+    });
+
+    function getBusinessContent(index) {
+      const business = businessSlides[index];
+      const isWorkflow = activeMedia === 'workflow';
+      const content = isWorkflow ? business.workflow : business.technology;
+
+      return {
+        ...content,
+        accent: business.workflow.accent,
+        modeLabel: isWorkflow ? 'DELIVERY PROCESS' : 'TECH STACK',
+        modeMeta: isWorkflow
+          ? `${business.workflow.steps} · ${business.workflow.factSteps}`
+          : '서비스를 구성하는 핵심 기술과 도구',
+        eyebrow: `${business.technology.eyebrow} · ${isWorkflow ? 'DELIVERY PROCESS' : 'TECH STACK'}`,
+        width: isWorkflow ? business.workflow.width : 1536,
+        height: isWorkflow ? business.workflow.height : 1024
+      };
+    }
+
+    function setHero(index, userInitiated = false) {
+      const nextIndex = (index + heroSlides.length) % heroSlides.length;
+      activeHero = nextIndex;
+      activeMedia = 'technology';
+      renderBusinessContent(activeHero);
+
+      if (userInitiated) restartHeroTimer();
+    }
+
+    function renderBusinessContent(index) {
+      const content = getBusinessContent(index);
+      if (heroChangeTimer) window.clearTimeout(heroChangeTimer);
+      showcaseCard.classList.remove('is-entering');
+      showcaseCard.classList.add('is-changing');
+      showcaseCard.style.setProperty('--business-accent', content.accent);
+
+      heroChangeTimer = window.setTimeout(() => {
+        heroIndex.textContent = String(index + 1).padStart(2, '0');
+        heroCurrent.textContent = String(index + 1).padStart(2, '0');
+        heroEyebrow.textContent = content.eyebrow;
+        heroTitle.textContent = content.title;
+        heroDescription.textContent = content.description;
+        heroModeLabel.textContent = content.modeLabel;
+        heroModeMeta.textContent = content.modeMeta;
+        heroMediaBadge.textContent = content.modeLabel;
+        heroImage.src = content.image;
+        heroImage.alt = content.alt;
+        heroImage.setAttribute('width', String(content.width));
+        heroImage.setAttribute('height', String(content.height));
+        heroTabs.querySelectorAll('[role="tab"]').forEach((tab, tabIndex) => {
+          tab.setAttribute('aria-selected', String(tabIndex === index));
+          tab.tabIndex = tabIndex === index ? 0 : -1;
+        });
+        flowTabs.querySelectorAll('[role="tab"]').forEach((tab, tabIndex) => {
+          const isSelected = (tabIndex === 0 && activeMedia === 'technology') || (tabIndex === 1 && activeMedia === 'workflow');
+          tab.setAttribute('aria-selected', String(isSelected));
+          tab.tabIndex = isSelected ? 0 : -1;
+        });
+        mediaTabs.querySelectorAll('[role="tab"]').forEach((tab, tabIndex) => {
+          const isSelected = (tabIndex === 0 && activeMedia === 'technology') || (tabIndex === 1 && activeMedia === 'workflow');
+          tab.setAttribute('aria-selected', String(isSelected));
+          tab.tabIndex = isSelected ? 0 : -1;
+        });
+        flowBusinessLabel.textContent = `${String(index + 1).padStart(2, '0')} · ${businessSlides[index].technology.eyebrow}`;
+        flowNextLabel.textContent = activeMedia === 'technology'
+          ? '다음 단계: 실행 과정'
+          : `다음 제품·서비스: ${heroSlides[(index + 1) % heroSlides.length].label}`;
+        showcaseCard.setAttribute('aria-labelledby', `hero-tab-${index}`);
+        showcaseCard.classList.remove('is-changing');
+        if (!reducedMotion) {
+          window.requestAnimationFrame(() => showcaseCard.classList.add('is-entering'));
+        }
+      }, reducedMotion ? 0 : 150);
+    }
+
+    function setHeroMedia(mode, userInitiated = false) {
+      if (mode === activeMedia && !userInitiated) return;
+      activeMedia = mode;
+      renderBusinessContent(activeHero);
+      if (userInitiated) restartHeroTimer();
+    }
+
+    function advanceBusinessFlow(userInitiated = false) {
+      if (activeMedia === 'technology') {
+        setHeroMedia('workflow', userInitiated);
+        return;
+      }
+      setHero(activeHero + 1, userInitiated);
+    }
+
+    function restartHeroTimer() {
+      if (heroTimer) window.clearInterval(heroTimer);
+      if (!reducedMotion) {
+        heroTimer = window.setInterval(() => advanceBusinessFlow(), 5200);
+      }
+    }
+
+    document.getElementById('heroPrev').addEventListener('click', () => setHero(activeHero - 1, true));
+    document.getElementById('heroNext').addEventListener('click', () => setHero(activeHero + 1, true));
+    flowTabs.querySelectorAll('[role="tab"]').forEach((tab, index) => {
+      tab.addEventListener('click', () => setHeroMedia(index === 0 ? 'technology' : 'workflow', true));
+      tab.addEventListener('keydown', (event) => {
+        handleTabKeys(event, index, 2, (nextIndex) => setHeroMedia(nextIndex === 0 ? 'technology' : 'workflow', true), '#flow-tab-');
+      });
+    });
+    mediaTabs.querySelectorAll('[role="tab"]').forEach((tab, index) => {
+      tab.addEventListener('click', () => setHeroMedia(index === 0 ? 'technology' : 'workflow', true));
+      tab.addEventListener('keydown', (event) => {
+        handleTabKeys(event, index, 2, (nextIndex) => setHeroMedia(nextIndex === 0 ? 'technology' : 'workflow', true), '#media-tab-');
+      });
+    });
+    flowNext.addEventListener('click', () => advanceBusinessFlow(true));
+    showcaseCard.addEventListener('mouseenter', () => heroTimer && window.clearInterval(heroTimer));
+    showcaseCard.addEventListener('mouseleave', restartHeroTimer);
+    heroTabs.addEventListener('focusin', () => heroTimer && window.clearInterval(heroTimer));
+    heroTabs.addEventListener('focusout', restartHeroTimer);
+    flowTabs.addEventListener('focusin', () => heroTimer && window.clearInterval(heroTimer));
+    flowTabs.addEventListener('focusout', restartHeroTimer);
+    mediaTabs.addEventListener('focusin', () => heroTimer && window.clearInterval(heroTimer));
+    mediaTabs.addEventListener('focusout', restartHeroTimer);
+    flowNext.addEventListener('focusin', () => heroTimer && window.clearInterval(heroTimer));
+    flowNext.addEventListener('focusout', restartHeroTimer);
+    setHero(0);
+    restartHeroTimer();
+
+    const businessProcessTracks = [
+      {
+        id: 'web-app', label: '웹앱개발', eyebrow: 'WEB APP DEVELOPMENT', accent: '#2463d5', soft: '#edf4ff',
+        summary: '의뢰 범위부터 인계와 운영 정착까지, 사용자 니즈에 맞춘 웹 서비스를 체계적으로 완성합니다.',
+        outcome: '사용자·운영자 모두가 바로 활용할 수 있는 완성도 높은 웹 서비스',
+        stages: [
+          { label: 'REQUEST', title: '의뢰·사용자 범위 확정', summary: '의뢰 목적과 실제 사용자의 범위를 먼저 명확하게 정리합니다.', detail: '요청 내용을 기능 목록으로만 받지 않고, 해결하려는 업무 문제와 사용자 그룹, 사용 빈도, 권한, 기존 업무 흐름까지 함께 확인합니다. 꼭 필요한 범위와 이번 단계에서 제외할 범위를 문서로 분리해 이후 변경 비용과 일정 혼선을 줄입니다.', objective: '문제·목표·사용자·우선순위가 합의된 프로젝트 범위 확정', approach: '킥오프 미팅·사용자 인터뷰·현행 업무 흐름 분석·핵심 시나리오 도출', deliverables: ['프로젝트 브리프', '사용자·권한 범위표', '우선순위 기능 목록'], checkpoint: '요청 범위·제외 범위·성공 기준에 대한 담당자 승인' },
+          { label: 'ESTIMATE', title: '견적·자동화 조율', summary: '기능 난이도와 자동화 지점을 비용·일정 안에서 현실적으로 조율합니다.', detail: '기능별 개발 난이도, 외부 서비스 연동, 데이터 정리, 관리자 업무와 유지비를 함께 검토합니다. 반복 업무는 자동화 후보로 분류하고, 사람의 판단이 필요한 승인·예외 처리 지점은 남겨 안전하고 실용적인 실행 범위를 정합니다.', objective: '예산·일정·자동화 범위가 균형 잡힌 실행 계획 수립', approach: '기능 단위 견적·업무량 분석·자동화 후보 검토·역할과 책임 조율', deliverables: ['상세 견적서', '자동화 설계 초안', '일정·역할 분담 계획'], checkpoint: '예산·기간·자동화 범위와 변경 관리 원칙 확정' },
+          { label: 'DESIGN', title: '사용자 니즈 기반 기획·설계', summary: '사용자 니즈를 화면, 업무 흐름, 데이터 규칙으로 구체화합니다.', detail: '사용자가 가장 자주 수행하는 일부터 화면 흐름과 정보 구조를 설계합니다. 입력 항목, 조회 기준, 알림, 권한, 예외 처리와 모바일 사용 환경까지 실제 업무 장면에 맞춰 검토하고, 개발 전에 이해관계자의 판단 기준을 한 화면으로 맞춥니다.', objective: '사용성과 운영 효율을 함께 만족하는 서비스 설계 완성', approach: '사용자 여정·와이어프레임·프로토타입·데이터/API·권한 설계', deliverables: ['화면·사용자 흐름 설계안', '기능·데이터·권한 명세', '개발 우선순위 로드맵'], checkpoint: '핵심 화면·업무 규칙·승인 흐름에 대한 사용자 검토 완료' },
+          { label: 'BUILD', title: '고도화된 기능 구현', summary: '확장성, 보안, 운영성을 고려해 웹 서비스를 단계적으로 구현합니다.', detail: '프런트엔드와 관리자 화면, 인증, 데이터베이스, 외부 API, 필요한 AI·자동화 기능을 설계 기준에 맞춰 연결합니다. 기능을 한 번에 쌓기보다 핵심 시나리오부터 검토 가능한 단위로 구현하며, 성능·권한·오류 대응 기준을 함께 적용합니다.', objective: '실제 운영 환경에서 안정적으로 사용할 수 있는 웹 서비스 구현', approach: '단계별 개발·코드 리뷰·통합 테스트·반응형·접근성·보안 점검', deliverables: ['사용자·관리자 웹앱 기능', '데이터·API·자동화 연동', '테스트 환경과 품질 점검 기록'], checkpoint: '핵심 업무 시나리오·권한·성능 기준 충족 확인' },
+          { label: 'REFINE', title: '피드백·수정·보완', summary: '실제 사용자의 피드백을 반영해 불편한 지점을 끝까지 다듬습니다.', detail: '시범 사용자와 운영자의 사용 과정을 확인해 이해하기 어려운 문구, 불필요한 입력, 느린 흐름, 예외 처리 누락을 개선합니다. 요청은 영향도와 우선순위로 분류해 즉시 보완할 항목과 다음 고도화 항목을 투명하게 관리합니다.', objective: '출시 전 사용성·정확성·운영 편의성 완성도 향상', approach: '사용성 검증·피드백 회의·오류 재현·수정 검수·릴리스 후보 점검', deliverables: ['피드백 분석표', '수정·보완 완료 내역', '최종 검수 결과서'], checkpoint: '사용자 검증과 출시 승인 기준 충족' },
+          { label: 'HANDOVER', title: '완결된 인계와 운영 정착', summary: '담당자가 스스로 운영하고 개선할 수 있도록 인계 과정을 완성합니다.', detail: '관리자 사용법, 권한 설정, 데이터 관리, 장애 대응, 정기 점검과 향후 개선 우선순위를 실제 담당자와 함께 확인합니다. 단순 문서 전달에서 끝내지 않고 운영 실습과 질의응답을 통해 담당자가 서비스 흐름을 이해하고 다음 개선을 이어갈 수 있게 합니다.', objective: '인계 이후에도 흔들리지 않는 자율 운영 체계 정착', approach: '운영자 교육·권한 이관·문서화·운영 시나리오 실습·개선 백로그 정리', deliverables: ['운영·관리자 매뉴얼', '계정·권한 인계 자료', '운영 점검표·개선 백로그'], checkpoint: '담당자 실습, 접근 권한, 비상 대응과 운영 책임 이관 확인' }
+        ]
+      },
+      {
+        id: 'automation', label: '업무자동화', eyebrow: 'BUSINESS AUTOMATION', accent: '#087b63', soft: '#e8f8f2',
+        summary: '의뢰부터 스토리보드 승인, 구현과 인계까지 이해하기 쉬운 자동화 업무 흐름을 완성합니다.',
+        outcome: '스토리보드로 합의하고 현업이 쉽게 운영하는 자동화 체계',
+        stages: [
+          { label: 'REQUEST', title: '의뢰·사용자 범위 확정', summary: '자동화가 필요한 업무와 실제 사용자의 역할을 먼저 명확히 합니다.', detail: '요청 기능만 나열하지 않고 누가 어떤 업무를 언제, 얼마나 자주 처리하는지 확인합니다. 입력자·검토자·승인자·관리자의 역할, 현재 사용하는 도구, 개인정보·권한 범위, 이번 단계에서 제외할 업무까지 함께 합의해 안전한 시작 범위를 만듭니다.', objective: '문제·사용자·권한·우선순위가 정리된 자동화 범위 확정', approach: '킥오프 미팅·현행 업무 인터뷰·사용자 역할 분석·핵심 시나리오 도출', deliverables: ['자동화 의뢰 브리프', '사용자·권한 범위표', '대상·제외 업무 목록'], checkpoint: '업무 범위, 책임자, 성공 기준에 대한 담당자 승인' },
+          { label: 'ESTIMATE', title: '견적·실행 범위 조율', summary: '기능별 난이도와 기대 효과를 비용·일정 안에서 현실적으로 조율합니다.', detail: '반복 시간, 오류 비용, 처리량, 연동 난이도와 유지 관리 부담을 기능별로 검토합니다. 꼭 필요한 자동화와 이후 확장할 기능을 구분하고, 스토리보드 제작·구현·테스트에 필요한 일정과 담당 역할을 함께 맞춥니다.', objective: '예산·일정·기능 우선순위가 합의된 실행 계획 수립', approach: '업무량·기대 효과 분석·기능별 견적·우선순위 조정·역할 분담', deliverables: ['상세 견적서', '기능·범위 우선순위 표', '일정·역할 분담 계획'], checkpoint: '예산, 구현 범위, 스토리보드 승인 방식과 변경 원칙 확정' },
+          { label: 'STORYBOARD', title: '사용자 흐름 스토리보드 제작', summary: '사용자 역할별 화면·장면·승인 흐름을 구현 전에 한눈에 검토합니다.', detail: '사용자가 업무를 시작해 결과를 확인하고 승인·예외 처리하는 순간까지 장면 단위로 구성합니다. 각 장면에는 사용자 역할, 필요한 입력, 자동 처리 내용, 확인 메시지, 다음 행동, 실패·수동 처리 경로를 담아 이해관계자가 같은 업무 흐름을 보도록 합니다. 화면 문구와 알림의 톤도 이 단계에서 함께 검토합니다.', objective: '사용자가 이해하기 쉬운 자동화 경험과 구현 기준을 시각적으로 합의', approach: '사용자 여정·화면 흐름·장면별 대사·입력·결과·승인·예외 시나리오 설계', deliverables: ['사용자 여정 맵', '화면·장면 스토리보드', '승인·예외·알림 시나리오'], checkpoint: '핵심 사용자 흐름, 화면 문구, 장면별 처리 기준에 대한 담당자 승인' },
+          { label: 'BUILD', title: '스토리보드 승인 후 구현', summary: '승인된 장면과 흐름을 기준으로 화면·연동·자동화 기능을 구현합니다.', detail: '확정된 스토리보드를 구현 기준으로 삼아 자동화 워크플로, 사용자·관리자 화면, 데이터·문서·메일 연동을 연결합니다. 사용자는 다음 해야 할 일을 쉽게 확인하고 필요한 경우 승인·수정·재처리할 수 있도록 하며, 구현 과정에서 달라지는 내용은 스토리보드 변경 이력에 함께 반영합니다.', objective: '합의된 사용자 경험과 업무 규칙이 일치하는 자동화 서비스 구현', approach: '스토리보드 기반 개발·시스템 연동·권한·알림·실행 이력·통합 테스트', deliverables: ['자동화 워크플로와 연동 기능', '사용자·관리자 실행 화면', '구현 반영 스토리보드·테스트 기록'], checkpoint: '승인된 각 장면의 입력·처리·결과·예외 흐름이 구현과 일치함을 확인' },
+          { label: 'REFINE', title: '피드백·수정·보완', summary: '실제 사용자의 경험을 바탕으로 스토리보드와 구현 결과를 함께 다듬습니다.', detail: '현업 담당자와 스토리보드의 장면을 따라 실제 업무를 처리하며 불필요한 입력, 이해하기 어려운 문구, 늦은 알림, 누락된 예외를 확인합니다. 수정 요청은 업무 영향도와 위험도를 기준으로 정리하고, 화면·처리 규칙·스토리보드 변경 이력을 함께 갱신합니다.', objective: '출시 전 사용성·정확성·안정성·운영 편의성 완성도 향상', approach: '시범 운영·사용성 검증·피드백 회의·오류 재현·수정 검수·스토리보드 갱신', deliverables: ['피드백·오류 분석표', '수정·보완 완료 내역', '최종 스토리보드와 운영 검수 결과'], checkpoint: '사용자 검증, 처리 정확도, 예외·재처리 기준과 출시 승인 충족' },
+          { label: 'HANDOVER', title: '인계와 운영 정착', summary: '담당자가 스토리보드를 기준으로 자동화 흐름을 이해하고 운영하게 합니다.', detail: '관리자 설정, 계정·권한, 승인 규칙, 예외 처리, 오류 대응과 실행 이력 확인 방법을 실제 담당자와 함께 실습합니다. 최종 스토리보드, 변경 이력, 운영 매뉴얼, 수동 전환·복구 절차, 다음 개선 항목을 함께 인계해 담당자가 장면별 업무 흐름을 보고 안전하게 운영을 이어갈 수 있게 합니다.', objective: '인계 이후에도 이해하기 쉽고 안정적으로 운영되는 자율 자동화 체계 정착', approach: '운영자 교육·권한 이관·스토리보드 기반 시나리오 실습·문서화·개선 백로그 정리', deliverables: ['운영·관리자 매뉴얼', '최종 스토리보드·변경 이력', '계정·권한·예외 대응 점검표와 개선 백로그'], checkpoint: '담당자 실습, 접근 권한, 스토리보드 이해, 수동 전환·복구 절차와 운영 책임 이관 확인' }
+        ]
+      },
+      {
+        id: 'media', label: '미디어제작', eyebrow: 'MEDIA PRODUCTION', accent: '#c24157', soft: '#fff0f3',
+        summary: '기획부터 제작·편집·배포까지 목적에 맞는 미디어를 완성합니다.',
+        outcome: '채널과 목표에 맞춘 완성도 높은 콘텐츠',
+        stages: [
+          { label: 'BRIEF', title: '목표와 콘텐츠 브리프', summary: '누구에게 어떤 메시지를 전할지 한 문장으로 정리합니다.', detail: '브랜드 목적, 타깃, 채널, 핵심 메시지와 기대 행동을 정해 모든 제작 판단의 기준으로 삼습니다.', objective: '콘텐츠 목적과 기준 설정', approach: '타깃·메시지·채널 분석', deliverables: ['콘텐츠 브리프', '성과 기준'], checkpoint: '핵심 메시지와 제작 범위 승인' },
+          { label: 'STORY', title: '대본과 장면 설계', summary: '메시지가 전달되는 순서와 시청 경험을 설계합니다.', detail: '훅, 본문, 전환, CTA를 구성하고 콘티와 스타일 프레임으로 장면의 흐름과 시각 방향을 맞춥니다.', objective: '시청 흐름과 표현 방식 설계', approach: '대본·콘티·스타일 프레임 제작', deliverables: ['대본', '스토리보드'], checkpoint: '내용·분량·표현 방향 합의' },
+          { label: 'CREATE', title: '촬영·생성·소스 제작', summary: '영상, 이미지, 음성, 그래픽 자산을 목적에 맞게 준비합니다.', detail: '촬영과 생성형 자산 제작을 병행하고 저작권, 해상도, 색감, 브랜드 요소를 함께 관리합니다.', objective: '편집 가능한 고품질 소스 확보', approach: '소스 제작과 권리·품질 관리', deliverables: ['영상·이미지 소스', '음성·그래픽 자산'], checkpoint: '사용 권한과 품질 기준 통과' },
+          { label: 'EDIT', title: '편집과 품질 검수', summary: '초안을 시청하기 좋은 최종 경험으로 다듬습니다.', detail: '컷 리듬, 자막 가독성, 색보정, 사운드와 사실 관계를 검토하고 채널 환경에서 최종 확인합니다.', objective: '메시지와 완성도 동시 확보', approach: '편집·자막·사운드·검수', deliverables: ['마스터 영상', '검수 체크리스트'], checkpoint: '내용·자막·음향 최종 승인' },
+          { label: 'PUBLISH', title: '채널별 납품과 배포', summary: '완성본을 각 채널의 규격과 맥락에 맞춰 제공합니다.', detail: '가로·세로형, 숏폼, 썸네일, 자막본과 메타데이터를 구성하고 반응 데이터를 다음 제작에 반영합니다.', objective: '배포 성과와 재활용성 확보', approach: '포맷 변환·게시·성과 확인', deliverables: ['채널별 납품본', '배포 가이드'], checkpoint: '포맷·카피·메타데이터 확인' }
+        ]
+      },
+      {
+        id: 'reseller', label: '리셀러 파트너', eyebrow: 'RESELLER PARTNER', accent: '#1d6fb8', soft: '#eaf6ff',
+        summary: '파트너 발굴부터 고객 지원과 성과 관리까지 공동 성장의 기준을 만듭니다.',
+        outcome: '재현 가능한 리셀러 파트너 운영 체계',
+        stages: [
+          { label: 'QUALIFY', title: '파트너 적합성 진단', summary: '고객군과 판매 역량이 맞는 파트너를 함께 정의합니다.', detail: '시장, 보유 고객, 판매 방식, 기술 지원 역량과 성장 목표를 검토해 협업 기준과 우선순위를 정합니다.', objective: '공동 목표와 역할 범위 확정', approach: '시장·고객·역량 진단', deliverables: ['파트너 프로필', '협업 적합성 기준'], checkpoint: '공동 성장 목표 합의' },
+          { label: 'ONBOARD', title: '온보딩과 운영 준비', summary: '계약, 권한, 제품 정보와 주문 흐름을 연결합니다.', detail: '파트너 포털, 계정 권한, 카탈로그, 가격 정책과 고객 지원 접점을 준비해 같은 운영 기준을 맞춥니다.', objective: '안전한 협업 기반 구축', approach: '계약·권한·운영 가이드 정비', deliverables: ['온보딩 체크리스트', '권한·운영 가이드'], checkpoint: '계정·권한·지원 경로 확인' },
+          { label: 'ENABLE', title: '제품·제안 역량 준비', summary: '파트너가 고객 과제를 제품 가치와 정확하게 연결하도록 돕습니다.', detail: '제품 데모, 견적 기준, 제안 자료, 자주 묻는 질문과 성공 사례를 제공해 고객별 대화와 제안을 준비합니다.', objective: '일관된 세일즈 품질 확보', approach: '제품·가격 교육과 세일즈 키트 제공', deliverables: ['세일즈 키트', '제품·가격 교육 자료'], checkpoint: '핵심 제품 메시지와 견적 기준 검수' },
+          { label: 'CO-SELL', title: '리드·견적 공동 운영', summary: '영업 기회가 상담부터 주문까지 끊기지 않게 연결합니다.', detail: '리드 등록, 역할 분담, 견적 검토, 데모, 계약과 주문 상태를 함께 확인하고 필요한 지원을 제때 연결합니다.', objective: '고객 경험과 수주 가능성 강화', approach: '공동 영업 보드·견적·수주 관리', deliverables: ['공동 영업 보드', '견적·수주 현황'], checkpoint: '고객 담당과 다음 행동 명확화' },
+          { label: 'REVIEW', title: '성과 분석과 확장', summary: '매출, 고객 성공과 파트너 운영 품질을 함께 개선합니다.', detail: '리드 전환, 수주, 재구매, 지원 요청과 고객 만족 데이터를 검토해 다음 교육, 캠페인과 확장 계획에 반영합니다.', objective: '지속 가능한 공동 성장 정착', approach: '성과 리뷰·개선 계획·확장 설계', deliverables: ['파트너 성과 리포트', '확장 실행 계획'], checkpoint: '다음 분기 공동 성장 목표 확정' }
+        ]
+      }
+    ];
+
+    const businessProcessTabs = document.getElementById('businessProcessTabs');
+    const businessProcessPanel = document.getElementById('businessProcessPanel');
+    let activeBusinessProcess = 0;
+
+    function setBusinessProcess(index) {
+      activeBusinessProcess = (index + businessProcessTracks.length) % businessProcessTracks.length;
+      const track = businessProcessTracks[activeBusinessProcess];
+      businessProcessPanel.style.setProperty('--process-accent', track.accent);
+      businessProcessPanel.style.setProperty('--process-soft', track.soft);
+      businessProcessPanel.setAttribute('aria-labelledby', `business-process-tab-${track.id}`);
+
+      businessProcessTabs.querySelectorAll('[role="tab"]').forEach((tab, tabIndex) => {
+        tab.setAttribute('aria-selected', String(tabIndex === activeBusinessProcess));
+        tab.tabIndex = tabIndex === activeBusinessProcess ? 0 : -1;
+      });
+
+      businessProcessPanel.innerHTML = `
+        <header class="business-process-panel-head">
+          <div>
+            <span>${track.eyebrow}</span>
+            <h3>${track.label} 진행 단계</h3>
+            <p>${track.summary} 아래 단계를 열어 각 과정의 실행 내용과 산출물을 확인하세요.</p>
+          </div>
+          <div class="business-process-result"><span>DELIVERY OUTCOME</span><strong>${track.outcome}</strong></div>
+        </header>
+        <div class="business-process-accordions" aria-label="${track.label} 상세 진행 단계">
+          ${track.stages.map((stage, stageIndex) => `
+            <article class="business-process-accordion" data-open="${stageIndex === 0}">
+              <button class="business-process-accordion-trigger" type="button" id="business-process-stage-${track.id}-${stageIndex}" aria-expanded="${stageIndex === 0}" aria-controls="business-process-detail-${track.id}-${stageIndex}">
+                <span class="business-process-stage-number">${String(stageIndex + 1).padStart(2, '0')}</span>
+                <span class="business-process-stage-copy"><small>${stage.label}</small><strong>${stage.title}</strong><span>${stage.summary}</span></span>
+                <span class="business-process-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <div class="business-process-accordion-body" id="business-process-detail-${track.id}-${stageIndex}" ${stageIndex === 0 ? '' : 'hidden'}>
+                <p>${stage.detail}</p>
+                <div class="business-process-detail-grid">
+                  <section class="business-process-detail-card"><span>OBJECTIVE</span><p>${stage.objective}</p></section>
+                  <section class="business-process-detail-card"><span>HOW WE WORK</span><p>${stage.approach}</p></section>
+                  <section class="business-process-detail-card"><span>DELIVERABLES</span><ul>${stage.deliverables.map((item) => `<li>${item}</li>`).join('')}</ul></section>
+                </div>
+                <div class="business-process-checkpoint">${stage.checkpoint}</div>
+              </div>
+            </article>
+          `).join('')}
+        </div>
+      `;
+
+      businessProcessPanel.querySelectorAll('.business-process-accordion-trigger').forEach((button) => {
+        button.addEventListener('click', () => {
+          const isExpanded = button.getAttribute('aria-expanded') === 'true';
+          businessProcessPanel.querySelectorAll('.business-process-accordion-trigger').forEach((item) => {
+            const body = document.getElementById(item.getAttribute('aria-controls'));
+            item.setAttribute('aria-expanded', 'false');
+            item.closest('.business-process-accordion').dataset.open = 'false';
+            if (body) body.hidden = true;
+          });
+          if (!isExpanded) {
+            const body = document.getElementById(button.getAttribute('aria-controls'));
+            button.setAttribute('aria-expanded', 'true');
+            button.closest('.business-process-accordion').dataset.open = 'true';
+            if (body) body.hidden = false;
+          }
+        });
+      });
+    }
+
+    businessProcessTracks.forEach((track, index) => {
+      const button = document.createElement('button');
+      button.className = 'business-process-tab';
+      button.type = 'button';
+      button.role = 'tab';
+      button.id = `business-process-tab-${track.id}`;
+      button.setAttribute('aria-controls', 'businessProcessPanel');
+      button.setAttribute('aria-selected', String(index === 0));
+      button.tabIndex = index === 0 ? 0 : -1;
+      button.style.setProperty('--tab-accent', track.accent);
+      button.style.setProperty('--tab-soft', track.soft);
+      button.innerHTML = `<span class="business-process-tab-number">${String(index + 1).padStart(2, '0')} · ${track.eyebrow}</span><strong>${track.label}</strong><small>${track.summary}</small>`;
+      button.addEventListener('click', () => setBusinessProcess(index));
+      button.addEventListener('keydown', (event) => handleTabKeys(event, index, businessProcessTracks.length, setBusinessProcess, '#business-process-tab-'));
+      businessProcessTabs.appendChild(button);
+    });
+
+    setBusinessProcess(0);
+
+    function handleTabKeys(event, index, length, setter, selectorPrefix) {
+      let nextIndex = null;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % length;
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + length) % length;
+      if (event.key === 'Home') nextIndex = 0;
+      if (event.key === 'End') nextIndex = length - 1;
+      if (nextIndex === null) return;
+      event.preventDefault();
+      setter(nextIndex);
+      document.querySelector(`${selectorPrefix}${nextIndex}`).focus();
+    }
+
+    const BUSINESS_PREVIEW_HEIGHT_MESSAGE = 'propig-business-preview-height';
+    const BUSINESS_PREVIEW_MEASURE_MESSAGE = 'propig-business-preview-measure';
+    const BUSINESS_PREVIEW_SCROLL_MESSAGE = 'propig-business-preview-scroll';
+
+    function postBusinessPreviewHeight() {
+      const height = Math.ceil(
+        Math.max(
+          document.body?.scrollHeight || 0,
+          document.body?.offsetHeight || 0,
+          document.documentElement.scrollHeight,
+          document.documentElement.offsetHeight,
+        ),
+      );
+
+      document.documentElement.dataset.businessPreviewHeight = String(height);
+
+      window.parent.postMessage(
+        { type: BUSINESS_PREVIEW_HEIGHT_MESSAGE, height },
+        window.location.origin,
+      );
+    }
+
+    if ('ResizeObserver' in window) {
+      const businessPreviewResizeObserver = new ResizeObserver(postBusinessPreviewHeight);
+      businessPreviewResizeObserver.observe(document.documentElement);
+      if (document.body) businessPreviewResizeObserver.observe(document.body);
+    }
+
+    window.addEventListener('load', postBusinessPreviewHeight);
+    window.addEventListener('message', (event) => {
+      if (
+        event.origin === window.location.origin &&
+        event.source === window.parent &&
+        event.data?.type === BUSINESS_PREVIEW_MEASURE_MESSAGE
+      ) {
+        postBusinessPreviewHeight();
+      }
+    });
+
+    function postBusinessPreviewScroll(deltaY) {
+      window.parent.postMessage(
+        { type: BUSINESS_PREVIEW_SCROLL_MESSAGE, deltaY },
+        window.location.origin,
+      );
+    }
+
+    window.addEventListener(
+      'wheel',
+      (event) => {
+        if (window.frameElement?.tagName !== 'IFRAME' || event.ctrlKey || Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
+        const deltaScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+        postBusinessPreviewScroll(event.deltaY * deltaScale);
+        if (event.cancelable) event.preventDefault();
+      },
+      { passive: false },
+    );
+
+    let businessPreviewTouchY = null;
+    window.addEventListener(
+      'touchstart',
+      (event) => {
+        businessPreviewTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+      },
+      { passive: true },
+    );
+    window.addEventListener(
+      'touchmove',
+      (event) => {
+        if (window.frameElement?.tagName !== 'IFRAME' || businessPreviewTouchY === null || event.touches.length !== 1) return;
+        const nextTouchY = event.touches[0].clientY;
+        postBusinessPreviewScroll(businessPreviewTouchY - nextTouchY);
+        businessPreviewTouchY = nextTouchY;
+        if (event.cancelable) event.preventDefault();
+      },
+      { passive: false },
+    );
+    window.addEventListener('touchend', () => {
+      businessPreviewTouchY = null;
+    });
+    window.addEventListener('touchcancel', () => {
+      businessPreviewTouchY = null;
+    });
+
+    window.requestAnimationFrame(() => window.requestAnimationFrame(postBusinessPreviewHeight));
+
+  </script>
+</body>
+</html>

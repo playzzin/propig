@@ -1,14 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
+import { requireUserAuth } from '@/lib/server/user-auth';
+import { enforceUserRateLimit } from '@/lib/server/rate-limit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const SUPPORTED_FORMATS = ['avif', 'gif', 'jpeg', 'png', 'webp'] as const;
-const MAX_FILE_BYTES = 100 * 1024 * 1024;
-const MAX_DIMENSION = 12000;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_DIMENSION = 4096;
+const MAX_INPUT_PIXELS = 24 * 1024 * 1024;
+const MAX_OUTPUT_PIXELS = 16 * 1024 * 1024;
+const MAX_ANIMATED_PAGES = 120;
+const MAX_OUTPUT_BYTES = 24 * 1024 * 1024;
+const IMAGE_CONVERSION_RATE_LIMIT = {
+  maxRequests: 12,
+  windowMs: 60_000,
+} as const;
 
 type OutputFormat = (typeof SUPPORTED_FORMATS)[number];
+
+class ImageConversionInputError extends Error {
+  constructor(message: string, readonly status: 400 | 413 = 400) {
+    super(message);
+    this.name = 'ImageConversionInputError';
+  }
+}
 
 function isOutputFormat(value: string): value is OutputFormat {
   return (SUPPORTED_FORMATS as readonly string[]).includes(value);
@@ -58,6 +75,26 @@ function getCropPosition(focalX: number, focalY: number) {
   return `${horizontal} ${vertical}`;
 }
 
+function clampOutputDimensions(width: number, height: number): { width: number; height: number } {
+  let nextWidth = Math.max(1, Math.min(Math.round(width), MAX_DIMENSION));
+  let nextHeight = Math.max(1, Math.min(Math.round(height), MAX_DIMENSION));
+  const pixels = nextWidth * nextHeight;
+
+  if (pixels > MAX_OUTPUT_PIXELS) {
+    const scale = Math.sqrt(MAX_OUTPUT_PIXELS / pixels);
+    nextWidth = Math.max(1, Math.floor(nextWidth * scale));
+    nextHeight = Math.max(1, Math.floor(nextHeight * scale));
+  }
+
+  return { width: nextWidth, height: nextHeight };
+}
+
+function getBoundedOutputDimensions(inputWidth: number | undefined, inputHeight: number | undefined, maxWidth: number, maxHeight: number) {
+  const fallbackWidth = Math.min(inputWidth || 1024, MAX_DIMENSION);
+  const fallbackHeight = Math.min(inputHeight || 1024, MAX_DIMENSION);
+  return clampOutputDimensions(maxWidth || fallbackWidth, maxHeight || fallbackHeight);
+}
+
 function isAnimationCapableInput(file: File) {
   const lowerName = file.name.toLowerCase();
   return (
@@ -85,6 +122,30 @@ function getMimeType(format: OutputFormat) {
 
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await requireUserAuth(req);
+    if (!authResult.ok) {
+      return NextResponse.json({ error: authResult.message }, { status: authResult.status });
+    }
+
+    let rateLimit;
+    try {
+      rateLimit = await enforceUserRateLimit({
+        namespace: 'image-conversion',
+        uid: authResult.uid,
+        ...IMAGE_CONVERSION_RATE_LIMIT,
+      });
+    } catch (error) {
+      console.error('[convert-image] Rate limit check failed:', error);
+      return NextResponse.json({ error: 'Image conversion is temporarily unavailable. Please try again shortly.' }, { status: 503 });
+    }
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many image conversion requests. Please try again shortly.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get('file');
     const format = String(formData.get('format') ?? '');
@@ -105,7 +166,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (file.size > MAX_FILE_BYTES) {
-      return NextResponse.json({ error: '파일 크기가 100MB를 초과합니다.' }, { status: 413 });
+      return NextResponse.json({ error: '파일 크기는 20MB를 초과할 수 없습니다.' }, { status: 413 });
     }
 
     const quality = parseInteger(formData.get('quality'), 82, 1, 100);
@@ -125,9 +186,22 @@ export async function POST(req: NextRequest) {
       preserveAnimation && (format === 'gif' || format === 'webp') && isAnimationCapableInput(file);
 
     const inputBuffer = Buffer.from(await file.arrayBuffer());
-    const sharpOptions = shouldUseAnimatedPipeline ? { animated: true, pages: -1 } : {};
+    const sharpOptions = shouldUseAnimatedPipeline
+      ? { animated: true, pages: -1, limitInputPixels: MAX_INPUT_PIXELS }
+      : { limitInputPixels: MAX_INPUT_PIXELS };
 
     const inputMetadata = await sharp(inputBuffer, sharpOptions).metadata();
+    const inputWidth = inputMetadata.width ?? 0;
+    const inputHeight = inputMetadata.height ?? 0;
+    const inputPixels = inputWidth * inputHeight;
+    const inputPages = inputMetadata.pages ?? 1;
+
+    if (inputPixels > MAX_INPUT_PIXELS) {
+      throw new ImageConversionInputError('The image resolution exceeds the allowed limit.', 413);
+    }
+    if (inputPages > MAX_ANIMATED_PAGES) {
+      throw new ImageConversionInputError('The animation frame count exceeds the allowed limit.', 413);
+    }
 
     let pipeline = sharp(inputBuffer, sharpOptions).rotate();
 
@@ -136,10 +210,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (squareCrop) {
-      const inputWidth = inputMetadata.width ?? 0;
-      const inputHeight = inputMetadata.height ?? 0;
       const fallbackSize = inputWidth > 0 && inputHeight > 0 ? Math.min(inputWidth, inputHeight) : 1024;
-      const targetSize = clampNumber(maxWidth > 0 && maxHeight > 0 ? Math.min(maxWidth, maxHeight) : maxWidth || maxHeight || fallbackSize, 1, MAX_DIMENSION);
+      const requestedSize = maxWidth > 0 && maxHeight > 0 ? Math.min(maxWidth, maxHeight) : maxWidth || maxHeight || fallbackSize;
+      const targetSize = clampOutputDimensions(requestedSize, requestedSize).width;
       pipeline = pipeline.resize({
         width: targetSize,
         height: targetSize,
@@ -147,10 +220,11 @@ export async function POST(req: NextRequest) {
         position: getCropPosition(focalX, focalY),
         withoutEnlargement: true,
       });
-    } else if (maxWidth > 0 || maxHeight > 0) {
+    } else {
+      const outputDimensions = getBoundedOutputDimensions(inputWidth, inputHeight, maxWidth, maxHeight);
       pipeline = pipeline.resize({
-        width: maxWidth > 0 ? maxWidth : undefined,
-        height: maxHeight > 0 ? maxHeight : undefined,
+        width: outputDimensions.width,
+        height: outputDimensions.height,
         fit: 'inside',
         withoutEnlargement: true,
       });
@@ -212,6 +286,9 @@ export async function POST(req: NextRequest) {
     }
 
     const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
+    if (data.byteLength > MAX_OUTPUT_BYTES) {
+      throw new ImageConversionInputError('The converted image exceeds the allowed output size.', 413);
+    }
     const isAnimatedOutput = Boolean(info.pages && info.pages > 1);
     const pageHeight =
       typeof (info as { pageHeight?: number }).pageHeight === 'number'
@@ -232,9 +309,14 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error('[convert-image] Error:', error);
-    const message =
-      error instanceof Error ? error.message : '이미지 변환 중 알 수 없는 오류가 발생했습니다.';
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (error instanceof ImageConversionInputError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof Error && /pixel limit|input image exceeds/i.test(error.message)) {
+      return NextResponse.json({ error: '이미지 해상도가 허용 범위를 초과했습니다.' }, { status: 413 });
+    }
+
+    return NextResponse.json({ error: '이미지 변환 중 오류가 발생했습니다. 다시 시도해 주세요.' }, { status: 500 });
   }
 }

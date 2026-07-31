@@ -5,18 +5,16 @@ import { usePathname } from 'next/navigation';
 import { useSystem } from '@/contexts/SystemContext';
 import { useMenuContext } from '@/contexts/MenuContext';
 import type { MenuItem, SiteDataType } from '@/types/menu';
+import {
+    BRAND_ASSET_VERSION,
+    normalizeBrandAssetUrl,
+} from '@/constants/brandAssets';
 
-const DEFAULT_FAVICON = '/favicon.ico';
-const PROPIG_FAVICON = '/propig-favicon.svg';
+const FAVICON_VERSION = BRAND_ASSET_VERSION;
 const DYNAMIC_ICON_LINK_SELECTOR = 'link[data-dynamic-favicon="true"]';
-const ICON_LINK_SELECTOR = 'link[rel~="icon"], link[rel="shortcut icon"]';
 const SITE_ID_ALIASES: Record<string, string[]> = {
     shop: ['propig'],
     propig: ['shop'],
-};
-const DEFAULT_SITE_FAVICONS: Record<string, string> = {
-    shop: PROPIG_FAVICON,
-    propig: PROPIG_FAVICON,
 };
 
 function menuContainsPath(items: MenuItem[], pathname: string): boolean {
@@ -46,7 +44,7 @@ function findSiteIdByPath(siteData: SiteDataType, pathname: string): string | nu
     return null;
 }
 
-function withCacheBust(src: string, siteId: string): string {
+function withStableCacheKey(src: string, siteId: string, version?: number): string {
     const trimmed = src.trim();
     if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
         return trimmed;
@@ -55,7 +53,7 @@ function withCacheBust(src: string, siteId: string): string {
     try {
         const url = new URL(trimmed, window.location.origin);
         url.searchParams.set('favicon_site', siteId);
-        url.searchParams.set('favicon_v', String(Date.now()));
+        url.searchParams.set('favicon_v', `${FAVICON_VERSION}-${version ?? 'current'}`);
         return url.toString();
     } catch {
         return trimmed;
@@ -82,64 +80,89 @@ function inferIconType(href: string): string | null {
     return null;
 }
 
-function appendIconLink(rel: string, href: string) {
-    const link = document.createElement('link');
+function upsertDynamicIconLink(rel: string, href: string): HTMLLinkElement {
+    const matchingLinks = Array.from(document.querySelectorAll<HTMLLinkElement>(DYNAMIC_ICON_LINK_SELECTOR)).filter(
+        (link) => link.rel === rel,
+    );
+    const link = matchingLinks[0] ?? document.createElement('link');
+
     link.rel = rel;
-    link.href = href;
     link.setAttribute('data-dynamic-favicon', 'true');
+    link.href = href;
 
     const iconType = inferIconType(href);
     if (iconType) {
         link.type = iconType;
+    } else {
+        link.removeAttribute('type');
     }
 
     document.head.appendChild(link);
+
+    matchingLinks.slice(1).forEach((duplicateLink) => duplicateLink.remove());
+    return link;
 }
 
-function removeDynamicIconLinks() {
-    document.querySelectorAll(DYNAMIC_ICON_LINK_SELECTOR).forEach((node) => node.remove());
-}
-
-function syncExistingIconLinks(href: string): number {
-    const iconType = inferIconType(href);
-    let syncedCount = 0;
-
-    document.querySelectorAll(ICON_LINK_SELECTOR).forEach((node) => {
-        if (!(node instanceof HTMLLinkElement) || node.dataset.dynamicFavicon === 'true') {
-            return;
+function removeStaleDynamicIconLinks(activeLinks: HTMLLinkElement[]) {
+    const activeLinkSet = new Set(activeLinks);
+    document.querySelectorAll(DYNAMIC_ICON_LINK_SELECTOR).forEach((node) => {
+        if (!activeLinkSet.has(node as HTMLLinkElement)) {
+            node.remove();
         }
-
-        node.href = href;
-        syncedCount += 1;
-
-        if (iconType) {
-            node.type = iconType;
-            return;
-        }
-
-        node.removeAttribute('type');
     });
+}
 
-    return syncedCount;
+function removeIconLinks() {
+    document.querySelectorAll(DYNAMIC_ICON_LINK_SELECTOR).forEach((node) => {
+        node.remove();
+    });
+}
+
+function applyFaviconHref(href: string): HTMLLinkElement[] {
+    const activeLinks = [upsertDynamicIconLink('icon', href), upsertDynamicIconLink('shortcut icon', href)];
+    removeStaleDynamicIconLinks(activeLinks);
+    return activeLinks;
 }
 
 function resolveSiteFavicon(
     envFavicons: Record<string, string> | undefined,
     siteId: string,
 ): string | undefined {
-    const directFavicon = envFavicons?.[siteId]?.trim();
+    const directFavicon = normalizeBrandAssetUrl(envFavicons?.[siteId]);
     if (directFavicon) {
         return directFavicon;
     }
 
     for (const alias of SITE_ID_ALIASES[siteId] ?? []) {
-        const aliasFavicon = envFavicons?.[alias]?.trim();
+        const aliasFavicon = normalizeBrandAssetUrl(envFavicons?.[alias]);
         if (aliasFavicon) {
             return aliasFavicon;
         }
     }
 
-    return DEFAULT_SITE_FAVICONS[siteId];
+    return undefined;
+}
+
+function canDecodeIcon(href: string): Promise<boolean> {
+    if (!href) return Promise.resolve(false);
+    if (href.startsWith('data:') || href.startsWith('blob:')) return Promise.resolve(true);
+
+    return new Promise((resolve) => {
+        const image = new Image();
+        let resolved = false;
+        const timeout = window.setTimeout(() => finish(false), 5000);
+
+        const finish = (isDecodable: boolean) => {
+            if (resolved) return;
+            resolved = true;
+            window.clearTimeout(timeout);
+            resolve(isDecodable);
+        };
+
+        image.onload = () => finish(image.naturalWidth > 0 && image.naturalHeight > 0);
+        image.onerror = () => finish(false);
+        image.src = href;
+    });
 }
 
 export default function DynamicFavicon() {
@@ -152,20 +175,30 @@ export default function DynamicFavicon() {
         const faviconSite = pathnameSite || currentSite;
         const currentFavicon =
             resolveSiteFavicon(settings.envFavicons, faviconSite) ||
-            settings.faviconUrl ||
-            DEFAULT_FAVICON;
-        const href = withCacheBust(currentFavicon, faviconSite);
+            normalizeBrandAssetUrl(settings.faviconUrl);
+        let cancelled = false;
 
-        removeDynamicIconLinks();
-        const syncedIconCount = syncExistingIconLinks(href);
-
-        if (syncedIconCount === 0) {
-            appendIconLink('icon', href);
-            appendIconLink('shortcut icon', href);
+        if (!currentFavicon) {
+            removeIconLinks();
+            return () => {
+                cancelled = true;
+            };
         }
 
-        return removeDynamicIconLinks;
-    }, [currentSite, pathname, settings.envFavicons, settings.faviconUrl, siteData]);
+        const requestedHref = withStableCacheKey(currentFavicon, faviconSite, settings.brandAssetsVersion);
+        applyFaviconHref(requestedHref);
+
+        canDecodeIcon(requestedHref).then((isDecodable) => {
+            if (cancelled) return;
+            if (!isDecodable) {
+                removeIconLinks();
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [currentSite, pathname, settings.brandAssetsVersion, settings.envFavicons, settings.faviconUrl, siteData]);
 
     return null;
 }

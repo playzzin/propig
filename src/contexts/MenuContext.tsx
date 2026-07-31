@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { SiteId, Position, Role, MenuContextType } from '@/types/menu';
 import { useMenu } from '@/hooks/useMenu';
 import { useCurrentUserAccess } from '@/hooks/useCurrentUserAccess';
+import { getFirstAccessibleSiteId } from '@/utils/menuAccess';
 
 const MenuContext = createContext<MenuContextType | undefined>(undefined);
 const SELECTED_SITE_STORAGE_KEY = 'propig_selected_menu_site';
@@ -12,6 +13,7 @@ const SELECTED_SITE_STORAGE_KEY = 'propig_selected_menu_site';
 function getRouteSite(pathname: string | null): SiteId | null {
   if (!pathname) return null;
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'admin';
+  if (pathname === '/blog' || pathname.startsWith('/blog/')) return 'blog';
   if (pathname === '/corp' || pathname.startsWith('/corp/')) return 'corp';
   if (pathname === '/propig' || pathname.startsWith('/propig/')) return 'shop';
   if (pathname === '/shop' || pathname.startsWith('/shop/')) return 'shop';
@@ -53,7 +55,7 @@ export function MenuProvider({
 }: MenuProviderProps) {
   const pathname = usePathname();
   const currentAccess = useCurrentUserAccess();
-  const [currentSite, setCurrentSite] = useState<SiteId>(initialSite);
+  const [currentSite, setCurrentSite] = useState<SiteId>(() => getRouteSite(pathname) ?? initialSite);
   const [currentPosition, setCurrentPosition] = useState<Position>(initialPosition);
   const userRole = (currentAccess.access.role || initialRole) as Role;
 
@@ -82,35 +84,61 @@ export function MenuProvider({
   }, [currentAccess.access.position, currentPosition]);
 
   useEffect(() => {
-    const storedSite = readStoredSite();
     const routeSite = getRouteSite(pathname);
-    const targetSite = routeSite ?? storedSite;
-    if (!targetSite || targetSite === currentSite) return;
+    if (!routeSite || routeSite === currentSite) return;
 
-    queueMicrotask(() => {
-      if (routeSite) {
-        handleSetCurrentSite(targetSite);
-        return;
-      }
+    const accessibleRouteSite = getFirstAccessibleSiteId(
+      menuData.siteData,
+      {
+        role: userRole,
+        siteAccess: currentAccess.access.siteAccess,
+        permissions: currentAccess.access.permissions,
+      },
+      [routeSite],
+    );
+    if (accessibleRouteSite !== routeSite) return;
 
-      if (storedSite) {
-        setCurrentSite(targetSite);
-        return;
-      }
-
-      handleSetCurrentSite(targetSite);
-    });
-  }, [currentSite, handleSetCurrentSite, pathname]);
+    queueMicrotask(() => handleSetCurrentSite(routeSite));
+  }, [
+    currentAccess.access.permissions,
+    currentAccess.access.siteAccess,
+    currentSite,
+    handleSetCurrentSite,
+    menuData.siteData,
+    pathname,
+    userRole,
+  ]);
 
   useEffect(() => {
-    if (menuData.isLoading || Object.keys(menuData.siteData).length === 0) return;
-    if (menuData.siteData[currentSite]) return;
+    if (currentAccess.isLoading || menuData.isLoading || Object.keys(menuData.siteData).length === 0) return;
 
-    const fallbackSite = getRouteSite(pathname) ?? initialSite;
-    if (fallbackSite === currentSite) return;
+    const routeSite = getRouteSite(pathname);
+    const storedSite = readStoredSite();
+    const targetSite = getFirstAccessibleSiteId(
+      menuData.siteData,
+      {
+        role: userRole,
+        siteAccess: currentAccess.access.siteAccess,
+        permissions: currentAccess.access.permissions,
+      },
+      [routeSite, storedSite, currentSite, initialSite],
+    );
 
-    queueMicrotask(() => handleSetCurrentSite(fallbackSite));
-  }, [currentSite, handleSetCurrentSite, initialSite, menuData.isLoading, menuData.siteData, pathname]);
+    if (!targetSite || targetSite === currentSite) return;
+
+    queueMicrotask(() => handleSetCurrentSite(targetSite));
+  }, [
+    currentAccess.access.permissions,
+    currentAccess.access.siteAccess,
+    currentAccess.isLoading,
+    currentSite,
+    handleSetCurrentSite,
+    initialSite,
+    menuData.isLoading,
+    menuData.siteData,
+    pathname,
+    userRole,
+  ]);
 
   const contextValue: MenuContextType = {
     currentSite,

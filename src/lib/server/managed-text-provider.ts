@@ -4,10 +4,10 @@ import {
     type LLMChatResponse,
     type LLMMessage,
 } from '@/agents/llm/LLMAdapter';
-import { getGeminiRuntimeConfig } from '@/lib/server/gemini';
-import { resolveXaiTextModel } from '@/lib/server/xai';
+import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
+import { recordOpenRouterUsage } from '@/lib/server/openrouter-usage';
 
-export type ManagedTextProvider = 'gemini' | 'grok';
+export type ManagedTextProvider = 'openrouter';
 
 type CandidateProvider = {
     provider: ManagedTextProvider;
@@ -15,7 +15,7 @@ type CandidateProvider = {
     create: () => ReturnType<typeof LLMAdapterFactory.create>;
 };
 
-type ManagedTextChatOptions = Pick<Partial<LLMChatRequest>, 'temperature' | 'maxTokens' | 'stream'> & {
+type ManagedTextChatOptions = Pick<Partial<LLMChatRequest>, 'temperature' | 'maxTokens' | 'stream' | 'responseFormat'> & {
     preferredProvider?: ManagedTextProvider | 'auto';
 };
 
@@ -25,16 +25,19 @@ export type ManagedTextChatResult = {
     response: LLMChatResponse;
 };
 
-const buildProviderOrder = (preferredProvider: ManagedTextProvider | 'auto'): ManagedTextProvider[] => {
-    if (preferredProvider === 'grok') {
-        return ['grok', 'gemini'];
-    }
+export type ManagedVisionContentPart =
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
 
-    if (preferredProvider === 'gemini') {
-        return ['gemini', 'grok'];
-    }
+export type ManagedVisionMessage = {
+    role: 'system' | 'user' | 'assistant';
+    content: string | ManagedVisionContentPart[];
+};
 
-    return ['gemini', 'grok'];
+type ManagedVisionChatResult = {
+    provider: ManagedTextProvider;
+    model: string;
+    response: LLMChatResponse;
 };
 
 const toErrorMessage = (error: unknown): string =>
@@ -43,40 +46,28 @@ const toErrorMessage = (error: unknown): string =>
 async function buildCandidates(
     preferredProvider: ManagedTextProvider | 'auto',
 ): Promise<CandidateProvider[]> {
-    const runtimeConfig = await getGeminiRuntimeConfig();
-    const order = buildProviderOrder(preferredProvider);
+    const runtimeConfig = await getAIRuntimeConfig();
     const candidates: CandidateProvider[] = [];
 
-    for (const provider of order) {
-        if (provider === 'gemini' && runtimeConfig.apiKey) {
-            candidates.push({
-                provider: 'gemini',
-                model: runtimeConfig.model,
-                create: () =>
-                    LLMAdapterFactory.create('gemini', {
-                        gemini: {
-                            apiKey: runtimeConfig.apiKey,
-                            model: runtimeConfig.model,
-                        },
-                    }),
-            });
-        }
+    if (preferredProvider !== 'auto' && preferredProvider !== 'openrouter') {
+        return candidates;
+    }
 
-        if (provider === 'grok' && runtimeConfig.grokApiKey) {
-            const model = await resolveXaiTextModel(runtimeConfig.grokApiKey);
-            candidates.push({
-                provider: 'grok',
-                model,
-                create: () =>
-                    LLMAdapterFactory.create('openai', {
-                        openai: {
-                            apiKey: runtimeConfig.grokApiKey,
-                            model,
-                            baseURL: 'https://api.x.ai/v1',
-                        },
-                    }),
-            });
-        }
+    if (runtimeConfig.openRouterApiKey) {
+        candidates.push({
+            provider: 'openrouter',
+            model: runtimeConfig.model,
+            create: () =>
+                LLMAdapterFactory.create('openrouter', {
+                    openrouter: {
+                        apiKey: runtimeConfig.openRouterApiKey,
+                        model: runtimeConfig.model,
+                        fallbackModels: runtimeConfig.fallbackModels,
+                        siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
+                        siteName: 'ProPig',
+                    },
+                }),
+        });
     }
 
     return candidates;
@@ -90,7 +81,7 @@ export async function runManagedTextChat(
 
     if (candidates.length === 0) {
         throw new Error(
-            'No text LLM provider is configured. Set GEMINI_API_KEY or GROK_API_KEY in the runtime config.',
+            'OpenRouter is not configured. Set OPENROUTER_API_KEY in the runtime config.',
         );
     }
 
@@ -100,10 +91,21 @@ export async function runManagedTextChat(
         try {
             const adapter = candidate.create();
             const response = await adapter.chat(messages, options);
+            const model = response.model || candidate.model;
+
+            await recordOpenRouterUsage({
+                operation: 'text',
+                source: 'next_server',
+                model,
+                promptTokens: response.usage?.promptTokens,
+                completionTokens: response.usage?.completionTokens,
+                totalTokens: response.usage?.totalTokens,
+                costUsd: response.usage?.costUsd,
+            });
 
             return {
                 provider: candidate.provider,
-                model: candidate.model,
+                model,
                 response,
             };
         } catch (error) {
@@ -112,4 +114,86 @@ export async function runManagedTextChat(
     }
 
     throw new Error(errors.join(' | '));
+}
+
+/**
+ * Sends a small set of visual references to OpenRouter for planning tasks.
+ * This is intentionally separate from the generic text adapter because only
+ * selected workflows need multimodal message content.
+ */
+export async function runManagedVisionChat(
+    messages: ManagedVisionMessage[],
+    options?: ManagedTextChatOptions,
+): Promise<ManagedVisionChatResult> {
+    const runtimeConfig = await getAIRuntimeConfig();
+    if (!runtimeConfig.openRouterApiKey) {
+        throw new Error('OpenRouter is not configured. Set OPENROUTER_API_KEY in the runtime config.');
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${runtimeConfig.openRouterApiKey}`,
+            ...(process.env.NEXT_PUBLIC_SITE_URL ? { 'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL } : {}),
+            'X-OpenRouter-Title': 'ProPig Storyboard Planner',
+        },
+        body: JSON.stringify({
+            model: runtimeConfig.model,
+            ...(runtimeConfig.fallbackModels.length
+                ? { models: runtimeConfig.fallbackModels.filter((model) => model !== runtimeConfig.model) }
+                : {}),
+            messages,
+            temperature: options?.temperature ?? 0.7,
+            max_tokens: options?.maxTokens ?? 2000,
+            ...(options?.responseFormat
+                ? { response_format: { type: options.responseFormat } }
+                : {}),
+            stream: false,
+        }),
+    });
+
+    const rawBody = await response.text();
+    let data: {
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number };
+        model?: string;
+        error?: { message?: string };
+    } = {};
+    try {
+        data = JSON.parse(rawBody) as typeof data;
+    } catch {
+        // The controlled error below handles an unexpected upstream response.
+    }
+    if (!response.ok) {
+        throw new Error(data.error?.message || rawBody.slice(0, 1000) || `OpenRouter HTTP ${response.status}`);
+    }
+
+    const content = data.choices?.[0]?.message?.content?.trim();
+    if (!content) throw new Error('OpenRouter returned an empty response.');
+
+    const model = data.model || runtimeConfig.model;
+    const mappedResponse = {
+        content,
+        usage: {
+            promptTokens: data.usage?.prompt_tokens || 0,
+            completionTokens: data.usage?.completion_tokens || 0,
+            totalTokens: data.usage?.total_tokens || 0,
+            costUsd: data.usage?.cost,
+        },
+        model,
+        finishReason: data.choices?.[0]?.finish_reason === 'length' ? 'length' as const : 'stop' as const,
+    } satisfies LLMChatResponse;
+
+    await recordOpenRouterUsage({
+        operation: 'text',
+        source: 'next_server',
+        model,
+        promptTokens: mappedResponse.usage?.promptTokens,
+        completionTokens: mappedResponse.usage?.completionTokens,
+        totalTokens: mappedResponse.usage?.totalTokens,
+        costUsd: mappedResponse.usage?.costUsd,
+    });
+
+    return { provider: 'openrouter', model, response: mappedResponse };
 }

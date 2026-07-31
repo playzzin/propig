@@ -1,33 +1,27 @@
 import { https, logger } from 'firebase-functions/v2';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from 'zod';
-import { fetchExternalHttpUrl, normalizeExternalHttpUrl } from './api/security';
-import { geminiApiKey } from './secrets';
+import { enforceUserRateLimit, fetchExternalHttpUrl, normalizeExternalHttpUrl, readCappedTextResponse } from './api/security';
+import { createOpenRouterModel, getOpenRouterRuntimeConfig } from './openrouter';
+import { openRouterApiKey } from './secrets';
 
-type GeminiEnv = {
+type OpenRouterEnv = {
   apiKey: string;
   model: string;
 };
 
-const getGeminiEnv = (): GeminiEnv => {
-  return {
-    apiKey: process.env.GEMINI_API_KEY || '',
-    model: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
-  };
-};
+const getOpenRouterEnv = (): OpenRouterEnv => getOpenRouterRuntimeConfig();
 
-const createGeminiModel = () => {
-  const env = getGeminiEnv();
+const createOpenRouterTextModel = () => {
+  const env = getOpenRouterEnv();
   if (!env.apiKey) {
     return null;
   }
-  const genAI = new GoogleGenerativeAI(env.apiKey);
-  return genAI.getGenerativeModel({ model: env.model });
+  return createOpenRouterModel(env.model);
 };
 
 
 
-const GeminiBookmarkMetadataSchema = z.object({
+const OpenRouterBookmarkMetadataSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   suggestedCategory: z.string().optional(),
@@ -35,7 +29,18 @@ const GeminiBookmarkMetadataSchema = z.object({
   favicon: z.string().optional(),
 });
 
-type GeminiBookmarkMetadata = z.infer<typeof GeminiBookmarkMetadataSchema>;
+const MAX_BOOKMARK_HTML_BYTES = 512 * 1024;
+const MAX_BOOKMARK_URL_LENGTH = 2048;
+const BOOKMARK_METADATA_RATE_LIMIT = {
+  maxRequests: 12,
+  windowMs: 60_000,
+} as const;
+const BOOKMARK_BATCH_RATE_LIMIT = {
+  maxRequests: 2,
+  windowMs: 60_000,
+} as const;
+
+type OpenRouterBookmarkMetadata = z.infer<typeof OpenRouterBookmarkMetadataSchema>;
 
 const normalizeTags = (tags: string[]): string[] => {
   const normalized = tags
@@ -54,7 +59,7 @@ const extractJsonObjectText = (text: string): string => {
   const cleaned = cleanModelText(text);
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (!match) {
-    throw new Error('Gemini 응답에서 JSON 객체를 찾지 못했습니다.');
+    throw new Error('OpenRouter 응답에서 JSON 객체를 찾지 못했습니다.');
   }
   return match[0];
 };
@@ -78,10 +83,11 @@ const fetchHtmlWithTimeout = async (url: string, timeoutMs: number): Promise<str
     });
 
     if (!response.ok) {
+      await response.body?.cancel();
       throw new Error(`Failed to fetch URL: ${response.status}`);
     }
 
-    return await response.text();
+    return await readCappedTextResponse(response, MAX_BOOKMARK_HTML_BYTES);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -193,7 +199,7 @@ function getFaviconUrl(url: string): string {
 }
 
 // 북마크 메타데이터 추출
-export const extractBookmarkMetadata = https.onCall({ secrets: [geminiApiKey] }, async (request) => {
+export const extractBookmarkMetadata = https.onCall({ secrets: [openRouterApiKey] }, async (request) => {
   if (!request.auth) {
     throw new https.HttpsError('unauthenticated', 'Login is required');
   }
@@ -204,7 +210,7 @@ export const extractBookmarkMetadata = https.onCall({ secrets: [geminiApiKey] },
     throw new https.HttpsError('invalid-argument', 'URL is required');
   }
 
-  if (!/^https?:\/\//i.test(url)) {
+  if (url.length > MAX_BOOKMARK_URL_LENGTH || !/^https?:\/\//i.test(url)) {
     throw new https.HttpsError('invalid-argument', 'Invalid URL');
   }
 
@@ -213,6 +219,15 @@ export const extractBookmarkMetadata = https.onCall({ secrets: [geminiApiKey] },
     safeUrl = normalizeExternalHttpUrl(url);
   } catch {
     throw new https.HttpsError('invalid-argument', 'Invalid URL');
+  }
+
+  const rateLimit = await enforceUserRateLimit({
+    namespace: 'bookmark-metadata-analysis',
+    uid: request.auth.uid,
+    ...BOOKMARK_METADATA_RATE_LIMIT,
+  });
+  if (!rateLimit.allowed) {
+    throw new https.HttpsError('resource-exhausted', 'Too many bookmark analysis requests. Please try again shortly.');
   }
 
   try {
@@ -236,7 +251,7 @@ export const extractBookmarkMetadata = https.onCall({ secrets: [geminiApiKey] },
     const baselineDescription =
       basicMetadata.description || (textSnippet ? textSnippet.slice(0, 300) : '') || `${baselineTitle} 관련 페이지입니다.`;
     const baselineTags = ensureNonEmptyTags(deriveTagsFromTitle(baselineTitle, 5), safeUrl);
-    const baseline: GeminiBookmarkMetadata = {
+    const baseline: OpenRouterBookmarkMetadata = {
       title: baselineTitle,
       description: baselineDescription,
       suggestedCategory: '참고',
@@ -253,9 +268,9 @@ export const extractBookmarkMetadata = https.onCall({ secrets: [geminiApiKey] },
       textSnippetLength: textSnippet.length,
     });
 
-    const model = createGeminiModel();
+    const model = createOpenRouterTextModel();
     if (!model) {
-      logger.warn('GEMINI_API_KEY is not set. Returning baseline metadata.', { url: safeUrl });
+      logger.warn('OPENROUTER_API_KEY is not set. Returning baseline metadata.', { url: safeUrl });
       return baseline;
     }
 
@@ -341,8 +356,8 @@ URL: ${safeUrl}
         };
       })();
 
-      const parsedMetadata = GeminiBookmarkMetadataSchema.safeParse(normalizedJson);
-      const metadata: GeminiBookmarkMetadata = parsedMetadata.success ? parsedMetadata.data : {};
+      const parsedMetadata = OpenRouterBookmarkMetadataSchema.safeParse(normalizedJson);
+      const metadata: OpenRouterBookmarkMetadata = parsedMetadata.success ? parsedMetadata.data : {};
 
       const derivedTitle = metadata.title?.trim() || baseline.title;
       const derivedDescription = metadata.description?.trim() || baseline.description || '';
@@ -359,7 +374,7 @@ URL: ${safeUrl}
         else finalCategory = availableCategories[0];
       }
 
-      const finalized: GeminiBookmarkMetadata = {
+      const finalized: OpenRouterBookmarkMetadata = {
         title: derivedTitle,
         description: derivedDescription,
         suggestedCategory: finalCategory,
@@ -377,7 +392,7 @@ URL: ${safeUrl}
 
       return finalized;
     } catch (error) {
-      logger.error('extractBookmarkMetadata:gemini_failed', {
+      logger.error('extractBookmarkMetadata:openrouter_failed', {
         url: safeUrl,
         message: error instanceof Error ? error.message : String(error),
       });
@@ -398,7 +413,7 @@ URL: ${safeUrl}
 });
 
 // 배치로 메타데이터 추출
-export const extractBatchMetadata = https.onCall({ secrets: [geminiApiKey] }, async (request) => {
+export const extractBatchMetadata = https.onCall({ secrets: [openRouterApiKey] }, async (request) => {
   if (!request.auth) {
     throw new https.HttpsError('unauthenticated', 'Login is required');
   }
@@ -409,14 +424,23 @@ export const extractBatchMetadata = https.onCall({ secrets: [geminiApiKey] }, as
     throw new https.HttpsError('invalid-argument', 'URLs array is required');
   }
 
-  if (urls.length > 10) {
+  if (urls.length > 10 || urls.some((url) => typeof url !== 'string' || url.length > MAX_BOOKMARK_URL_LENGTH)) {
     throw new https.HttpsError('invalid-argument', 'Maximum 10 URLs per batch');
   }
 
+  const rateLimit = await enforceUserRateLimit({
+    namespace: 'bookmark-metadata-batch-analysis',
+    uid: request.auth.uid,
+    ...BOOKMARK_BATCH_RATE_LIMIT,
+  });
+  if (!rateLimit.allowed) {
+    throw new https.HttpsError('resource-exhausted', 'Too many bookmark batch analysis requests. Please try again shortly.');
+  }
+
   try {
-    const model = createGeminiModel();
+    const model = createOpenRouterTextModel();
     if (!model) {
-      logger.warn('GEMINI_API_KEY is not set. Returning empty batch result.');
+      logger.warn('OPENROUTER_API_KEY is not set. Returning empty batch result.');
       return [];
     }
 

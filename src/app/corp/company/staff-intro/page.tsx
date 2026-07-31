@@ -1,5 +1,5 @@
-import { StaffIntroOrgChart } from '@/components/corp/StaffIntroOrgChart';
+import { StaffIntroOrgChartExperience } from '@/components/corp/StaffIntroOrgChartExperience';
 
 export default function CompanyStaffIntroPage() {
-  return <StaffIntroOrgChart />;
+  return <StaffIntroOrgChartExperience />;
 }

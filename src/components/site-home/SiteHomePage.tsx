@@ -1,4 +1,5 @@
 import type React from 'react';
+import { IntentPrefetchLink } from '@/components/navigation/IntentPrefetchLink';
 
 export interface SiteHomeMetric {
   label: string;
@@ -29,6 +30,7 @@ export interface SiteHomePageProps {
   metrics: SiteHomeMetric[];
   primaryLinks: SiteHomeLink[];
   sections: SiteHomeSection[];
+  prefetchLinks?: boolean;
 }
 
 const pageShellStyle: React.CSSProperties = {
@@ -45,11 +47,15 @@ const heroTitleStyle: React.CSSProperties = {
   fontWeight: 900,
   lineHeight: 1.08,
   letterSpacing: 0,
+  wordBreak: 'keep-all',
+  overflowWrap: 'break-word',
 };
 
 const mutedTextStyle: React.CSSProperties = {
   color: 'var(--text-muted)',
   lineHeight: 1.55,
+  wordBreak: 'keep-all',
+  overflowWrap: 'break-word',
 };
 
 export function SiteHomePage({
@@ -62,6 +68,7 @@ export function SiteHomePage({
   metrics,
   primaryLinks,
   sections,
+  prefetchLinks = true,
 }: SiteHomePageProps) {
   return (
     <main id="content-area" style={pageShellStyle}>
@@ -109,7 +116,7 @@ export function SiteHomePage({
                 marginBottom: 14,
               }}
             >
-              <i className={`fa-solid fa-${icon}`} />
+              <i className={`fa-solid fa-${icon}`} aria-hidden="true" />
               <span>{eyebrow}</span>
             </div>
             <h1 style={heroTitleStyle}>{title}</h1>
@@ -162,9 +169,11 @@ export function SiteHomePage({
           }}
         >
           {primaryLinks.map((link) => (
-            <a
+            <IntentPrefetchLink
               key={link.path}
               href={link.path}
+              intentPrefetch={!prefetchLinks}
+              prefetch={prefetchLinks ? null : false}
               style={{
                 minHeight: 132,
                 borderRadius: 18,
@@ -190,13 +199,13 @@ export function SiteHomePage({
                   background: `${accent}18`,
                 }}
               >
-                <i className={`fa-solid fa-${link.icon}`} />
+                  <i className={`fa-solid fa-${link.icon}`} aria-hidden="true" />
               </span>
               <span style={{ fontWeight: 900, color: 'var(--text-bright)' }}>{link.label}</span>
               <span style={{ ...mutedTextStyle, fontSize: '0.82rem', marginTop: 'auto' }}>
                 {link.description}
               </span>
-            </a>
+            </IntentPrefetchLink>
           ))}
         </section>
       )}
@@ -225,9 +234,11 @@ export function SiteHomePage({
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
               {section.links.map((link) => (
-                <a
+                <IntentPrefetchLink
                   key={link.path}
                   href={link.path}
+                  intentPrefetch={!prefetchLinks}
+                  prefetch={prefetchLinks ? null : false}
                   style={{
                     display: 'grid',
                     gridTemplateColumns: '34px minmax(0, 1fr)',
@@ -253,7 +264,7 @@ export function SiteHomePage({
                       background: `${accentAlt}16`,
                     }}
                   >
-                    <i className={`fa-solid fa-${link.icon}`} />
+                      <i className={`fa-solid fa-${link.icon}`} aria-hidden="true" />
                   </span>
                   <span style={{ minWidth: 0 }}>
                     <strong style={{ display: 'block', color: 'var(--text-bright)', fontSize: '0.88rem' }}>
@@ -271,7 +282,7 @@ export function SiteHomePage({
                       {link.description}
                     </span>
                   </span>
-                </a>
+                </IntentPrefetchLink>
               ))}
             </div>
           </div>
@@ -317,7 +328,7 @@ export function SiteSectionPage({
               background: `${accent}18`,
             }}
           >
-            <i className={`fa-solid fa-${icon}`} />
+                <i className={`fa-solid fa-${icon}`} aria-hidden="true" />
           </span>
           <div>
             <h1 style={{ margin: 0, color: 'var(--text-bright)', fontSize: '1.8rem', fontWeight: 900 }}>{title}</h1>

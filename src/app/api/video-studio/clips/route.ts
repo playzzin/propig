@@ -34,7 +34,7 @@ const CreateClipSchema = z.object({
     mergeSourceClipIds: z.array(z.string()).optional().default([]),
     duration: z.number().int().min(1).max(15).nullable().optional(),
     aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']),
-    resolution: z.enum(['480p', '720p']),
+    resolution: z.enum(['480p', '720p', '1080p']),
 });
 
 function sanitizeClipStatus(status: VideoStudioClipStatus): VideoStudioClipStatus {

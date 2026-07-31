@@ -8,9 +8,11 @@ import {
     PROPIG_STORE_PAGE_MENU_ITEM,
     type PropigStoreAppId,
 } from '@/constants/propigStore';
+import { isCompanyMenuRoute } from '@/constants/companyMenu';
 import { DEFAULT_SITE_HOME_MENU_ITEMS } from '@/constants/siteHome';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { useSystem } from '@/contexts/SystemContext';
+import { useBrandImageFallback } from '@/hooks/useBrandImageFallback';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 import { MenuItem } from '@/types/menu';
 
@@ -114,6 +116,10 @@ function appendIfMissing(items: MenuItem[], item: MenuItem): MenuItem[] {
         : [...items, item];
 }
 
+function getMenuItemHref(item: MenuItem): string {
+    return item.path || '#';
+}
+
 function ensureDefaultPropigMenuItems(items: MenuItem[]): MenuItem[] {
     return [PROPIG_STORE_PAGE_MENU_ITEM, ...PROPIG_STORE_MENU_ITEMS].reduce(
         (nextItems, item) => appendIfMissing(nextItems, item),
@@ -175,7 +181,7 @@ function organizePropigSidebarMenu(
         ...orderedUserItems,
     ];
 
-    return topItems.length > 0 || adminItems.length > 0
+    return adminItems.length > 0
         ? [...topItems, dividerItem, ...adminItems]
         : topItems;
 }
@@ -196,9 +202,7 @@ export default function Sidebar({
     const [popover, setPopover] = useState<PopoverState | null>(null);
     const usesCollapsedBehavior = isCollapsed && !isMobileOpen;
     const shouldFilterPropigStoreApps = currentEnv === 'shop';
-    const menuSource = shouldFilterPropigStoreApps
-        ? siteData[currentEnv]?.menu ?? filteredMenu
-        : filteredMenu;
+    const menuSource = filteredMenu;
     const visibleMenu = useMemo(
         () =>
             shouldFilterPropigStoreApps
@@ -222,12 +226,34 @@ export default function Sidebar({
         return walk(item);
     }, [getSubMenuItems, pathname]);
 
-    const navigateToMenuItem = (item: MenuItem) => {
+    const prefetchMenuItem = useCallback((item: MenuItem) => {
+        if (
+            !item.path ||
+            item.external ||
+            item.path === pathname ||
+            !item.path.startsWith('/') ||
+            isCompanyMenuRoute(item.path)
+        ) return;
+        router.prefetch(item.path);
+    }, [pathname, router]);
+
+    const navigateToMenuItem = useCallback((item: MenuItem) => {
         if (!item.path) return;
+        if (item.path === pathname) {
+            closeMobileSidebar?.();
+            return;
+        }
+
+        const navigationEvent = new CustomEvent('propig:before-navigation', {
+            cancelable: true,
+            detail: { href: item.path },
+        });
+        if (!window.dispatchEvent(navigationEvent)) return;
+
         router.push(item.path);
         closeMobileSidebar?.();
         setViewTitle(item.text, `현재 환경: ${currentEnv} / 메뉴: ${item.text}`);
-    };
+    }, [closeMobileSidebar, currentEnv, pathname, router, setViewTitle]);
 
     useEffect(() => {
         queueMicrotask(() => {
@@ -305,8 +331,32 @@ export default function Sidebar({
         setPopover(null);
     };
 
+    const handleAnchorMenuClick = (item: MenuItem, event: React.MouseEvent<HTMLAnchorElement>) => {
+        if (!item.path) {
+            event.preventDefault();
+            return;
+        }
+
+        if (item.path === pathname) {
+            event.preventDefault();
+            setPopover(null);
+            closeMobileSidebar?.();
+            return;
+        }
+
+        if (item.external) {
+            setPopover(null);
+            closeMobileSidebar?.();
+            return;
+        }
+
+        event.preventDefault();
+        handleSubMenuClick(item);
+    };
+
     const { settings } = useSystem();
-    const logoUrl = settings.envLogos?.[currentEnv] || settings.logoUrl;
+    const rawLogoUrl = settings.envLogos?.[currentEnv] || settings.logoUrl;
+    const logoImage = useBrandImageFallback(rawLogoUrl);
     const currentSiteName = siteData[currentEnv]?.name || currentEnv.toUpperCase();
 
     return (
@@ -318,13 +368,15 @@ export default function Sidebar({
                 title="메뉴 접기"
             >
                 <div className="brand-icon flex-center">
-                    {logoUrl ? (
+                    {logoImage.canRenderImage ? (
                         <img
-                            src={logoUrl}
-                            alt="Logo"
+                            src={logoImage.displaySrc}
+                            alt={`${currentSiteName} logo`}
+                            onError={logoImage.markBroken}
                             style={{
-                                width: '46.8px',
-                                height: '46.8px',
+                                width: '100%',
+                                height: '100%',
+                                display: 'block',
                                 objectFit: 'contain'
                             }}
                         />
@@ -367,6 +419,8 @@ export default function Sidebar({
                                             type="button"
                                             className="nav-action"
                                             onClick={(event) => handleMenuClick(item, event)}
+                                            onMouseEnter={() => prefetchMenuItem(item)}
+                                            onFocus={() => prefetchMenuItem(item)}
                                             title={usesCollapsedBehavior ? item.text : undefined}
                                         >
                                             <span className="nav-icon">
@@ -392,6 +446,8 @@ export default function Sidebar({
                                         type="button"
                                         className="nav-btn"
                                         onClick={(event) => handleMenuClick(item, event)}
+                                        onMouseEnter={() => prefetchMenuItem(item)}
+                                        onFocus={() => prefetchMenuItem(item)}
                                         title={usesCollapsedBehavior ? item.text : undefined}
                                     >
                                         <span className="nav-icon">
@@ -406,12 +462,12 @@ export default function Sidebar({
                                         {subItems.map((sub) => (
                                             <li key={sub.id} className={`sub-nav-item ${isMenuItemActive(sub) ? 'active' : ''}`}>
                                                 <a
-                                                    href="#"
+                                                    href={getMenuItemHref(sub)}
                                                     className={sub.path === pathname ? 'active' : ''}
-                                                    onClick={(event) => {
-                                                        event.preventDefault();
-                                                        handleSubMenuClick(sub);
-                                                    }}
+                                                    aria-current={sub.path === pathname ? 'page' : undefined}
+                                                    onMouseEnter={() => prefetchMenuItem(sub)}
+                                                    onFocus={() => prefetchMenuItem(sub)}
+                                                    onClick={(event) => handleAnchorMenuClick(sub, event)}
                                                 >
                                                     {sub.text}
                                                 </a>
@@ -437,12 +493,12 @@ export default function Sidebar({
                     <>
                         {popover.parent.path ? (
                             <a
-                                href="#"
+                                href={getMenuItemHref(popover.parent)}
                                 className="popover-header popover-header-link"
-                                onClick={(event) => {
-                                    event.preventDefault();
-                                    handleSubMenuClick(popover.parent);
-                                }}
+                                aria-current={popover.parent.path === pathname ? 'page' : undefined}
+                                onMouseEnter={() => prefetchMenuItem(popover.parent)}
+                                onFocus={() => prefetchMenuItem(popover.parent)}
+                                onClick={(event) => handleAnchorMenuClick(popover.parent, event)}
                             >
                                 <span>{popover.title}</span>
                                 <i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
@@ -454,12 +510,12 @@ export default function Sidebar({
                         {popover.items.map((subItem) => (
                             <a
                                 key={subItem.id}
-                                href="#"
+                                href={getMenuItemHref(subItem)}
                                 className="popover-link"
-                                onClick={(event) => {
-                                    event.preventDefault();
-                                    handleSubMenuClick(subItem);
-                                }}
+                                aria-current={subItem.path === pathname ? 'page' : undefined}
+                                onMouseEnter={() => prefetchMenuItem(subItem)}
+                                onFocus={() => prefetchMenuItem(subItem)}
+                                onClick={(event) => handleAnchorMenuClick(subItem, event)}
                             >
                                 {subItem.text}
                             </a>

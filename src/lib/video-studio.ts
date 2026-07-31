@@ -1,5 +1,5 @@
 export type VideoStudioAspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '3:2' | '2:3';
-export type VideoStudioResolution = '480p' | '720p';
+export type VideoStudioResolution = '480p' | '720p' | '1080p';
 export type VideoStudioClipMode = 'generate' | 'extend' | 'continue' | 'edit' | 'merge';
 export type VideoStudioClipStatus = 'ready' | 'processing' | 'failed';
 export type VideoStudioJobKind = VideoStudioClipMode | 'extract-frame';
@@ -43,7 +43,7 @@ export interface VideoStudioClip {
     prompt: string;
     mode: VideoStudioClipMode;
     status: VideoStudioClipStatus;
-    provider: 'grok';
+    provider: 'openrouter';
     sequence: number;
     videoUrl: string;
     posterUrl?: string | null;

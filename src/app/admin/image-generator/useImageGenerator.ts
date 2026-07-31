@@ -15,7 +15,8 @@ import {
     updateDoc,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, storage } from '@/firebase/config';
+import { db } from '@/firebase/config';
+import { storage } from '@/firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import { buildJsonAuthHeaders } from '@/lib/client-auth';
 
@@ -167,7 +168,7 @@ export function useImageGenerator() {
         return unsubscribe;
     }, [currentUser?.uid]);
 
-    // Generate images using Gemini API
+    // Generate images through the configured server-side AI provider.
     const generateImages = useCallback(async (params: {
         prompt: string;
         category: ImageCategory;

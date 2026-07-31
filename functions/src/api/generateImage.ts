@@ -1,13 +1,25 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-import { geminiApiKey } from '../secrets';
+import { randomUUID } from 'node:crypto';
+import { getOpenRouterRuntimeConfig } from '../openrouter';
+import { recordOpenRouterUsage } from '../openrouterUsage';
+import { openRouterApiKey } from '../secrets';
+import { db } from '../firestore';
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
     admin.initializeApp();
 }
 
-const db = admin.firestore();
+const buildFirebaseStorageDownloadUrl = (params: {
+    bucketName: string;
+    path: string;
+    downloadToken: string;
+}): string => {
+    const encodedPath = encodeURIComponent(params.path);
+    const encodedToken = encodeURIComponent(params.downloadToken);
+    return `https://firebasestorage.googleapis.com/v0/b/${params.bucketName}/o/${encodedPath}?alt=media&token=${encodedToken}`;
+};
 
 interface GenerateImageRequest {
     prompt: string;
@@ -16,11 +28,15 @@ interface GenerateImageRequest {
     numberOfImages: number;
     style?: string; // "photorealistic", "anime", etc.
     image?: string; // Base64 encoded reference image (optional)
+    referenceImages?: Array<{
+        image: string;
+        role: 'building' | 'product' | 'character' | 'background' | 'style';
+    }>;
     width?: number; // Custom width
     height?: number; // Custom height
 }
 
-export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secrets: [geminiApiKey] }, async (request) => {
+export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secrets: [openRouterApiKey] }, async (request) => {
     // 1. Authentication Check
     if (!request.auth) {
         throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
@@ -34,6 +50,7 @@ export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secre
         numberOfImages = 1,
         style,
         image: referenceImageBase64,
+        referenceImages: requestedReferenceImages,
         width,
         height
     } = request.data as GenerateImageRequest;
@@ -46,8 +63,19 @@ export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secre
         throw new HttpsError('invalid-argument', '이미지 생성 개수는 1~4개여야 합니다.');
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const referenceImages = (Array.isArray(requestedReferenceImages) ? requestedReferenceImages : [])
+        .filter((reference): reference is NonNullable<GenerateImageRequest['referenceImages']>[number] => (
+            Boolean(reference) && typeof reference.image === 'string' && reference.image.trim().length > 0
+        ));
+    if (referenceImages.length > 5) {
+        throw new HttpsError('invalid-argument', '참조 이미지는 최대 5장까지 사용할 수 있습니다.');
+    }
+    if (!referenceImages.length && referenceImageBase64) {
+        referenceImages.push({ image: referenceImageBase64, role: 'style' });
+    }
+
+    const runtimeConfig = getOpenRouterRuntimeConfig();
+    if (!runtimeConfig.apiKey) {
         throw new HttpsError('failed-precondition', 'API Key가 설정되지 않았습니다.');
     }
 
@@ -64,37 +92,78 @@ export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secre
             fullPrompt = `${fullPrompt} (Exclude: ${negativePrompt})`;
         }
 
-        if (referenceImageBase64) {
-            console.log(`[generateImage] Received reference image (Base64 length: ${referenceImageBase64.length})`);
+        if (referenceImages.length) {
+            console.log(`[generateImage] Received ${referenceImages.length} reference image(s).`);
+            fullPrompt = `${fullPrompt}\nReference images are the visual source of truth. Preserve the supplied building, product, character, background, and style details faithfully. Do not merge distinct subjects or invent unreferenced features.`;
         }
 
-        // --- REAL API CALL PLACEHOLDER ---
-        // Note: The Google Generative AI Node.js SDK for Imagen 3 is rapidly evolving.
-        // We structure this to be easily swapped. For now, we simulate the output 
-        // because we cannot guarantee the specific method signature without `npm audit`.
-        // However, the requested flow is implemented.
+        const model = process.env.OPENROUTER_IMAGE_MODEL || 'openai/gpt-image-1';
+        const body: Record<string, unknown> = {
+            model,
+            prompt: fullPrompt,
+            n: numberOfImages,
+            output_format: 'png',
+            ...(width && height ? { size: `${width}x${height}` } : { aspect_ratio: aspectRatio || '1:1' }),
+        };
+        if (referenceImages.length) {
+            body.input_references = referenceImages.map((referenceImage) => {
+                const referenceUrl = referenceImage.image.startsWith('data:')
+                    ? referenceImage.image
+                    : `data:image/png;base64,${referenceImage.image}`;
+                return { type: 'image_url', image_url: { url: referenceUrl } };
+            });
+        }
 
-        // This loop simulates "Generation" and handles storage.
-        // In production with a fully validated SDK:
-        // const response = await model.generateImages({ ... });
-        // const images = response.images;
+        const response = await fetch('https://openrouter.ai/api/v1/images', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${runtimeConfig.apiKey}`,
+                'Content-Type': 'application/json',
+                'X-OpenRouter-Title': 'ProPig Firebase Functions',
+            },
+            body: JSON.stringify(body),
+        });
+        const rawBody = await response.text();
+        const data = JSON.parse(rawBody) as {
+            data?: Array<{ b64_json?: string; media_type?: string }>;
+            usage?: { cost?: number };
+            error?: { message?: string };
+        };
+        if (!response.ok) {
+            throw new Error(data.error?.message || rawBody.slice(0, 1000) || `OpenRouter HTTP ${response.status}`);
+        }
+        const generatedImages = data.data?.filter((image): image is { b64_json: string; media_type?: string } => Boolean(image.b64_json)) || [];
+        if (generatedImages.length === 0) throw new Error('OpenRouter returned no image data.');
+        await recordOpenRouterUsage({
+            operation: 'image',
+            model,
+            costUsd: data.usage?.cost,
+        });
 
-        for (let i = 0; i < numberOfImages; i++) {
-            // Mock Base64 (1x1 Pixel) - Valid PNG
-            const base64Image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        for (const [i, image] of generatedImages.entries()) {
+            const base64Image = image.b64_json;
 
             const buffer = Buffer.from(base64Image, 'base64');
             const filename = `${uid}_${Date.now()}_${i}.png`;
             // Structure storage by user ID
             const storagePath = `users/${uid}/generated-images/${filename}`;
             const file = bucket.file(storagePath);
+            const downloadToken = randomUUID();
 
             await file.save(buffer, {
-                metadata: { contentType: 'image/png' },
+                metadata: {
+                    contentType: image.media_type || 'image/png',
+                    metadata: {
+                        firebaseStorageDownloadTokens: downloadToken,
+                    },
+                },
             });
 
-            // Make public or signed
-            const [url] = await file.getSignedUrl({ action: 'read', expires: '03-01-2500' });
+            const url = buildFirebaseStorageDownloadUrl({
+                bucketName: bucket.name,
+                path: storagePath,
+                downloadToken,
+            });
 
             // Metadata saving
             const docRef = await db.collection('users').doc(uid).collection('generatedImages').add({
@@ -103,7 +172,9 @@ export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secre
                 negativePrompt: negativePrompt || '',
                 imageUrl: url,
                 storagePath,
-                referenceImageUsed: !!referenceImageBase64,
+                referenceImageUsed: referenceImages.length > 0,
+                referenceImageCount: referenceImages.length,
+                referenceRoles: referenceImages.map((reference) => reference.role),
                 category: aspectRatio === '16:9' ? 'youtube' : 'custom', // Simple inference
                 width,
                 height,
@@ -112,7 +183,7 @@ export const generateImage = onCall({ timeoutSeconds: 300, memory: '2GiB', secre
                 options: {
                     aspectRatio,
                     style,
-                    model: 'imagen-3.0'
+                    model,
                 },
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()

@@ -400,9 +400,7 @@ const ImageShade = styled.div`
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(7, 16, 13, 0.04), rgba(7, 16, 13, 0.78)),
-    linear-gradient(90deg, rgba(7, 16, 13, 0.62), transparent 62%);
+  background: rgba(7, 16, 13, 0.42);
 `;
 
 const ImageMeta = styled.div`

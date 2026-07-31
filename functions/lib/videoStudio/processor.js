@@ -2,14 +2,16 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VideoStudioWorkerError = void 0;
 exports.processQueuedVideoStudioJob = processQueuedVideoStudioJob;
+const node_crypto_1 = require("node:crypto");
 const admin = require("firebase-admin");
-const xai_1 = require("./xai");
+const openrouter_1 = require("./openrouter");
 const ffmpeg_1 = require("./ffmpeg");
 const request_1 = require("./request");
+const firestore_1 = require("../firestore");
+const FUNCTION_VIDEO_PROVIDER_POLL_WINDOW_MS = 4 * 60 * 1000;
 if (!admin.apps.length) {
     admin.initializeApp();
 }
-const db = admin.firestore();
 class VideoStudioWorkerError extends Error {
     constructor(status, message) {
         super(message);
@@ -74,55 +76,102 @@ function buildRenderPrompt(params) {
 function getStorageBucket() {
     return admin.storage().bucket();
 }
-async function getStorageFileUrl(path) {
-    const [url] = await getStorageBucket().file(path).getSignedUrl({
-        action: 'read',
-        expires: new Date('2500-03-01T00:00:00.000Z'),
-    });
-    return url;
-}
-async function fetchRemoteBuffer(url) {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-        throw new VideoStudioWorkerError(502, `Failed to download media asset. HTTP ${response.status}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return {
-        buffer: Buffer.from(arrayBuffer),
-        contentType: response.headers.get('content-type') || 'application/octet-stream',
-    };
+function buildFirebaseStorageDownloadUrl(params) {
+    const encodedPath = encodeURIComponent(params.path);
+    const encodedToken = encodeURIComponent(params.downloadToken);
+    return `https://firebasestorage.googleapis.com/v0/b/${params.bucketName}/o/${encodedPath}?alt=media&token=${encodedToken}`;
 }
 async function uploadBufferToVideoStudioStorage(params) {
-    const file = getStorageBucket().file(`video_studio/${params.userId}/${params.projectId}/${params.pathSuffix}`);
+    const bucket = getStorageBucket();
+    const file = bucket.file(`video_studio/${params.userId}/${params.projectId}/${params.pathSuffix}`);
+    const downloadToken = (0, node_crypto_1.randomUUID)();
     await file.save(params.buffer, {
         metadata: {
             contentType: params.contentType,
+            metadata: {
+                firebaseStorageDownloadTokens: downloadToken,
+            },
         },
     });
-    return getStorageFileUrl(file.name);
-}
-async function uploadRemoteFileToVideoStudioStorage(params) {
-    const downloaded = await fetchRemoteBuffer(params.sourceUrl);
-    return uploadBufferToVideoStudioStorage({
-        buffer: downloaded.buffer,
-        userId: params.userId,
-        projectId: params.projectId,
-        pathSuffix: params.pathSuffix,
-        contentType: downloaded.contentType || params.fallbackContentType,
+    return buildFirebaseStorageDownloadUrl({
+        bucketName: bucket.name,
+        path: file.name,
+        downloadToken,
     });
 }
 async function updateJob(jobId, data) {
-    await db.collection('video_studio_jobs').doc(jobId).update(Object.assign(Object.assign({}, data), { updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
+    const terminal = data.status === 'completed'
+        || data.status === 'failed'
+        || data.status === 'canceled';
+    await firestore_1.db.collection('video_studio_jobs').doc(jobId).update(Object.assign(Object.assign({}, data), { heartbeatAt: admin.firestore.FieldValue.serverTimestamp(), leaseExpiresAt: terminal
+            ? null
+            : admin.firestore.Timestamp.fromMillis(Date.now() + 12 * 60 * 1000), updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
+}
+function timestampMillis(value) {
+    if (typeof value === 'number' && Number.isFinite(value))
+        return value;
+    if (value instanceof Date)
+        return value.getTime();
+    if (!value || typeof value !== 'object')
+        return null;
+    const candidate = value;
+    if (typeof candidate.toMillis === 'function') {
+        const millis = candidate.toMillis();
+        return Number.isFinite(millis) ? millis : null;
+    }
+    return typeof candidate.seconds === 'number' && Number.isFinite(candidate.seconds)
+        ? candidate.seconds * 1000
+        : null;
+}
+function isTransientVideoStudioError(error) {
+    if (error instanceof VideoStudioWorkerError) {
+        return error.status === 429 || error.status >= 500;
+    }
+    const message = error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
+    return [
+        'timeout',
+        'timed out',
+        'rate limit',
+        '429',
+        '500',
+        '502',
+        '503',
+        '504',
+        'econnreset',
+        'enotfound',
+        'fetch failed',
+        'network',
+        'socket hang up',
+    ].some((signal) => message.includes(signal));
+}
+function hasResumableProviderVideo(metadata) {
+    if (!metadata || typeof metadata !== 'object')
+        return false;
+    const checkpoint = metadata.providerVideo;
+    if (!checkpoint || typeof checkpoint !== 'object')
+        return false;
+    const candidate = checkpoint;
+    return typeof candidate.jobId === 'string'
+        && candidate.jobId.length > 0
+        && (candidate.status === 'pending'
+            || candidate.status === 'in_progress'
+            || candidate.status === 'completed');
 }
 async function claimJob(jobId) {
-    const jobRef = db.collection('video_studio_jobs').doc(jobId);
-    return db.runTransaction(async (transaction) => {
-        var _a, _b;
+    const jobRef = firestore_1.db.collection('video_studio_jobs').doc(jobId);
+    return firestore_1.db.runTransaction(async (transaction) => {
+        var _a;
         const snapshot = await transaction.get(jobRef);
         if (!snapshot.exists) {
             throw new VideoStudioWorkerError(404, 'The selected job no longer exists.');
         }
         const job = snapshot.data();
+        const nextAttemptAt = timestampMillis(job.nextAttemptAt);
+        if (nextAttemptAt !== null && nextAttemptAt > Date.now()) {
+            throw new VideoStudioWorkerError(425, 'This job is waiting for its automatic retry window.');
+        }
         if (job.status === 'running' || job.status === 'uploading') {
             throw new VideoStudioWorkerError(409, 'This job is already being processed.');
         }
@@ -132,24 +181,31 @@ async function claimJob(jobId) {
         if (job.status === 'canceled') {
             throw new VideoStudioWorkerError(409, 'Canceled jobs cannot be processed.');
         }
+        const currentAttempt = Number((_a = job.attemptCount) !== null && _a !== void 0 ? _a : 0);
+        const nextAttempt = hasResumableProviderVideo(job.metadata)
+            ? Math.max(1, currentAttempt)
+            : currentAttempt + 1;
         transaction.update(jobRef, {
             status: 'running',
             progress: 8,
             message: 'Preparing project assets on the worker.',
-            attemptCount: Number((_a = job.attemptCount) !== null && _a !== void 0 ? _a : 0) + 1,
+            attemptCount: nextAttempt,
             claimedAt: admin.firestore.FieldValue.serverTimestamp(),
             startedAt: admin.firestore.FieldValue.serverTimestamp(),
+            heartbeatAt: admin.firestore.FieldValue.serverTimestamp(),
+            leaseExpiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 12 * 60 * 1000),
+            nextAttemptAt: null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             errorMessage: null,
         });
         return {
             id: snapshot.id,
-            data: Object.assign(Object.assign({}, job), { status: 'running', progress: 8, message: 'Preparing project assets on the worker.', attemptCount: Number((_b = job.attemptCount) !== null && _b !== void 0 ? _b : 0) + 1 }),
+            data: Object.assign(Object.assign({}, job), { status: 'running', progress: 8, message: 'Preparing project assets on the worker.', attemptCount: nextAttempt }),
         };
     });
 }
 async function getProject(projectId, userId) {
-    const snapshot = await db.collection('video_studio_projects').doc(projectId).get();
+    const snapshot = await firestore_1.db.collection('video_studio_projects').doc(projectId).get();
     if (!snapshot.exists) {
         throw new VideoStudioWorkerError(404, 'The selected project no longer exists.');
     }
@@ -163,7 +219,7 @@ async function getProject(projectId, userId) {
     };
 }
 async function getClip(clipId, userId, projectId) {
-    const snapshot = await db.collection('video_studio_clips').doc(clipId).get();
+    const snapshot = await firestore_1.db.collection('video_studio_clips').doc(clipId).get();
     if (!snapshot.exists) {
         throw new VideoStudioWorkerError(404, 'The selected clip no longer exists.');
     }
@@ -180,8 +236,7 @@ async function getClip(clipId, userId, projectId) {
     };
 }
 async function getClips(clipIds, userId, projectId) {
-    const clips = await Promise.all(clipIds.map((clipId) => getClip(clipId, userId, projectId)));
-    return clips.sort((a, b) => a.data.sequence - b.data.sequence || String(a.id).localeCompare(String(b.id)));
+    return Promise.all(clipIds.map((clipId) => getClip(clipId, userId, projectId)));
 }
 async function extractAndStoreLastFrame(params) {
     const frameBuffer = await (0, ffmpeg_1.extractVideoFrame)({
@@ -208,7 +263,7 @@ async function ensureStoredLastFrame(params) {
         projectId: params.clip.projectId,
         token,
     });
-    await db.collection('video_studio_clips').doc(params.clipId).update({
+    await firestore_1.db.collection('video_studio_clips').doc(params.clipId).update({
         lastFrameUrl,
         posterUrl: lastFrameUrl,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -216,11 +271,11 @@ async function ensureStoredLastFrame(params) {
     return lastFrameUrl;
 }
 async function createClipRecord(params) {
-    const projectRef = db.collection('video_studio_projects').doc(params.projectId);
-    const clipRef = db.collection('video_studio_clips').doc();
-    return db.runTransaction(async (transaction) => {
+    const projectRef = firestore_1.db.collection('video_studio_projects').doc(params.projectId);
+    const clipRef = firestore_1.db.collection('video_studio_clips').doc();
+    return firestore_1.db.runTransaction(async (transaction) => {
         var _a, _b;
-        const clipsQuery = db.collection('video_studio_clips').where('projectId', '==', params.projectId);
+        const clipsQuery = firestore_1.db.collection('video_studio_clips').where('projectId', '==', params.projectId);
         const [projectDoc, clipDocs] = await Promise.all([
             transaction.get(projectRef),
             transaction.get(clipsQuery),
@@ -268,7 +323,7 @@ async function createClipRecord(params) {
             prompt: params.prompt.trim(),
             mode: params.mode,
             status: 'ready',
-            provider: 'grok',
+            provider: 'openrouter',
             sequence: nextSequence,
             videoUrl: params.videoUrl,
             posterUrl: params.posterUrl || params.lastFrameUrl || null,
@@ -321,6 +376,15 @@ function requireMergeClipIds(mergeClipIds) {
 function normalizeRepeatCount(repeatCount) {
     return Math.max(1, Math.min(repeatCount !== null && repeatCount !== void 0 ? repeatCount : 1, 12));
 }
+function requirePassingVideoQuality(inspection, context) {
+    if (inspection.passed)
+        return;
+    const details = inspection.issues
+        .slice(0, 3)
+        .map((issue) => issue.message)
+        .join(' ');
+    throw new VideoStudioWorkerError(422, `${context} quality validation failed. ${details}`.trim());
+}
 function buildLoopClipTitle(baseTitle, segmentIndex, totalSegments) {
     if (totalSegments <= 1) {
         return baseTitle;
@@ -359,15 +423,15 @@ function readRequest(job) {
     return parsed.data;
 }
 async function processQueuedVideoStudioJob(jobId) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
     const claimed = await claimJob(jobId);
+    const baseJobMetadata = claimed.data.metadata && typeof claimed.data.metadata === 'object'
+        ? claimed.data.metadata
+        : {};
     try {
         const request = readRequest(claimed.data);
         const project = await getProject(request.projectId, claimed.data.userId);
         const title = claimed.data.title;
-        const baseJobMetadata = claimed.data.metadata && typeof claimed.data.metadata === 'object'
-            ? claimed.data.metadata
-            : {};
         let sourceClipForContinuity = null;
         if (request.operation === 'extract-frame') {
             const clip = await getClip(requireSourceClipId(request.sourceClipId, request.operation), claimed.data.userId, request.projectId);
@@ -393,21 +457,38 @@ async function processQueuedVideoStudioJob(jobId) {
         if (request.operation === 'merge') {
             const mergeSourceClipIds = requireMergeClipIds(request.mergeClipIds);
             const clips = await getClips(mergeSourceClipIds, claimed.data.userId, request.projectId);
+            const editsByClipId = new Map((request.mergeClipEdits || []).map((edit) => [edit.clipId, edit]));
             const continuity = resolveContinuityFields(request);
             await updateJob(jobId, {
                 progress: 28,
                 message: 'Downloading and normalizing selected clips for FFmpeg.',
             });
             const mergedBuffer = await (0, ffmpeg_1.mergeVideos)({
-                clips: clips.map((clip) => ({ url: clip.data.videoUrl })),
+                clips: clips.map((clip) => (Object.assign({ url: clip.data.videoUrl }, editsByClipId.get(clip.id)))),
                 aspectRatio: project.data.aspectRatio,
                 resolution: project.data.resolution,
                 fps: 30,
+                backgroundMusicUrl: request.backgroundMusicUrl,
+                audioMixPreset: request.audioMixPreset,
+                backgroundMusicVolume: request.backgroundMusicVolume,
+                sceneAudioVolume: request.sceneAudioVolume,
+                audioCrossfadeSeconds: request.audioCrossfadeSeconds,
             });
+            const mergeCanvas = (0, ffmpeg_1.getVideoCanvasSize)(project.data.aspectRatio, project.data.resolution);
+            const finalQualityInspection = await (0, ffmpeg_1.inspectVideoBufferQuality)(mergedBuffer, {
+                expectedWidth: mergeCanvas.width,
+                expectedHeight: mergeCanvas.height,
+                expectedAspectRatio: mergeCanvas.width / mergeCanvas.height,
+                requireAudibleAudio: Boolean(request.backgroundMusicUrl),
+                maxBlackFrameRatio: 0.2,
+            });
+            requirePassingVideoQuality(finalQualityInspection, 'Final merged video');
             await updateJob(jobId, {
                 status: 'uploading',
                 progress: 72,
                 message: 'Uploading merged clip and extracting its continuity frame.',
+                metadata: Object.assign(Object.assign({}, baseJobMetadata), { mergeSourceClipIds,
+                    finalQualityInspection }),
             });
             const token = ((_b = (_a = globalThis.crypto) === null || _a === void 0 ? void 0 : _a.randomUUID) === null || _b === void 0 ? void 0 : _b.call(_a)) || `${Date.now()}`;
             const savedVideoUrl = await uploadBufferToVideoStudioStorage({
@@ -447,6 +528,8 @@ async function processQueuedVideoStudioJob(jobId) {
                 clipId: savedClip.clipId,
                 resultVideoUrl: savedVideoUrl,
                 resultFrameUrl: lastFrameUrl,
+                metadata: Object.assign(Object.assign({}, baseJobMetadata), { mergeSourceClipIds,
+                    finalQualityInspection }),
                 finishedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             return;
@@ -457,14 +540,18 @@ async function processQueuedVideoStudioJob(jobId) {
         let sourceClipId = null;
         let sourceVideoUrl = null;
         let referenceImage = request.referenceImage;
-        let generationMode = 'generate';
+        const generationMode = 'generate';
         let operationMode = request.operation === 'generate' ? 'generate' : 'continue';
         if (request.operation === 'extend' || request.operation === 'edit') {
             const sourceClip = await getClip(requireSourceClipId(request.sourceClipId, request.operation), claimed.data.userId, request.projectId);
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.data.videoUrl;
-            generationMode = request.operation;
+            referenceImage = await ensureStoredLastFrame({
+                clipId: sourceClip.id,
+                clip: sourceClip.data,
+                userId: claimed.data.userId,
+            });
             operationMode = request.operation;
         }
         else if (request.operation === 'continue') {
@@ -477,7 +564,6 @@ async function processQueuedVideoStudioJob(jobId) {
                 clip: sourceClip.data,
                 userId: claimed.data.userId,
             });
-            generationMode = 'generate';
             operationMode = 'continue';
         }
         else {
@@ -492,14 +578,31 @@ async function processQueuedVideoStudioJob(jobId) {
             cameraNotes: continuity.cameraNotes,
             subjectLock: continuity.subjectLock,
         });
-        const generatedClipIds = [];
+        const storedGeneratedClipIds = Array.isArray(baseJobMetadata.generatedClipIds)
+            ? baseJobMetadata.generatedClipIds.filter((clipId) => typeof clipId === 'string' && clipId.length > 0)
+            : [];
+        const generatedClipIds = [...storedGeneratedClipIds];
         let finalClipId;
         let finalVideoUrl;
         let finalFrameUrl;
         let currentSourceClipId = sourceClipId;
         let currentSourceVideoUrl = sourceVideoUrl;
         let currentReferenceImage = referenceImage;
-        for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
+        let lastRenderResult = null;
+        let lastAudioInspection = null;
+        let lastQualityInspection = null;
+        let finalQualityInspection = null;
+        let activeProviderCheckpoint = (0, openrouter_1.readOpenRouterVideoCheckpoint)(baseJobMetadata.providerVideo);
+        if (generatedClipIds.length > 0) {
+            const latestGeneratedClip = await getClip(generatedClipIds[generatedClipIds.length - 1], claimed.data.userId, request.projectId);
+            finalClipId = latestGeneratedClip.id;
+            finalVideoUrl = latestGeneratedClip.data.videoUrl;
+            finalFrameUrl = latestGeneratedClip.data.lastFrameUrl || undefined;
+            currentSourceClipId = latestGeneratedClip.id;
+            currentSourceVideoUrl = latestGeneratedClip.data.videoUrl;
+            currentReferenceImage = latestGeneratedClip.data.lastFrameUrl || currentReferenceImage;
+        }
+        for (let segmentIndex = Math.min(generatedClipIds.length, totalSegments); segmentIndex < totalSegments; segmentIndex += 1) {
             const isFirstSegment = segmentIndex === 0;
             const segmentMode = isFirstSegment ? generationMode : 'generate';
             const clipMode = isFirstSegment ? operationMode : 'continue';
@@ -513,16 +616,20 @@ async function processQueuedVideoStudioJob(jobId) {
                 totalSegments,
             });
             const segmentTitle = buildLoopClipTitle(title, segmentIndex, totalSegments);
+            const checkpointKey = `${jobId}:${segmentIndex}`;
+            const resumeCheckpoint = (activeProviderCheckpoint === null || activeProviderCheckpoint === void 0 ? void 0 : activeProviderCheckpoint.checkpointKey) === checkpointKey
+                ? activeProviderCheckpoint
+                : null;
             await updateJob(jobId, {
                 progress: 12 + Math.round((segmentIndex / totalSegments) * 58),
                 message: totalSegments > 1
-                    ? `Rendering segment ${segmentIndex + 1}/${totalSegments} with Grok.`
+                    ? `Rendering segment ${segmentIndex + 1}/${totalSegments} with OpenRouter.`
                     : request.operation === 'continue'
-                        ? 'Submitting the continuation render to Grok.'
-                        : `Submitting ${request.operation} render to Grok.`,
+                        ? 'Submitting the continuation render to OpenRouter.'
+                        : `Submitting ${request.operation} render to OpenRouter.`,
                 metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop,
                     continuity,
-                    generatedClipIds, loopProgress: buildLoopProgress({
+                    generatedClipIds, providerVideo: resumeCheckpoint, loopProgress: buildLoopProgress({
                         totalSegments,
                         segmentIndex,
                         completedSegments: generatedClipIds.length,
@@ -532,22 +639,51 @@ async function processQueuedVideoStudioJob(jobId) {
                         generatedClipIds,
                     }) }),
             });
-            const generated = await (0, xai_1.generateGrokVideo)({
+            const generated = await (0, openrouter_1.generateOpenRouterVideo)({
                 prompt: segmentPrompt,
                 mode: segmentMode,
                 image: currentReferenceImage,
+                endImage: segmentIndex === totalSegments - 1 ? request.endReferenceImage : undefined,
+                referenceImages: request.visualReferenceImages,
                 videoUrl: currentSourceVideoUrl || undefined,
                 duration: request.duration,
                 aspectRatio: project.data.aspectRatio,
                 resolution: project.data.resolution,
+                qualityMode: request.qualityMode,
+                generateAudio: request.generateAudio,
+                audioMode: request.audioMode,
+                dialogue: request.dialogue,
+            }, {
+                checkpointKey,
+                resumeCheckpoint,
+                pollTimeoutMs: FUNCTION_VIDEO_PROVIDER_POLL_WINDOW_MS,
+                onCheckpoint: async (checkpoint) => {
+                    activeProviderCheckpoint = checkpoint;
+                    await updateJob(jobId, {
+                        progress: 18 + Math.round((segmentIndex / totalSegments) * 52),
+                        message: `OpenRouter is rendering scene ${segmentIndex + 1}/${totalSegments}.`,
+                        metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop,
+                            continuity,
+                            generatedClipIds, providerVideo: checkpoint, loopProgress: buildLoopProgress({
+                                totalSegments,
+                                segmentIndex,
+                                completedSegments: generatedClipIds.length,
+                                phase: 'rendering',
+                                autoMergeAfterLoop,
+                                currentClipTitle: segmentTitle,
+                                generatedClipIds,
+                            }) }),
+                    });
+                },
             });
+            lastRenderResult = generated.metadata;
             await updateJob(jobId, {
                 status: 'uploading',
                 progress: 24 + Math.round(((segmentIndex + 0.45) / totalSegments) * 58),
                 message: totalSegments > 1
                     ? `Uploading segment ${segmentIndex + 1}/${totalSegments} to studio storage.`
                     : 'Uploading the rendered clip to studio storage.',
-                metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, lastSegmentPrompt: segmentPrompt, continuity, renderResult: generated.metadata, generatedClipIds, loopProgress: buildLoopProgress({
+                metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, lastSegmentPrompt: segmentPrompt, continuity, renderResult: generated.metadata, qualityInspection: lastQualityInspection, providerVideo: activeProviderCheckpoint, generatedClipIds, loopProgress: buildLoopProgress({
                         totalSegments,
                         segmentIndex,
                         completedSegments: generatedClipIds.length,
@@ -558,19 +694,48 @@ async function processQueuedVideoStudioJob(jobId) {
                     }) }),
             });
             const token = ((_e = (_d = globalThis.crypto) === null || _d === void 0 ? void 0 : _d.randomUUID) === null || _e === void 0 ? void 0 : _e.call(_d)) || `${Date.now()}`;
-            const savedVideoUrl = await uploadRemoteFileToVideoStudioStorage({
-                sourceUrl: generated.videoUrl,
+            const downloadedVideo = await (0, openrouter_1.downloadOpenRouterVideo)(generated.videoUrl);
+            const appliedResolution = generated.metadata.resolvedResolution === '480p'
+                || generated.metadata.resolvedResolution === '720p'
+                || generated.metadata.resolvedResolution === '1080p'
+                ? generated.metadata.resolvedResolution
+                : project.data.resolution;
+            const generatedCanvas = (0, ffmpeg_1.getVideoCanvasSize)(project.data.aspectRatio, appliedResolution);
+            lastQualityInspection = await (0, ffmpeg_1.inspectVideoBufferQuality)(downloadedVideo.buffer, {
+                expectedDurationSeconds: generated.metadata.durationApplied,
+                expectedWidth: generatedCanvas.width,
+                expectedHeight: generatedCanvas.height,
+                expectedAspectRatio: generatedCanvas.width / generatedCanvas.height,
+                requireAudibleAudio: generated.metadata.audioApplied,
+                maxBlackFrameRatio: 0.18,
+            });
+            lastAudioInspection = lastQualityInspection.audio;
+            if (!lastQualityInspection.passed) {
+                const discardReason = ((_f = lastQualityInspection.issues[0]) === null || _f === void 0 ? void 0 : _f.code)
+                    || 'quality_validation_failed';
+                await updateJob(jobId, {
+                    metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, lastSegmentPrompt: segmentPrompt, continuity, renderResult: generated.metadata, providerVideo: null, providerVideoDiscarded: {
+                            reason: discardReason,
+                            providerJobId: (activeProviderCheckpoint === null || activeProviderCheckpoint === void 0 ? void 0 : activeProviderCheckpoint.jobId) || null,
+                            modelId: generated.metadata.modelUsed,
+                            discardedAt: new Date().toISOString(),
+                        }, audioInspection: lastAudioInspection, qualityInspection: lastQualityInspection, generatedClipIds }),
+                });
+                requirePassingVideoQuality(lastQualityInspection, 'OpenRouter scene video');
+            }
+            const savedVideoUrl = await uploadBufferToVideoStudioStorage({
+                buffer: downloadedVideo.buffer,
                 userId: claimed.data.userId,
                 projectId: request.projectId,
                 pathSuffix: `clips/${token}.mp4`,
-                fallbackContentType: 'video/mp4',
+                contentType: downloadedVideo.contentType || 'video/mp4',
             });
             await updateJob(jobId, {
                 progress: 24 + Math.round(((segmentIndex + 0.8) / totalSegments) * 58),
                 message: totalSegments > 1
                     ? `Extracting the continuity frame for segment ${segmentIndex + 1}/${totalSegments}.`
                     : 'Extracting and storing the last frame for continuity.',
-                metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, lastSegmentPrompt: segmentPrompt, continuity, renderResult: generated.metadata, generatedClipIds, loopProgress: buildLoopProgress({
+                metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, lastSegmentPrompt: segmentPrompt, continuity, renderResult: generated.metadata, providerVideo: activeProviderCheckpoint, generatedClipIds, loopProgress: buildLoopProgress({
                         totalSegments,
                         segmentIndex,
                         completedSegments: generatedClipIds.length,
@@ -602,7 +767,7 @@ async function processQueuedVideoStudioJob(jobId) {
                 parentTakeClipId,
                 sourceClipId: currentSourceClipId,
                 sourceVideoUrl: currentSourceVideoUrl,
-                duration: (_f = request.duration) !== null && _f !== void 0 ? _f : null,
+                duration: generated.metadata.durationApplied,
                 aspectRatio: project.data.aspectRatio,
                 resolution: project.data.resolution,
             });
@@ -613,6 +778,19 @@ async function processQueuedVideoStudioJob(jobId) {
             currentSourceClipId = savedClip.clipId;
             currentSourceVideoUrl = savedVideoUrl;
             currentReferenceImage = lastFrameUrl;
+            await updateJob(jobId, {
+                progress: 24 + Math.round(((segmentIndex + 1) / totalSegments) * 58),
+                message: `Saved scene ${segmentIndex + 1}/${totalSegments}.`,
+                metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, continuity, renderResult: generated.metadata, qualityInspection: lastQualityInspection, providerVideo: activeProviderCheckpoint, generatedClipIds, loopProgress: buildLoopProgress({
+                        totalSegments,
+                        segmentIndex,
+                        completedSegments: generatedClipIds.length,
+                        phase: 'extracting',
+                        autoMergeAfterLoop,
+                        currentClipTitle: segmentTitle,
+                        generatedClipIds,
+                    }) }),
+            });
         }
         if (autoMergeAfterLoop && generatedClipIds.length > 1) {
             await updateJob(jobId, {
@@ -637,6 +815,12 @@ async function processQueuedVideoStudioJob(jobId) {
                 resolution: project.data.resolution,
                 fps: 30,
             });
+            const finalCanvas = (0, ffmpeg_1.getVideoCanvasSize)(project.data.aspectRatio, project.data.resolution);
+            const expectedMergedDuration = generatedClips.reduce((total, clip) => { var _a; return total + Math.max(0, Number((_a = clip.data.duration) !== null && _a !== void 0 ? _a : 0)); }, 0);
+            finalQualityInspection = await (0, ffmpeg_1.inspectVideoBufferQuality)(mergedBuffer, Object.assign(Object.assign({}, (expectedMergedDuration > 0
+                ? { expectedDurationSeconds: expectedMergedDuration }
+                : {})), { expectedWidth: finalCanvas.width, expectedHeight: finalCanvas.height, expectedAspectRatio: finalCanvas.width / finalCanvas.height, requireAudibleAudio: Boolean(lastRenderResult === null || lastRenderResult === void 0 ? void 0 : lastRenderResult.audioApplied), maxBlackFrameRatio: 0.2 }));
+            requirePassingVideoQuality(finalQualityInspection, 'Auto-merged final video');
             const mergeToken = ((_h = (_g = globalThis.crypto) === null || _g === void 0 ? void 0 : _g.randomUUID) === null || _h === void 0 ? void 0 : _h.call(_g)) || `${Date.now()}`;
             const mergedVideoUrl = await uploadBufferToVideoStudioStorage({
                 buffer: mergedBuffer,
@@ -683,8 +867,8 @@ async function processQueuedVideoStudioJob(jobId) {
             clipId: finalClipId,
             resultVideoUrl: finalVideoUrl,
             resultFrameUrl: finalFrameUrl,
-            metadata: Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, continuity,
-                generatedClipIds, loopProgress: buildLoopProgress({
+            metadata: Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({}, baseJobMetadata), { repeatCount: totalSegments, autoMergeAfterLoop, resolvedPrompt: renderPrompt, continuity,
+                generatedClipIds, providerVideo: activeProviderCheckpoint }), (lastRenderResult ? { renderResult: lastRenderResult } : {})), (lastAudioInspection ? { audioInspection: lastAudioInspection } : {})), (lastQualityInspection ? { qualityInspection: lastQualityInspection } : {})), (finalQualityInspection ? { finalQualityInspection } : {})), { loopProgress: buildLoopProgress({
                     totalSegments,
                     segmentIndex: Math.max(0, totalSegments - 1),
                     completedSegments: generatedClipIds.length,
@@ -699,14 +883,45 @@ async function processQueuedVideoStudioJob(jobId) {
         });
     }
     catch (error) {
+        if (error instanceof openrouter_1.OpenRouterVideoPendingError) {
+            await updateJob(jobId, {
+                status: 'queued',
+                progress: 18,
+                message: 'OpenRouter is still rendering. The same provider job will resume automatically.',
+                errorMessage: null,
+                nextAttemptAt: null,
+                finishedAt: null,
+            });
+            return;
+        }
         const rawMessage = error instanceof Error ? error.message : 'Video studio job failed.';
+        const retryCount = Number((_j = baseJobMetadata.workerRetryCount) !== null && _j !== void 0 ? _j : 0);
+        if (isTransientVideoStudioError(error) && retryCount < 3) {
+            const nextRetryCount = retryCount + 1;
+            const retryDelayMs = Math.min(5 * 60 * 1000, 30 * 1000 * (2 ** (nextRetryCount - 1)));
+            await updateJob(jobId, {
+                status: 'queued',
+                progress: Math.max(8, Math.min(90, Number((_k = claimed.data.progress) !== null && _k !== void 0 ? _k : 8))),
+                message: `Temporary provider or network failure. Automatic retry ${nextRetryCount}/3 is scheduled.`,
+                errorMessage: null,
+                nextAttemptAt: admin.firestore.Timestamp.fromMillis(Date.now() + retryDelayMs),
+                finishedAt: null,
+                'metadata.workerRetryCount': nextRetryCount,
+                'metadata.lastWorkerError': {
+                    message: rawMessage.slice(0, 1000),
+                    occurredAt: new Date().toISOString(),
+                },
+            });
+            return;
+        }
         await updateJob(jobId, {
             status: 'failed',
             progress: 100,
             message: error instanceof VideoStudioWorkerError
                 ? rawMessage
-                : (0, xai_1.deriveVideoInfraHint)(rawMessage),
+                : (0, openrouter_1.deriveVideoInfraHint)(rawMessage),
             errorMessage: rawMessage,
+            nextAttemptAt: null,
             finishedAt: admin.firestore.FieldValue.serverTimestamp(),
         }).catch((updateError) => {
             console.error('[VideoStudioWorker] failed to update job status:', updateError);

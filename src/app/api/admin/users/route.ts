@@ -4,6 +4,7 @@ import type { UserRecord } from 'firebase-admin/auth';
 import { z } from 'zod';
 import admin, { db as adminDb, getFirebaseAdminStatus } from '@/lib/firebase-admin';
 import { requireAdminOrPermissionAuth } from '@/lib/server/admin-auth';
+import { writeActivityLogSafely } from '@/lib/server/activity-log';
 import {
   DEFAULT_USER_PERMISSIONS,
   USER_PERMISSION_KEYS,
@@ -419,6 +420,34 @@ export async function PATCH(request: NextRequest) {
       accessSnapshot.exists ? (accessSnapshot.data() as UserAccessDoc) : null,
       adminSnapshot.exists,
     );
+
+    await writeActivityLogSafely({
+      auth: authResult,
+      request,
+      action: 'admin.user.update',
+      target: {
+        type: USER_ACCESS_COLLECTION,
+        id: uid,
+        label: updatedUser.email ?? updatedUser.displayName ?? uid,
+      },
+      summary: `${updatedUser.email ?? uid} 계정 권한을 변경했습니다.`,
+      metadata: {
+        before: {
+          role: normalizeRole(existingAccess?.role ?? existingClaims.role, targetIsAdmin ? 'admin' : 'user'),
+          disabled: targetUser.disabled,
+          hadAdminDoc: existingAdminSnapshot.exists,
+        },
+        after: {
+          role: user.role,
+          position: user.position,
+          disabled: user.disabled,
+          permissions: user.permissions,
+          siteAccessCount: Object.keys(user.siteAccess).length,
+          menuAccessCount: Object.keys(user.menuAccess).length,
+          hasAdminDoc: adminSnapshot.exists,
+        },
+      },
+    });
 
     return NextResponse.json({ ok: true, user, storage });
   } catch (error) {

@@ -7,6 +7,7 @@ const apiDir = join(root, 'src', 'app', 'api');
 const nextBin = join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'next.cmd' : 'next');
 const disabledRouteSuffix = '.static-export-disabled';
 const staticDistDir = '.next-static-export';
+const deploymentBoundaryVerifier = join(root, 'scripts', 'verify-deployment-boundary.mjs');
 
 function removeGeneratedDir(name) {
   const target = join(root, name);
@@ -100,6 +101,22 @@ let status = 1;
 
 try {
   restoreStaleDisabledRoutes(apiDir);
+
+  const boundaryResult = spawnSync(
+    process.execPath,
+    [deploymentBoundaryVerifier, '--require-static-export-runtime'],
+    {
+      cwd: root,
+      stdio: 'inherit',
+    },
+  );
+
+  if (boundaryResult.error) {
+    throw boundaryResult.error;
+  }
+  if (boundaryResult.status !== 0) {
+    throw new Error('Static export was blocked because one or more client API calls have no production runtime.');
+  }
 
   removeGeneratedDir(staticDistDir);
   removeGeneratedDir('out');

@@ -5,12 +5,14 @@ const firestore_1 = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const processor_1 = require("../videoStudio/processor");
 const secrets_1 = require("../secrets");
+const firestore_2 = require("../firestore");
 const triggerConfig = {
     document: 'video_studio_jobs/{jobId}',
+    database: firestore_2.FIRESTORE_DATABASE_ID,
     timeoutSeconds: 540,
     memory: '2GiB',
     region: 'asia-northeast3',
-    secrets: [secrets_1.grokApiKey],
+    secrets: [secrets_1.openRouterApiKey],
 };
 async function processQueuedJobById(jobId) {
     try {
@@ -18,9 +20,11 @@ async function processQueuedJobById(jobId) {
         logger.info('[VideoStudioJobTrigger] Successfully processed queued job.', { jobId });
     }
     catch (error) {
-        if (error instanceof processor_1.VideoStudioWorkerError && error.status === 409) {
-            logger.info('[VideoStudioJobTrigger] Job was already claimed by another processor.', {
+        if (error instanceof processor_1.VideoStudioWorkerError
+            && (error.status === 409 || error.status === 425)) {
+            logger.info('[VideoStudioJobTrigger] Job is not due yet or was claimed by another processor.', {
                 jobId,
+                status: error.status,
             });
             return;
         }
@@ -29,6 +33,15 @@ async function processQueuedJobById(jobId) {
             error: error instanceof Error ? error.message : String(error),
         });
     }
+}
+function queueDispatchToken(job) {
+    if (!job || typeof job !== 'object')
+        return null;
+    const metadata = job.metadata;
+    if (!metadata || typeof metadata !== 'object')
+        return null;
+    const token = metadata.queueDispatchToken;
+    return typeof token === 'string' && token.length > 0 ? token : null;
 }
 exports.onVideoStudioJobQueued = (0, firestore_1.onDocumentCreated)(triggerConfig, async (event) => {
     const snapshot = event.data;
@@ -52,9 +65,18 @@ exports.onVideoStudioJobRequeued = (0, firestore_1.onDocumentUpdated)(triggerCon
         logger.warn('[VideoStudioJobTrigger] Missing before/after data for update event', { jobId });
         return;
     }
-    if (before.status === 'queued' || after.status !== 'queued') {
+    const transitionedToQueued = before.status !== 'queued' && after.status === 'queued';
+    const redispatchedQueuedJob = before.status === 'queued'
+        && after.status === 'queued'
+        && queueDispatchToken(before) !== queueDispatchToken(after)
+        && queueDispatchToken(after) !== null;
+    if (!transitionedToQueued && !redispatchedQueuedJob) {
         return;
     }
+    logger.info('[VideoStudioJobTrigger] Dispatching queued job.', {
+        jobId,
+        reason: redispatchedQueuedJob ? 'manual-redispatch' : 'status-transition',
+    });
     await processQueuedJobById(jobId);
 });
 //# sourceMappingURL=onVideoStudioJobQueued.js.map
