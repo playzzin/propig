@@ -124,6 +124,8 @@ function timestampMillis(value) {
         : null;
 }
 function isTransientVideoStudioError(error) {
+    if ((0, openrouter_1.isOpenRouterInputImagePrivacyError)(error))
+        return false;
     if (error instanceof VideoStudioWorkerError) {
         return error.status === 429 || error.status >= 500;
     }
@@ -428,8 +430,9 @@ async function processQueuedVideoStudioJob(jobId) {
     const baseJobMetadata = claimed.data.metadata && typeof claimed.data.metadata === 'object'
         ? claimed.data.metadata
         : {};
+    let request = null;
     try {
-        const request = readRequest(claimed.data);
+        request = readRequest(claimed.data);
         const project = await getProject(request.projectId, claimed.data.userId);
         const title = claimed.data.title;
         let sourceClipForContinuity = null;
@@ -537,9 +540,10 @@ async function processQueuedVideoStudioJob(jobId) {
         const prompt = requirePrompt(request.prompt, request.operation);
         const totalSegments = normalizeRepeatCount(request.repeatCount);
         const autoMergeAfterLoop = request.autoMergeAfterLoop === true && totalSegments > 1;
+        const omitVisualInputs = request.visualInputMode === 'text-only';
         let sourceClipId = null;
         let sourceVideoUrl = null;
-        let referenceImage = request.referenceImage;
+        let referenceImage = omitVisualInputs ? undefined : request.referenceImage;
         const generationMode = 'generate';
         let operationMode = request.operation === 'generate' ? 'generate' : 'continue';
         if (request.operation === 'extend' || request.operation === 'edit') {
@@ -547,11 +551,13 @@ async function processQueuedVideoStudioJob(jobId) {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.data.videoUrl;
-            referenceImage = await ensureStoredLastFrame({
-                clipId: sourceClip.id,
-                clip: sourceClip.data,
-                userId: claimed.data.userId,
-            });
+            referenceImage = omitVisualInputs
+                ? undefined
+                : await ensureStoredLastFrame({
+                    clipId: sourceClip.id,
+                    clip: sourceClip.data,
+                    userId: claimed.data.userId,
+                });
             operationMode = request.operation;
         }
         else if (request.operation === 'continue') {
@@ -559,11 +565,13 @@ async function processQueuedVideoStudioJob(jobId) {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.data.videoUrl;
-            referenceImage = await ensureStoredLastFrame({
-                clipId: sourceClip.id,
-                clip: sourceClip.data,
-                userId: claimed.data.userId,
-            });
+            referenceImage = omitVisualInputs
+                ? undefined
+                : await ensureStoredLastFrame({
+                    clipId: sourceClip.id,
+                    clip: sourceClip.data,
+                    userId: claimed.data.userId,
+                });
             operationMode = 'continue';
         }
         else {
@@ -642,9 +650,11 @@ async function processQueuedVideoStudioJob(jobId) {
             const generated = await (0, openrouter_1.generateOpenRouterVideo)({
                 prompt: segmentPrompt,
                 mode: segmentMode,
-                image: currentReferenceImage,
-                endImage: segmentIndex === totalSegments - 1 ? request.endReferenceImage : undefined,
-                referenceImages: request.visualReferenceImages,
+                image: omitVisualInputs ? undefined : currentReferenceImage,
+                endImage: !omitVisualInputs && segmentIndex === totalSegments - 1
+                    ? request.endReferenceImage
+                    : undefined,
+                referenceImages: omitVisualInputs ? undefined : request.visualReferenceImages,
                 videoUrl: currentSourceVideoUrl || undefined,
                 duration: request.duration,
                 aspectRatio: project.data.aspectRatio,
@@ -895,6 +905,7 @@ async function processQueuedVideoStudioJob(jobId) {
             return;
         }
         const rawMessage = error instanceof Error ? error.message : 'Video studio job failed.';
+        const privacyBlocked = (0, openrouter_1.isOpenRouterInputImagePrivacyError)(error);
         const retryCount = Number((_j = baseJobMetadata.workerRetryCount) !== null && _j !== void 0 ? _j : 0);
         if (isTransientVideoStudioError(error) && retryCount < 3) {
             const nextRetryCount = retryCount + 1;
@@ -914,16 +925,15 @@ async function processQueuedVideoStudioJob(jobId) {
             });
             return;
         }
-        await updateJob(jobId, {
-            status: 'failed',
-            progress: 100,
-            message: error instanceof VideoStudioWorkerError
+        const hintMessage = (0, openrouter_1.deriveVideoInfraHint)(rawMessage);
+        await updateJob(jobId, Object.assign(Object.assign({ status: 'failed', progress: 100, message: error instanceof VideoStudioWorkerError
                 ? rawMessage
-                : (0, openrouter_1.deriveVideoInfraHint)(rawMessage),
-            errorMessage: rawMessage,
-            nextAttemptAt: null,
-            finishedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }).catch((updateError) => {
+                : hintMessage, errorMessage: privacyBlocked ? hintMessage : rawMessage, nextAttemptAt: null }, (privacyBlocked
+            ? {
+                'metadata.failureReasonCode': 'input_image_privacy',
+                'metadata.failedVisualInputMode': (request === null || request === void 0 ? void 0 : request.visualInputMode) || 'standard',
+            }
+            : {})), { finishedAt: admin.firestore.FieldValue.serverTimestamp() })).catch((updateError) => {
             console.error('[VideoStudioWorker] failed to update job status:', updateError);
         });
         throw error;

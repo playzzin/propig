@@ -110,6 +110,7 @@ type RunStudioJobInput = {
     referenceImage?: string;
     endReferenceImage?: string;
     visualReferenceImages?: string[];
+    visualInputMode?: 'standard' | 'text-only';
     continuityNotes?: string;
     cameraNotes?: string;
     subjectLock?: string;
@@ -425,6 +426,7 @@ class VideoStudioService {
                 referenceImage: input.referenceImage,
                 endReferenceImage: input.endReferenceImage,
                 visualReferenceImages: input.visualReferenceImages,
+                visualInputMode: input.visualInputMode,
                 continuityNotes: input.continuityNotes,
                 cameraNotes: input.cameraNotes,
                 subjectLock: input.subjectLock,

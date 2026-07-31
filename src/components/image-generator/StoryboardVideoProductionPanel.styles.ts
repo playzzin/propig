@@ -2869,6 +2869,84 @@ const RetryGuide = styled.p`
   }
 `;
 
+const PrivacyRecovery = styled.div`
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--warning-color) 38%, var(--border-color));
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: color-mix(
+    in srgb,
+    var(--warning-color) 7%,
+    var(--background-paper)
+  );
+
+  > i {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--warning-color);
+    background: color-mix(in srgb, var(--warning-color) 12%, transparent);
+  }
+  > div {
+    min-width: 0;
+  }
+  strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 0.72rem;
+  }
+  p {
+    margin: 3px 0 0;
+    font-size: 0.65rem;
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+  @media (max-width: 640px) {
+    grid-template-columns: 28px minmax(0, 1fr);
+    > button {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+  }
+`;
+
+const PrivacyFallbackButton = styled.button`
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--warning-color) 55%, var(--border-color));
+  border-radius: 9px;
+  color: var(--text-primary);
+  background: var(--background-paper);
+  font-size: 0.68rem;
+  font-weight: 850;
+  white-space: nowrap;
+  cursor: pointer;
+  &:hover:not(:disabled) {
+    background: color-mix(
+      in srgb,
+      var(--warning-color) 10%,
+      var(--background-paper)
+    );
+  }
+  &:focus-visible {
+    outline: 3px solid
+      color-mix(in srgb, var(--warning-color) 30%, transparent);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
 const SceneActionBar = styled.div`
   display: flex;
   justify-content: space-between;
@@ -3162,6 +3240,8 @@ export {
   SceneError,
   RecoveryNotice,
   RetryGuide,
+  PrivacyRecovery,
+  PrivacyFallbackButton,
   SceneActionBar,
   SceneCost,
   GenerateButton,

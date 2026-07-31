@@ -36,9 +36,19 @@ type GeneratedImageAsset = { base64?: string; mimeType?: string; url?: string };
 type OpenRouterImageResponse = {
     data?: Array<{ b64_json?: string; media_type?: string; url?: string }>;
     usage?: { cost?: number };
-    error?: { message?: string };
+    error?: {
+        code?: string;
+        message?: string;
+        param?: string;
+        type?: string;
+    };
 };
-type OpenRouterImageRequestError = Error & { status: number };
+type OpenRouterImageRequestError = Error & {
+    status: number;
+    code?: string;
+    param?: string;
+    providerType?: string;
+};
 type OpenRouterImageModel = {
     id: string;
     architecture?: { input_modalities?: string[]; output_modalities?: string[] };
@@ -50,7 +60,7 @@ type SelectedOpenRouterImageModel = {
     selectionSource: 'discovered' | 'fallback';
 };
 type ImageInfraHint = {
-    reasonCode: 'api_key_expired' | 'billing_disabled' | 'permission_denied' | 'missing_api_key' | 'rate_limited' | 'request_timeout' | 'invalid_request' | 'unknown';
+    reasonCode: 'api_key_expired' | 'billing_disabled' | 'permission_denied' | 'missing_api_key' | 'rate_limited' | 'request_timeout' | 'input_image_privacy' | 'invalid_request' | 'unknown';
     message: string;
 };
 
@@ -278,6 +288,16 @@ async function selectOpenRouterImageModel(params: {
 
 const deriveInfraHint = (rawMessage: string): ImageInfraHint => {
     const lower = rawMessage.toLowerCase();
+    if (
+        lower.includes('inputimagesensitivecontentdetected.privacyinformation')
+        || lower.includes('may contain real person')
+        || (lower.includes('input image') && lower.includes('privacy'))
+    ) {
+        return {
+            reasonCode: 'input_image_privacy',
+            message: '첨부한 참조 사진에 실제 인물이 포함되었거나 그렇게 감지되어 모델이 요청을 받지 않았습니다. 인물 사진을 빼거나 인물이 없는 제품·건물·배경 사진 또는 일러스트로 바꾼 뒤 다시 생성해 주세요.',
+        };
+    }
     if (lower.includes('billing') && (lower.includes('disabled') || lower.includes('closed'))) {
         return { reasonCode: 'billing_disabled', message: 'OpenRouter 결제가 비활성화되어 있습니다.' };
     }
@@ -351,6 +371,9 @@ async function requestOpenRouterImages(apiKey: string, body: Record<string, unkn
     if (!response.ok) {
         const error = new Error(data.error?.message || raw.slice(0, 1000) || `OpenRouter HTTP ${response.status}`) as OpenRouterImageRequestError;
         error.status = response.status;
+        error.code = data.error?.code;
+        error.param = data.error?.param;
+        error.providerType = data.error?.type;
         throw error;
     }
     return data;
@@ -460,7 +483,17 @@ export async function POST(req: NextRequest) {
     } catch (error) {
         console.error('[API] generate-image failed:', error);
         const rawMessage = error instanceof Error ? error.message : 'Failed to generate image';
-        const hint = deriveInfraHint(rawMessage);
-        return NextResponse.json({ success: false, reasonCode: hint.reasonCode, error: hint.message, details: rawMessage }, { status: 500 });
+        const requestError = error as Partial<OpenRouterImageRequestError>;
+        const hint = deriveInfraHint(`${requestError.code || ''} ${rawMessage}`);
+        return NextResponse.json(
+            {
+                success: false,
+                reasonCode: hint.reasonCode,
+                error: hint.message,
+                details: hint.reasonCode === 'input_image_privacy' ? undefined : rawMessage,
+                blockedInput: hint.reasonCode === 'input_image_privacy' ? requestError.param : undefined,
+            },
+            { status: hint.reasonCode === 'input_image_privacy' ? 422 : 500 },
+        );
     }
 }

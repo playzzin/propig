@@ -49,6 +49,8 @@ import {
   RecoveryNotice,
   SceneError,
   RetryGuide,
+  PrivacyRecovery,
+  PrivacyFallbackButton,
   SceneActionBar,
   SceneCost,
   SceneMoreActions,
@@ -100,6 +102,7 @@ export type StoryboardSceneProductionEditorModel = {
   hasStartFrame: boolean;
   isQueueing: boolean;
   isSceneBusy: boolean;
+  isInputImagePrivacyBlocked: boolean;
   motionPresets: MotionPreset[];
   nextScene?: ImageStoryboardScene;
   projectBusy: boolean;
@@ -127,6 +130,7 @@ export type StoryboardSceneProductionEditorActions = {
   ) => void | Promise<void>;
   onDuplicate: () => void;
   onGenerate: () => void | Promise<void>;
+  onGenerateWithoutVisualInputs: () => void | Promise<void>;
   onPatchVideo: (patch: Partial<StoryboardVideoScene>) => void;
   onDurationChange: (duration: number) => void;
 };
@@ -143,6 +147,7 @@ export default function StoryboardSceneProductionEditor({
     onDownload,
     onDuplicate,
     onGenerate,
+    onGenerateWithoutVisualInputs,
     onPatchVideo,
     onDurationChange,
   },
@@ -160,6 +165,7 @@ export default function StoryboardSceneProductionEditor({
     hasStartFrame,
     isQueueing,
     isSceneBusy,
+    isInputImagePrivacyBlocked,
     motionPresets,
     nextScene,
     projectBusy,
@@ -796,7 +802,28 @@ export default function StoryboardSceneProductionEditor({
           </RenderSignals>
         ) : null}
         {scene.video.errorMessage && sceneRecovery ? (
-          sceneRecovery.canReuseProviderJob ? (
+          isInputImagePrivacyBlocked ? (
+            <PrivacyRecovery role="alert">
+              <i className="fas fa-user-shield" aria-hidden="true" />
+              <div>
+                <strong>참조 사진 사용이 제한됐습니다</strong>
+                <p>
+                  실제 인물이 포함되었거나 그렇게 감지된 사진은 이 모델에
+                  전달할 수 없습니다. 원본 사진과 장면 설계는 그대로
+                  보존됩니다.
+                </p>
+              </div>
+              <PrivacyFallbackButton
+                type="button"
+                onClick={() => void onGenerateWithoutVisualInputs()}
+                disabled={projectBusy || isSceneBusy}
+                aria-busy={isQueueing}
+              >
+                <i className="fas fa-wand-magic-sparkles" aria-hidden="true" />{" "}
+                사진 없이 다시 만들기
+              </PrivacyFallbackButton>
+            </PrivacyRecovery>
+          ) : sceneRecovery.canReuseProviderJob ? (
             <RecoveryNotice role="alert" $safe>
               <i className="fas fa-shield-heart" aria-hidden="true" />
               <div>

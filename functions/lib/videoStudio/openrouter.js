@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.OpenRouterVideoPendingError = exports.openRouterVideoCheckpointSchema = void 0;
+exports.OpenRouterVideoRequestError = exports.OpenRouterVideoPendingError = exports.openRouterVideoCheckpointSchema = void 0;
+exports.isOpenRouterInputImagePrivacyError = isOpenRouterInputImagePrivacyError;
 exports.readOpenRouterVideoCheckpoint = readOpenRouterVideoCheckpoint;
 exports.isResumableOpenRouterVideoCheckpoint = isResumableOpenRouterVideoCheckpoint;
 exports.preflightOpenRouterVideo = preflightOpenRouterVideo;
@@ -53,6 +54,25 @@ class OpenRouterVideoPendingError extends Error {
     }
 }
 exports.OpenRouterVideoPendingError = OpenRouterVideoPendingError;
+class OpenRouterVideoRequestError extends Error {
+    constructor(params) {
+        var _a, _b, _c, _d;
+        super(params.message);
+        this.name = 'OpenRouterVideoRequestError';
+        this.status = (_a = params.status) !== null && _a !== void 0 ? _a : null;
+        this.code = (_b = params.code) !== null && _b !== void 0 ? _b : null;
+        this.param = (_c = params.param) !== null && _c !== void 0 ? _c : null;
+        this.providerType = (_d = params.providerType) !== null && _d !== void 0 ? _d : null;
+    }
+}
+exports.OpenRouterVideoRequestError = OpenRouterVideoRequestError;
+function isOpenRouterInputImagePrivacyError(error) {
+    const requestError = error instanceof OpenRouterVideoRequestError ? error : null;
+    const normalized = `${(requestError === null || requestError === void 0 ? void 0 : requestError.code) || ''} ${error instanceof Error ? error.message : String(error)}`.toLowerCase();
+    return normalized.includes('inputimagesensitivecontentdetected.privacyinformation')
+        || normalized.includes('may contain real person')
+        || (normalized.includes('input image') && normalized.includes('privacy'));
+}
 function readOpenRouterVideoCheckpoint(value) {
     const parsed = exports.openRouterVideoCheckpointSchema.safeParse(value);
     return parsed.success ? parsed.data : null;
@@ -74,7 +94,18 @@ const normalizeImage = (image) => {
         return value;
     return `data:image/png;base64,${value}`;
 };
-const extractError = (payload, fallback) => { var _a; return typeof (payload === null || payload === void 0 ? void 0 : payload.error) === 'string' ? payload.error : ((_a = payload === null || payload === void 0 ? void 0 : payload.error) === null || _a === void 0 ? void 0 : _a.message) || fallback; };
+const extractErrorDetails = (payload, fallback) => {
+    var _a, _b, _c, _d;
+    return (typeof (payload === null || payload === void 0 ? void 0 : payload.error) === 'string'
+        ? { message: payload.error }
+        : {
+            message: ((_a = payload === null || payload === void 0 ? void 0 : payload.error) === null || _a === void 0 ? void 0 : _a.message) || fallback,
+            code: (_b = payload === null || payload === void 0 ? void 0 : payload.error) === null || _b === void 0 ? void 0 : _b.code,
+            param: (_c = payload === null || payload === void 0 ? void 0 : payload.error) === null || _c === void 0 ? void 0 : _c.param,
+            providerType: (_d = payload === null || payload === void 0 ? void 0 : payload.error) === null || _d === void 0 ? void 0 : _d.type,
+        });
+};
+const toOpenRouterVideoRequestError = (payload, fallback, status) => new OpenRouterVideoRequestError(Object.assign(Object.assign({}, extractErrorDetails(payload, fallback)), { status }));
 function resolveVideoAudioMode(payload) {
     if (payload.audioMode)
         return payload.audioMode;
@@ -143,8 +174,9 @@ const requestVideo = async (url, apiKey, init) => {
     try {
         const response = await fetch(url, Object.assign(Object.assign({}, init), { headers: Object.assign(Object.assign(Object.assign({ Authorization: `Bearer ${apiKey}` }, ((init === null || init === void 0 ? void 0 : init.body) ? { 'Content-Type': 'application/json' } : {})), { 'X-OpenRouter-Title': 'ProPig Video Studio' }), init === null || init === void 0 ? void 0 : init.headers), cache: 'no-store', signal: controller.signal }));
         const payload = await parseResponse(response);
-        if (!response.ok)
-            throw new Error(extractError(payload, `OpenRouter HTTP ${response.status}`));
+        if (!response.ok) {
+            throw toOpenRouterVideoRequestError(payload, `OpenRouter HTTP ${response.status}`, response.status);
+        }
         return payload;
     }
     catch (error) {
@@ -550,7 +582,7 @@ const pollVideo = async (params) => {
             return { response: result || {}, checkpoint };
         }
         if (status === 'failed' || status === 'cancelled' || status === 'expired') {
-            throw new Error(extractError(result, `OpenRouter video job ${status}`));
+            throw toOpenRouterVideoRequestError(result, `OpenRouter video job ${status}`);
         }
         const remainingMs = deadline - Date.now();
         if (remainingMs <= 0)
@@ -561,6 +593,11 @@ const pollVideo = async (params) => {
 };
 function deriveVideoInfraHint(rawMessage) {
     const lower = rawMessage.toLowerCase();
+    if (lower.includes('inputimagesensitivecontentdetected.privacyinformation')
+        || lower.includes('may contain real person')
+        || (lower.includes('input image') && lower.includes('privacy'))) {
+        return '참조 사진에 실제 인물이 포함되었거나 그렇게 감지되어 모델이 요청을 받지 않았습니다. 이 장면에서 사진 없이 다시 만들거나 인물 사진을 교체해 주세요.';
+    }
     if (lower.includes('api key') || lower.includes('missing_api_key'))
         return 'OPENROUTER_API_KEY가 설정되지 않았습니다.';
     if (lower.includes('permission') || lower.includes('forbidden') || lower.includes('unauthorized'))
@@ -666,7 +703,7 @@ async function generateOpenRouterVideo(payload, options = {}) {
             body: JSON.stringify(body),
         });
         if (!(submitted === null || submitted === void 0 ? void 0 : submitted.id)) {
-            throw new Error(extractError(submitted, 'OpenRouter did not return a video job id.'));
+            throw toOpenRouterVideoRequestError(submitted, 'OpenRouter did not return a video job id.');
         }
         const submittedAt = new Date().toISOString();
         checkpoint = {

@@ -5,6 +5,7 @@ import {
     deriveVideoInfraHint,
     downloadOpenRouterVideo,
     generateOpenRouterVideo,
+    isOpenRouterInputImagePrivacyError,
     readOpenRouterVideoCheckpoint,
     type OpenRouterVideoCheckpoint,
 } from './openrouter';
@@ -16,7 +17,10 @@ import {
     type VideoAudioInspection,
     type VideoQualityInspection,
 } from './ffmpeg';
-import { videoStudioJobRequestSchema } from './request';
+import {
+    videoStudioJobRequestSchema,
+    type VideoStudioJobRequest,
+} from './request';
 import { db } from '../firestore';
 
 const FUNCTION_VIDEO_PROVIDER_POLL_WINDOW_MS = 4 * 60 * 1000;
@@ -245,6 +249,7 @@ function timestampMillis(value: unknown): number | null {
 }
 
 function isTransientVideoStudioError(error: unknown): boolean {
+    if (isOpenRouterInputImagePrivacyError(error)) return false;
     if (error instanceof VideoStudioWorkerError) {
         return error.status === 429 || error.status >= 500;
     }
@@ -647,9 +652,10 @@ export async function processQueuedVideoStudioJob(jobId: string) {
         claimed.data.metadata && typeof claimed.data.metadata === 'object'
             ? claimed.data.metadata
             : {};
+    let request: VideoStudioJobRequest | null = null;
 
     try {
-        const request = readRequest(claimed.data);
+        request = readRequest(claimed.data);
         const project = await getProject(request.projectId, claimed.data.userId);
         const title = claimed.data.title;
         let sourceClipForContinuity: { id: string; data: VideoStudioClipDoc } | null = null;
@@ -792,9 +798,10 @@ export async function processQueuedVideoStudioJob(jobId: string) {
         const prompt = requirePrompt(request.prompt, request.operation);
         const totalSegments = normalizeRepeatCount(request.repeatCount);
         const autoMergeAfterLoop = request.autoMergeAfterLoop === true && totalSegments > 1;
+        const omitVisualInputs = request.visualInputMode === 'text-only';
         let sourceClipId: string | null = null;
         let sourceVideoUrl: string | null = null;
-        let referenceImage = request.referenceImage;
+        let referenceImage = omitVisualInputs ? undefined : request.referenceImage;
         const generationMode = 'generate' as const;
         let operationMode: VideoStudioClipMode =
             request.operation === 'generate' ? 'generate' : 'continue';
@@ -809,11 +816,13 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.data.videoUrl;
-            referenceImage = await ensureStoredLastFrame({
-                clipId: sourceClip.id,
-                clip: sourceClip.data,
-                userId: claimed.data.userId,
-            });
+            referenceImage = omitVisualInputs
+                ? undefined
+                : await ensureStoredLastFrame({
+                    clipId: sourceClip.id,
+                    clip: sourceClip.data,
+                    userId: claimed.data.userId,
+                });
             operationMode = request.operation;
         } else if (request.operation === 'continue') {
             const sourceClip = await getClip(
@@ -825,11 +834,13 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.data.videoUrl;
-            referenceImage = await ensureStoredLastFrame({
-                clipId: sourceClip.id,
-                clip: sourceClip.data,
-                userId: claimed.data.userId,
-            });
+            referenceImage = omitVisualInputs
+                ? undefined
+                : await ensureStoredLastFrame({
+                    clipId: sourceClip.id,
+                    clip: sourceClip.data,
+                    userId: claimed.data.userId,
+                });
             operationMode = 'continue';
         } else {
             operationMode = 'generate';
@@ -933,9 +944,12 @@ export async function processQueuedVideoStudioJob(jobId: string) {
                 {
                     prompt: segmentPrompt,
                     mode: segmentMode,
-                    image: currentReferenceImage,
-                    endImage: segmentIndex === totalSegments - 1 ? request.endReferenceImage : undefined,
-                    referenceImages: request.visualReferenceImages,
+                    image: omitVisualInputs ? undefined : currentReferenceImage,
+                    endImage:
+                        !omitVisualInputs && segmentIndex === totalSegments - 1
+                            ? request.endReferenceImage
+                            : undefined,
+                    referenceImages: omitVisualInputs ? undefined : request.visualReferenceImages,
                     videoUrl: currentSourceVideoUrl || undefined,
                     duration: request.duration,
                     aspectRatio: project.data.aspectRatio,
@@ -1300,6 +1314,7 @@ export async function processQueuedVideoStudioJob(jobId: string) {
         }
 
         const rawMessage = error instanceof Error ? error.message : 'Video studio job failed.';
+        const privacyBlocked = isOpenRouterInputImagePrivacyError(error);
         const retryCount = Number(baseJobMetadata.workerRetryCount ?? 0);
         if (isTransientVideoStudioError(error) && retryCount < 3) {
             const nextRetryCount = retryCount + 1;
@@ -1323,15 +1338,22 @@ export async function processQueuedVideoStudioJob(jobId: string) {
             return;
         }
 
+        const hintMessage = deriveVideoInfraHint(rawMessage);
         await updateJob(jobId, {
             status: 'failed',
             progress: 100,
             message:
                 error instanceof VideoStudioWorkerError
                     ? rawMessage
-                    : deriveVideoInfraHint(rawMessage),
-            errorMessage: rawMessage,
+                    : hintMessage,
+            errorMessage: privacyBlocked ? hintMessage : rawMessage,
             nextAttemptAt: null,
+            ...(privacyBlocked
+                ? {
+                    'metadata.failureReasonCode': 'input_image_privacy',
+                    'metadata.failedVisualInputMode': request?.visualInputMode || 'standard',
+                }
+                : {}),
             finishedAt: admin.firestore.FieldValue.serverTimestamp(),
         }).catch((updateError) => {
             console.error('[VideoStudioWorker] failed to update job status:', updateError);

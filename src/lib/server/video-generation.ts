@@ -49,7 +49,7 @@ export const GenerateVideoRequestSchema = z.object({
 
 export type GenerateVideoRequest = z.infer<typeof GenerateVideoRequestSchema>;
 export type VideoInfraHint = {
-    reasonCode: 'missing_api_key' | 'permission_denied' | 'rate_limited' | 'request_timeout' | 'invalid_request' | 'unsupported_provider' | 'unknown';
+    reasonCode: 'missing_api_key' | 'permission_denied' | 'rate_limited' | 'request_timeout' | 'input_image_privacy' | 'invalid_request' | 'unsupported_provider' | 'unknown';
     message: string;
 };
 
@@ -60,7 +60,12 @@ type OpenRouterVideoResponse = {
     model?: string | null;
     status?: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'expired';
     unsigned_urls?: string[];
-    error?: string | { message?: string };
+    error?: string | {
+        code?: string;
+        message?: string;
+        param?: string;
+        type?: string;
+    };
     usage?: { cost?: number };
 };
 
@@ -154,6 +159,36 @@ export class OpenRouterVideoPendingError extends Error {
     }
 }
 
+export class OpenRouterVideoRequestError extends Error {
+    readonly status: number | null;
+    readonly code: string | null;
+    readonly param: string | null;
+    readonly providerType: string | null;
+
+    constructor(params: {
+        message: string;
+        status?: number | null;
+        code?: string | null;
+        param?: string | null;
+        providerType?: string | null;
+    }) {
+        super(params.message);
+        this.name = 'OpenRouterVideoRequestError';
+        this.status = params.status ?? null;
+        this.code = params.code ?? null;
+        this.param = params.param ?? null;
+        this.providerType = params.providerType ?? null;
+    }
+}
+
+export function isOpenRouterInputImagePrivacyError(error: unknown): boolean {
+    const requestError = error instanceof OpenRouterVideoRequestError ? error : null;
+    const normalized = `${requestError?.code || ''} ${error instanceof Error ? error.message : String(error)}`.toLowerCase();
+    return normalized.includes('inputimagesensitivecontentdetected.privacyinformation')
+        || normalized.includes('may contain real person')
+        || (normalized.includes('input image') && normalized.includes('privacy'));
+}
+
 export function readOpenRouterVideoCheckpoint(value: unknown): OpenRouterVideoCheckpoint | null {
     const parsed = OpenRouterVideoCheckpointSchema.safeParse(value);
     return parsed.success ? parsed.data : null;
@@ -172,8 +207,24 @@ export function isResumableOpenRouterVideoCheckpoint(value: unknown): boolean {
 let cachedVideoModels: { expiresAt: number; models: OpenRouterVideoModel[] } | null = null;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const extractError = (payload: OpenRouterVideoResponse | null, fallback: string) =>
-    typeof payload?.error === 'string' ? payload.error : payload?.error?.message || fallback;
+const extractErrorDetails = (payload: OpenRouterVideoResponse | null, fallback: string) => (
+    typeof payload?.error === 'string'
+        ? { message: payload.error }
+        : {
+            message: payload?.error?.message || fallback,
+            code: payload?.error?.code,
+            param: payload?.error?.param,
+            providerType: payload?.error?.type,
+        }
+);
+const toOpenRouterVideoRequestError = (
+    payload: OpenRouterVideoResponse | null,
+    fallback: string,
+    status?: number | null,
+) => new OpenRouterVideoRequestError({
+    ...extractErrorDetails(payload, fallback),
+    status,
+});
 
 const normalizeImage = (image?: string) => {
     const value = image?.trim();
@@ -184,6 +235,16 @@ const normalizeImage = (image?: string) => {
 
 export function deriveVideoInfraHint(rawMessage: string): VideoInfraHint {
     const lower = rawMessage.toLowerCase();
+    if (
+        lower.includes('inputimagesensitivecontentdetected.privacyinformation')
+        || lower.includes('may contain real person')
+        || (lower.includes('input image') && lower.includes('privacy'))
+    ) {
+        return {
+            reasonCode: 'input_image_privacy',
+            message: '참조 사진에 실제 인물이 포함되었거나 그렇게 감지되어 모델이 요청을 받지 않았습니다. 이 장면에서 사진 없이 다시 만들거나 인물 사진을 교체해 주세요.',
+        };
+    }
     if (lower.includes('missing_api_key') || lower.includes('api key is missing')) {
         return { reasonCode: 'missing_api_key', message: 'OPENROUTER_API_KEY가 설정되지 않았습니다.' };
     }
@@ -250,7 +311,13 @@ const requestVideo = async (url: string, apiKey: string, init?: RequestInit) => 
             signal: controller.signal,
         });
         const payload = await parseVideoResponse(response);
-        if (!response.ok) throw new Error(extractError(payload, `OpenRouter HTTP ${response.status}`));
+        if (!response.ok) {
+            throw toOpenRouterVideoRequestError(
+                payload,
+                `OpenRouter HTTP ${response.status}`,
+                response.status,
+            );
+        }
         return payload;
     } catch (error) {
         if (controller.signal.aborted) {
@@ -788,7 +855,7 @@ const pollVideo = async (params: {
             return { response: result || {}, checkpoint };
         }
         if (status === 'failed' || status === 'cancelled' || status === 'expired') {
-            throw new Error(extractError(result, `OpenRouter video job ${status}`));
+            throw toOpenRouterVideoRequestError(result, `OpenRouter video job ${status}`);
         }
 
         const remainingMs = deadline - Date.now();
@@ -918,7 +985,10 @@ export async function generateOpenRouterVideo(
             body: JSON.stringify(body),
         });
         if (!submitted?.id) {
-            throw new Error(extractError(submitted, 'OpenRouter did not return a video job id.'));
+            throw toOpenRouterVideoRequestError(
+                submitted,
+                'OpenRouter did not return a video job id.',
+            );
         }
 
         const submittedAt = new Date().toISOString();

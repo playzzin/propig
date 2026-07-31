@@ -32,6 +32,7 @@ export const videoStudioJobRequestSchema = z.object({
     referenceImage: z.string().optional(),
     endReferenceImage: z.string().optional(),
     visualReferenceImages: z.array(videoReferenceImageSchema).max(2).optional(),
+    visualInputMode: z.enum(['standard', 'text-only']).optional(),
     continuityNotes: z.string().optional(),
     cameraNotes: z.string().optional(),
     subjectLock: z.string().optional(),

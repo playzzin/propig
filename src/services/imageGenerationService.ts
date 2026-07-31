@@ -27,6 +27,7 @@ export interface GenerateImageResult {
     imageId?: string;
     reasonCode?: string;
     details?: string;
+    blockedInput?: string;
     images?: Array<{
         id: string;
         url: string;
@@ -51,7 +52,10 @@ async function callNextApi(params: GenerateImageParams): Promise<GenerateImageRe
     if (!response.ok) {
         return {
             success: false,
+            reasonCode: data.reasonCode,
             error: data.error || `HTTP ${response.status}`,
+            details: data.details,
+            blockedInput: data.blockedInput,
         };
     }
 
@@ -72,6 +76,9 @@ function buildGuidedErrorMessage(params: {
     if (params.reasonCode === 'permission_denied') {
         return `OpenRouter API 인증 또는 권한 문제입니다. 키와 계정 크레딧 상태를 확인하세요. (${params.apiError})`;
     }
+    if (params.reasonCode === 'input_image_privacy') {
+        return params.apiError || '첨부한 참조 사진에 실제 인물이 포함되었거나 그렇게 감지되어 모델이 요청을 받지 않았습니다. 인물 사진을 빼거나 인물이 없는 제품·건물·배경 사진 또는 일러스트로 바꾼 뒤 다시 생성해 주세요.';
+    }
 
     return [
         params.apiError ? `API 실패: ${params.apiError}` : '',
@@ -82,7 +89,12 @@ function buildGuidedErrorMessage(params: {
 function isFinalInfraError(reasonCode?: string, message?: string): boolean {
     if (!reasonCode && !message) return false;
 
-    if (reasonCode === 'api_key_expired' || reasonCode === 'billing_disabled' || reasonCode === 'permission_denied') {
+    if (
+        reasonCode === 'api_key_expired'
+        || reasonCode === 'billing_disabled'
+        || reasonCode === 'permission_denied'
+        || reasonCode === 'input_image_privacy'
+    ) {
         return true;
     }
 

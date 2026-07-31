@@ -3,6 +3,7 @@ import {
     deriveVideoInfraHint,
     downloadOpenRouterVideo,
     generateOpenRouterVideo,
+    isOpenRouterInputImagePrivacyError,
     readOpenRouterVideoCheckpoint,
     type OpenRouterVideoCheckpoint,
 } from '@/lib/server/video-generation';
@@ -226,15 +227,16 @@ export async function executeQueuedVideoStudioJob(params: {
         jobId: params.jobId,
         userId: params.userId,
     });
+    const baseJobMetadata =
+        job.metadata && typeof job.metadata === 'object'
+            ? job.metadata
+            : {};
+    let request: VideoStudioJobRequest | null = null;
 
     try {
-        const request = readRequestFromJob(job);
+        request = readRequestFromJob(job);
         const project = await getOwnedProject(params.userId, request.projectId);
         const title = job.title;
-        const baseJobMetadata =
-            job.metadata && typeof job.metadata === 'object'
-                ? job.metadata
-                : {};
         let sourceClipForContinuity:
             | Awaited<ReturnType<typeof getOwnedClip>>
             | null = null;
@@ -384,9 +386,10 @@ export async function executeQueuedVideoStudioJob(params: {
         const prompt = requirePrompt(request.prompt, request.operation);
         const totalSegments = normalizeRepeatCount(request.repeatCount);
         const autoMergeAfterLoop = request.autoMergeAfterLoop === true && totalSegments > 1;
+        const omitVisualInputs = request.visualInputMode === 'text-only';
         let sourceClipId: string | null = null;
         let sourceVideoUrl: string | null = null;
-        let referenceImage = request.referenceImage;
+        let referenceImage = omitVisualInputs ? undefined : request.referenceImage;
         const generationMode = 'generate' as const;
         let operationMode: VideoStudioClipMode = request.operation;
 
@@ -400,10 +403,12 @@ export async function executeQueuedVideoStudioJob(params: {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.videoUrl;
-            referenceImage = await ensureStoredLastFrame({
-                clip: sourceClip,
-                userId: params.userId,
-            });
+            referenceImage = omitVisualInputs
+                ? undefined
+                : await ensureStoredLastFrame({
+                    clip: sourceClip,
+                    userId: params.userId,
+                });
         } else if (request.operation === 'continue') {
             const sourceClip = await getOwnedClip({
                 userId: params.userId,
@@ -414,10 +419,12 @@ export async function executeQueuedVideoStudioJob(params: {
             sourceClipForContinuity = sourceClip;
             sourceClipId = sourceClip.id;
             sourceVideoUrl = sourceClip.videoUrl;
-            referenceImage = await ensureStoredLastFrame({
-                clip: sourceClip,
-                userId: params.userId,
-            });
+            referenceImage = omitVisualInputs
+                ? undefined
+                : await ensureStoredLastFrame({
+                    clip: sourceClip,
+                    userId: params.userId,
+                });
             operationMode = 'continue';
         } else {
             operationMode = 'generate';
@@ -522,9 +529,12 @@ export async function executeQueuedVideoStudioJob(params: {
                     prompt: segmentPrompt,
                     provider: 'openrouter',
                     mode: segmentMode,
-                    image: currentReferenceImage,
-                    endImage: segmentIndex === totalSegments - 1 ? request.endReferenceImage : undefined,
-                    referenceImages: request.visualReferenceImages,
+                    image: omitVisualInputs ? undefined : currentReferenceImage,
+                    endImage:
+                        !omitVisualInputs && segmentIndex === totalSegments - 1
+                            ? request.endReferenceImage
+                            : undefined,
+                    referenceImages: omitVisualInputs ? undefined : request.visualReferenceImages,
                     videoUrl: currentSourceVideoUrl || undefined,
                     duration: request.duration,
                     aspectRatio: project.aspectRatio,
@@ -908,16 +918,27 @@ export async function executeQueuedVideoStudioJob(params: {
         }
 
         const rawMessage = error instanceof Error ? error.message : 'Video studio job failed.';
+        const privacyBlocked = isOpenRouterInputImagePrivacyError(error);
+        const hint = deriveVideoInfraHint(rawMessage);
         const hintMessage =
             error instanceof VideoStudioServerError
                 ? rawMessage
-                : deriveVideoInfraHint(rawMessage).message;
+                : hint.message;
 
         await updateVideoStudioJob(job.id, {
             status: 'failed',
             progress: 100,
             message: hintMessage,
-            errorMessage: rawMessage,
+            errorMessage: privacyBlocked ? hintMessage : rawMessage,
+            metadata: {
+                ...baseJobMetadata,
+                ...(privacyBlocked
+                    ? {
+                        failureReasonCode: 'input_image_privacy',
+                        failedVisualInputMode: request?.visualInputMode || 'standard',
+                    }
+                    : {}),
+            },
             finishedAt: new Date().toISOString(),
         }).catch((updateError) => {
             console.error('[Video Studio Job Executor] failed to update job status:', updateError);

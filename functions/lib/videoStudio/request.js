@@ -29,6 +29,7 @@ exports.videoStudioJobRequestSchema = zod_1.z.object({
     referenceImage: zod_1.z.string().optional(),
     endReferenceImage: zod_1.z.string().optional(),
     visualReferenceImages: zod_1.z.array(videoReferenceImageSchema).max(2).optional(),
+    visualInputMode: zod_1.z.enum(['standard', 'text-only']).optional(),
     continuityNotes: zod_1.z.string().optional(),
     cameraNotes: zod_1.z.string().optional(),
     subjectLock: zod_1.z.string().optional(),

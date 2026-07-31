@@ -391,6 +391,13 @@ async function prepareVideoReferences(
 
 function getSceneRetryAdvice(errorMessage: string): string {
   const message = errorMessage.toLowerCase();
+  if (
+    message.includes("input_image_privacy") ||
+    message.includes("real person") ||
+    (message.includes("실제 인물") && message.includes("감지"))
+  ) {
+    return "원본 사진은 그대로 유지됩니다. 이 장면만 사진 없이 시안을 만들거나 실제 인물이 없는 참조 사진으로 교체해 주세요.";
+  }
   if (message.includes("reference") || message.includes("image")) {
     return "참조 사진을 1장만 선택하거나, 시작 프레임을 새로 생성한 뒤 다시 시도해 보세요.";
   }
@@ -412,6 +419,26 @@ function getSceneRetryAdvice(errorMessage: string): string {
     return "잠시 후 다시 시도해 보세요. 반복되면 시안 모드와 짧은 길이부터 확인하는 것이 좋습니다.";
   }
   return "시안 모드에서 5~8초로 먼저 확인한 뒤, 참조 사진·도착 프레임·오디오를 하나씩 추가해 보세요.";
+}
+
+function isInputImagePrivacyFailure(
+  errorMessage?: string | null,
+  job?: VideoStudioJob | null,
+): boolean {
+  const metadata = job?.metadata;
+  if (
+    metadata &&
+    typeof metadata === "object" &&
+    metadata.failureReasonCode === "input_image_privacy"
+  ) {
+    return true;
+  }
+  const message = errorMessage?.toLowerCase() || "";
+  return (
+    message.includes("inputimagesensitivecontentdetected.privacyinformation") ||
+    message.includes("may contain real person") ||
+    (message.includes("실제 인물") && message.includes("감지"))
+  );
 }
 
 function videoResolution(
@@ -1719,9 +1746,16 @@ export default function StoryboardVideoProductionPanel({
       scene: ImageStoryboardScene;
       automationRunId?: string;
       previousLastFrameUrl?: string | null;
+      visualInputMode?: "standard" | "text-only";
     }): Promise<string> => {
       if (!currentUser) throw new Error("로그인이 필요합니다.");
-      const { scene, automationRunId, previousLastFrameUrl } = params;
+      const {
+        scene,
+        automationRunId,
+        previousLastFrameUrl,
+        visualInputMode = "standard",
+      } = params;
+      const omitVisualInputs = visualInputMode === "text-only";
       const audioMode = resolveStoryboardVideoAudioMode(scene.video);
       if (audioMode === "dialogue" && !scene.dialogueOrCaption.trim()) {
         throw new Error(`${scene.order}번 장면의 말할 대사를 입력해 주세요.`);
@@ -1749,10 +1783,12 @@ export default function StoryboardVideoProductionPanel({
       const useNextSceneAsEndFrame = Boolean(
         scene.video.useNextSceneAsEndFrame && nextScene?.generatedImage?.url,
       );
-      const selectedReferenceAssets = selectVideoReferenceAssets(
-        referenceAssets,
-        scene.video.referenceAssetIds,
-      );
+      const selectedReferenceAssets = omitVisualInputs
+        ? []
+        : selectVideoReferenceAssets(
+            referenceAssets,
+            scene.video.referenceAssetIds,
+          );
       const prompt = appendStoryboardVideoAudioDirection(
         scene.video.motionPrompt.trim() ||
           buildMotionPrompt(
@@ -1768,9 +1804,9 @@ export default function StoryboardVideoProductionPanel({
         scene.dialogueOrCaption,
         renderDuration,
       );
-      const preparedReferences = await prepareVideoReferences(
-        selectedReferenceAssets,
-      );
+      const preparedReferences = omitVisualInputs
+        ? []
+        : await prepareVideoReferences(selectedReferenceAssets);
       const continuityKeyframe = previousLastFrameUrl
         ? scene.generatedImage?.url
         : undefined;
@@ -1788,23 +1824,30 @@ export default function StoryboardVideoProductionPanel({
         clipTitle: `${String(scene.order).padStart(2, "0")} · ${scene.title}`,
         prompt,
         duration: renderDuration,
-        referenceImage:
-          previousLastFrameUrl ||
-          scene.generatedImage?.url ||
-          scene.video.lastFrameUrl ||
-          undefined,
-        endReferenceImage: useNextSceneAsEndFrame
+        referenceImage: omitVisualInputs
+          ? undefined
+          : previousLastFrameUrl ||
+            scene.generatedImage?.url ||
+            scene.video.lastFrameUrl ||
+            undefined,
+        endReferenceImage: !omitVisualInputs && useNextSceneAsEndFrame
           ? nextScene?.generatedImage?.url
           : undefined,
-        visualReferenceImages,
+        visualReferenceImages: omitVisualInputs
+          ? undefined
+          : visualReferenceImages,
+        visualInputMode,
         continuityNotes: [
-          previousLastFrameUrl
+          !omitVisualInputs && previousLastFrameUrl
             ? "이전 장면의 마지막 프레임을 이번 장면의 시작 프레임으로 고정"
             : "",
           scene.continuityAnchor,
           scene.transition ? `다음 장면 연결: ${scene.transition}` : "",
-          useNextSceneAsEndFrame
+          !omitVisualInputs && useNextSceneAsEndFrame
             ? `도착 프레임: 다음 장면 ${nextScene?.order}의 키프레임`
+            : "",
+          omitVisualInputs
+            ? "개인정보 제한 복구 모드: 참조 사진 없이 텍스트 장면 설계만 사용"
             : "",
         ]
           .filter(Boolean)
@@ -1946,6 +1989,33 @@ export default function StoryboardVideoProductionPanel({
       }
     },
     [currentUser, patchSceneVideo, projectBusy, storyboard, submitSceneJob],
+  );
+
+  const handleGenerateWithoutVisualInputs = useCallback(
+    async (scene: ImageStoryboardScene) => {
+      if (!currentUser || projectBusy) return;
+      setQueueingSceneId(scene.id);
+      try {
+        await submitSceneJob({
+          scene,
+          visualInputMode: "text-only",
+        });
+        toast.success(`${scene.order}번 장면을 사진 없이 다시 시작했습니다.`, {
+          description:
+            "장면 설계와 대사는 유지되며, 참조 사진·시작 프레임·도착 프레임만 모델에 전달하지 않습니다.",
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "사진 없는 영상 작업을 시작하지 못했습니다.";
+        patchSceneVideo(scene.id, { status: "failed", errorMessage: message });
+        toast.error(message);
+      } finally {
+        setQueueingSceneId(null);
+      }
+    },
+    [currentUser, patchSceneVideo, projectBusy, submitSceneJob],
   );
 
   const handleApproval = useCallback(
@@ -2883,8 +2953,13 @@ export default function StoryboardVideoProductionPanel({
     const attemptCount = sceneJob.attemptCount ?? 0;
     const automaticRetryCount =
       automationRetryCountsByJobRef.current.get(sceneJob.id) || 0;
+    const isPermanentVisualPrivacyFailure = isInputImagePrivacyFailure(
+      sceneJob.errorMessage || sceneJob.message,
+      sceneJob,
+    );
     if (
       sceneJob.status === "failed" &&
+      !isPermanentVisualPrivacyFailure &&
       attemptCount <= AUTOMATION_RETRY_LIMIT &&
       automaticRetryCount < AUTOMATION_RETRY_LIMIT
     ) {
@@ -3576,6 +3651,10 @@ export default function StoryboardVideoProductionPanel({
                 job: sceneJob,
               })
             : null;
+          const isInputImagePrivacyBlocked = isInputImagePrivacyFailure(
+            scene.video.errorMessage,
+            sceneJob,
+          );
 
           return (
             <StoryboardSceneProductionEditor
@@ -3597,6 +3676,7 @@ export default function StoryboardVideoProductionPanel({
                 hasStartFrame,
                 isQueueing: queueingSceneId === scene.id,
                 isSceneBusy,
+                isInputImagePrivacyBlocked,
                 motionPresets: MOTION_PRESETS,
                 nextScene,
                 projectBusy,
@@ -3624,6 +3704,8 @@ export default function StoryboardVideoProductionPanel({
                 onDurationChange: (duration) =>
                   patchSceneDuration(scene.id, duration),
                 onGenerate: () => handleGenerateScene(scene),
+                onGenerateWithoutVisualInputs: () =>
+                  handleGenerateWithoutVisualInputs(scene),
                 onPatchVideo: (patch) => patchSceneVideo(scene.id, patch),
               }}
             />
