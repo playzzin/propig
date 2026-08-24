@@ -1,10 +1,9 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import Script from 'next/script';
-import { Providers } from './providers';
+import { RouteProviders } from './RouteProviders';
 import { Toaster } from 'sonner';
-import { AppLayout } from '@/components/AppLayout';
-import ExternalStylesheets from '@/components/ExternalStylesheets';
+import { RouteAppLayout } from '@/components/RouteAppLayout';
 import StyledComponentsRegistry from '@/lib/registry';
 
 const developmentCacheResetScript = `
@@ -70,6 +69,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
+      <head>
+        <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        />
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body>
         {process.env.NODE_ENV === 'development' ? (
           <Script
@@ -78,11 +90,10 @@ export default function RootLayout({
             dangerouslySetInnerHTML={{ __html: developmentCacheResetScript }}
           />
         ) : null}
-        <ExternalStylesheets />
         <StyledComponentsRegistry>
-          <Providers>
-            <AppLayout>{children}</AppLayout>
-          </Providers>
+          <RouteProviders>
+            <RouteAppLayout>{children}</RouteAppLayout>
+          </RouteProviders>
         </StyledComponentsRegistry>
         <Toaster richColors position="top-right" closeButton />
       </body>

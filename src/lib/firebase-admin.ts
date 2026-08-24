@@ -117,8 +117,22 @@ const findApplicationDefaultCredentialsPath = (): string | null => {
   }
 
   const windowsAppData = process.env.APPDATA;
+  const normalizedCwd = process.cwd().replace(/\\/g, "/");
+  const wslWindowsProfile = normalizedCwd.match(
+    /^\/mnt\/([a-z])\/Users\/([^/]+)/i,
+  );
+  const wslWindowsAppData = wslWindowsProfile
+    ? `/mnt/${wslWindowsProfile[1]}/Users/${wslWindowsProfile[2]}/AppData/Roaming`
+    : "";
   const candidates = [
     windowsAppData ? join(windowsAppData, "gcloud", "application_default_credentials.json") : "",
+    wslWindowsAppData
+      ? join(
+          wslWindowsAppData,
+          "gcloud",
+          "application_default_credentials.json",
+        )
+      : "",
     join(homedir(), ".config", "gcloud", "application_default_credentials.json"),
   ].filter(Boolean);
 
@@ -162,8 +176,10 @@ if (!admin.apps.length) {
     const pathServiceAccount =
       envServiceAccount || splitEnvServiceAccount ? null : loadServiceAccountFromPath();
 
+    const applicationDefaultCredentialsPath =
+      findApplicationDefaultCredentialsPath();
     hasResolvableApplicationDefaultCredentials =
-      Boolean(findApplicationDefaultCredentialsPath()) || isGoogleManagedRuntime();
+      Boolean(applicationDefaultCredentialsPath) || isGoogleManagedRuntime();
 
     if (envServiceAccount) {
       adminCredentialMode = "service_account_env";
@@ -184,6 +200,13 @@ if (!admin.apps.length) {
         storageBucket: resolveStorageBucket(),
       });
     } else {
+      if (
+        applicationDefaultCredentialsPath &&
+        !process.env.GOOGLE_APPLICATION_CREDENTIALS
+      ) {
+        process.env.GOOGLE_APPLICATION_CREDENTIALS =
+          applicationDefaultCredentialsPath;
+      }
       adminCredentialMode = "application_default";
       admin.initializeApp({
         credential: admin.credential.applicationDefault(),
@@ -307,6 +330,11 @@ export type FirebaseAdminRuntimeProbe = {
     ok: boolean;
     message: string;
   };
+  storageDelivery: {
+    ok: boolean;
+    mode: "firebase_download_token";
+    message: string;
+  };
 };
 
 export async function probeFirebaseAdminRuntime(): Promise<FirebaseAdminRuntimeProbe> {
@@ -318,6 +346,11 @@ export async function probeFirebaseAdminRuntime(): Promise<FirebaseAdminRuntimeP
       firestore: { ok: false, message },
       storage: { ok: false, message },
       storageSigning: { ok: false, message },
+      storageDelivery: {
+        ok: false,
+        mode: "firebase_download_token",
+        message,
+      },
     };
   }
 
@@ -364,8 +397,9 @@ export async function probeFirebaseAdminRuntime(): Promise<FirebaseAdminRuntimeP
       }))
       .catch((error: unknown) => ({
         ok: false,
-        message:
-          error instanceof Error
+        message: error instanceof Error && /client[_ ]?email|cannot sign data/i.test(error.message)
+          ? "Signed URLs are unavailable with local application-default credentials. Storyboard media continues to use Firebase download-token URLs."
+          : error instanceof Error
             ? error.message
             : "Firebase Storage URL signing is unavailable.",
       })),
@@ -375,13 +409,21 @@ export async function probeFirebaseAdminRuntime(): Promise<FirebaseAdminRuntimeP
     status: {
       ...status,
       canSignStorageUrls: storageSigning.ok,
-      message:
-        status.message
-        || (!storageSigning.ok ? storageSigning.message : null),
+      // URL signing is optional for Storyboard. Generated media is saved with
+      // a Firebase download token, so an ADC credential without client_email
+      // must not make the otherwise healthy Admin runtime look unavailable.
+      message: status.message,
     },
     firestore,
     storage,
     storageSigning,
+    storageDelivery: {
+      ok: storage.ok,
+      mode: "firebase_download_token",
+      message: storage.ok
+        ? "Storyboard media is delivered with Firebase download-token URLs and does not require service-account URL signing."
+        : storage.message,
+    },
   };
 }
 

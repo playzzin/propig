@@ -7,7 +7,12 @@ import { useSystem } from '@/contexts/SystemContext';
 import { useMenuSitesQuery } from '@/hooks/useMenuSitesQuery';
 import { PHOTO_ALBUMS_QUERY_KEY, usePhotoAlbumsQuery } from '@/hooks/usePhotoAlbumsQuery';
 import { photoService } from '@/services/photoService';
-import { generateImage, generateVideo, saveGenerationHistory } from '@/services/imageGenerationService';
+import {
+    generateImage,
+    generateVideo,
+    saveGenerationHistory,
+    type SaveHistoryParams,
+} from '@/services/imageGenerationService';
 import type { ImageStoryboardGenerationPayload } from '@/schemas/imageStoryboard';
 import {
     MAX_IMAGE_REFERENCE_ASSETS,
@@ -21,6 +26,7 @@ import {
 export type GeneratedImage = {
     id: string;
     url: string;
+    storagePath?: string;
     prompt: string;
     createdAt: Date;
     type?: 'image' | 'video';
@@ -36,6 +42,7 @@ type GenerationRequest = {
     width: number;
     height: number;
     stylePreset: string;
+    resourceMode: 'efficient' | 'premium';
     referenceImage: string | null;
     referenceImages: ImageReferenceInput[];
     generationMode: 'image' | 'video';
@@ -47,6 +54,31 @@ function createReferenceAsset(draft: ImageReferenceDraft): ImageReferenceAsset {
         id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
             ? crypto.randomUUID()
             : `reference-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    };
+}
+
+function readStoryboardGenerationProvenance(): SaveHistoryParams['artifactProvenance'] {
+    if (typeof window === 'undefined' || window.location.pathname !== '/admin/storyboard') return null;
+    const params = new URLSearchParams(window.location.search);
+    const storyboardId = params.get('storyboard')?.trim();
+    if (
+        !storyboardId
+        || storyboardId.length > 240
+        || storyboardId.includes('/')
+        || storyboardId === '.'
+        || storyboardId === '..'
+    ) return null;
+    const sceneId = params.get('scene')?.trim() || null;
+    return {
+        kind: 'storyboard-scene',
+        storyboardId,
+        sceneId: sceneId
+            && sceneId.length <= 240
+            && !sceneId.includes('/')
+            && sceneId !== '.'
+            && sceneId !== '..'
+            ? sceneId
+            : null,
     };
 }
 
@@ -155,7 +187,7 @@ export function useImageGeneratorControls() {
 
                 try {
                     toast.loading('비디오 저장 중...', { id: 'image-generator-save' });
-                    const { downloadUrl, historyId } = await saveGenerationHistory({
+                    const { downloadUrl, historyId, storagePath } = await saveGenerationHistory({
                         userId: currentUser.uid,
                         url: result.videoUrl,
                         type: 'video',
@@ -170,6 +202,7 @@ export function useImageGeneratorControls() {
                     return {
                         id: historyId,
                         url: downloadUrl,
+                        storagePath,
                         prompt: trimmedPrompt,
                         createdAt: new Date(),
                         type: 'video',
@@ -192,6 +225,7 @@ export function useImageGeneratorControls() {
                 width: request.width,
                 height: request.height,
                 stylePreset: request.stylePreset,
+                resourceMode: request.resourceMode,
                 image: request.referenceImages.length ? undefined : request.referenceImage || undefined,
                 referenceImages: request.referenceImages.length ? request.referenceImages : undefined,
                 provider,
@@ -204,7 +238,7 @@ export function useImageGeneratorControls() {
 
             try {
                 toast.loading('이미지 저장 중...', { id: 'image-generator-save' });
-                const { downloadUrl, historyId } = await saveGenerationHistory({
+                const { downloadUrl, historyId, storagePath } = await saveGenerationHistory({
                     userId: currentUser.uid,
                     url: result.imageUrl,
                     type: 'image',
@@ -212,6 +246,7 @@ export function useImageGeneratorControls() {
                     prompt: trimmedPrompt,
                     negativePrompt: request.negativePrompt,
                     provider,
+                    artifactProvenance: readStoryboardGenerationProvenance(),
                 });
                 toast.success('이미지 생성과 저장이 완료되었습니다.', {
                     id: 'image-generator-save',
@@ -220,6 +255,7 @@ export function useImageGeneratorControls() {
                 return {
                     id: historyId,
                     url: downloadUrl,
+                    storagePath,
                     prompt: trimmedPrompt,
                     createdAt: new Date(),
                     type: 'image',
@@ -249,6 +285,7 @@ export function useImageGeneratorControls() {
         width,
         height,
         stylePreset,
+        resourceMode: 'premium',
         referenceImage,
         referenceImages: referenceAssets.map(({ image, role }) => ({ image, role })),
         generationMode,

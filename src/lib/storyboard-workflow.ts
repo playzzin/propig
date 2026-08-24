@@ -126,7 +126,7 @@ export function deriveStoryboardArtifacts(
           scene.assetFreshness === "current" ? "active" : "review",
         sceneId: scene.id,
         url: scene.generatedImage.url,
-        storagePath: null,
+        storagePath: scene.generatedImage.storagePath || null,
         sourceArtifactIds: scene.video.referenceAssetIds.map(
           (id) => `reference:${id}`,
         ),

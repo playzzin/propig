@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -16,13 +17,44 @@ import {
   faUsers,
 } from '@fortawesome/free-solid-svg-icons';
 import styled from 'styled-components';
-import { CompanyBusinessAreaSections } from '@/components/corp/CompanyBusinessAreaExperience';
-import CompanyBusinessOverview from '@/components/corp/CompanyBusinessOverview';
-import CompanyExecutionSystem from '@/components/corp/CompanyExecutionSystem';
-import { CompanyHistoryExperience } from '@/components/corp/CompanyHistoryExperience';
-import CompanyTechnologyOverview from '@/components/corp/CompanyTechnologyOverview';
-import CompanyVisionPanorama from '@/components/corp/CompanyVisionPanorama';
 import { getDashboardStyleCorpVariant } from '@/constants/dashboardStyleCorpRoutes';
+
+const CompanyBusinessAreaSections = dynamic(
+  () => import('@/components/corp/CompanyBusinessAreaExperience').then((module) => module.CompanyBusinessAreaSections),
+  { loading: () => <DeferredCorpSection /> },
+);
+const CompanyBusinessOverview = dynamic(
+  () => import('@/components/corp/CompanyBusinessOverview'),
+  { loading: () => <DeferredCorpSection /> },
+);
+const CompanyExecutionSystem = dynamic(
+  () => import('@/components/corp/CompanyExecutionSystem'),
+  { loading: () => <DeferredCorpSection /> },
+);
+const CompanyHistoryExperience = dynamic(
+  () => import('@/components/corp/CompanyHistoryExperience').then((module) => module.CompanyHistoryExperience),
+  { loading: () => <DeferredCorpSection /> },
+);
+const CompanyTechnologyOverview = dynamic(
+  () => import('@/components/corp/CompanyTechnologyOverview'),
+  { loading: () => <DeferredCorpSection /> },
+);
+const CompanyVisionPanorama = dynamic(
+  () => import('@/components/corp/CompanyVisionPanorama'),
+  { loading: () => <DeferredCorpSection /> },
+);
+
+function DeferredCorpSection() {
+  return (
+    <section
+      role="status"
+      aria-live="polite"
+      style={{ minHeight: 240, display: 'grid', placeItems: 'center', padding: 24, color: '#64748b' }}
+    >
+      회사 콘텐츠를 준비하는 중입니다…
+    </section>
+  );
+}
 
 type Dashboard2ExperienceVariant = 'introduction' | 'ceo';
 type CeoDocumentTab = 'brands' | 'resume' | 'introduction' | 'analysis';
@@ -133,6 +165,8 @@ interface Dashboard2ExperienceProps {
   enableBrandStory?: boolean;
   includeProductIntroduction?: boolean;
   includeCompanyHistory?: boolean;
+  showIntroductionHero?: boolean;
+  showTechnologyOverview?: boolean;
 }
 
 type MotionControlProps = {
@@ -262,7 +296,7 @@ const introductionHeroSlides: IntroductionHeroSlide[] = [
     ],
   },
   {
-    imageUrl: '/images/corp/technology/reseller-partner-stack.png',
+    imageUrl: '/images/corp/technology/reseller-partner-stack.webp',
     imageAlt: '리셀러 파트너 네트워크와 공동 영업 운영 화면',
     imageWidth: 1536,
     imageHeight: 1024,
@@ -767,7 +801,7 @@ const ceoBrandCollection = [
     name: 'KIBA',
     category: 'Professional Brand',
     description: '검증 가능한 경영 분석과 실행 방법론을 시각화한 전문 브랜드입니다.',
-    imageUrl: '/corp/kiba-dashboard/hero-logo.png',
+    imageUrl: '/corp/kiba-dashboard/hero-logo.webp',
     imageAlt: 'KIBA 한국경영분석연구원 브랜드 로고',
     imageWidth: 1716,
     imageHeight: 886,
@@ -911,6 +945,8 @@ export default function Dashboard2Experience({
   enableBrandStory = false,
   includeProductIntroduction = false,
   includeCompanyHistory = false,
+  showIntroductionHero = true,
+  showTechnologyOverview = true,
 }: Dashboard2ExperienceProps = {}) {
   const pathname = usePathname();
   const routeVariant = getDashboardStyleCorpVariant(pathname);
@@ -929,6 +965,7 @@ export default function Dashboard2Experience({
   const barInView = true;
   const isCeoVariant = resolvedVariant === 'ceo';
   const isBrandStoryActive = enableBrandStory && !isCeoVariant;
+  const shouldRenderIntroductionHero = isCeoVariant || showIntroductionHero;
   const activeCeoProfile = ceoHeroProfiles[activeCeoProfileIndex] ?? ceoHeroProfiles[0]!;
   const activeBrandStorySlide =
     introductionHeroSlides[brandStorySlideIndex] ?? introductionHeroSlides[0]!;
@@ -1267,32 +1304,45 @@ export default function Dashboard2Experience({
             ? '대표의 원칙, 판단 루프, 현장 책임을 같은 정보 구조로 확인할 수 있습니다.'
             : '제품, 자동화, 미디어, 리셀러 파트너 역량을 실행 관점에서 비교해 지금 우선할 다음 단계를 빠르게 찾을 수 있게 구성했습니다.'}
         </span>
-        <OperatingTabs>
-          {activeOperatingHighlights.map((item, index) => {
-            const isSelected = selectedOperatingIndex === index;
-            return (
-              <button
-                key={item.title}
-                type="button"
-                data-dashboard-operating-tab={item.metric.toLowerCase()}
-                aria-pressed={isSelected}
-                onClick={() => setSelectedOperatingState({ variant: resolvedVariant, index })}
-                className={isSelected ? 'is-selected' : undefined}
-              >
+      </OperatingCopy>
+
+      <OperatingAccordion role="group" aria-label="AI 실행 역량 상세 보기">
+        {activeOperatingHighlights.map((item, index) => {
+          const isSelected = selectedOperatingIndex === index;
+          const triggerId = `dashboard2-operating-trigger-${item.metric.toLowerCase()}`;
+
+          return (
+            <OperatingAccordionTrigger
+              key={item.title}
+              id={triggerId}
+              type="button"
+              data-dashboard-operating-tab={item.metric.toLowerCase()}
+              aria-expanded={isSelected}
+              aria-controls="dashboard2-operating-panel"
+              onClick={() => setSelectedOperatingState({ variant: resolvedVariant, index })}
+              className={isSelected ? 'is-selected' : undefined}
+            >
+              <span>
                 <span>
                   <small>{item.eyebrow}</small>
                   <strong>{item.title}</strong>
                 </span>
                 <b>{item.metric}</b>
-                <em>{item.desc}</em>
-                <i>{item.helper}</i>
-              </button>
-            );
-          })}
-        </OperatingTabs>
-      </OperatingCopy>
+              </span>
+              <em>{item.desc}</em>
+              <i>
+                {item.helper}
+                <FontAwesomeIcon icon={faChevronDown} aria-hidden="true" />
+              </i>
+            </OperatingAccordionTrigger>
+          );
+        })}
+      </OperatingAccordion>
 
       <ChartPanel
+        id="dashboard2-operating-panel"
+        role="region"
+        aria-labelledby={`dashboard2-operating-trigger-${activeOperatingHighlights[selectedOperatingIndex]?.metric.toLowerCase() ?? 'pie'}`}
         data-dashboard-motion="chart"
         data-dashboard-motion-state="visible"
         initial={shouldReduceMotion ? false : { opacity: 0, y: 34 }}
@@ -1500,13 +1550,15 @@ export default function Dashboard2Experience({
     <PageShell
       ref={pageRef}
       id="content-area"
-      aria-labelledby="dashboard2-title"
+      aria-labelledby={shouldRenderIntroductionHero ? 'dashboard2-title' : undefined}
+      aria-label={shouldRenderIntroductionHero ? undefined : '회사소개'}
       $squareSections={isBrandStoryActive}
     >
-      {!isCeoVariant && !isBrandStoryActive ? (
+      {!isCeoVariant && !isBrandStoryActive && showIntroductionHero ? (
         <TopNotice>SIMPLYPIG의 AI 기술과 실행 역량을 기존 대시보드 스타일 안에 구성했습니다.</TopNotice>
       ) : null}
 
+      {shouldRenderIntroductionHero ? (
       <HeroSection id="dashboard2-intro" $isCeo={isCeoVariant}>
         <HeroGrid aria-hidden="true" />
         <HeroWash aria-hidden="true" />
@@ -1693,20 +1745,25 @@ export default function Dashboard2Experience({
           )}
         </HeroInner>
       </HeroSection>
+      ) : null}
 
       {!isCeoVariant ? (
         includeProductIntroduction ? (
-          <CompanyBusinessAreaSections id="company-introduction-business" pageLabel="제품소개" />
+          <CompanyBusinessAreaSections
+            id="company-introduction-business"
+            showBusinessVideoSection={false}
+            pageLabel="제품소개"
+          />
         ) : (
-          <CompanyBusinessOverview motionDirection="left" />
+          <CompanyBusinessOverview />
         )
       ) : null}
 
-      {!isCeoVariant ? <CompanyTechnologyOverview motionDirection="right" /> : null}
+      {!isCeoVariant && showTechnologyOverview ? <CompanyTechnologyOverview /> : null}
 
-      {!isCeoVariant ? <CompanyExecutionSystem motionDirection="left" /> : null}
+      {!isCeoVariant ? <CompanyExecutionSystem /> : null}
 
-      {!isCeoVariant ? <CompanyVisionPanorama motionDirection="right" /> : null}
+      {!isCeoVariant ? <CompanyVisionPanorama /> : null}
 
       {!isCeoVariant && includeCompanyHistory ? <CompanyHistoryExperience embedded /> : null}
 
@@ -3223,13 +3280,8 @@ const OperatingInner = styled.div`
   width: min(1180px, 100%);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.08fr);
-  gap: 24px;
+  gap: 14px;
   align-items: stretch;
-
-  @media (max-width: 980px) {
-    grid-template-columns: 1fr;
-  }
 `;
 
 const OperatingCopy = styled(motion.div)`
@@ -3267,94 +3319,129 @@ const OperatingCopy = styled(motion.div)`
   }
 `;
 
-const OperatingTabs = styled.div`
+const OperatingAccordion = styled.div`
   display: grid;
-  gap: 12px;
-  margin-top: 28px;
+  gap: 10px;
+`;
 
-  button {
-    width: 100%;
-    border: 1px solid #eef0f6;
+const OperatingAccordionTrigger = styled.button`
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #e2e5ee;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 20px 22px;
+  color: #24242a;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 12px 30px rgba(21, 27, 45, 0.04);
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+
+  > span {
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  > span > span {
+    min-width: 0;
+  }
+
+  small {
+    display: block;
+    color: #7c3aed;
+    font-size: 0.72rem;
+    font-weight: 950;
+  }
+
+  strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 1.12rem;
+    font-weight: 950;
+    line-height: 1.3;
+    word-break: keep-all;
+  }
+
+  b {
+    flex: 0 0 auto;
     border-radius: 8px;
+    background: #111827;
+    padding: 8px 12px;
+    color: #ffffff;
+    font-size: 0.9rem;
+    font-weight: 950;
+  }
+
+  em,
+  i {
+    font-style: normal;
+  }
+
+  em {
+    display: block;
+    margin-top: 12px;
+    color: #475569;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.65;
+    word-break: keep-all;
+  }
+
+  i {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-top: 14px;
+    color: #1d4ed8;
+    font-size: 0.78rem;
+    font-weight: 950;
+  }
+
+  i svg {
+    flex: 0 0 auto;
+    transition: transform 0.18s ease;
+  }
+
+  &:hover {
+    border-color: #cbd7ff;
     background: #fbfcff;
-    padding: 16px;
-    color: #24242a;
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  }
 
-    &:hover {
-      border-color: #cbd7ff;
-      background: #ffffff;
-      transform: translateX(4px);
-    }
+  &:focus-visible {
+    outline: 3px solid rgba(79, 124, 255, 0.42);
+    outline-offset: 2px;
+  }
 
-    &:focus-visible {
-      outline: 2px solid #4f7cff;
-      outline-offset: 2px;
-    }
+  &.is-selected {
+    border-color: #4f7cff;
+    background: #f0f4ff;
+    box-shadow: 0 16px 36px rgba(79, 124, 255, 0.14);
+  }
 
-    &.is-selected {
-      border-color: #4f7cff;
-      background: #f0f4ff;
-      box-shadow: 0 16px 36px rgba(79, 124, 255, 0.14);
-    }
+  &.is-selected b {
+    background: #1d4ed8;
+  }
 
-    > span {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-    }
+  &.is-selected i svg {
+    transform: rotate(180deg);
+  }
 
-    small {
-      display: block;
-      color: #7c3aed;
-      font-size: 0.72rem;
-      font-weight: 950;
-    }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
 
-    strong {
-      display: block;
-      margin-top: 8px;
-      font-size: 1.12rem;
-      font-weight: 950;
+    i svg {
+      transition: none;
     }
+  }
 
-    b {
-      flex: 0 0 auto;
-      border-radius: 8px;
-      background: #111827;
-      padding: 8px 12px;
-      color: #ffffff;
-      font-size: 0.9rem;
-      font-weight: 950;
-    }
-
-    &.is-selected b {
-      background: #1d4ed8;
-    }
-
-    em,
-    i {
-      display: block;
-      font-style: normal;
-    }
-
-    em {
-      margin-top: 12px;
-      color: #475569;
-      font-size: 0.9rem;
-      font-weight: 700;
-      line-height: 1.65;
-    }
-
-    i {
-      margin-top: 10px;
-      color: #1d4ed8;
-      font-size: 0.78rem;
-      font-weight: 950;
-    }
+  @media (max-width: 560px) {
+    padding: 18px;
   }
 `;
 

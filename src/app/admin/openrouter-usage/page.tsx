@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   BarChart3,
@@ -14,13 +16,24 @@ import {
   Settings,
   Video,
 } from 'lucide-react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import styled from 'styled-components';
-import { LoginModal } from '@/components/LoginModal';
 import { useAuth } from '@/contexts/AuthContext';
+import type {
+  UncertainResolutionInput,
+  UncertainUsageRecord,
+  UsageOperation,
+} from './UncertainUsageReconciliation';
+
+const LoginModal = dynamic(() => import('@/components/LoginModal').then((module) => module.LoginModal));
+const UncertainUsageReconciliation = dynamic(
+  () => import('./UncertainUsageReconciliation').then((module) => module.UncertainUsageReconciliation),
+);
+const OpenRouterUsageCharts = dynamic(
+  () => import('./OpenRouterUsageCharts').then((module) => module.OpenRouterUsageCharts),
+  { loading: () => <ChartLoading role="status">사용량 차트를 준비하는 중입니다…</ChartLoading> },
+);
 
 type RangeDays = 7 | 30 | 90;
-type UsageOperation = 'text' | 'image' | 'video';
 
 type UsageAggregate = {
   requestCount: number;
@@ -52,6 +65,12 @@ type UsageResponse = {
     day: string;
     occurredAt: string | null;
   }>;
+  uncertainSummary: {
+    count: number;
+    reservedCostUsd: number;
+  };
+  uncertain: UncertainUsageRecord[];
+  uncertainTruncated: boolean;
   truncated: boolean;
 };
 
@@ -120,6 +139,20 @@ async function fetchOpenRouterUsage(user: User, range: RangeDays): Promise<Usage
   return payload as UsageResponse;
 }
 
+async function reconcileOpenRouterUsage(user: User, input: UncertainResolutionInput): Promise<void> {
+  const token = await user.getIdToken();
+  const response = await fetch('/api/openrouter-usage', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+  if (!response.ok) throw new Error(payload?.error || '불확실 비용 정산을 처리하지 못했습니다.');
+}
+
 const operationIcon = (operation: UsageOperation) => {
   switch (operation) {
     case 'text':
@@ -133,6 +166,7 @@ const operationIcon = (operation: UsageOperation) => {
 
 export default function OpenRouterUsagePage() {
   const { currentUser, loading: authLoading, isConfigured: authConfigured, error: authError } = useAuth();
+  const queryClient = useQueryClient();
   const [range, setRange] = useState<RangeDays>(30);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
@@ -152,15 +186,24 @@ export default function OpenRouterUsagePage() {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
-
-  const chartData = useMemo(
-    () =>
-      (usageQuery.data?.daily || []).map((item) => ({
-        ...item,
-        label: formatChartDay(item.day),
-      })),
-    [usageQuery.data?.daily],
+  const { mutateAsync: reconcileUsage } = useMutation({
+    mutationFn: (input: UncertainResolutionInput) => {
+      if (!currentUser) throw new Error('관리자 로그인이 필요합니다. 다시 로그인해 주세요.');
+      return reconcileOpenRouterUsage(currentUser, input);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['openrouter-usage'],
+      });
+    },
+  });
+  const handleReconcile = useCallback(
+    async (input: UncertainResolutionInput) => {
+      await reconcileUsage(input);
+    },
+    [reconcileUsage],
   );
+
   const summary = usageQuery.data?.summary;
   const hasKnownCost = Boolean(summary && summary.pricedRequestCount > 0);
   const costPerThousandTokens =
@@ -182,7 +225,7 @@ export default function OpenRouterUsagePage() {
           </Button>
           {!canOpenLogin ? <ErrorText role="status">{authError ?? 'Firebase 인증 설정을 확인해 주세요.'}</ErrorText> : null}
         </LockedCard>
-        <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+        {isLoginOpen ? <LoginModal isOpen onClose={() => setIsLoginOpen(false)} /> : null}
       </PageWrap>
     );
   }
@@ -208,10 +251,10 @@ export default function OpenRouterUsagePage() {
             <PageSubtitle>호출 비용과 토큰 기록을 모델·기능별로 확인합니다.</PageSubtitle>
           </HeaderCopy>
           <HeaderActions>
-            <Button type="button" $variant="secondary" onClick={() => window.location.assign('/admin/openrouter-settings')}>
+            <HeaderLink href="/admin/openrouter-settings">
               <Settings size={16} aria-hidden />
               설정 관리
-            </Button>
+            </HeaderLink>
             <Button type="button" onClick={() => usageQuery.refetch()} disabled={usageQuery.isFetching}>
               <RefreshCw size={16} aria-hidden />
               {usageQuery.isFetching ? '새로고침 중' : '새로고침'}
@@ -231,6 +274,7 @@ export default function OpenRouterUsagePage() {
                 key={option.value}
                 type="button"
                 $active={range === option.value}
+                aria-pressed={range === option.value}
                 onClick={() => setRange(option.value)}
               >
                 최근 {option.label}
@@ -257,6 +301,15 @@ export default function OpenRouterUsagePage() {
 
         {data?.truncated ? (
           <WarningNotice role="status">이 기간에 기록이 많아 최근 10,000건만 집계했습니다.</WarningNotice>
+        ) : null}
+
+        {data?.recordingAvailable ? (
+          <UncertainUsageReconciliation
+            summary={data.uncertainSummary || { count: 0, reservedCostUsd: 0 }}
+            items={data.uncertain || []}
+            truncated={Boolean(data.uncertainTruncated)}
+            onResolve={handleReconcile}
+          />
         ) : null}
 
         <KpiGrid>
@@ -296,62 +349,11 @@ export default function OpenRouterUsagePage() {
           </EmptyState>
         ) : (
           <>
-            <ChartGrid>
-              <ChartCard>
-                <CardHeader>
-                  <div>
-                    <CardTitle>일별 실제 비용</CardTitle>
-                    <CardHint>비용 응답이 있는 호출만 USD로 합산</CardHint>
-                  </div>
-                  <MetricBadge>{formatUsd(summary?.costUsd || 0)}</MetricBadge>
-                </CardHeader>
-                <ChartFrame aria-label="일별 OpenRouter 실제 비용 차트">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 12, right: 8, left: -14, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="openrouter-cost-gradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#34d399" stopOpacity={0.34} />
-                          <stop offset="100%" stopColor="#34d399" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="rgba(148,163,184,0.13)" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
-                      <YAxis tickFormatter={(value) => `$${formatCompactNumber(Number(value))}`} tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
-                      <Tooltip
-                        labelFormatter={(_, payload) => payload?.[0]?.payload?.day || ''}
-                        formatter={(value: number | string | undefined) => [formatUsd(Number(value || 0)), '실제 비용']}
-                        contentStyle={{ background: '#101925', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 8, color: '#e5edf6' }}
-                      />
-                      <Area type="monotone" dataKey="costUsd" stroke="#34d399" strokeWidth={2.25} fill="url(#openrouter-cost-gradient)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </ChartFrame>
-              </ChartCard>
-              <ChartCard>
-                <CardHeader>
-                  <div>
-                    <CardTitle>일별 토큰</CardTitle>
-                    <CardHint>입력과 출력 토큰을 모두 포함</CardHint>
-                  </div>
-                  <MetricBadge>{formatCompactNumber(summary?.totalTokens || 0)}</MetricBadge>
-                </CardHeader>
-                <ChartFrame aria-label="일별 OpenRouter 토큰 차트">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 12, right: 8, left: -14, bottom: 0 }}>
-                      <CartesianGrid stroke="rgba(148,163,184,0.13)" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
-                      <YAxis tickFormatter={(value) => formatCompactNumber(Number(value))} tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
-                      <Tooltip
-                        labelFormatter={(_, payload) => payload?.[0]?.payload?.day || ''}
-                        formatter={(value: number | string | undefined) => [formatNumber(Number(value || 0)), '토큰']}
-                        contentStyle={{ background: '#101925', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 8, color: '#e5edf6' }}
-                      />
-                      <Bar dataKey="totalTokens" fill="#60a5fa" radius={[5, 5, 0, 0]} maxBarSize={28} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartFrame>
-              </ChartCard>
-            </ChartGrid>
+            <OpenRouterUsageCharts
+              data={(data?.daily || []).map((item) => ({ ...item, label: formatChartDay(item.day) }))}
+              totalCostUsd={summary?.costUsd || 0}
+              totalTokens={summary?.totalTokens || 0}
+            />
 
             <BreakdownGrid>
               <Card>
@@ -499,17 +501,39 @@ const HeaderActions = styled.div`
   gap: 8px;
 `;
 
-const Button = styled.button<{ $variant?: 'secondary' }>`
-  min-height: 38px;
+const HeaderLink = styled(Link)`
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   padding: 8px 13px;
-  border: 1px solid ${({ $variant }) => ($variant === 'secondary' ? 'var(--border-medium)' : 'rgba(16, 185, 129, 0.4)')};
+  border: 1px solid var(--border-medium);
   border-radius: 7px;
-  background: ${({ $variant }) => ($variant === 'secondary' ? 'rgba(255,255,255,0.035)' : 'var(--primary)')};
-  color: ${({ $variant }) => ($variant === 'secondary' ? 'var(--text-main)' : '#04110d')};
+  background: rgba(255,255,255,0.035);
+  color: var(--text-main);
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-decoration: none;
+  touch-action: manipulation;
+  transition: background-color 120ms ease, border-color 120ms ease;
+
+  &:hover { background: rgba(255,255,255,0.07); border-color: rgba(148,163,184,.42); }
+  &:focus-visible { outline: 3px solid rgba(16, 185, 129, 0.28); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { transition: none; }
+`;
+
+const Button = styled.button`
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: 7px;
+  background: var(--primary);
+  color: #04110d;
   font-size: 0.84rem;
   font-weight: 800;
   cursor: pointer;
@@ -553,7 +577,7 @@ const RangeGroup = styled.div`
 `;
 
 const RangeButton = styled.button<{ $active: boolean }>`
-  min-height: 32px;
+  min-height: 44px;
   border: 0;
   border-radius: 5px;
   padding: 6px 10px;
@@ -679,12 +703,16 @@ const EmptyIcon = styled.div`
   background: rgba(16,185,129,.13);
 `;
 
-const ChartGrid = styled.section`
+const ChartLoading = styled.div`
+  min-height: 310px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-
-  @media (max-width: 960px) { grid-template-columns: 1fr; }
+  place-items: center;
+  padding: 24px;
+  border: 1px solid var(--border-medium);
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  font-size: .82rem;
 `;
 
 const BreakdownGrid = styled.section`
@@ -703,12 +731,6 @@ const Card = styled.section`
   border-radius: 9px;
 
   @media (max-width: 620px) { padding: 14px; }
-`;
-
-const ChartCard = styled(Card)`
-  min-height: 310px;
-  display: flex;
-  flex-direction: column;
 `;
 
 const CardHeader = styled.div`
@@ -731,22 +753,6 @@ const CardHint = styled.p`
   color: var(--text-muted);
   font-size: .77rem;
   line-height: 1.45;
-`;
-
-const MetricBadge = styled.span`
-  flex: 0 0 auto;
-  padding: 5px 8px;
-  color: #a7f3d0;
-  background: rgba(16,185,129,.12);
-  border: 1px solid rgba(16,185,129,.2);
-  border-radius: 999px;
-  font-size: .74rem;
-  font-weight: 800;
-`;
-
-const ChartFrame = styled.div`
-  min-height: 220px;
-  flex: 1;
 `;
 
 const TableWrap = styled.div`

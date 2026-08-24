@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
     isAvailablePropigStoreAppId,
@@ -10,6 +11,7 @@ import {
 } from '@/constants/propigStore';
 import { isCompanyMenuRoute } from '@/constants/companyMenu';
 import { DEFAULT_SITE_HOME_MENU_ITEMS } from '@/constants/siteHome';
+import { MENU_PAGE_OPTIONS } from '@/constants/menuPages';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { useSystem } from '@/contexts/SystemContext';
 import { useBrandImageFallback } from '@/hooks/useBrandImageFallback';
@@ -20,6 +22,7 @@ interface SidebarProps {
     currentEnv: string;
     isCollapsed: boolean;
     isMobileOpen?: boolean;
+    isMobileViewport?: boolean;
     closeMobileSidebar?: () => void;
     setViewTitle: (title: string, desc: string) => void;
     toggleSidebar?: () => void;
@@ -110,6 +113,15 @@ function isSameMenuTarget(left: MenuItem, right: MenuItem): boolean {
     );
 }
 
+function isMenuRouteActive(item: MenuItem, pathname: string | null): boolean {
+    if (item.path === pathname) return true;
+
+    return (
+        item.id === 'corp-partnership' &&
+        Boolean(pathname?.startsWith('/corp/partnership/'))
+    );
+}
+
 function appendIfMissing(items: MenuItem[], item: MenuItem): MenuItem[] {
     return items.some((existingItem) => isSameMenuTarget(existingItem, item))
         ? items
@@ -120,11 +132,117 @@ function getMenuItemHref(item: MenuItem): string {
     return item.path || '#';
 }
 
+function collectIdlePrefetchTargets(items: MenuItem[], pathname: string | null, limit = 4): string[] {
+    const targets: string[] = [];
+
+    const visit = (menuItems: MenuItem[]) => {
+        for (const item of menuItems) {
+            if (targets.length >= limit) return;
+            if (
+                item.path &&
+                !item.external &&
+                item.path !== pathname &&
+                item.path.startsWith('/') &&
+                !isCompanyMenuRoute(item.path) &&
+                !targets.includes(item.path)
+            ) {
+                targets.push(item.path);
+            }
+
+            const subItems = (item.sub || []).filter((sub): sub is MenuItem => typeof sub !== 'string');
+            if (subItems.length > 0) visit(subItems);
+        }
+    };
+
+    visit(items);
+    return targets;
+}
+
 function ensureDefaultPropigMenuItems(items: MenuItem[]): MenuItem[] {
     return [PROPIG_STORE_PAGE_MENU_ITEM, ...PROPIG_STORE_MENU_ITEMS].reduce(
         (nextItems, item) => appendIfMissing(nextItems, item),
         items,
     );
+}
+
+const CORP_MENU_GROUPS = [
+    { key: 'company', label: '회사소개', icon: 'building', group: '기업' },
+    { key: 'project', label: '프로젝트', icon: 'diagram-project', group: '프로젝트' },
+    { key: 'partnership', label: '제휴하기', icon: 'handshake', group: '제휴' },
+    { key: 'careers', label: '인재채용', icon: 'briefcase', group: '채용' },
+] as const;
+
+function collectMenuPaths(items: MenuItem[]): Set<string> {
+    const paths = new Set<string>();
+    const visit = (menuItems: MenuItem[]) => {
+        menuItems.forEach((item) => {
+            if (item.path) paths.add(item.path);
+            const children = (item.sub || []).filter((sub): sub is MenuItem => typeof sub !== 'string');
+            visit(children);
+        });
+    };
+    visit(items);
+    return paths;
+}
+
+function ensureCorpMenuItems(items: MenuItem[]): MenuItem[] {
+    const knownPaths = collectMenuPaths(items);
+    const nextItems = [...items];
+
+    CORP_MENU_GROUPS.forEach((group) => {
+        const missingItems: MenuItem[] = MENU_PAGE_OPTIONS
+            .filter((page) => page.group === group.group && page.path.startsWith('/corp/') && !knownPaths.has(page.path))
+            .map((page) => ({
+                id: `corp-required-${page.path.replace(/[^a-z0-9]+/gi, '-')}`,
+                text: page.label,
+                path: page.path,
+                icon: page.icon || 'link',
+                type: 'link',
+            }));
+
+        if (missingItems.length === 0) return;
+
+        const groupIndex = nextItems.findIndex((item) => {
+            if (item.text === group.label) return true;
+            const children = (item.sub || []).filter((sub): sub is MenuItem => typeof sub !== 'string');
+            return children.some((child) => child.path?.startsWith(`/corp/${group.key}/`));
+        });
+
+        if (groupIndex >= 0) {
+            const existing = nextItems[groupIndex];
+            const existingChildren = (existing.sub || []).filter((sub): sub is MenuItem => typeof sub !== 'string');
+            const parentPage = existing.path
+                ? MENU_PAGE_OPTIONS.find((page) => page.path === existing.path)
+                : undefined;
+            const parentPathItem = parentPage && !existingChildren.some((child) => child.path === parentPage.path)
+                ? [{
+                    id: `corp-required-${parentPage.path.replace(/[^a-z0-9]+/gi, '-')}`,
+                    text: parentPage.label,
+                    path: parentPage.path,
+                    icon: parentPage.icon || existing.icon || 'link',
+                    type: 'link' as const,
+                }]
+                : [];
+            nextItems[groupIndex] = {
+                ...existing,
+                sub: [...parentPathItem, ...(existing.sub || []), ...missingItems],
+            };
+        } else {
+            nextItems.push({
+                id: `corp-required-${group.key}`,
+                text: group.label,
+                icon: group.icon,
+                type: 'folder',
+                sub: missingItems,
+            });
+        }
+
+        missingItems.forEach((item) => {
+            if (item.path) knownPaths.add(item.path);
+        });
+    });
+
+    return nextItems;
 }
 
 function organizePropigSidebarMenu(
@@ -190,6 +308,7 @@ export default function Sidebar({
     currentEnv,
     isCollapsed,
     isMobileOpen = false,
+    isMobileViewport = false,
     closeMobileSidebar,
     setViewTitle,
     toggleSidebar
@@ -202,13 +321,20 @@ export default function Sidebar({
     const [popover, setPopover] = useState<PopoverState | null>(null);
     const usesCollapsedBehavior = isCollapsed && !isMobileOpen;
     const shouldFilterPropigStoreApps = currentEnv === 'shop';
-    const menuSource = filteredMenu;
+    const menuSource = useMemo(
+        () => (pathname?.startsWith('/corp') ? ensureCorpMenuItems(filteredMenu) : filteredMenu),
+        [filteredMenu, pathname],
+    );
     const visibleMenu = useMemo(
         () =>
             shouldFilterPropigStoreApps
                 ? organizePropigSidebarMenu(menuSource, appRegistry.isInstalled, appRegistry.installedAppIds)
                 : menuSource,
         [appRegistry.installedAppIds, appRegistry.isInstalled, menuSource, shouldFilterPropigStoreApps],
+    );
+    const idlePrefetchTargets = useMemo(
+        () => collectIdlePrefetchTargets(visibleMenu, pathname),
+        [pathname, visibleMenu],
     );
 
     const getSubMenuItems = useCallback(
@@ -219,7 +345,7 @@ export default function Sidebar({
 
     const isMenuItemActive = useCallback((item: MenuItem): boolean => {
         const walk = (menuItem: MenuItem): boolean => {
-            if (menuItem.path === pathname) return true;
+            if (isMenuRouteActive(menuItem, pathname)) return true;
             return getSubMenuItems(menuItem).some(walk);
         };
 
@@ -236,6 +362,37 @@ export default function Sidebar({
         ) return;
         router.prefetch(item.path);
     }, [pathname, router]);
+
+    const prefetchMenuItemOnPointerDown = useCallback((item: MenuItem) => {
+        if (item.path && !item.external && item.path !== pathname && item.path.startsWith('/')) {
+            router.prefetch(item.path);
+        }
+    }, [pathname, router]);
+
+    useEffect(() => {
+        if (idlePrefetchTargets.length === 0) return;
+
+        const connection = (navigator as Navigator & {
+            connection?: { saveData?: boolean; effectiveType?: string };
+        }).connection;
+        if (connection?.saveData || connection?.effectiveType?.includes('2g')) return;
+
+        const prefetch = () => {
+            idlePrefetchTargets.forEach((target) => router.prefetch(target));
+        };
+        const idleWindow = window as typeof window & {
+            requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+            cancelIdleCallback?: (handle: number) => void;
+        };
+
+        if (idleWindow.requestIdleCallback) {
+            const idleId = idleWindow.requestIdleCallback(prefetch, { timeout: 1_500 });
+            return () => idleWindow.cancelIdleCallback?.(idleId);
+        }
+
+        const timeoutId = window.setTimeout(prefetch, 800);
+        return () => window.clearTimeout(timeoutId);
+    }, [idlePrefetchTargets, router]);
 
     const navigateToMenuItem = useCallback((item: MenuItem) => {
         if (!item.path) return;
@@ -326,11 +483,6 @@ export default function Sidebar({
         toggleMenuItem(item);
     };
 
-    const handleSubMenuClick = (subItem: MenuItem) => {
-        navigateToMenuItem(subItem);
-        setPopover(null);
-    };
-
     const handleAnchorMenuClick = (item: MenuItem, event: React.MouseEvent<HTMLAnchorElement>) => {
         if (!item.path) {
             event.preventDefault();
@@ -350,8 +502,18 @@ export default function Sidebar({
             return;
         }
 
-        event.preventDefault();
-        handleSubMenuClick(item);
+        const navigationEvent = new CustomEvent('propig:before-navigation', {
+            cancelable: true,
+            detail: { href: item.path },
+        });
+        if (!window.dispatchEvent(navigationEvent)) {
+            event.preventDefault();
+            return;
+        }
+
+        setPopover(null);
+        closeMobileSidebar?.();
+        setViewTitle(item.text, `현재 환경: ${currentEnv} / 메뉴: ${item.text}`);
     };
 
     const { settings } = useSystem();
@@ -360,12 +522,23 @@ export default function Sidebar({
     const currentSiteName = siteData[currentEnv]?.name || currentEnv.toUpperCase();
 
     return (
-        <aside id="sidebar" className={`${isCollapsed ? 'collapsed' : ''} ${isMobileOpen ? 'mobile-open' : ''}`}>
-            <div
+        <aside
+            id="sidebar"
+            className={`${isCollapsed ? 'collapsed' : ''} ${isMobileOpen ? 'mobile-open' : ''}`}
+            role={isMobileViewport ? 'dialog' : undefined}
+            aria-label={isMobileViewport ? '주 메뉴' : undefined}
+            aria-modal={isMobileViewport && isMobileOpen ? 'true' : undefined}
+            aria-hidden={isMobileViewport && !isMobileOpen ? true : undefined}
+            inert={isMobileViewport && !isMobileOpen ? true : undefined}
+            tabIndex={isMobileViewport ? -1 : undefined}
+        >
+            <button
+                type="button"
                 className="sidebar-brand"
                 onClick={toggleSidebar}
                 style={{ cursor: 'pointer' }}
-                title="메뉴 접기"
+                aria-label={isMobileViewport ? '메뉴 닫기' : '메뉴 접기'}
+                title={isMobileViewport ? '메뉴 닫기' : '메뉴 접기'}
             >
                 <div className="brand-icon flex-center">
                     {logoImage.canRenderImage ? (
@@ -389,7 +562,7 @@ export default function Sidebar({
                         {currentSiteName}
                     </span>
                 )}
-            </div>
+            </button>
 
             <div className="menu-container">
                 <ul className="nav-list">
@@ -441,36 +614,53 @@ export default function Sidebar({
                                             </button>
                                         )}
                                     </div>
-                                ) : (
-                                    <button
-                                        type="button"
+                                ) : item.external ? (
+                                    <a
+                                        href={getMenuItemHref(item)}
                                         className="nav-btn"
-                                        onClick={(event) => handleMenuClick(item, event)}
-                                        onMouseEnter={() => prefetchMenuItem(item)}
-                                        onFocus={() => prefetchMenuItem(item)}
+                                        onClick={(event) => handleAnchorMenuClick(item, event)}
                                         title={usesCollapsedBehavior ? item.text : undefined}
                                     >
                                         <span className="nav-icon">
                                             <i className={`fa-solid fa-${iconName}`}></i>
                                         </span>
                                         <span className="nav-label">{item.text}</span>
-                                    </button>
+                                    </a>
+                                ) : (
+                                    <Link
+                                        href={getMenuItemHref(item)}
+                                        className="nav-btn"
+                                        prefetch={null}
+                                        aria-current={isActive ? 'page' : undefined}
+                                        onClick={(event) => handleAnchorMenuClick(item, event)}
+                                        onMouseEnter={() => prefetchMenuItem(item)}
+                                        onFocus={() => prefetchMenuItem(item)}
+                                        onPointerDown={() => prefetchMenuItemOnPointerDown(item)}
+                                        title={usesCollapsedBehavior ? item.text : undefined}
+                                    >
+                                        <span className="nav-icon">
+                                            <i className={`fa-solid fa-${iconName}`}></i>
+                                        </span>
+                                        <span className="nav-label">{item.text}</span>
+                                    </Link>
                                 )}
 
                                 {hasSub && (
                                     <ul className="sub-nav">
                                         {subItems.map((sub) => (
                                             <li key={sub.id} className={`sub-nav-item ${isMenuItemActive(sub) ? 'active' : ''}`}>
-                                                <a
+                                                <Link
                                                     href={getMenuItemHref(sub)}
+                                                    prefetch={sub.external ? false : null}
                                                     className={sub.path === pathname ? 'active' : ''}
                                                     aria-current={sub.path === pathname ? 'page' : undefined}
                                                     onMouseEnter={() => prefetchMenuItem(sub)}
                                                     onFocus={() => prefetchMenuItem(sub)}
+                                                    onPointerDown={() => prefetchMenuItemOnPointerDown(sub)}
                                                     onClick={(event) => handleAnchorMenuClick(sub, event)}
                                                 >
                                                     {sub.text}
-                                                </a>
+                                                </Link>
                                             </li>
                                         ))}
                                     </ul>
@@ -492,33 +682,37 @@ export default function Sidebar({
                 {popover && (
                     <>
                         {popover.parent.path ? (
-                            <a
+                            <Link
                                 href={getMenuItemHref(popover.parent)}
+                                prefetch={popover.parent.external ? false : null}
                                 className="popover-header popover-header-link"
                                 aria-current={popover.parent.path === pathname ? 'page' : undefined}
                                 onMouseEnter={() => prefetchMenuItem(popover.parent)}
                                 onFocus={() => prefetchMenuItem(popover.parent)}
+                                onPointerDown={() => prefetchMenuItemOnPointerDown(popover.parent)}
                                 onClick={(event) => handleAnchorMenuClick(popover.parent, event)}
                             >
                                 <span>{popover.title}</span>
                                 <i className="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
-                            </a>
+                            </Link>
                         ) : (
                             <div className="popover-header">{popover.title}</div>
                         )}
 
                         {popover.items.map((subItem) => (
-                            <a
+                            <Link
                                 key={subItem.id}
                                 href={getMenuItemHref(subItem)}
+                                prefetch={subItem.external ? false : null}
                                 className="popover-link"
                                 aria-current={subItem.path === pathname ? 'page' : undefined}
                                 onMouseEnter={() => prefetchMenuItem(subItem)}
                                 onFocus={() => prefetchMenuItem(subItem)}
+                                onPointerDown={() => prefetchMenuItemOnPointerDown(subItem)}
                                 onClick={(event) => handleAnchorMenuClick(subItem, event)}
                             >
                                 {subItem.text}
-                            </a>
+                            </Link>
                         ))}
                     </>
                 )}

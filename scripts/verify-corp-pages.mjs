@@ -18,7 +18,7 @@ const pageSpecs = [
   {
     slug: 'corp-home',
     path: '/corp',
-    requiredTexts: ['기업 사이트 홈', '기업 운영 메뉴', '프로젝트', '사업제휴'],
+    requiredTexts: ['기업 사이트 홈', '기업 운영 메뉴', '프로젝트', '제휴하기'],
     targets: [
       { label: 'hero heading', selector: 'h1,h2', text: '기업 사이트 홈', minWidth: 140, minHeight: 18 },
       { label: 'operations menu', selector: 'h2,section,div', text: '기업 운영 메뉴', minWidth: 180, minHeight: 28 },
@@ -28,38 +28,27 @@ const pageSpecs = [
   {
     slug: 'company-introduction',
     path: '/corp/company/introduction',
-    requiredTexts: ['SIMPLYPIG', '복잡한 기술을', '제품소개', 'SIMPLYPIG TECHNOLOGY', '통합 실행 체계', 'SIMPLYPIG VISION', 'AI 웹·앱 개발', '리셀러 파트너'],
-    screenshotProbe: { label: 'SIMPLYPIG company heading', selector: '#dashboard2-title', text: '복잡한 기술을', minWidth: 180, minHeight: 30 },
+    requiredTexts: ['제품소개', '통합 실행 체계', 'SIMPLYPIG VISION', 'AI 웹·앱 개발', '리셀러 파트너'],
+    screenshotProbe: { label: 'product introduction section', selector: '#company-introduction-business', minWidth: 280, minHeight: 180 },
     targets: [
-      { label: 'company heading', selector: '#dashboard2-title,h1,h2', text: '복잡한 기술을', minWidth: 180, minHeight: 30 },
       { label: 'execution section', selector: 'h2,section,div', text: '통합 실행 체계', minWidth: 150, minHeight: 28 },
-      { label: 'hero capability', selector: 'article,section,div,span', text: '전문 제품·서비스', minWidth: 90, minHeight: 24 },
-    ],
-  },
-  {
-    slug: 'company-history',
-    path: '/corp/company/history',
-    requiredTexts: ['그냥돼지 연혁', '2016년 설립 이후', 'NEXT GROWTH'],
-    targets: [
-      { label: 'history heading', selector: 'h1,h2', text: '그냥돼지 연혁', minWidth: 130, minHeight: 30 },
-      { label: 'timeline intro', selector: 'p,section,div', text: '2016년 설립 이후', minWidth: 200, minHeight: 24 },
-      { label: 'next growth section', selector: 'h2,section,div', text: 'NEXT GROWTH', minWidth: 120, minHeight: 24 },
+      { label: 'history section', selector: 'h2,section,div', text: '그냥돼지 연혁', minWidth: 150, minHeight: 28 },
     ],
   },
   {
     slug: 'product-introduction',
     path: '/corp/company/product-introduction',
-    requiredTexts: ['제품소개', 'GLOBAL BUSINESS UNIVERSE', 'GLOBAL COMMAND PANEL', '사업제휴 문의'],
+    requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹·앱 제품', '구매 상담 신청'],
     targets: [
-      { label: 'product heading', selector: 'h1,h2', text: '제품소개', minWidth: 56, minHeight: 18 },
-      { label: 'business command center', selector: 'h1,h2,section,div,span,strong', text: 'Business Expansion Command Center', minWidth: 180, minHeight: 24 },
-      { label: 'partnership link', selector: 'a,button', text: '사업제휴 문의', minWidth: 110, minHeight: 36 },
+      { label: 'product heading', selector: 'h1,h2', text: '제품소개', minWidth: 90, minHeight: 18 },
+      { label: 'product catalog', selector: 'h1,h2,section,div,span,strong', text: 'PRODUCT CATALOG', minWidth: 120, minHeight: 18 },
+      { label: 'purchase consultation', selector: 'a', text: '구매 상담 신청', minWidth: 110, minHeight: 36 },
     ],
   },
   {
     slug: 'staff-intro',
     path: '/corp/company/staff-intro',
-    requiredTexts: ['직원소개', 'AI DRIVEN', '총괄본부장', '10개 전문 부서', 'DIVISION NETWORK', '확장 전문 5개 부서', '사업확장부', '전략적 지원 조직'],
+    requiredTexts: ['AI DRIVEN', '총괄본부장', '10개 전문 부서', 'DIVISION NETWORK', '확장 전문 5개 부서', '사업확장부', '전략적 지원 조직'],
     targets: [
       { label: 'staff heading', selector: 'h1,h2', text: 'AI와 사람이 함께 만드는', minWidth: 200, minHeight: 54 },
       { label: 'division network', selector: 'span,h2,section,div', text: 'DIVISION NETWORK', minWidth: 120, minHeight: 20 },
@@ -105,16 +94,6 @@ const pageSpecs = [
     ],
   },
 ];
-
-const historyPageSpec = pageSpecs.find((spec) => spec.slug === 'company-history');
-if (historyPageSpec) {
-  historyPageSpec.requiredTexts = ['그냥돼지 연혁', 'Growth Timeline', 'AI 실행 플랫폼으로 다음 도약'];
-  historyPageSpec.targets = [
-    { label: 'history heading', selector: 'h1,h2', text: '그냥돼지 연혁', minWidth: 130, minHeight: 30 },
-    { label: 'history graph', selector: 'aside,section,div', text: 'Growth Timeline', minWidth: 180, minHeight: 120 },
-    { label: 'history milestone', selector: 'article,button,div', text: 'AI 실행 플랫폼으로 다음 도약', minWidth: 160, minHeight: 40 },
-  ];
-}
 
 const executableCandidates = [
   process.env.CHROME_PATH,
@@ -484,9 +463,7 @@ async function verifyCeoProfileSwitch(page, viewportName) {
 
 async function verifyCompanyDashboardExperience(page, viewportName) {
   const expectedSectionOrder = [
-    'dashboard2-intro',
     'company-introduction-business',
-    'company-introduction-technology',
     'company-introduction-execution',
     'company-introduction-vision',
     'company-introduction-history',
@@ -501,6 +478,7 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
         .map((element) => element.id),
       mainScrollWidth: main?.scrollWidth ?? 0,
       mainClientWidth: main?.clientWidth ?? 0,
+      businessVideoFrameCount: document.querySelectorAll('iframe[src*="youtube-nocookie.com/embed/"]').length,
       visionLaneCounts: Array.from(document.querySelectorAll('[data-vision-lane]')).map(
         (lane) => lane.querySelectorAll('[data-vision-card]').length,
       ),
@@ -516,36 +494,69 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
     initialEvidence.mainScrollWidth <= initialEvidence.mainClientWidth + 1,
     `${viewportName} company introduction main content has horizontal overflow`,
   );
+  assert.equal(
+    initialEvidence.businessVideoFrameCount,
+    0,
+    `${viewportName} company introduction must not render the product introduction video`,
+  );
   assert.deepEqual(initialEvidence.visionLaneCounts, [3, 3, 3], `${viewportName} company vision must render three cards in each lane`);
+  assert.equal(await page.locator('#dashboard2-intro').count(), 0, `${viewportName} company introduction must not render the introduction hero`);
+  assert.equal(await page.locator('#company-introduction-technology').count(), 0, `${viewportName} company introduction must not render the technology section`);
 
-  const technologyVisuals = [
-    { id: 'web', src: '/images/corp/technology/web-app-stack.png', stack: ['Next.js', 'React 19', 'TypeScript', 'Firebase'] },
-    { id: 'automation', src: '/images/corp/technology/automation-stack.png', stack: ['OpenRouter', 'Firebase Functions', 'React Query', 'Zod'] },
-    { id: 'video', src: '/images/corp/technology/video-stack.png', stack: ['Remotion', 'FFmpeg', 'React', 'Firebase Storage'] },
-    { id: 'reseller', src: '/images/corp/technology/reseller-partner-stack.png', stack: ['Partner Portal', 'CRM', 'Quote', 'Analytics'] },
-    { id: 'secure', src: '/images/corp/technology/secure-stack.png', stack: ['Firebase Auth', 'Firestore Rules', 'Firebase Admin', 'Sentry'] },
-  ];
+  const businessPreviewFrame = page.locator('iframe[data-business-area-preview]');
+  await businessPreviewFrame.waitFor({ state: 'visible', timeout: 10_000 });
+  await page.waitForFunction(
+    () => {
+      const frame = document.querySelector('iframe[data-business-area-preview]');
+      const previewDocument = frame?.contentDocument;
+      return Boolean(
+        frame instanceof HTMLIFrameElement &&
+          previewDocument &&
+          previewDocument.documentElement.scrollHeight <= frame.clientHeight,
+      );
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  const businessPreviewEvidence = await businessPreviewFrame.evaluate((frame) => ({
+    frameHeight: frame.clientHeight,
+    documentHeight: frame.contentDocument?.documentElement.scrollHeight ?? 0,
+  }));
+  assert.ok(
+    businessPreviewEvidence.documentHeight <= businessPreviewEvidence.frameHeight,
+    `${viewportName} company business preview must not create an internal scrollbar`,
+  );
 
-  for (const technology of technologyVisuals) {
-    const technologyTab = page.locator(`#company-technology-tab-${technology.id}`);
-    await technologyTab.scrollIntoViewIfNeeded();
-    await technologyTab.click();
-    await page.waitForFunction(
-      (expectedSrc) => {
-        const image = document.querySelector('[data-technology-stack-image]');
-        return image?.getAttribute('src') === expectedSrc && image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
-      },
-      technology.src,
-      { timeout: 10_000 },
-    );
+  const historySection = page.locator('#company-introduction-history');
+  await historySection.scrollIntoViewIfNeeded();
+  await page.waitForFunction(
+    () => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
 
-    const technologyEvidence = await page.locator('#company-introduction-technology').evaluate((section) => ({
-      src: section.querySelector('[data-technology-stack-image]')?.getAttribute('src'),
-      stack: Array.from(section.querySelectorAll('[data-technology-stack-image] + figcaption span')).map((badge) => badge.textContent),
-    }));
-    assert.equal(technologyEvidence.src, technology.src, `${viewportName} technology image did not update for ${technology.id}`);
-    assert.deepEqual(technologyEvidence.stack, technology.stack, `${viewportName} technology stack badges do not match ${technology.id}`);
-  }
+      const main = document.querySelector('main#content-area');
+      const rail = document.querySelector('#company-introduction-history .history-rail');
+      const head = document.querySelector('#company-introduction-history .history-rail-head');
+      if (!(main instanceof HTMLElement) || !(rail instanceof HTMLElement) || !(head instanceof HTMLElement)) return false;
+
+      const mainRect = main.getBoundingClientRect();
+      const railRect = rail.getBoundingClientRect();
+      const headRect = head.getBoundingClientRect();
+      const railCenterX = railRect.left + railRect.width / 2;
+      const headCenterX = headRect.left + headRect.width / 2;
+      const headCenterY = headRect.top + headRect.height / 2;
+
+      const mainStyle = window.getComputedStyle(main);
+      const mainIsScrollRoot = /(auto|scroll|overlay)/.test(mainStyle.overflowY)
+        && main.scrollHeight > main.clientHeight + 1;
+      const expectedCenterY = mainIsScrollRoot
+        ? mainRect.top + main.clientHeight / 2
+        : window.innerHeight / 2;
+
+      return Math.abs(railCenterX - headCenterX) <= 1 && Math.abs(expectedCenterY - headCenterY) <= 3;
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
 
   const automationTab = page.locator('#company-execution-tab-automation');
   await automationTab.scrollIntoViewIfNeeded();
@@ -607,17 +618,17 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
   );
 }
 
-async function verifyCompanySubmenuNavigation(context, viewport) {
+async function verifyCompanyRouteNavigation(context, viewport) {
   const page = await context.newPage();
   const runtimeErrors = [];
   const routeSpecs = [
     { path: '/corp/company/ceo-intro', text: 'CEO PROFILE · 01 / 03' },
     { path: '/corp/company/staff-intro', text: 'DIVISION NETWORK' },
-    { path: '/corp/company/history', text: '그냥돼지 연혁' },
-    { path: '/corp/company/product-introduction', text: 'GLOBAL BUSINESS UNIVERSE' },
+    { path: '/corp/company/product-introduction', text: 'PRODUCT CATALOG' },
     { path: '/corp/company/introduction', text: 'SIMPLYPIG' },
   ];
   const removedPaths = [
+    '/corp/company/history',
     '/corp/company/founding-background',
     '/corp/company/vision',
     '/corp/company/vision-mission',
@@ -646,96 +657,31 @@ async function verifyCompanySubmenuNavigation(context, viewport) {
       requiredTexts: ['SIMPLYPIG'],
     });
 
+    assert.equal(await page.locator('#sidebar').count(), 1, `${viewport.name} company routes must preserve the site navigation`);
+    await page.locator('.site-mode-switcher-trigger').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 1, `${viewport.name} company routes must preserve site-mode switching`);
+
     for (const path of removedPaths) {
+      const response = await context.request.get(new URL(path, baseUrl).toString());
       assert.equal(
-        await page.locator(`#sidebar .sub-nav a[href="${path}"]`).count(),
-        0,
-        `${viewport.name} company submenu still exposes removed route ${path}`,
+        response.status(),
+        404,
+        `${viewport.name} removed company route must return 404: ${path}`,
       );
     }
 
     for (const route of routeSpecs) {
-      const link = page.locator(`#sidebar .sub-nav a[href="${route.path}"]`).first();
-      await link.waitFor({ state: viewport.isMobile ? 'attached' : 'visible', timeout: 10_000 });
-      assert.equal(await link.getAttribute('href'), route.path, `${viewport.name} company submenu href did not match ${route.path}`);
       const targetUrl = new URL(route.path, baseUrl).toString();
-      try {
-        await Promise.all([
-          page.waitForURL(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }),
-          viewport.isMobile
-            ? page.evaluate((path) => {
-                document.querySelector(`#sidebar .sub-nav a[href="${path}"]`)?.click();
-              }, route.path)
-            : link.click(),
-        ]);
-      } catch {
-        if (page.url() !== targetUrl) {
-          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        } else {
-          await page.waitForLoadState('domcontentloaded', { timeout: 5_000 }).catch(() => {});
-        }
-      }
+      const response = await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      assert.equal(response?.status(), 200, `${viewport.name} company route did not return 200: ${route.path}`);
       await waitForRequiredText(page, {
         slug: `company navigation ${route.path}`,
         requiredTexts: [route.text],
       });
-
-      const activeHref = await page.locator('#sidebar .sub-nav a.active').first().getAttribute('href');
-      assert.equal(activeHref, route.path, `${viewport.name} company submenu active link did not match ${route.path}`);
+      assert.equal(await page.locator('#sidebar').count(), 1, `${viewport.name} company route lost site navigation: ${route.path}`);
     }
 
     assert.deepEqual(runtimeErrors, [], `${viewport.name} company submenu navigation emitted runtime errors`);
-  } finally {
-    await page.close();
-  }
-}
-
-async function verifyCompanyHistoryScrollMotion(context) {
-  const page = await context.newPage();
-
-  const navigate = async (path) => {
-    const link = page.locator(`#sidebar .sub-nav a[href="${path}"]`).first();
-    const targetUrl = new URL(path, baseUrl).toString();
-
-    await link.waitFor({ state: 'visible', timeout: 10_000 });
-    try {
-      await Promise.all([
-        page.waitForURL(targetUrl, { waitUntil: 'domcontentloaded', timeout: 8_000 }),
-        link.click(),
-      ]);
-    } catch {
-      if (page.url() !== targetUrl) {
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      }
-    }
-    await page.waitForTimeout(250);
-  };
-
-  try {
-    await page.goto(new URL('/corp/company/introduction', baseUrl).toString(), {
-      waitUntil: 'domcontentloaded',
-      timeout: 30_000,
-    });
-    await navigate('/corp/company/history');
-    await navigate('/corp/company/product-introduction');
-    await navigate('/corp/company/history');
-
-    const historyRoot = page.locator('main[aria-labelledby="company-history-title"]');
-    await historyRoot.hover();
-    await page.mouse.wheel(0, 980);
-
-    await page.waitForFunction(
-      () => {
-        const root = document.querySelector('main[aria-labelledby="company-history-title"]');
-        const secondMilestone = document.querySelector('[data-history-index="1"]');
-        if (!(root instanceof HTMLElement) || !(secondMilestone instanceof HTMLElement)) return false;
-
-        const progress = Number.parseFloat(getComputedStyle(root).getPropertyValue('--history-scroll-progress'));
-        return root.scrollTop > 0 && progress > 0 && secondMilestone.classList.contains('is-inview');
-      },
-      undefined,
-      { timeout: 5_000 },
-    );
   } finally {
     await page.close();
   }
@@ -796,11 +742,7 @@ try {
       await page.close();
     }
 
-    await verifyCompanySubmenuNavigation(context, viewport);
-    if (!viewport.isMobile) {
-      await verifyCompanyHistoryScrollMotion(context);
-    }
-
+    await verifyCompanyRouteNavigation(context, viewport);
     await context.close();
     console.log(`${viewport.name} corporate page verification passed for ${pageSpecs.length} pages`);
   }

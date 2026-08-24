@@ -241,7 +241,7 @@ export async function handleAdminMenuSites(req: Request, res: Response): Promise
     const current = await ref.get();
     const previousSites = current.exists && validateSites(current.data()?.sites) ? current.data()?.sites : null;
     await ref.set({
-        version: 42,
+        version: 45,
         sites: req.body.sites,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: auth.uid,

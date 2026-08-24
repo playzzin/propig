@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
-import { createReadStream, existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
+import { existsSync } from 'node:fs';
+import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,19 +48,7 @@ function inspect(binary, filePath) {
   });
 }
 
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-}
-
-function close(server) {
-  return new Promise((resolve) => server.close(() => resolve()));
-}
-
 const tempDir = await mkdtemp(join(tmpdir(), 'propig-ffmpeg-verify-'));
-let server;
 
 try {
   const firstVideo = join(tempDir, 'first.mp4');
@@ -134,32 +121,6 @@ try {
     blackVideo,
   ]);
 
-  const files = new Map([
-    ['/first.mp4', firstVideo],
-    ['/second.mp4', secondVideo],
-    ['/silent-track.mp4', silentTrackVideo],
-  ]);
-  server = createServer(async (request, response) => {
-    const filePath = files.get(request.url || '');
-    if (!filePath) {
-      response.writeHead(404).end();
-      return;
-    }
-
-    const metadata = await stat(filePath);
-    response.writeHead(200, {
-      'Content-Type': 'video/mp4',
-      'Content-Length': metadata.size,
-    });
-    createReadStream(filePath).pipe(response);
-  });
-  await listen(server);
-
-  const address = server.address();
-  if (!address || typeof address === 'string') {
-    throw new Error('Verification server did not expose a TCP port.');
-  }
-
   const invalidBundledPath = process.platform === 'win32'
     ? '\\ROOT\\node_modules\\ffmpeg-static\\ffmpeg.exe'
     : '/ROOT/node_modules/ffmpeg-static/ffmpeg';
@@ -168,7 +129,6 @@ try {
     throw new Error(`Recovered FFmpeg path does not exist: ${recoveredPath}`);
   }
 
-  const baseUrl = `http://127.0.0.1:${address.port}`;
   const firstSource = await readFile(firstVideo);
   const secondSource = await readFile(secondVideo);
   const silentTrackSource = await readFile(silentTrackVideo);
@@ -221,8 +181,10 @@ try {
   }
 
   const frame = await extractVideoFrame({
-    videoUrl: `${baseUrl}/first.mp4`,
+    videoUrl: firstVideo,
     position: 'last',
+  }, {
+    downloadMedia: copyFile,
   });
   if (!frame.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
     throw new Error('Frame extraction did not return a PNG.');
@@ -231,7 +193,7 @@ try {
   const merged = await mergeVideos({
     clips: [
       {
-        url: `${baseUrl}/first.mp4`,
+        url: firstVideo,
         trimStartSeconds: 0.1,
         playbackRate: 1.1,
         audioVolume: 0.85,
@@ -239,7 +201,7 @@ try {
         transitionSeconds: 0.1,
       },
       {
-        url: `${baseUrl}/second.mp4`,
+        url: secondVideo,
         trimEndSeconds: 0.1,
         playbackRate: 0.9,
         transitionStyle: 'cut',
@@ -248,10 +210,12 @@ try {
     aspectRatio: '16:9',
     resolution: '480p',
     fps: 24,
-    backgroundMusicUrl: `${baseUrl}/first.mp4`,
+    backgroundMusicUrl: firstVideo,
     backgroundMusicVolume: 0.08,
     sceneAudioVolume: 0.9,
     audioCrossfadeSeconds: 0.2,
+  }, {
+    downloadMedia: copyFile,
   });
   if (merged.subarray(4, 8).toString('ascii') !== 'ftyp') {
     throw new Error('Video merge did not return an MP4.');
@@ -287,7 +251,6 @@ try {
     mergedQuality,
   }));
 } finally {
-  if (server) await close(server);
   await rm(tempDir, { recursive: true, force: true });
 }
 

@@ -82,6 +82,7 @@ class OpenRouterGenerativeModel {
             completionTokens: (_h = payload.usage) === null || _h === void 0 ? void 0 : _h.completion_tokens,
             totalTokens: (_j = payload.usage) === null || _j === void 0 ? void 0 : _j.total_tokens,
             costUsd: (_k = payload.usage) === null || _k === void 0 ? void 0 : _k.cost,
+            providerSlug: payload.provider,
         });
         return {
             response: {

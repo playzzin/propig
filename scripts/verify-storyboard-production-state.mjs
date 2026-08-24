@@ -135,6 +135,7 @@ assert(
 );
 
 const journeyDefaults = {
+  approvedSceneCount: 1,
   automationActive: false,
   automationCompletedCount: 0,
   automationCurrentSceneIndex: null,
@@ -143,11 +144,19 @@ const journeyDefaults = {
   automationStatus: "idle",
   budgetExceeded: false,
   canPauseAutomation: false,
+  canOpenImageWorkspace: true,
   canResumeAutomation: false,
   canStartAutomation: true,
   finalMergeInFlight: false,
-  firstSceneReady: true,
+  firstMissingApprovalSceneId: "scene-2",
+  firstMissingImageSceneId: null,
+  firstMissingVideoDesignSceneId: null,
+  firstMissingVideoSceneId: "scene-2",
+  firstTransitionIssueSceneId: null,
+  generatedVideoCount: 1,
+  hasCurrentFinalDelivery: false,
   hasFinalDelivery: false,
+  imageDesignReadyCount: 3,
   isDownloading: false,
   isRecoveringAutomation: false,
   jobSubscriptionError: null,
@@ -156,36 +165,82 @@ const journeyDefaults = {
   pendingSceneCount: 2,
   pricingCheckPending: false,
   qualityMode: "proof",
-  readySceneCount: 1,
   sceneCount: 3,
   startFrameCount: 3,
+  transitionCount: 2,
+  transitionReadyCount: 2,
   unknownPricingBlocked: false,
+  videoDesignReadyCount: 3,
 };
 const activeJourney = buildStoryboardProductionJourney(journeyDefaults);
 assert(
-  activeJourney.currentStep === 1,
+  activeJourney.currentStep === 3,
   "A prepared storyboard must point to scene video production.",
 );
 assert(
   activeJourney.primaryLabel === "전체 영상 만들기",
   "An idle storyboard must expose one production action.",
 );
+assert(
+  activeJourney.progress > 0 && activeJourney.progress < 100,
+  "Overall progress must include completed design and image stages before video automation starts.",
+);
+
+const imageJourney = buildStoryboardProductionJourney({
+  ...journeyDefaults,
+  firstMissingImageSceneId: "scene-2",
+  startFrameCount: 1,
+});
+assert(
+  imageJourney.currentStep === 1 &&
+    imageJourney.primaryLabel === "비어 있는 이미지 만들기" &&
+    !imageJourney.primaryDisabled,
+  "Missing scene images must guide the user back to image production before video automation.",
+);
 
 const completedJourney = buildStoryboardProductionJourney({
   ...journeyDefaults,
   automationProgress: 100,
   automationStatus: "completed",
+  approvedSceneCount: 3,
+  firstMissingApprovalSceneId: null,
+  firstMissingVideoSceneId: null,
+  generatedVideoCount: 3,
+  hasCurrentFinalDelivery: true,
   hasFinalDelivery: true,
   pendingSceneCount: 0,
-  readySceneCount: 3,
 });
 assert(
-  completedJourney.currentStep === 3,
-  "A delivered storyboard must point to review and download.",
+  completedJourney.currentStep === 4,
+  "A delivered storyboard must point to final delivery and download.",
+);
+assert(
+  completedJourney.progress === 100,
+  "A current final delivery must complete the five-stage progress meter.",
 );
 assert(
   completedJourney.primaryLabel === "완성본 다운로드",
   "A delivered storyboard must expose download as the primary action.",
+);
+
+const staleJourney = buildStoryboardProductionJourney({
+  ...journeyDefaults,
+  approvedSceneCount: 3,
+  firstMissingApprovalSceneId: null,
+  firstMissingVideoSceneId: null,
+  generatedVideoCount: 3,
+  hasFinalDelivery: true,
+  pendingSceneCount: 0,
+});
+assert(
+  staleJourney.primaryIntent === "remerge-final" &&
+    staleJourney.primaryLabel === "최신 완성본 다시 조립",
+  "A stale final delivery must guide the user to re-merge rather than download an old file.",
+);
+assert(
+  staleJourney.completionChecks.length === 5 &&
+    staleJourney.completionChecks.at(-1)?.value === "갱신 필요",
+  "The completion gate must expose image, video, approval, transition, and final freshness state.",
 );
 
 const disconnectedRecovery = buildStoryboardProductionJourney({
@@ -198,6 +253,19 @@ const disconnectedRecovery = buildStoryboardProductionJourney({
 assert(
   disconnectedRecovery.primaryDisabled,
   "Recovery must stay disabled until job tracking is ready.",
+);
+
+const creditBlockedJourney = buildStoryboardProductionJourney({
+  ...journeyDefaults,
+  canStartAutomation: false,
+  creditIssue: "영상 제작 예상 비용 중 $1.25가 부족합니다.",
+});
+assert(
+  creditBlockedJourney.primaryDisabled &&
+    creditBlockedJourney.primaryLabel === "OpenRouter 충전 후 제작" &&
+    creditBlockedJourney.guidance.includes("$1.25") &&
+    creditBlockedJourney.hasError,
+  "Insufficient credit must explain the blocker at the primary journey action instead of hiding it in advanced settings.",
 );
 
 console.log("Storyboard production state verification passed");

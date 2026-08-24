@@ -1,8 +1,13 @@
 "use client";
 
-import type { StoryboardProductionJourneyModel } from "@/lib/storyboard-production-journey";
+import type {
+  StoryboardProductionJourneyModel,
+  StoryboardProductionJourneyTarget,
+} from "@/lib/storyboard-production-journey";
 import {
   JourneyActionRow,
+  JourneyCompletionCheck,
+  JourneyCompletionChecks,
   JourneyHeader,
   JourneyModeBadge,
   JourneyPrimaryAction,
@@ -18,6 +23,10 @@ type StoryboardProductionJourneyProps = {
   onPause: () => void;
   onPrimaryAction: () => void;
   onSelectScene: (sceneId: string) => void;
+  onSelectStep: (
+    target: StoryboardProductionJourneyTarget,
+    sceneId?: string | null,
+  ) => void;
 };
 
 export default function StoryboardProductionJourney({
@@ -25,6 +34,7 @@ export default function StoryboardProductionJourney({
   onPause,
   onPrimaryAction,
   onSelectScene,
+  onSelectStep,
 }: StoryboardProductionJourneyProps) {
   return (
     <ProductionJourney
@@ -48,22 +58,49 @@ export default function StoryboardProductionJourney({
 
       <JourneySteps aria-label="영상 제작 진행 단계">
         {model.steps.map((step, index) => (
-          <JourneyStep
-            key={step.label}
-            $state={step.state}
-            aria-current={index === model.currentStep ? "step" : undefined}
-          >
-            <JourneyStepIcon $state={step.state} aria-hidden="true">
-              <i className={`fas ${step.done ? "fa-check" : step.icon}`} />
-            </JourneyStepIcon>
-            <span>
-              <small>{String(index + 1).padStart(2, "0")}</small>
-              <strong>{step.label}</strong>
-              <em>{step.description}</em>
-            </span>
-          </JourneyStep>
+          <li key={step.target}>
+            <JourneyStep
+              type="button"
+              $state={step.state}
+              onClick={() => onSelectStep(step.target)}
+              aria-current={index === model.currentStep ? "step" : undefined}
+              aria-label={`${index + 1}단계 ${step.label}: ${step.description}`}
+            >
+              <JourneyStepIcon $state={step.state} aria-hidden="true">
+                <i className={`fas ${step.done ? "fa-check" : step.icon}`} />
+              </JourneyStepIcon>
+              <span>
+                <small>{String(index + 1).padStart(2, "0")}</small>
+                <strong>{step.label}</strong>
+                <em>{step.description}</em>
+              </span>
+            </JourneyStep>
+          </li>
         ))}
       </JourneySteps>
+
+      <JourneyCompletionChecks role="group" aria-label="완성본 제작 조건">
+        {model.completionChecks.map((check) => (
+          <JourneyCompletionCheck
+            key={check.key}
+            type="button"
+            $ready={check.ready}
+            onClick={() => onSelectStep(check.target, check.sceneId)}
+            aria-label={`${check.label} ${check.value}${check.ready ? ", 완료" : ", 확인 필요"}`}
+          >
+            <i
+              className={
+                check.ready
+                  ? "fas fa-circle-check"
+                  : "fas fa-circle-exclamation"
+              }
+              aria-hidden="true"
+            />
+            <span>{check.label}</span>
+            <strong>{check.value}</strong>
+          </JourneyCompletionCheck>
+        ))}
+      </JourneyCompletionChecks>
 
       <JourneyActionRow>
         <div>
@@ -88,6 +125,7 @@ export default function StoryboardProductionJourney({
           </JourneySecondaryAction>
         ) : null}
         <JourneyPrimaryAction
+          id="storyboard-production-primary-action"
           type="button"
           onClick={onPrimaryAction}
           disabled={model.primaryDisabled}

@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import { db, isRecord } from './hostingCommon';
+import { resolveEmoticonStudioImageProviderName } from '../emoticonStudio/imageGenerationProvider';
 
 export type ManagedApiPage = {
     id: string;
@@ -16,6 +17,7 @@ export type ManagedApiPage = {
 
 export const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4.1-mini';
 export const DEFAULT_OPENROUTER_IMAGE_MODEL = 'openai/gpt-image-1';
+const EMOTICON_STUDIO_MOCK_RUNTIME_API_KEY = 'emoticon-studio-mock-provider';
 const RETIRED_MANAGED_PAGE_TARGETS = new Set([
     'mandalart-generate',
     '/mandalart',
@@ -168,9 +170,18 @@ export async function getHostingAiRuntime(): Promise<HostingAiRuntime> {
     const updatedAt = stored.updatedAt instanceof admin.firestore.Timestamp
         ? stored.updatedAt.toDate().toISOString()
         : null;
+    const configuredApiKey = (process.env.OPENROUTER_API_KEY || '').trim();
+    // The job trigger still carries one runtime credential field. A local
+    // sentinel lets it enter the server-only mock provider without requiring a
+    // paid credential; runOpenRouterText rejects the sentinel before fetch.
+    const runtimeApiKey = configuredApiKey || (
+        resolveEmoticonStudioImageProviderName() === 'mock'
+            ? EMOTICON_STUDIO_MOCK_RUNTIME_API_KEY
+            : ''
+    );
     return {
         source: snapshot.exists ? 'firebase-functions-secret+firestore' : 'firebase-functions-secret',
-        openRouterApiKey: (process.env.OPENROUTER_API_KEY || '').trim(),
+        openRouterApiKey: runtimeApiKey,
         model,
         imageModel,
         fallbackModels,
@@ -197,7 +208,12 @@ export async function runOpenRouterText(input: {
     responseFormat?: 'json_object';
 }) {
     const runtime = await getHostingAiRuntime();
-    if (!runtime.openRouterApiKey) throw new Error('OPENROUTER_API_KEY is not configured.');
+    if (
+        !runtime.openRouterApiKey
+        || runtime.openRouterApiKey === EMOTICON_STUDIO_MOCK_RUNTIME_API_KEY
+    ) {
+        throw new Error('OPENROUTER_API_KEY is not configured.');
+    }
     const model = input.model || runtime.model;
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
@@ -224,6 +240,7 @@ export async function runOpenRouterText(input: {
     let payload: {
         choices?: Array<{ message?: { content?: string } }>;
         model?: string;
+        provider?: string;
         usage?: {
             prompt_tokens?: number;
             completion_tokens?: number;
@@ -248,6 +265,7 @@ export async function runOpenRouterText(input: {
         completionTokens: payload.usage?.completion_tokens,
         totalTokens: payload.usage?.total_tokens,
         costUsd: payload.usage?.cost,
+        providerSlug: payload.provider,
     });
     return {
         content,

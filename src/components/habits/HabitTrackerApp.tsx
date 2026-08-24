@@ -3518,6 +3518,162 @@ const DailyHeader = styled.div`
   }
 `;
 
+const DailyPulse = styled.section`
+  border: 1px solid rgba(66, 211, 146, 0.22);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(136px, 0.42fr) minmax(220px, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  background:
+    linear-gradient(100deg, rgba(66, 211, 146, 0.12), rgba(99, 179, 255, 0.055) 52%, transparent),
+    rgba(255, 255, 255, 0.025);
+
+  @media (max-width: 840px) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  @media (max-width: 560px) {
+    padding: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+`;
+
+const DailyPulseIntro = styled.div`
+  display: grid;
+  gap: 2px;
+
+  small {
+    color: var(--habit-muted);
+    font-size: 0.72rem;
+    font-weight: 900;
+  }
+
+  strong {
+    color: var(--habit-text);
+    font-size: 1.38rem;
+    line-height: 1.08;
+    font-weight: 950;
+  }
+
+  span {
+    color: var(--habit-green);
+    font-size: 0.72rem;
+    font-weight: 950;
+  }
+`;
+
+const DailyPulseProgress = styled.div`
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+`;
+
+const DailyPulseProgressTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--habit-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+
+  strong {
+    color: var(--habit-text);
+    font: inherit;
+    font-weight: 950;
+    white-space: nowrap;
+  }
+`;
+
+const DailyPulseTrack = styled.div`
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.22);
+`;
+
+const DailyPulseFill = styled.div<{ $percent: number }>`
+  --habit-pulse-progress: ${(props) => getScoreTrackPercent(props.$percent) / 100};
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  transform: scaleX(var(--habit-pulse-progress));
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--habit-green), #63b3ff);
+  box-shadow: 0 0 16px rgba(66, 211, 146, 0.38);
+  animation: habitDailyPulseIn 0.56s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: transform 0.32s ease;
+
+  @keyframes habitDailyPulseIn {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(var(--habit-pulse-progress));
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    transition: none;
+  }
+`;
+
+const DailyPulseDetail = styled.div`
+  color: var(--habit-muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+
+  strong {
+    color: var(--habit-text);
+    font-weight: 950;
+  }
+`;
+
+const DailyStreak = styled.div`
+  min-width: 92px;
+  padding-left: 16px;
+  border-left: 1px solid var(--habit-line);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+
+  svg {
+    color: var(--habit-yellow);
+  }
+
+  strong {
+    color: var(--habit-text);
+    font-size: 1rem;
+    font-weight: 950;
+    font-variant-numeric: tabular-nums;
+  }
+
+  span {
+    grid-column: 2;
+    color: var(--habit-muted);
+    font-size: 0.64rem;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 840px) {
+    grid-row: 1 / span 2;
+  }
+
+  @media (max-width: 560px) {
+    min-width: 0;
+    padding: 9px 0 0;
+    border-top: 1px solid var(--habit-line);
+    border-left: 0;
+  }
+`;
+
 const DailyHeaderActions = styled.div`
   display: inline-flex;
   align-items: center;
@@ -4608,14 +4764,17 @@ const SyncPill = styled.span<{ $state: 'ready' | 'saving' | 'locked' }>`
 `;
 
 const GatePanel = styled.section`
-  min-height: 360px;
+  min-height: 390px;
   border: 1px solid var(--habit-line);
   border-radius: 8px;
-  padding: 28px;
+  padding: 26px;
   display: grid;
-  place-items: center;
-  text-align: center;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.7fr);
+  gap: 28px;
+  align-items: center;
   background:
+    linear-gradient(118deg, rgba(66, 211, 146, 0.09), transparent 45%),
+    linear-gradient(315deg, rgba(99, 179, 255, 0.08), transparent 46%),
     linear-gradient(180deg, rgba(17, 25, 36, 0.92), rgba(9, 14, 21, 0.95)),
     var(--habit-panel);
 
@@ -4625,29 +4784,235 @@ const GatePanel = styled.section`
     border-radius: var(--codeit-radius);
     box-shadow: var(--codeit-shadow-md);
   }
+
+  @media (max-width: 860px) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  @media (max-width: 560px) {
+    min-height: 0;
+    padding: 16px;
+    gap: 16px;
+  }
 `;
 
 const GateContent = styled.div`
-  width: min(520px, 100%);
+  width: min(560px, 100%);
   display: grid;
-  justify-items: center;
-  gap: 14px;
+  justify-items: start;
+  gap: 12px;
+  text-align: left;
 
-  svg {
+  > svg {
     color: var(--habit-green);
   }
 
   h2 {
     margin: 0;
     color: var(--habit-text);
-    font-size: 1.35rem;
+    font-size: clamp(1.45rem, 2.6vw, 2.1rem);
+    line-height: 1.18;
     font-weight: 950;
+    word-break: keep-all;
+    text-wrap: balance;
   }
 
   p {
     margin: 0;
+    max-width: 520px;
     color: var(--habit-muted);
+    font-size: 0.9rem;
     line-height: 1.6;
+    word-break: keep-all;
+  }
+
+  @media (max-width: 560px) {
+    gap: 9px;
+
+    p {
+      font-size: 0.82rem;
+    }
+  }
+`;
+
+const GateMark = styled.div`
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(66, 211, 146, 0.38);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--habit-green);
+  background: rgba(66, 211, 146, 0.1);
+  box-shadow: 0 12px 28px rgba(66, 211, 146, 0.12);
+`;
+
+const GateEyebrow = styled.span`
+  color: var(--habit-green);
+  font-size: 0.7rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+`;
+
+const GateTrustLine = styled.p`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--habit-dim) !important;
+  font-size: 0.72rem !important;
+  font-weight: 850;
+
+  svg {
+    color: var(--habit-green);
+  }
+`;
+
+const GatePreview = styled.aside`
+  min-width: 0;
+  border-left: 1px solid var(--habit-line);
+  padding-left: 28px;
+  display: grid;
+  gap: 18px;
+
+  @media (max-width: 860px) {
+    border-top: 1px solid var(--habit-line);
+    border-left: 0;
+    padding: 20px 0 0;
+  }
+
+  @media (max-width: 560px) {
+    gap: 13px;
+    padding-top: 15px;
+  }
+`;
+
+const GatePreviewHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  strong {
+    color: var(--habit-text);
+    font-size: 0.92rem;
+    font-weight: 950;
+  }
+
+  span {
+    border: 1px solid rgba(66, 211, 146, 0.26);
+    border-radius: 999px;
+    padding: 4px 8px;
+    color: var(--habit-green);
+    background: rgba(66, 211, 146, 0.08);
+    font-size: 0.64rem;
+    font-weight: 950;
+    white-space: nowrap;
+  }
+`;
+
+const GatePreviewProgress = styled.div`
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+
+  > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  small {
+    color: var(--habit-muted);
+    font-size: 0.7rem;
+    font-weight: 850;
+  }
+
+  strong {
+    color: var(--habit-green);
+    font-size: 1.35rem;
+    font-weight: 950;
+    font-variant-numeric: tabular-nums;
+  }
+`;
+
+const GatePreviewTrack = styled.div`
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+
+  &::before {
+    width: 68%;
+    height: 100%;
+    display: block;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--habit-green), var(--habit-blue));
+    content: '';
+  }
+`;
+
+const GateFeatureList = styled.div`
+  display: grid;
+  gap: 11px;
+`;
+
+const GateFeature = styled.div`
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+
+  svg {
+    color: var(--habit-green);
+  }
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    color: var(--habit-text);
+    font-size: 0.76rem;
+    font-weight: 950;
+  }
+
+  span {
+    margin-top: 2px;
+    color: var(--habit-muted);
+    font-size: 0.7rem;
+    line-height: 1.45;
+  }
+`;
+
+const GateLoadingPanel = styled(GatePanel)`
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  text-align: center;
+
+  ${GateContent} {
+    justify-items: center;
+    text-align: center;
+
+    > svg {
+      animation: habitGateLoading 1.1s linear infinite;
+    }
+  }
+
+  @keyframes habitGateLoading {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    ${GateContent} > svg {
+      animation: none;
+    }
   }
 `;
 
@@ -8952,24 +9317,67 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
         {initialView !== 'manual' && !currentUser ? (
           <GatePanel>
             <GateContent>
-              <LogIn size={42} />
-              <h2>로그인 후 습관 데이터를 저장합니다</h2>
-              <p>카테고리, 항목, 날짜별 기록과 통계를 내 계정 기록장에 저장합니다.</p>
+              <GateMark>
+                <LogIn size={23} aria-hidden="true" />
+              </GateMark>
+              <GateEyebrow>PERSONAL HABIT SPACE</GateEyebrow>
+              <h2>오늘의 작은 기록을<br />내 리듬으로 쌓아보세요.</h2>
+              <p>로그인하면 카테고리, 습관 항목, 날짜별 기록과 통계가 내 계정 기록장에 안전하게 이어집니다.</p>
               <IconButton type="button" $tone="primary" onClick={() => void handleLogin()} disabled={!isConfigured || authLoading}>
                 <LogIn size={16} />
                 Google 로그인
               </IconButton>
+              <GateTrustLine>
+                <Check size={14} aria-hidden="true" />
+                한 번 로그인하면 언제든 같은 기록을 이어서 볼 수 있어요.
+              </GateTrustLine>
               {!isConfigured ? <PanelHint>Firebase 환경 설정이 필요합니다.</PanelHint> : null}
             </GateContent>
+            <GatePreview aria-label="로그인 후 사용할 수 있는 습관 기록 기능">
+              <GatePreviewHeader>
+                <strong>로그인 뒤 바로 시작할 수 있어요</strong>
+                <span>1분 시작</span>
+              </GatePreviewHeader>
+              <GatePreviewProgress>
+                <div>
+                  <small>오늘의 기록 예시</small>
+                  <strong>68%</strong>
+                </div>
+                <GatePreviewTrack aria-hidden="true" />
+              </GatePreviewProgress>
+              <GateFeatureList>
+                <GateFeature>
+                  <CalendarDays size={18} aria-hidden="true" />
+                  <div>
+                    <strong>오늘에 집중해 빠르게 체크</strong>
+                    <span>날짜별 흐름에서 필요한 습관만 바로 기록합니다.</span>
+                  </div>
+                </GateFeature>
+                <GateFeature>
+                  <Target size={18} aria-hidden="true" />
+                  <div>
+                    <strong>프리셋으로 손쉽게 시작</strong>
+                    <span>물 마시기, 운동, 루틴 등 자주 쓰는 항목을 바로 추가합니다.</span>
+                  </div>
+                </GateFeature>
+                <GateFeature>
+                  <TrendingUp size={18} aria-hidden="true" />
+                  <div>
+                    <strong>기록이 쌓일수록 보이는 패턴</strong>
+                    <span>주간·월간 통계로 꾸준함과 연속 기록을 확인합니다.</span>
+                  </div>
+                </GateFeature>
+              </GateFeatureList>
+            </GatePreview>
           </GatePanel>
         ) : initialView !== 'manual' && !hasLoaded ? (
-          <GatePanel>
+          <GateLoadingPanel>
             <GateContent>
-              <RefreshCcw size={42} />
-              <h2>저장된 기록을 불러오는 중</h2>
+              <RefreshCcw size={42} aria-hidden="true" />
+              <h2>저장된 기록을 불러오는 중…</h2>
               <p>전에 만든 카테고리, 항목, 날짜별 기록을 가져오고 있습니다.</p>
             </GateContent>
-          </GatePanel>
+          </GateLoadingPanel>
         ) : (
           <>
         {initialView !== 'daily' ? (
@@ -9469,6 +9877,34 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
                       </IconButton>
                     </DailyHeaderActions>
                   </PanelHeading>
+                  <DailyPulse aria-label={`${formatMonthDay(selectedDate)} 기록 현황`}>
+                    <DailyPulseIntro>
+                      <small>{formatMonthDay(selectedDate)} 기록 현황</small>
+                      <strong>{selectedDayStats.percent}% 달성</strong>
+                      <span>{selectedDayStats.percent >= 100 ? '오늘 목표를 모두 채웠어요.' : '지금 기록을 이어가 보세요.'}</span>
+                    </DailyPulseIntro>
+                    <DailyPulseProgress>
+                      <DailyPulseProgressTop>
+                        <span>오늘의 달성률</span>
+                        <strong>{selectedDayStats.touched}개 기록 · {selectedDayStats.completed}개 완료</strong>
+                      </DailyPulseProgressTop>
+                      <DailyPulseTrack>
+                        <DailyPulseFill $percent={selectedDayStats.percent} />
+                      </DailyPulseTrack>
+                      <DailyPulseDetail>
+                        {selectedDayStats.total === 0
+                          ? '먼저 습관을 추가하면 오늘의 흐름을 확인할 수 있어요.'
+                          : selectedDayStats.completed === selectedDayStats.total
+                            ? '모든 항목을 완료했습니다. 내일도 같은 리듬으로 이어가 보세요.'
+                            : <><strong>{selectedDayStats.total - selectedDayStats.completed}개</strong> 항목이 남아 있어요.</>}
+                      </DailyPulseDetail>
+                    </DailyPulseProgress>
+                    <DailyStreak>
+                      <Flame size={19} aria-hidden="true" />
+                      <strong>{bestStreak}일</strong>
+                      <span>가장 긴 연속 기록</span>
+                    </DailyStreak>
+                  </DailyPulse>
                   <MonthNavigator aria-label="월 이동">
                     <IconOnlyButton type="button" onClick={() => shiftMonth(-1)} title="이전 월" aria-label="이전 월">
                       <ChevronLeft size={17} />

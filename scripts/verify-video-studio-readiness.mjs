@@ -94,10 +94,34 @@ for (const scenario of scenarios) {
     audioMode: scenario.audioMode,
   });
   assert.equal(result.selection, 'automatic');
-  assert.equal(result.canSubmit, true);
+  if (result.credit.isSufficient === false) {
+    assert.equal(
+      result.canSubmit,
+      false,
+      `${scenario.name} must fail closed when the live OpenRouter balance is below the estimate.`,
+    );
+    assert.ok(
+      result.warnings.some((warning) => /balance|credit|잔액|충전/i.test(warning)),
+      `${scenario.name} must explain the credit blocker without submitting paid work.`,
+    );
+  } else {
+    assert.equal(result.canSubmit, true);
+  }
   assert.ok(result.catalogModelCount > 0);
   assert.ok(result.compatibleModelCount > 0);
   assert.ok(result.modelId);
+  assert.ok(
+    ["live", "cache"].includes(result.catalog.source),
+    scenario.name + " must identify whether the OpenRouter catalog was refreshed or reused.",
+  );
+  assert.ok(
+    Number.isFinite(new Date(result.catalog.fetchedAt).getTime()),
+    scenario.name + " must report a model-catalog verification time.",
+  );
+  assert.ok(
+    result.selectionReasons.length >= 2,
+    scenario.name + " must explain the automatic model decision.",
+  );
   assert.equal(
     typeof result.estimatedCostUsd,
     'number',
@@ -120,8 +144,37 @@ for (const scenario of scenarios) {
     resolvedDuration: result.resolvedDuration,
     estimatedCostUsd: result.estimatedCostUsd,
     warnings: result.warnings,
+    credit: {
+      state: result.credit.state,
+      remainingUsd: result.credit.remainingUsd,
+      requiredUsd: result.credit.requiredUsd,
+      isSufficient: result.credit.isSufficient,
+    },
+    catalog: result.catalog,
+    visualInputPolicy: result.policy.visualInputState,
   });
 }
+
+const privacyAwarePreflight = await preflightOpenRouterVideo({
+  apiKey,
+  duration: 6,
+  resolution: '720p',
+  aspectRatio: '16:9',
+  qualityMode: 'final',
+  hasReferenceImage: true,
+  knownInputImagePrivacyBlock: true,
+  audioMode: 'silent',
+});
+assert.equal(
+  privacyAwarePreflight.policy.visualInputState,
+  'previously_rejected',
+  'A known real-person input block must be surfaced before another paid retry.',
+);
+assert.equal(
+  privacyAwarePreflight.policy.automaticRetryAllowed,
+  false,
+  'A known real-person input block must not permit automatic model retries.',
+);
 
 const projectId =
   process.env.FIREBASE_PROJECT_ID
@@ -161,7 +214,12 @@ try {
   } catch (error) {
     signing = {
       ok: false,
-      message: error instanceof Error ? error.message : String(error),
+      message:
+        error instanceof Error && /client[_ ]?email|cannot sign data/i.test(error.message)
+          ? 'Signed URLs are unavailable with local application-default credentials. Storyboard media continues to use Firebase download-token URLs.'
+          : error instanceof Error
+            ? error.message
+            : String(error),
     };
   }
   firebaseResult = {
@@ -171,6 +229,11 @@ try {
     firestoreRead: true,
     storageRead: true,
     signing,
+    artifactDelivery: {
+      ok: true,
+      mode: 'firebase_download_token',
+      requiresClientEmail: false,
+    },
   };
 } finally {
   await deleteApp(probeApp);
@@ -191,6 +254,8 @@ assert.match(sourceContracts.worker, /leaseExpiresAt/);
 assert.match(sourceContracts.trigger, /queueDispatchToken/);
 assert.match(sourceContracts.nextStorage, /buildFirebaseTokenUrl/);
 assert.match(sourceContracts.functionsStorage, /buildFirebaseTokenUrl/);
+assert.equal(firebaseResult.artifactDelivery.ok, true);
+assert.equal(firebaseResult.artifactDelivery.requiresClientEmail, false);
 
 console.log(JSON.stringify({
   openRouter: {

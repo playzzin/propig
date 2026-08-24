@@ -5,6 +5,7 @@ exports.isRecord = isRecord;
 exports.allPermissions = allPermissions;
 exports.requireUser = requireUser;
 exports.requireAccess = requireAccess;
+exports.requireUserAccess = requireUserAccess;
 exports.requireAdmin = requireAdmin;
 exports.requireMethod = requireMethod;
 exports.parseJson = parseJson;
@@ -60,9 +61,7 @@ function parseBearerToken(req) {
     return token.trim();
 }
 function normalizeRole(value, fallback) {
-    return value === 'admin' || value === 'user' || value === 'partner' || value === 'guest'
-        ? value
-        : fallback;
+    return value === 'admin' || value === 'user' || value === 'partner' || value === 'guest' ? value : fallback;
 }
 function normalizePermissions(role, value, claims) {
     if (role === 'admin')
@@ -70,9 +69,7 @@ function normalizePermissions(role, value, claims) {
     const source = isRecord(value) ? value : {};
     return exports.USER_PERMISSION_KEYS.reduce((permissions, key) => {
         permissions[key] =
-            source[key] === true ||
-                claims[key] === true ||
-                claims[PERMISSION_CLAIM_ALIASES[key]] === true;
+            source[key] === true || claims[key] === true || claims[PERMISSION_CLAIM_ALIASES[key]] === true;
         return permissions;
     }, Object.assign({}, DEFAULT_PERMISSIONS));
 }
@@ -91,9 +88,25 @@ async function requireUser(req) {
     }
 }
 async function requireAccess(req, permission) {
+    const access = await requireUserAccess(req);
+    if (!access.isAdmin && (!permission || access.permissions[permission] !== true)) {
+        throw new ApiError(403, permission
+            ? 'You do not have the requested management permission.'
+            : 'Administrator access is required.');
+    }
+    return access;
+}
+/**
+ * Resolves a signed-in user's access context without requiring a management
+ * permission. Use it when a response contains administrator-only fields.
+ */
+async function requireUserAccess(req) {
     var _a, _b, _c, _d;
     const user = await requireUser(req);
-    const authUser = await admin.auth().getUser(user.uid).catch(() => null);
+    const authUser = await admin
+        .auth()
+        .getUser(user.uid)
+        .catch(() => null);
     const claims = ((authUser === null || authUser === void 0 ? void 0 : authUser.customClaims) || {});
     const allowList = (process.env.ADMIN_UIDS || '')
         .split(',')
@@ -108,15 +121,10 @@ async function requireAccess(req, permission) {
         ]);
     const adminData = (adminDoc === null || adminDoc === void 0 ? void 0 : adminDoc.exists) ? adminDoc.data() || {} : {};
     const accessData = (accessDoc === null || accessDoc === void 0 ? void 0 : accessDoc.exists) ? accessDoc.data() || {} : {};
-    const isAdmin = claimedAdmin ||
-        (adminDoc === null || adminDoc === void 0 ? void 0 : adminDoc.exists) === true ||
-        accessData.role === 'admin';
+    const isAdmin = claimedAdmin || (adminDoc === null || adminDoc === void 0 ? void 0 : adminDoc.exists) === true || accessData.role === 'admin';
     const storedRole = normalizeRole((_b = (_a = accessData.role) !== null && _a !== void 0 ? _a : adminData.role) !== null && _b !== void 0 ? _b : claims.role, isAdmin ? 'admin' : 'user');
     const role = isAdmin ? 'admin' : storedRole;
     const permissions = normalizePermissions(role, (_d = (_c = accessData.permissions) !== null && _c !== void 0 ? _c : adminData.permissions) !== null && _d !== void 0 ? _d : claims.permissions, claims);
-    if (!isAdmin && (!permission || permissions[permission] !== true)) {
-        throw new ApiError(403, permission ? '요청한 관리 권한이 없습니다.' : '관리자 권한이 필요합니다.');
-    }
     return Object.assign(Object.assign({}, user), { isAdmin, role, permissions });
 }
 async function requireAdmin(req) {
@@ -149,9 +157,7 @@ const MAX_LOG_ARRAY_LENGTH = 40;
 const MAX_LOG_OBJECT_KEYS = 60;
 const MAX_LOG_DEPTH = 4;
 function truncateLogString(value) {
-    return value.length > MAX_LOG_STRING_LENGTH
-        ? `${value.slice(0, MAX_LOG_STRING_LENGTH)}...`
-        : value;
+    return value.length > MAX_LOG_STRING_LENGTH ? `${value.slice(0, MAX_LOG_STRING_LENGTH)}...` : value;
 }
 function sanitizeLogValue(value, depth = 0) {
     if (value === undefined || value === null)
@@ -210,9 +216,7 @@ async function writeActivityLog(input) {
         summary: input.summary ? truncateLogString(input.summary) : null,
         metadata: sanitizeLogValue(input.metadata || {}),
         route: route ? truncateLogString(route) : null,
-        userAgent: input.req.header('user-agent')
-            ? truncateLogString(input.req.header('user-agent') || '')
-            : null,
+        userAgent: input.req.header('user-agent') ? truncateLogString(input.req.header('user-agent') || '') : null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     return ref.id;

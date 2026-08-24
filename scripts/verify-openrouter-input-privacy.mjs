@@ -50,7 +50,10 @@ for (const schemaSource of [files.nextRequest, files.functionRequest]) {
 }
 for (const processorSource of [files.nextExecutor, files.functionProcessor]) {
   assert.match(processorSource, /omitVisualInputs = request\.visualInputMode === 'text-only'/);
-  assert.match(processorSource, /(?:failureReasonCode|'metadata\.failureReasonCode'):\s*'input_image_privacy'/);
+  assert.match(
+    processorSource,
+    /(?:failureReasonCode|'metadata\.failureReasonCode')(?:\s*:|\s*=)\s*'input_image_privacy'/,
+  );
 }
 
 assert.match(

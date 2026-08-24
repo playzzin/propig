@@ -5,6 +5,8 @@ import {
   ProductionHeader,
   HeaderLabel,
   AutomaticBadge,
+  HeaderActions,
+  ModelCatalogRefreshButton,
   ControlStrip,
   QualityReadiness,
   QualityMeter,
@@ -17,6 +19,8 @@ import {
   QualitySelector,
   MetricsGrid,
   Metric,
+  CreditReadiness,
+  RuntimeStatusRetryButton,
   TimelineOverview,
   TimelineScene,
   SceneProductionList,
@@ -31,7 +35,10 @@ import StoryboardFinalDelivery from "@/components/image-generator/StoryboardFina
 import StoryboardProductionJourney from "@/components/image-generator/StoryboardProductionJourney";
 import StoryboardSceneProductionEditor from "@/components/image-generator/StoryboardSceneProductionEditor";
 import { useStoryboardVideoJobs } from "@/hooks/useStoryboardVideoJobs";
-import { buildStoryboardProductionJourney } from "@/lib/storyboard-production-journey";
+import {
+  buildStoryboardProductionJourney,
+  type StoryboardProductionJourneyTarget,
+} from "@/lib/storyboard-production-journey";
 import {
   IMAGE_REFERENCE_ROLE_LABELS,
   type ImageReferenceAsset,
@@ -45,12 +52,20 @@ import {
   canReuseStoryboardVideoProviderJob,
   describeStoryboardVideoRecovery,
 } from "@/lib/storyboard-video-recovery";
+import { withFirebaseAuthRetry } from "@/lib/firebase-auth-retry";
 import {
   analyzeStoryboardDialogueTiming,
   appendStoryboardVideoAudioDirection,
+  normalizeStoryboardSpokenDialogue,
   resolveStoryboardVideoAudioMode,
   STORYBOARD_VIDEO_DURATION_OPTIONS,
 } from "@/lib/storyboard-video-audio";
+import {
+  buildStoryboardVoiceLock,
+  createStoryboardVoiceProfile,
+  hasAmbiguousStoryboardVoiceSelection,
+  resolveStoryboardVoiceProfile,
+} from "@/lib/storyboard-voice-consistency";
 import {
   findNextStoryboardSceneIndex,
   getOrderedStoryboardClipIds,
@@ -64,24 +79,32 @@ import {
   isStoryboardFinalCurrent,
 } from "@/lib/storyboard-workflow";
 import {
+  buildStoryboardFinalVideoIdempotencyKey,
+  buildStoryboardSceneVideoIdempotencyKey,
+} from "@/lib/video-studio-client-idempotency";
+import {
   createDownloadFileName,
   downloadRemoteMedia,
   openRemoteMedia,
 } from "@/lib/client/media-download";
-import type {
-  ImageStoryboard,
-  ImageStoryboardScene,
-  StoryboardAudioMixPreset,
-  StoryboardVideoAutomationStatus,
-  StoryboardVideoAudioMode,
-  StoryboardVideoQualityMode,
-  StoryboardVideoScene,
-  StoryboardVideoSceneStatus,
-  StoryboardStorageCleanupAsset,
+import {
+  STORYBOARD_AUTOMATION_RETRY_LIMIT,
+  type ImageStoryboard,
+  type ImageStoryboardScene,
+  type StoryboardAudioMixPreset,
+  type StoryboardVideoAutomationStatus,
+  type StoryboardVideoAudioMode,
+  type StoryboardVideoQualityMode,
+  type StoryboardVideoScene,
+  type StoryboardVideoSceneStatus,
+  type StoryboardVoiceProfile,
+  type StoryboardStorageCleanupAsset,
 } from "@/schemas/imageStoryboard";
 import {
   videoStudioService,
+  type RunStudioJobInput,
   type VideoStudioEstimate,
+  type VideoStudioRuntimeStatus,
 } from "@/services/videoStudioService";
 import { imageStoryboardService } from "@/services/imageStoryboardService";
 import StoryboardProjectFileManager from "@/components/image-generator/StoryboardProjectFileManager";
@@ -95,6 +118,7 @@ type StoryboardVideoProductionPanelProps = {
   activeSceneId: string | null;
   onActiveSceneChange: (sceneId: string) => void;
   onDuplicateScene: (scene: ImageStoryboardScene) => void;
+  onOpenImageWorkspace: () => void;
   disabled?: boolean;
   onChange: (updater: StoryboardUpdater) => void;
 };
@@ -102,7 +126,8 @@ type StoryboardVideoProductionPanelProps = {
 const MAX_VIDEO_REFERENCE_IMAGES = 2;
 const MAX_VIDEO_REFERENCE_DATA_URL_LENGTH = 280_000;
 const MAX_VIDEO_REFERENCE_EDGE = 768;
-const AUTOMATION_RETRY_LIMIT = 1;
+const VIDEO_ESTIMATE_REQUEST_CONCURRENCY = 3;
+const AUTOMATION_RETRY_LIMIT = STORYBOARD_AUTOMATION_RETRY_LIMIT;
 const AUTOMATION_ACTIVE_STATUSES = new Set<StoryboardVideoAutomationStatus>([
   "preparing",
   "running",
@@ -268,6 +293,9 @@ function buildMotionPrompt(
     MOTION_PRESETS.find((item) => item.value === scene.video.motionIntensity)
       ?.instruction ?? MOTION_PRESETS[1].instruction;
   const audioMode = resolveStoryboardVideoAudioMode(scene.video);
+  const voiceLock = buildStoryboardVoiceLock(
+    resolveStoryboardVoiceProfile(storyboard.videoProduction, scene.video),
+  );
   const motionPrompt = [
     `Create a continuous cinematic video shot from the locked storyboard first frame for scene ${scene.order}: ${scene.title}.`,
     scene.narrativeBeat ? `Story action: ${scene.narrativeBeat}` : "",
@@ -288,9 +316,6 @@ function buildMotionPrompt(
     visualReferenceLabels.length
       ? `Visual source of truth: preserve the supplied ${visualReferenceLabels.join(", ")} references. Do not substitute a different person, product, building, or environment.`
       : "",
-    audioMode === "dialogue" && storyboard.videoProduction.voiceDirection.trim()
-      ? `Voice continuity lock for every scene: ${storyboard.videoProduction.voiceDirection.trim()}`
-      : "",
     useNextSceneAsEndFrame && nextScene
       ? `The supplied last frame is a hard destination: resolve the motion smoothly into scene ${nextScene.order}, ${nextScene.title}, without a cut or a visual identity change.`
       : scene.transition
@@ -305,6 +330,7 @@ function buildMotionPrompt(
     audioMode,
     scene.dialogueOrCaption,
     scene.video.durationSeconds,
+    voiceLock,
   );
 }
 
@@ -392,11 +418,39 @@ async function prepareVideoReferences(
 function getSceneRetryAdvice(errorMessage: string): string {
   const message = errorMessage.toLowerCase();
   if (
+    message.includes("quality validation failed") &&
+    message.includes("expected") &&
+    message.includes("received")
+  ) {
+    return "영상 모델이 규격에 가깝게 프레임 크기를 조정해 반환한 경우입니다. 참조 사진이나 프롬프트를 바꿀 필요는 없습니다. 새 영상을 요청하지 말고 ‘추가 생성비 없이 규격 보정’으로 완료된 결과를 복구하세요.";
+  }
+  if (
     message.includes("input_image_privacy") ||
     message.includes("real person") ||
     (message.includes("실제 인물") && message.includes("감지"))
   ) {
     return "원본 사진은 그대로 유지됩니다. 이 장면만 사진 없이 시안을 만들거나 실제 인물이 없는 참조 사진으로 교체해 주세요.";
+  }
+  if (
+    message.includes("기존 결과 파일 접근을 거부") ||
+    message.includes("openrouter 인증을 확인") ||
+    /video content download failed: http (401|403)/.test(message)
+  ) {
+    return "작업 ID는 보존되어 있습니다. OpenRouter 키와 계정 권한을 확인한 뒤 ‘추가 생성비 없이 다시 저장’으로 이어가세요.";
+  }
+  if (
+    message.includes("다운로드 보관 기간") ||
+    message.includes("provider_output_unavailable") ||
+    message.includes("provider_output_not_found") ||
+    message.includes("provider_output_expired")
+  ) {
+    return "기존 결과 파일이 만료되어 더는 복구할 수 없습니다. 현재 설계는 유지되며, 예상 비용과 잔액을 확인한 뒤 새 영상으로 제작해 주세요.";
+  }
+  if (
+    message.includes("ambiguous_provider_submission") ||
+    message.includes("prevent duplicate charges")
+  ) {
+    return "중복 과금을 막기 위해 자동 재시도를 멈췄습니다. OpenRouter 사용 내역을 먼저 확인한 뒤 새 영상 제작 여부를 결정해 주세요.";
   }
   if (message.includes("reference") || message.includes("image")) {
     return "참조 사진을 1장만 선택하거나, 시작 프레임을 새로 생성한 뒤 다시 시도해 보세요.";
@@ -441,6 +495,77 @@ function isInputImagePrivacyFailure(
   );
 }
 
+function isVideoCanvasValidationFailure(errorMessage?: string | null): boolean {
+  const message = errorMessage?.toLowerCase() || "";
+  return (
+    message.includes("quality validation failed") &&
+    message.includes("expected") &&
+    message.includes("received")
+  );
+}
+
+function isProviderOutputUnavailableFailure(
+  errorMessage?: string | null,
+  job?: VideoStudioJob | null,
+): boolean {
+  const discarded =
+    job?.metadata?.providerVideoDiscarded &&
+    typeof job.metadata.providerVideoDiscarded === "object"
+      ? (job.metadata.providerVideoDiscarded as Record<string, unknown>)
+      : null;
+  if (
+    discarded?.reason === "provider_output_not_found" ||
+    discarded?.reason === "provider_output_expired"
+  ) {
+    return true;
+  }
+  if (
+    discarded?.reason === "provider_output_unavailable" &&
+    discarded.httpStatus !== 401 &&
+    discarded.httpStatus !== 403
+  ) {
+    return true;
+  }
+
+  const message = errorMessage?.toLowerCase() || "";
+  return (
+    message.includes("다운로드 보관 기간") ||
+    /video content download failed: http (404|410)/.test(message)
+  );
+}
+
+function isProviderOutputAccessFailure(
+  errorMessage?: string | null,
+  job?: VideoStudioJob | null,
+): boolean {
+  const accessIssue =
+    job?.metadata?.providerVideoAccessIssue &&
+    typeof job.metadata.providerVideoAccessIssue === "object"
+      ? (job.metadata.providerVideoAccessIssue as Record<string, unknown>)
+      : null;
+  if (
+    accessIssue?.recoverable !== false &&
+    (accessIssue?.httpStatus === 401 || accessIssue?.httpStatus === 403)
+  ) {
+    return true;
+  }
+
+  const discarded =
+    job?.metadata?.providerVideoDiscarded &&
+    typeof job.metadata.providerVideoDiscarded === "object"
+      ? (job.metadata.providerVideoDiscarded as Record<string, unknown>)
+      : null;
+  if (
+    discarded?.reason === "provider_output_unavailable" &&
+    (discarded.httpStatus === 401 || discarded.httpStatus === 403)
+  ) {
+    return true;
+  }
+
+  const message = errorMessage?.toLowerCase() || "";
+  return /video content download failed: http (401|403)/.test(message);
+}
+
 function videoResolution(
   mode: StoryboardVideoQualityMode,
 ): VideoStudioResolution {
@@ -467,8 +592,38 @@ type VideoEstimateProfile = {
   hasReferenceImage: boolean;
   hasEndReferenceImage: boolean;
   hasVisualReferenceImages: boolean;
+  knownInputImagePrivacyBlock: boolean;
   sceneCount: number;
 };
+
+async function settleWithConcurrency<TItem, TResult>(
+  items: readonly TItem[],
+  concurrency: number,
+  run: (item: TItem, index: number) => Promise<TResult>,
+): Promise<Array<PromiseSettledResult<TResult>>> {
+  const results: Array<PromiseSettledResult<TResult>> = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        try {
+          results[index] = {
+            status: "fulfilled",
+            value: await run(items[index], index),
+          };
+        } catch (reason: unknown) {
+          results[index] = { status: "rejected", reason };
+        }
+      }
+    }),
+  );
+
+  return results;
+}
 
 function videoEstimateProfileKey(
   params: Omit<VideoEstimateProfile, "key" | "sceneCount">,
@@ -479,6 +634,7 @@ function videoEstimateProfileKey(
     params.hasReferenceImage ? "frame" : "text",
     params.hasEndReferenceImage ? "end-frame" : "no-end-frame",
     params.hasVisualReferenceImages ? "references" : "no-references",
+    params.knownInputImagePrivacyBlock ? "privacy-blocked" : "policy-clear",
   ].join("|");
 }
 
@@ -532,10 +688,16 @@ function getSceneQualityReadiness(
       /(대사|말한다|내레이션|나레이션|voice|narration|lip.?sync|립싱크)/i.test(
         dialogueText,
       ));
-  const audioReady = likelySpokenDialogue
+  const voiceReady =
+    audioMode !== "dialogue" ||
+    !hasAmbiguousStoryboardVoiceSelection(
+      storyboard.videoProduction,
+      scene.video,
+    );
+  const audioReady = (likelySpokenDialogue
     ? audioMode === "dialogue" && dialogueTiming.tone !== "over"
     : audioMode !== "dialogue" ||
-      (hasDialogue && dialogueTiming.tone !== "over");
+      (hasDialogue && dialogueTiming.tone !== "over")) && voiceReady;
   const score = Math.max(
     0,
     Math.min(
@@ -557,6 +719,7 @@ function getSceneQualityReadiness(
     nextScene && !usesEndFrame ? "다음 장면 연결" : "",
     likelySpokenDialogue && audioMode !== "dialogue" ? "대사 오디오 설정" : "",
     audioMode === "dialogue" && !hasDialogue ? "립싱크 대사" : "",
+    audioMode === "dialogue" && !voiceReady ? "말하는 캐릭터" : "",
     audioMode === "dialogue" && hasDialogue && dialogueTiming.tone === "over"
       ? dialogueTiming.fitsSupportedDuration
         ? `${dialogueTiming.recommendedDurationSeconds}초 대사 길이`
@@ -709,15 +872,7 @@ function timestampMillis(value: unknown): number | null {
 }
 
 function hasProviderVideoResumeCheckpoint(job: VideoStudioJob): boolean {
-  if (!job.metadata || typeof job.metadata !== "object") return false;
-  const providerVideo = job.metadata.providerVideo;
-  if (!providerVideo || typeof providerVideo !== "object") return false;
-  const checkpoint = providerVideo as { jobId?: unknown; status?: unknown };
-  return (
-    typeof checkpoint.jobId === "string" &&
-    checkpoint.jobId.length > 0 &&
-    (checkpoint.status === "pending" || checkpoint.status === "in_progress")
-  );
+  return canReuseStoryboardVideoProviderJob(job);
 }
 
 function stalledJobMessage(job: VideoStudioJob, now: number): string | null {
@@ -775,6 +930,7 @@ export default function StoryboardVideoProductionPanel({
   activeSceneId,
   onActiveSceneChange,
   onDuplicateScene,
+  onOpenImageWorkspace,
   disabled = false,
   onChange,
 }: StoryboardVideoProductionPanelProps) {
@@ -783,11 +939,19 @@ export default function StoryboardVideoProductionPanel({
   const [isPreparingProject, setIsPreparingProject] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isRecoveringAutomation, setIsRecoveringAutomation] = useState(false);
-  const [estimate, setEstimate] = useState<VideoStudioEstimate | null>(null);
   const [estimatesByProfile, setEstimatesByProfile] = useState(
     () => new Map<string, VideoStudioEstimate>(),
   );
   const [estimateError, setEstimateError] = useState<string | null>(null);
+  const [runtimeStatus, setRuntimeStatus] =
+    useState<VideoStudioRuntimeStatus | null>(null);
+  const [runtimeStatusError, setRuntimeStatusError] = useState<string | null>(
+    null,
+  );
+  const [modelCatalogRefreshRequest, setModelCatalogRefreshRequest] =
+    useState(0);
+  const [runtimeStatusRefreshRequest, setRuntimeStatusRefreshRequest] =
+    useState(0);
   const [jobStatusClock, setJobStatusClock] = useState(() => Date.now());
   const [isUploadingBgm, setIsUploadingBgm] = useState(false);
   const [downloadingAssetUrl, setDownloadingAssetUrl] = useState<string | null>(
@@ -796,6 +960,108 @@ export default function StoryboardVideoProductionPanel({
   const automationActionKeysRef = useRef(new Set<string>());
   const automationRetryCountsByJobRef = useRef(new Map<string, number>());
   const clipCleanupInFlightRef = useRef(new Set<string>());
+  const ensureProjectPromiseRef = useRef<Promise<string> | null>(null);
+  const forceModelCatalogRefreshRef = useRef(false);
+  const runtimeStatusAutoRetryCountRef = useRef(0);
+  const estimateProfilesCacheRef = useRef<{
+    fingerprint: string;
+    profiles: VideoEstimateProfile[];
+  } | null>(null);
+
+  const handleRefreshRuntimeStatus = useCallback(() => {
+    runtimeStatusAutoRetryCountRef.current = 0;
+    setRuntimeStatusRefreshRequest((current) => current + 1);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!currentUser) {
+      runtimeStatusAutoRetryCountRef.current = 0;
+      setRuntimeStatus(null);
+      setRuntimeStatusError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    setRuntimeStatus(null);
+    setRuntimeStatusError(null);
+    void (async () => {
+      try {
+        const nextStatus = await withFirebaseAuthRetry(
+          currentUser,
+          (authToken) =>
+            videoStudioService.getStudioRuntimeStatus({ authToken }),
+        );
+        if (!active) return;
+        if (nextStatus.worker.compatible) {
+          runtimeStatusAutoRetryCountRef.current = 0;
+        }
+        setRuntimeStatus(nextStatus);
+      } catch (error) {
+        if (!active) return;
+        setRuntimeStatusError(
+          error instanceof Error
+            ? error.message
+            : "영상 처리 서버 상태를 확인하지 못했습니다.",
+        );
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser, runtimeStatusRefreshRequest]);
+
+  const workerStatusPending =
+    Boolean(currentUser) && !runtimeStatus && !runtimeStatusError;
+  const workerBlockingMessage = runtimeStatus
+    ? runtimeStatus.worker.compatible
+      ? null
+      : runtimeStatus.worker.message
+    : runtimeStatusError
+      ? `영상 처리 서버 상태를 확인할 수 없습니다. ${runtimeStatusError}`
+      : null;
+  const workerGenerationBlocked =
+    workerStatusPending || Boolean(workerBlockingMessage);
+
+  useEffect(() => {
+    if (
+      !currentUser ||
+      workerStatusPending ||
+      !workerBlockingMessage ||
+      runtimeStatusAutoRetryCountRef.current >= 2
+    ) {
+      return undefined;
+    }
+
+    const nextAttempt = runtimeStatusAutoRetryCountRef.current + 1;
+    const timer = window.setTimeout(
+      () => {
+        runtimeStatusAutoRetryCountRef.current = nextAttempt;
+        setRuntimeStatusRefreshRequest((current) => current + 1);
+      },
+      nextAttempt === 1 ? 5_000 : 15_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [currentUser, workerBlockingMessage, workerStatusPending]);
+
+  useEffect(() => {
+    if (!currentUser || !workerBlockingMessage) return undefined;
+
+    const retryWhenOnline = () => handleRefreshRuntimeStatus();
+    const retryWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        handleRefreshRuntimeStatus();
+      }
+    };
+    window.addEventListener("online", retryWhenOnline);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      window.removeEventListener("online", retryWhenOnline);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [currentUser, handleRefreshRuntimeStatus, workerBlockingMessage]);
   const relevantJobIds = useMemo(
     () => [
       ...new Set([
@@ -813,6 +1079,7 @@ export default function StoryboardVideoProductionPanel({
     jobs,
     isReady: jobSubscriptionReady,
     error: jobSubscriptionError,
+    retry: retryJobSubscription,
   } = useStoryboardVideoJobs(relevantJobIds, Boolean(currentUser));
 
   const handleDownloadAsset = useCallback(
@@ -938,6 +1205,9 @@ export default function StoryboardVideoProductionPanel({
             referenceAssets,
             scene.video.referenceAssetIds,
           ).length > 0,
+        knownInputImagePrivacyBlock: isInputImagePrivacyFailure(
+          scene.video.errorMessage,
+        ),
       };
       const key = videoEstimateProfileKey(profile);
       const current = profiles.get(key);
@@ -949,6 +1219,23 @@ export default function StoryboardVideoProductionPanel({
     });
     return [...profiles.values()];
   }, [referenceAssets, reusableSceneIds, storyboard.scenes]);
+  const estimateProfileFingerprint = estimateProfiles
+    .map((profile) => `${profile.key}:${profile.sceneCount}`)
+    .sort()
+    .join("|");
+  const stableEstimateProfiles = useMemo(() => {
+    if (
+      estimateProfilesCacheRef.current?.fingerprint ===
+      estimateProfileFingerprint
+    ) {
+      return estimateProfilesCacheRef.current.profiles;
+    }
+    estimateProfilesCacheRef.current = {
+      fingerprint: estimateProfileFingerprint,
+      profiles: estimateProfiles,
+    };
+    return estimateProfiles;
+  }, [estimateProfileFingerprint, estimateProfiles]);
   const manualReferenceSceneCount = useMemo(
     () =>
       storyboard.scenes.filter((scene) =>
@@ -959,6 +1246,19 @@ export default function StoryboardVideoProductionPanel({
     [referenceAssets, storyboard.scenes],
   );
   const readySceneCount = reusableSceneIds.size;
+  const generatedVideoCount = storyboard.scenes.filter((scene) =>
+    Boolean(scene.video.videoUrl),
+  ).length;
+  const imageDesignReadyCount = storyboard.scenes.filter((scene) =>
+    Boolean(scene.imagePrompt.trim() || scene.visualPrompt.trim()),
+  ).length;
+  const videoDesignReadyCount = storyboard.scenes.filter((scene) =>
+    Boolean(
+      scene.video.motionPrompt.trim() ||
+      scene.narrativeBeat.trim() ||
+      scene.cameraDirection.trim(),
+    ),
+  ).length;
   const actualCost = useMemo(
     () =>
       storyboard.scenes.reduce(
@@ -969,9 +1269,9 @@ export default function StoryboardVideoProductionPanel({
   );
   const projectedCost = useMemo(() => {
     if (pendingSceneCount === 0) return 0;
-    if (!estimateProfiles.length) return null;
+    if (!stableEstimateProfiles.length) return null;
     let total = 0;
-    for (const profile of estimateProfiles) {
+    for (const profile of stableEstimateProfiles) {
       const profileEstimate = estimatesByProfile.get(profile.key);
       if (
         profileEstimate?.estimatedCostUsd === null ||
@@ -982,11 +1282,11 @@ export default function StoryboardVideoProductionPanel({
       total += profileEstimate.estimatedCostUsd * profile.sceneCount;
     }
     return Number(total.toFixed(6));
-  }, [estimateProfiles, estimatesByProfile, pendingSceneCount]);
+  }, [stableEstimateProfiles, estimatesByProfile, pendingSceneCount]);
   const pricingCheckPending =
     pendingSceneCount > 0 &&
     !estimateError &&
-    estimatesByProfile.size < estimateProfiles.length;
+    estimatesByProfile.size < stableEstimateProfiles.length;
   const hasUnknownProfilePricing =
     pendingSceneCount > 0 && !pricingCheckPending && projectedCost === null;
   const maxBudgetUsd = storyboard.videoProduction.maxBudgetUsd;
@@ -996,6 +1296,67 @@ export default function StoryboardVideoProductionPanel({
     projectedCost > maxBudgetUsd;
   const unknownPricingBlocked =
     hasUnknownProfilePricing && !storyboard.videoProduction.allowUnknownPricing;
+  const representativeEstimate = useMemo(() => {
+    const preferredProfile = stableEstimateProfiles.find(
+      (profile) => profile.audioMode === estimateAudioMode,
+    );
+    return (
+      (preferredProfile
+        ? estimatesByProfile.get(preferredProfile.key)
+        : undefined) ||
+      stableEstimateProfiles
+        .map((profile) => estimatesByProfile.get(profile.key))
+        .find((profileEstimate): profileEstimate is VideoStudioEstimate =>
+          Boolean(profileEstimate),
+        ) ||
+      null
+    );
+  }, [estimateAudioMode, estimatesByProfile, stableEstimateProfiles]);
+  const creditEstimate = useMemo(
+    () =>
+      Array.from(estimatesByProfile.values()).find(
+        (profileEstimate) => profileEstimate.credit.state === "available",
+      ) ||
+      representativeEstimate ||
+      Array.from(estimatesByProfile.values())[0] ||
+      null,
+    [estimatesByProfile, representativeEstimate],
+  );
+  const remainingCreditUsd = creditEstimate?.credit.remainingUsd ?? null;
+  const creditBalanceRestricted =
+    creditEstimate?.credit.message?.includes("관리자에게만 표시") === true;
+  const sceneCreditBlocker = useMemo(() => {
+    const blockers = Array.from(estimatesByProfile.values()).filter(
+      (profileEstimate) => profileEstimate.canSubmit === false,
+    );
+    return blockers.reduce<VideoStudioEstimate | null>(
+      (highest, profileEstimate) =>
+        (profileEstimate.credit.requiredUsd ?? 0) >
+        (highest?.credit.requiredUsd ?? 0)
+          ? profileEstimate
+          : highest,
+      null,
+    );
+  }, [estimatesByProfile]);
+  const sceneCreditBlocked = sceneCreditBlocker !== null;
+  const sceneRequiredCreditUsd = sceneCreditBlocker?.credit.requiredUsd ?? null;
+  const creditPlanBlocked =
+    remainingCreditUsd !== null &&
+    projectedCost !== null &&
+    projectedCost > 0 &&
+    remainingCreditUsd < projectedCost;
+  const creditBlocked = creditPlanBlocked || sceneCreditBlocked;
+  const creditBlockScope = creditPlanBlocked
+    ? "plan"
+    : sceneCreditBlocked
+      ? "scene"
+      : null;
+  const creditRequiredUsd =
+    creditBlockScope === "plan" ? projectedCost : sceneRequiredCreditUsd;
+  const creditShortfallUsd =
+    remainingCreditUsd !== null && creditRequiredUsd !== null
+      ? Math.max(0, creditRequiredUsd - remainingCreditUsd)
+      : null;
   const resolution = videoResolution(storyboard.videoProduction.qualityMode);
   const automationStatus = storyboard.videoProduction.automationStatus;
   const automationActive = AUTOMATION_ACTIVE_STATUSES.has(automationStatus);
@@ -1057,7 +1418,11 @@ export default function StoryboardVideoProductionPanel({
       );
       return (
         Boolean(scene.dialogueOrCaption.trim()) &&
-        dialogueTiming.tone !== "over"
+        dialogueTiming.tone !== "over" &&
+        !hasAmbiguousStoryboardVoiceSelection(
+          storyboard.videoProduction,
+          scene.video,
+        )
       );
     }).length;
     return {
@@ -1081,20 +1446,28 @@ export default function StoryboardVideoProductionPanel({
   const nextQualityAction = qualityReadiness.actionItems[0];
   const hasFinalDelivery = Boolean(storyboard.videoProduction.finalVideoUrl);
   const isFinalDeliveryCurrent = isStoryboardFinalCurrent(storyboard);
-
   useEffect(() => {
-    if (!currentUser || !sceneCount) return undefined;
-    setEstimate(null);
+    if (!currentUser || !sceneCount || !stableEstimateProfiles.length) {
+      setEstimatesByProfile(new Map());
+      setEstimateError(null);
+      return undefined;
+    }
+
     setEstimatesByProfile(new Map());
+    setEstimateError(null);
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          const authToken = await currentUser.getIdToken();
-          const nextEstimates = await Promise.all(
-            estimateProfiles.map(async (profile) => ({
-              profile,
-              estimate: await videoStudioService.getVideoEstimate({
+          const forceModelRefresh = forceModelCatalogRefreshRef.current;
+          forceModelCatalogRefreshRef.current = false;
+          const loadEstimate = async (
+            profile: VideoEstimateProfile,
+            forceRefresh = false,
+          ) => ({
+            profile,
+            estimate: await withFirebaseAuthRetry(currentUser, (authToken) =>
+              videoStudioService.getVideoEstimate({
                 authToken,
                 duration: Math.min(15, Math.max(1, profile.duration)),
                 resolution,
@@ -1104,11 +1477,36 @@ export default function StoryboardVideoProductionPanel({
                 hasEndReferenceImage: profile.hasEndReferenceImage,
                 hasVisualReferenceImages: profile.hasVisualReferenceImages,
                 audioMode: profile.audioMode,
+                forceModelRefresh: forceRefresh,
+                knownInputImagePrivacyBlock: profile.knownInputImagePrivacyBlock,
                 signal: controller.signal,
               }),
-            })),
-          );
+            ),
+          });
+          const settledEstimates = forceModelRefresh
+            ? [
+                ...(await settleWithConcurrency(
+                  stableEstimateProfiles.slice(0, 1),
+                  1,
+                  (profile) => loadEstimate(profile, true),
+                )),
+                ...(await settleWithConcurrency(
+                  stableEstimateProfiles.slice(1),
+                  VIDEO_ESTIMATE_REQUEST_CONCURRENCY,
+                  (profile) => loadEstimate(profile),
+                )),
+              ]
+            : await settleWithConcurrency(
+                stableEstimateProfiles,
+                VIDEO_ESTIMATE_REQUEST_CONCURRENCY,
+                (profile) => loadEstimate(profile),
+              );
           if (controller.signal.aborted) return;
+          const nextEstimates = settledEstimates.flatMap((result) =>
+            result.status === "fulfilled" ? [result.value] : [],
+          );
+          const failedProfileCount =
+            settledEstimates.length - nextEstimates.length;
           setEstimatesByProfile(
             new Map(
               nextEstimates.map(({ profile, estimate: nextEstimate }) => [
@@ -1117,17 +1515,13 @@ export default function StoryboardVideoProductionPanel({
               ]),
             ),
           );
-          setEstimate(
-            nextEstimates.find(
-              ({ profile }) => profile.audioMode === estimateAudioMode,
-            )?.estimate ||
-              nextEstimates[0]?.estimate ||
-              null,
+          setEstimateError(
+            failedProfileCount > 0
+              ? `${failedProfileCount}개 장면 조건의 예상 비용을 확인하지 못했습니다. 해당 장면은 생성 전 다시 확인합니다.`
+              : null,
           );
-          setEstimateError(null);
         } catch (error) {
           if (controller.signal.aborted) return;
-          setEstimate(null);
           setEstimatesByProfile(new Map());
           setEstimateError(
             error instanceof Error
@@ -1143,12 +1537,12 @@ export default function StoryboardVideoProductionPanel({
     };
   }, [
     currentUser,
-    estimateAudioMode,
-    estimateProfiles,
+    modelCatalogRefreshRequest,
     resolution,
     sceneCount,
     storyboard.aspectRatio,
     storyboard.videoProduction.qualityMode,
+    stableEstimateProfiles,
   ]);
 
   const jobsById = useMemo(
@@ -1247,8 +1641,7 @@ export default function StoryboardVideoProductionPanel({
           finalClipId: finalJob.clipId || videoProduction.finalClipId,
           finalVideoUrl:
             finalJob.resultVideoUrl || videoProduction.finalVideoUrl,
-          finalArtifactId:
-            finalJob.clipId || videoProduction.finalArtifactId,
+          finalArtifactId: finalJob.clipId || videoProduction.finalArtifactId,
           finalAssemblyManifest:
             finalStatus === "completed" &&
             videoProduction.pendingAssemblyManifest
@@ -1321,11 +1714,12 @@ export default function StoryboardVideoProductionPanel({
       clipCleanupInFlightRef.current.add(replacedClipId);
       void (async () => {
         try {
-          const authToken = await currentUser.getIdToken();
-          await videoStudioService.deleteClip({
-            authToken,
-            clipId: replacedClipId,
-          });
+          await withFirebaseAuthRetry(currentUser, (authToken) =>
+            videoStudioService.deleteClip({
+              authToken,
+              clipId: replacedClipId,
+            }),
+          );
           onChange((current) => ({
             ...current,
             scenes: current.scenes.map((item) =>
@@ -1339,12 +1733,28 @@ export default function StoryboardVideoProductionPanel({
             ),
           }));
         } catch (error) {
-          console.error("[StoryboardVideo] replaced clip cleanup failed:", error);
+          console.error(
+            "[StoryboardVideo] replaced clip cleanup failed:",
+            error,
+          );
+          const clipRecordAlreadyRemoved =
+            error instanceof Error &&
+            error.message.toLowerCase().includes("no longer exists");
           onChange((current) => ({
             ...current,
             cleanupStatus: "retry",
             cleanupErrorMessage:
               "교체된 장면 영상 파일 정리가 필요합니다. 파일 관리에서 다시 시도해 주세요.",
+            scenes: clipRecordAlreadyRemoved
+              ? current.scenes.map((item) =>
+                  item.video.replacedClipId === replacedClipId
+                    ? {
+                        ...item,
+                        video: { ...item.video, replacedClipId: null },
+                      }
+                    : item,
+                )
+              : current.scenes,
           }));
         } finally {
           clipCleanupInFlightRef.current.delete(replacedClipId);
@@ -1362,11 +1772,12 @@ export default function StoryboardVideoProductionPanel({
       clipCleanupInFlightRef.current.add(replacedFinalClipId);
       void (async () => {
         try {
-          const authToken = await currentUser.getIdToken();
-          await videoStudioService.deleteClip({
-            authToken,
-            clipId: replacedFinalClipId,
-          });
+          await withFirebaseAuthRetry(currentUser, (authToken) =>
+            videoStudioService.deleteClip({
+              authToken,
+              clipId: replacedFinalClipId,
+            }),
+          );
           onChange((current) => ({
             ...current,
             videoProduction: {
@@ -1379,12 +1790,24 @@ export default function StoryboardVideoProductionPanel({
             },
           }));
         } catch (error) {
-          console.error("[StoryboardVideo] previous final cleanup failed:", error);
+          console.error(
+            "[StoryboardVideo] previous final cleanup failed:",
+            error,
+          );
+          const clipRecordAlreadyRemoved =
+            error instanceof Error &&
+            error.message.toLowerCase().includes("no longer exists");
           onChange((current) => ({
             ...current,
             cleanupStatus: "retry",
             cleanupErrorMessage:
               "교체된 이전 완성본 파일 정리가 필요합니다. 파일 관리에서 다시 시도해 주세요.",
+            videoProduction: clipRecordAlreadyRemoved
+              ? {
+                  ...current.videoProduction,
+                  replacedFinalClipId: null,
+                }
+              : current.videoProduction,
           }));
         } finally {
           clipCleanupInFlightRef.current.delete(replacedFinalClipId);
@@ -1588,6 +2011,102 @@ export default function StoryboardVideoProductionPanel({
     [onChange, projectBusy],
   );
 
+  const handleAddVoiceProfile = useCallback(() => {
+    if (projectBusy) return;
+    onChange((current) => {
+      if (current.videoProduction.voiceProfiles.length >= 12) return current;
+      const voiceProfile = createStoryboardVoiceProfile(
+        current.videoProduction.voiceProfiles.length,
+        current.videoProduction.voiceDirection,
+      );
+      return {
+        ...current,
+        videoProduction: {
+          ...current.videoProduction,
+          voiceProfiles: [
+            ...current.videoProduction.voiceProfiles,
+            voiceProfile,
+          ],
+        },
+      };
+    });
+  }, [onChange, projectBusy]);
+
+  const handleVoiceProfilePatch = useCallback(
+    (profileId: string, patch: Partial<StoryboardVoiceProfile>) => {
+      if (projectBusy) return;
+      onChange((current) => {
+        const voiceProfiles = current.videoProduction.voiceProfiles.map(
+          (profile) => {
+            if (profile.id !== profileId) return profile;
+            return {
+              ...profile,
+              ...patch,
+              id: profile.id,
+              characterName:
+                patch.characterName?.trim() || profile.characterName,
+              voiceDescription:
+                patch.voiceDescription?.trim() || profile.voiceDescription,
+              speakingStyle:
+                patch.speakingStyle === undefined
+                  ? profile.speakingStyle
+                  : patch.speakingStyle.trim(),
+            };
+          },
+        );
+        return {
+          ...current,
+          videoProduction: {
+            ...current.videoProduction,
+            voiceProfiles,
+          },
+          scenes: current.scenes.map((scene) =>
+            scene.video.voiceProfileId === profileId
+              ? {
+                  ...scene,
+                  video: {
+                    ...scene.video,
+                    status: scene.video.videoUrl ? "brief" : scene.video.status,
+                    approvedAt: null,
+                  },
+                }
+              : scene,
+          ),
+        };
+      });
+    },
+    [onChange, projectBusy],
+  );
+
+  const handleRemoveVoiceProfile = useCallback(
+    (profileId: string) => {
+      if (projectBusy) return;
+      onChange((current) => ({
+        ...current,
+        videoProduction: {
+          ...current.videoProduction,
+          voiceProfiles: current.videoProduction.voiceProfiles.filter(
+            (profile) => profile.id !== profileId,
+          ),
+        },
+        scenes: current.scenes.map((scene) =>
+          scene.video.voiceProfileId === profileId
+            ? {
+                ...scene,
+                video: {
+                  ...scene.video,
+                  voiceProfileId: null,
+                  status: scene.video.videoUrl ? "brief" : scene.video.status,
+                  approvedAt: null,
+                },
+              }
+            : scene,
+        ),
+      }));
+    },
+    [onChange, projectBusy],
+  );
+
   const handleBackgroundMusicFile = useCallback(
     async (file: File) => {
       if (!currentUser?.uid || !storyboardId || projectBusy) return;
@@ -1674,50 +2193,68 @@ export default function StoryboardVideoProductionPanel({
     toast.success("배경음악을 완성본에서 제외했습니다.");
   }, [onChange, projectBusy, storyboard.videoProduction.backgroundMusicUrl]);
 
-  const ensureProject = useCallback(async (): Promise<string> => {
-    if (!currentUser) throw new Error("로그인이 필요합니다.");
-    const nextResolution = videoResolution(
-      storyboard.videoProduction.qualityMode,
-    );
-    const currentProjectId = storyboard.videoProduction.projectId;
-    if (currentProjectId) {
-      await videoStudioService.updateProject(currentProjectId, {
-        title: storyboard.title,
-        synopsis: storyboard.logline,
-        aspectRatio: storyboard.aspectRatio as VideoStudioAspectRatio,
-        resolution: nextResolution,
-      });
-      return currentProjectId;
-    }
+  const ensureProject = useCallback((): Promise<string> => {
+    const existingPromise = ensureProjectPromiseRef.current;
+    if (existingPromise) return existingPromise;
 
-    setIsPreparingProject(true);
-    try {
-      const firstFrame = storyboard.scenes.find(
-        (scene) => scene.generatedImage?.url,
-      )?.generatedImage?.url;
-      const projectId = await videoStudioService.createProject({
-        userId: currentUser.uid,
-        title: storyboard.title,
-        synopsis: storyboard.logline,
-        aspectRatio: storyboard.aspectRatio as VideoStudioAspectRatio,
-        resolution: nextResolution,
-        starterImageUrl: firstFrame || null,
-        starterImageSource: firstFrame ? "album" : null,
-      });
-      onChange((current) => ({
-        ...current,
-        videoProduction: {
-          ...current.videoProduction,
-          projectId,
-        },
-      }));
-      return projectId;
-    } finally {
-      setIsPreparingProject(false);
-    }
+    const operation = (async (): Promise<string> => {
+      if (!currentUser) throw new Error("로그인이 필요합니다.");
+      if (!storyboardId) {
+        throw new Error("스토리보드를 먼저 저장한 뒤 영상을 제작해 주세요.");
+      }
+      const nextResolution = videoResolution(
+        storyboard.videoProduction.qualityMode,
+      );
+      const currentProjectId = storyboard.videoProduction.projectId;
+      if (currentProjectId) {
+        await videoStudioService.updateProject(currentProjectId, {
+          title: storyboard.title,
+          synopsis: storyboard.logline,
+          aspectRatio: storyboard.aspectRatio as VideoStudioAspectRatio,
+          resolution: nextResolution,
+        });
+        return currentProjectId;
+      }
+
+      setIsPreparingProject(true);
+      try {
+        const firstFrame = storyboard.scenes.find(
+          (scene) => scene.generatedImage?.url,
+        )?.generatedImage?.url;
+        const projectId = await videoStudioService.createProject({
+          projectId: `storyboard_${currentUser.uid}_${storyboardId}`,
+          userId: currentUser.uid,
+          title: storyboard.title,
+          synopsis: storyboard.logline,
+          aspectRatio: storyboard.aspectRatio as VideoStudioAspectRatio,
+          resolution: nextResolution,
+          starterImageUrl: firstFrame || null,
+          starterImageSource: firstFrame ? "album" : null,
+        });
+        onChange((current) => ({
+          ...current,
+          videoProduction: {
+            ...current.videoProduction,
+            projectId,
+          },
+        }));
+        return projectId;
+      } finally {
+        setIsPreparingProject(false);
+      }
+    })();
+    ensureProjectPromiseRef.current = operation;
+    const clearOperation = () => {
+      if (ensureProjectPromiseRef.current === operation) {
+        ensureProjectPromiseRef.current = null;
+      }
+    };
+    void operation.then(clearOperation, clearOperation);
+    return operation;
   }, [
     currentUser,
     onChange,
+    storyboardId,
     storyboard.aspectRatio,
     storyboard.logline,
     storyboard.scenes,
@@ -1749,16 +2286,49 @@ export default function StoryboardVideoProductionPanel({
       visualInputMode?: "standard" | "text-only";
     }): Promise<string> => {
       if (!currentUser) throw new Error("로그인이 필요합니다.");
+      if (!storyboardId) {
+        throw new Error("스토리보드를 먼저 저장한 뒤 영상을 제작해 주세요.");
+      }
+      const currentStoryboardId = storyboardId;
+      if (workerStatusPending) {
+        throw new Error(
+          "영상 처리 서버의 안전 버전을 확인하고 있습니다. 잠시 후 다시 시도해 주세요.",
+        );
+      }
+      if (workerBlockingMessage) {
+        throw new Error(workerBlockingMessage);
+      }
       const {
         scene,
         automationRunId,
         previousLastFrameUrl,
         visualInputMode = "standard",
       } = params;
+      if (
+        scene.video.jobId &&
+        (!jobSubscriptionReady || jobSubscriptionError)
+      ) {
+        throw new Error(
+          jobSubscriptionError
+            ? "기존 영상 작업 기록을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요."
+            : "기존 영상 작업 기록을 확인하고 있습니다. 확인이 끝난 뒤 다시 시도해 주세요.",
+        );
+      }
       const omitVisualInputs = visualInputMode === "text-only";
       const audioMode = resolveStoryboardVideoAudioMode(scene.video);
       if (audioMode === "dialogue" && !scene.dialogueOrCaption.trim()) {
         throw new Error(`${scene.order}번 장면의 말할 대사를 입력해 주세요.`);
+      }
+      if (
+        audioMode === "dialogue" &&
+        hasAmbiguousStoryboardVoiceSelection(
+          storyboard.videoProduction,
+          scene.video,
+        )
+      ) {
+        throw new Error(
+          `${scene.order}번 장면에서 말하는 캐릭터를 선택해 주세요.`,
+        );
       }
       const dialogueTiming = analyzeStoryboardDialogueTiming(
         scene.dialogueOrCaption,
@@ -1774,7 +2344,6 @@ export default function StoryboardVideoProductionPanel({
           ? dialogueTiming.recommendedDurationSeconds
           : scene.video.durationSeconds;
       const projectId = await ensureProject();
-      const authToken = await currentUser.getIdToken();
       const sceneIndex = storyboard.scenes.findIndex(
         (item) => item.id === scene.id,
       );
@@ -1789,6 +2358,12 @@ export default function StoryboardVideoProductionPanel({
             referenceAssets,
             scene.video.referenceAssetIds,
           );
+      const voiceLock = buildStoryboardVoiceLock(
+        resolveStoryboardVoiceProfile(
+          storyboard.videoProduction,
+          scene.video,
+        ),
+      );
       const prompt = appendStoryboardVideoAudioDirection(
         scene.video.motionPrompt.trim() ||
           buildMotionPrompt(
@@ -1803,6 +2378,7 @@ export default function StoryboardVideoProductionPanel({
         audioMode,
         scene.dialogueOrCaption,
         renderDuration,
+        voiceLock,
       );
       const preparedReferences = omitVisualInputs
         ? []
@@ -1817,8 +2393,7 @@ export default function StoryboardVideoProductionPanel({
           ),
         ),
       ].slice(0, MAX_VIDEO_REFERENCE_IMAGES);
-      const queued = await videoStudioService.submitStudioJob({
-        authToken,
+      const videoRequest = {
         operation: "generate",
         projectId,
         clipTitle: `${String(scene.order).padStart(2, "0")} · ${scene.title}`,
@@ -1830,9 +2405,10 @@ export default function StoryboardVideoProductionPanel({
             scene.generatedImage?.url ||
             scene.video.lastFrameUrl ||
             undefined,
-        endReferenceImage: !omitVisualInputs && useNextSceneAsEndFrame
-          ? nextScene?.generatedImage?.url
-          : undefined,
+        endReferenceImage:
+          !omitVisualInputs && useNextSceneAsEndFrame
+            ? nextScene?.generatedImage?.url
+            : undefined,
         visualReferenceImages: omitVisualInputs
           ? undefined
           : visualReferenceImages,
@@ -1864,9 +2440,32 @@ export default function StoryboardVideoProductionPanel({
         generateAudio: audioMode !== "silent",
         audioMode,
         dialogue:
-          audioMode === "dialogue" ? scene.dialogueOrCaption.trim() : undefined,
+          audioMode === "dialogue"
+            ? normalizeStoryboardSpokenDialogue(scene.dialogueOrCaption)
+            : undefined,
         forceRealRun: true,
-      });
+      } satisfies Omit<RunStudioJobInput, "authToken" | "idempotencyKey">;
+      const idempotencyKey =
+        await buildStoryboardSceneVideoIdempotencyKey({
+          storyboardId: currentStoryboardId,
+          sceneId: scene.id,
+          videoDesignRevision: scene.videoDesignRevision,
+          previousIdentity:
+            scene.video.jobId ||
+            scene.video.artifactId ||
+            scene.video.clipId ||
+            scene.video.replacedClipId ||
+            "initial",
+          visualInputMode,
+          request: videoRequest,
+        });
+      const queued = await withFirebaseAuthRetry(currentUser, (authToken) =>
+        videoStudioService.submitStudioJob({
+          authToken,
+          idempotencyKey,
+          ...videoRequest,
+        }),
+      );
 
       onChange((current) => {
         if (
@@ -1934,12 +2533,90 @@ export default function StoryboardVideoProductionPanel({
       });
       return queued.jobId;
     },
-    [currentUser, ensureProject, onChange, referenceAssets, storyboard],
+    [
+      currentUser,
+      ensureProject,
+      jobSubscriptionError,
+      jobSubscriptionReady,
+      onChange,
+      referenceAssets,
+      storyboard,
+      storyboardId,
+      workerBlockingMessage,
+      workerStatusPending,
+    ],
   );
 
   const handleGenerateScene = useCallback(
-    async (scene: ImageStoryboardScene) => {
+    async (
+      scene: ImageStoryboardScene,
+      options?: { forceNewProviderRequest?: boolean },
+    ) => {
       if (!currentUser || projectBusy) return;
+      if (workerGenerationBlocked) {
+        toast.error(
+          workerBlockingMessage ||
+            "영상 처리 서버의 안전 버전을 확인하고 있습니다. 잠시 후 다시 시도해 주세요.",
+        );
+        return;
+      }
+      if (
+        scene.video.jobId &&
+        (!jobSubscriptionReady || jobSubscriptionError)
+      ) {
+        toast.error(
+          jobSubscriptionError
+            ? "기존 영상 작업 기록을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요."
+            : "기존 영상 작업 기록을 확인하고 있습니다. 잠시 후 다시 시도해 주세요.",
+        );
+        return;
+      }
+      const existingJob = scene.video.jobId
+        ? jobsById.get(scene.video.jobId)
+        : undefined;
+      if (
+        !options?.forceNewProviderRequest &&
+        existingJob &&
+        canReuseStoryboardVideoProviderJob(existingJob)
+      ) {
+        setQueueingSceneId(scene.id);
+        try {
+          await withFirebaseAuthRetry(currentUser, (authToken) =>
+            videoStudioService.updateStudioJob({
+              authToken,
+              jobId: existingJob.id,
+              action: "requeue",
+              requireProviderResume: true,
+            }),
+          );
+          patchSceneVideo(scene.id, {
+            status: "queued",
+            errorMessage: null,
+          });
+          const recovery = describeStoryboardVideoRecovery({
+            errorMessage: scene.video.errorMessage,
+            job: existingJob,
+          });
+          toast.success(recovery.title, {
+            description: recovery.description,
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "완료된 영상 결과의 복구를 시작하지 못했습니다.";
+          patchSceneVideo(scene.id, {
+            status: "failed",
+            errorMessage: message,
+          });
+          toast.error("영상 복구를 시작하지 못했습니다.", {
+            description: message,
+          });
+        } finally {
+          setQueueingSceneId(null);
+        }
+        return;
+      }
       const sceneIndex = storyboard.scenes.findIndex(
         (item) => item.id === scene.id,
       );
@@ -1988,7 +2665,18 @@ export default function StoryboardVideoProductionPanel({
         setQueueingSceneId(null);
       }
     },
-    [currentUser, patchSceneVideo, projectBusy, storyboard, submitSceneJob],
+    [
+      currentUser,
+      jobSubscriptionError,
+      jobSubscriptionReady,
+      jobsById,
+      patchSceneVideo,
+      projectBusy,
+      storyboard,
+      submitSceneJob,
+      workerBlockingMessage,
+      workerGenerationBlocked,
+    ],
   );
 
   const handleGenerateWithoutVisualInputs = useCallback(
@@ -2043,21 +2731,22 @@ export default function StoryboardVideoProductionPanel({
       preservePreviousFinal?: boolean;
     }): Promise<string> => {
       if (!currentUser) throw new Error("로그인이 필요합니다.");
+      if (!storyboardId) {
+        throw new Error("스토리보드를 먼저 저장한 뒤 최종본을 만들어 주세요.");
+      }
+      const currentStoryboardId = storyboardId;
       const projectId = await ensureProject();
-      const authToken = await currentUser.getIdToken();
-      const pendingAssemblyManifest =
-        createStoryboardFinalAssemblyManifest(
-          storyboard,
-          params.clipIds,
-          resolution,
-        );
+      const pendingAssemblyManifest = createStoryboardFinalAssemblyManifest(
+        storyboard,
+        params.clipIds,
+        resolution,
+      );
       const scenesByClipId = new Map(
         storyboard.scenes.flatMap((scene) =>
           scene.video.clipId ? [[scene.video.clipId, scene] as const] : [],
         ),
       );
-      const queued = await videoStudioService.submitStudioJob({
-        authToken,
+      const mergeRequest = {
         operation: "merge",
         projectId,
         clipTitle: `${storyboard.title} · 최종본`,
@@ -2089,7 +2778,26 @@ export default function StoryboardVideoProductionPanel({
         sceneAudioVolume: storyboard.videoProduction.sceneAudioVolume,
         audioCrossfadeSeconds: storyboard.videoProduction.audioCrossfadeSeconds,
         forceRealRun: true,
-      });
+      } satisfies Omit<RunStudioJobInput, "authToken" | "idempotencyKey">;
+      const idempotencyKey =
+        await buildStoryboardFinalVideoIdempotencyKey({
+          storyboardId: currentStoryboardId,
+          assemblyFingerprint: pendingAssemblyManifest.fingerprint,
+          resolution,
+          previousIdentity:
+            storyboard.videoProduction.finalJobId ||
+            storyboard.videoProduction.finalArtifactId ||
+            storyboard.videoProduction.finalClipId ||
+            "initial",
+          request: mergeRequest,
+        });
+      const queued = await withFirebaseAuthRetry(currentUser, (authToken) =>
+        videoStudioService.submitStudioJob({
+          authToken,
+          idempotencyKey,
+          ...mergeRequest,
+        }),
+      );
       onChange((current) => {
         if (
           params.automationRunId &&
@@ -2130,6 +2838,7 @@ export default function StoryboardVideoProductionPanel({
       onChange,
       resolution,
       storyboard,
+      storyboardId,
     ],
   );
 
@@ -2185,6 +2894,13 @@ export default function StoryboardVideoProductionPanel({
 
   const handleStartAutomation = useCallback(async () => {
     if (!currentUser || automationActive || !storyboard.scenes.length) return;
+    if (pendingSceneCount > 0 && workerGenerationBlocked) {
+      toast.error(
+        workerBlockingMessage ||
+          "영상 처리 서버의 안전 버전을 확인하고 있습니다. 잠시 후 다시 시도해 주세요.",
+      );
+      return;
+    }
     if (pricingCheckPending) {
       toast.info("예상 비용을 확인한 뒤 제작을 시작할 수 있습니다.");
       return;
@@ -2193,6 +2909,17 @@ export default function StoryboardVideoProductionPanel({
       toast.error("예상 비용이 설정한 최대 예산을 초과합니다.", {
         description: "빠른 시안으로 바꾸거나 최대 예산을 조정해 주세요.",
       });
+      return;
+    }
+    if (creditBlocked) {
+      toast.error(
+        creditBlockScope === "plan"
+          ? "OpenRouter 잔액이 전체 제작 예상 비용보다 부족합니다."
+          : "OpenRouter 잔액이 일부 장면의 예상 비용보다 부족합니다.",
+        {
+          description: `${creditBlockScope === "plan" ? "전체 제작 예상" : "가장 높은 장면 예상"} ${formatUsd(creditRequiredUsd)} · 사용 가능 ${formatUsd(remainingCreditUsd)} · 부족 ${formatUsd(creditShortfallUsd)}`,
+        },
+      );
       return;
     }
     if (unknownPricingBlocked) {
@@ -2333,15 +3060,23 @@ export default function StoryboardVideoProductionPanel({
   }, [
     automationActive,
     budgetExceeded,
+    creditBlocked,
+    creditBlockScope,
+    creditRequiredUsd,
+    creditShortfallUsd,
     currentUser,
     ensureProject,
     unknownPricingBlocked,
     onChange,
+    pendingSceneCount,
     pricingCheckPending,
     qualityReadiness.score,
+    remainingCreditUsd,
     reusableSceneIds,
     storyboard.scenes,
     storyboard.videoProduction.qualityMode,
+    workerBlockingMessage,
+    workerGenerationBlocked,
   ]);
 
   const handlePauseAutomation = useCallback(() => {
@@ -2373,6 +3108,13 @@ export default function StoryboardVideoProductionPanel({
       storyboard.videoProduction.automationCurrentSceneIndex ?? 0;
     const currentScene = storyboard.scenes[sceneIndex];
     const resumeMerge = sceneIndex >= storyboard.scenes.length;
+    if (!resumeMerge && workerGenerationBlocked) {
+      toast.error(
+        workerBlockingMessage ||
+          "영상 처리 서버의 안전 버전을 확인하고 있습니다. 잠시 후 다시 시도해 주세요.",
+      );
+      return;
+    }
     const currentSceneJob = currentScene?.video.jobId
       ? jobsById.get(currentScene.video.jobId)
       : undefined;
@@ -2385,12 +3127,14 @@ export default function StoryboardVideoProductionPanel({
     ) {
       setIsRecoveringAutomation(true);
       try {
-        const authToken = await currentUser.getIdToken();
-        await videoStudioService.updateStudioJob({
-          authToken,
-          jobId: currentSceneJob.id,
-          action: "requeue",
-        });
+        await withFirebaseAuthRetry(currentUser, (authToken) =>
+          videoStudioService.updateStudioJob({
+            authToken,
+            jobId: currentSceneJob.id,
+            action: "requeue",
+            requireProviderResume: true,
+          }),
+        );
         onChange((current) => {
           if (
             current.videoProduction.automationRunId !==
@@ -2515,6 +3259,8 @@ export default function StoryboardVideoProductionPanel({
     storyboard.videoProduction.automationCurrentSceneIndex,
     storyboard.videoProduction.automationErrorMessage,
     storyboard.videoProduction.automationRunId,
+    workerBlockingMessage,
+    workerGenerationBlocked,
   ]);
 
   const failAutomation = useCallback(
@@ -2544,7 +3290,9 @@ export default function StoryboardVideoProductionPanel({
     if (status !== "running" && status !== "pausing" && status !== "merging")
       return;
     if (jobSubscriptionError) {
-      failAutomation(runId, jobSubscriptionError);
+      // A Firestore listener failure does not mean the durable worker job
+      // failed. Keep the run resumable while the hook reconnects, otherwise a
+      // brief network interruption permanently turns a healthy render red.
       return;
     }
     if (!jobSubscriptionReady) return;
@@ -2673,12 +3421,13 @@ export default function StoryboardVideoProductionPanel({
             finalJobId,
             automaticRetryCount + 1,
           );
-          const authToken = await currentUser.getIdToken();
-          await videoStudioService.updateStudioJob({
-            authToken,
-            jobId: finalJobId,
-            action: "requeue",
-          });
+          await withFirebaseAuthRetry(currentUser, (authToken) =>
+            videoStudioService.updateStudioJob({
+              authToken,
+              jobId: finalJobId,
+              action: "requeue",
+            }),
+          );
           onChange((current) =>
             current.videoProduction.automationRunId === runId
               ? {
@@ -2892,7 +3641,7 @@ export default function StoryboardVideoProductionPanel({
                     firstFrameApplied: result.firstFrameApplied,
                     endFrameApplied: result.endFrameApplied,
                     audioApplied: result.audioApplied,
-                     errorMessage: null,
+                    errorMessage: null,
                     approvedAt: Date.now(),
                     artifactId: sceneJob.clipId || item.video.artifactId,
                     replacedClipId:
@@ -2901,7 +3650,7 @@ export default function StoryboardVideoProductionPanel({
                       sceneJob.clipId !== item.video.clipId
                         ? item.video.clipId
                         : item.video.replacedClipId,
-                   },
+                  },
                 }
               : item,
           );
@@ -2957,9 +3706,27 @@ export default function StoryboardVideoProductionPanel({
       sceneJob.errorMessage || sceneJob.message,
       sceneJob,
     );
+    const isVideoCanvasValidationFailureForScene =
+      isVideoCanvasValidationFailure(sceneJob.errorMessage || sceneJob.message);
+    const isProviderOutputUnavailableForScene =
+      isProviderOutputUnavailableFailure(
+        sceneJob.errorMessage || sceneJob.message,
+        sceneJob,
+      );
+    const isProviderOutputAccessBlockedForScene =
+      isProviderOutputAccessFailure(
+        sceneJob.errorMessage || sceneJob.message,
+        sceneJob,
+      );
+    if (sceneJob.status === "failed" && workerGenerationBlocked) {
+      return;
+    }
     if (
       sceneJob.status === "failed" &&
       !isPermanentVisualPrivacyFailure &&
+      !isVideoCanvasValidationFailureForScene &&
+      !isProviderOutputUnavailableForScene &&
+      !isProviderOutputAccessBlockedForScene &&
       attemptCount <= AUTOMATION_RETRY_LIMIT &&
       automaticRetryCount < AUTOMATION_RETRY_LIMIT
     ) {
@@ -2969,12 +3736,15 @@ export default function StoryboardVideoProductionPanel({
           sceneJob.id,
           automaticRetryCount + 1,
         );
-        const authToken = await currentUser.getIdToken();
-        await videoStudioService.updateStudioJob({
-          authToken,
-          jobId: sceneJob.id,
-          action: "requeue",
-        });
+        await withFirebaseAuthRetry(currentUser, (authToken) =>
+          videoStudioService.updateStudioJob({
+            authToken,
+            jobId: sceneJob.id,
+            action: "requeue",
+            requireProviderResume:
+              canReuseStoryboardVideoProviderJob(sceneJob),
+          }),
+        );
         onChange((current) =>
           current.videoProduction.automationRunId === runId
             ? {
@@ -3022,6 +3792,7 @@ export default function StoryboardVideoProductionPanel({
     storyboard,
     submitFinalMerge,
     submitSceneJob,
+    workerGenerationBlocked,
   ]);
 
   const automationCompletedCount = Math.max(
@@ -3066,7 +3837,9 @@ export default function StoryboardVideoProductionPanel({
     automationStatus === "running" ||
     automationStatus === "pausing";
   const canResumeAutomation =
-    automationStatus === "paused" || automationStatus === "failed";
+    automationStatus === "paused" ||
+    (automationStatus === "failed" &&
+      automationRecovery?.canReuseProviderJob === true);
   const selectedSceneIndex = Math.max(
     0,
     storyboard.scenes.findIndex((scene) => scene.id === activeSceneId),
@@ -3079,6 +3852,51 @@ export default function StoryboardVideoProductionPanel({
         },
       ]
     : [];
+  const firstMissingImageSceneId =
+    storyboard.scenes.find(
+      (scene) => !scene.generatedImage?.url && !scene.video.lastFrameUrl,
+    )?.id ?? null;
+  const firstMissingVideoDesignSceneId =
+    storyboard.scenes.find(
+      (scene) =>
+        !scene.video.motionPrompt.trim() &&
+        !scene.narrativeBeat.trim() &&
+        !scene.cameraDirection.trim(),
+    )?.id ?? null;
+  const firstMissingVideoSceneId =
+    storyboard.scenes.find((scene) => !scene.video.videoUrl)?.id ?? null;
+  const firstMissingApprovalSceneId =
+    storyboard.scenes.find((scene) => !reusableSceneIds.has(scene.id))?.id ??
+    null;
+  const firstTransitionIssueSceneId =
+    storyboard.scenes.slice(0, -1).find((scene, index) => {
+      const nextScene = storyboard.scenes[index + 1];
+      return !(
+        scene.video.useNextSceneAsEndFrame && nextScene?.generatedImage?.url
+      );
+    })?.id ?? null;
+  const focusVideoScene = useCallback(
+    (sceneId: string) => {
+      onActiveSceneChange(sceneId);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const target = document.getElementById(
+            `storyboard-video-scene-${sceneId}`,
+          );
+          if (!target) return;
+          const reduceMotion = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+          ).matches;
+          target.scrollIntoView({
+            behavior: reduceMotion ? "auto" : "smooth",
+            block: "center",
+          });
+          target.focus({ preventScroll: true });
+        });
+      });
+    },
+    [onActiveSceneChange],
+  );
   const canStartAutomation =
     !disabled &&
     Boolean(currentUser) &&
@@ -3087,26 +3905,40 @@ export default function StoryboardVideoProductionPanel({
     !jobSubscriptionError &&
     !pricingCheckPending &&
     !budgetExceeded &&
-    !unknownPricingBlocked;
-  const firstSceneReady = Boolean(
-    storyboard.scenes[0]?.generatedImage?.url ||
-    reusableSceneIds.has(storyboard.scenes[0]?.id || ""),
-  );
+    !creditBlocked &&
+    !unknownPricingBlocked &&
+    (pendingSceneCount === 0 || !workerGenerationBlocked);
+  const creditIssue =
+    creditBlocked && pendingSceneCount > 0
+      ? `영상 제작 예상 비용 중 ${formatUsd(creditShortfallUsd)}가 부족합니다. OpenRouter를 충전한 뒤 서버·잔액을 다시 확인해 주세요.`
+      : null;
   const productionJourney = buildStoryboardProductionJourney({
+    approvedSceneCount: readySceneCount,
     automationActive,
     automationCompletedCount,
     automationCurrentSceneIndex:
       storyboard.videoProduction.automationCurrentSceneIndex,
-    automationErrorMessage: storyboard.videoProduction.automationErrorMessage,
+    automationErrorMessage:
+      automationRecovery?.description ||
+      storyboard.videoProduction.automationErrorMessage,
     automationProgress,
     automationStatus,
     budgetExceeded,
     canPauseAutomation,
+    canOpenImageWorkspace: true,
     canResumeAutomation,
     canStartAutomation,
+    creditIssue,
     finalMergeInFlight,
-    firstSceneReady,
+    firstMissingApprovalSceneId,
+    firstMissingImageSceneId,
+    firstMissingVideoDesignSceneId,
+    firstMissingVideoSceneId,
+    firstTransitionIssueSceneId,
+    generatedVideoCount,
+    hasCurrentFinalDelivery: isFinalDeliveryCurrent,
     hasFinalDelivery,
+    imageDesignReadyCount,
     isDownloading: Boolean(downloadingAssetUrl),
     isRecoveringAutomation,
     jobSubscriptionError,
@@ -3121,10 +3953,20 @@ export default function StoryboardVideoProductionPanel({
     pendingSceneCount,
     pricingCheckPending,
     qualityMode: storyboard.videoProduction.qualityMode,
-    readySceneCount,
     sceneCount,
     startFrameCount: qualityReadiness.startFrameCount,
+    transitionCount: qualityReadiness.transitionCount,
+    transitionReadyCount: qualityReadiness.transitionReadyCount,
     unknownPricingBlocked,
+    videoDesignReadyCount,
+    workerIssue:
+      pendingSceneCount > 0 && qualityReadiness.startFrameCount === sceneCount
+        ? workerBlockingMessage
+        : null,
+    workerStatusPending:
+      pendingSceneCount > 0 &&
+      qualityReadiness.startFrameCount === sceneCount &&
+      workerStatusPending,
   });
   const automationProgressDescription = automationCurrentScene
     ? `현재 ${automationCurrentScene.order}/${sceneCount} · ${automationCurrentScene.title}`
@@ -3158,25 +4000,88 @@ export default function StoryboardVideoProductionPanel({
   const handleJourneyPrimaryAction = useCallback(() => {
     if (finalMergeInFlight || automationActive || isRecoveringAutomation)
       return;
-    if (canResumeAutomation) {
-      void handleResumeAutomation();
-      return;
+    switch (productionJourney.primaryIntent) {
+      case "open-image-workspace":
+        onOpenImageWorkspace();
+        return;
+      case "focus-video-design":
+        if (productionJourney.primarySceneId) {
+          focusVideoScene(productionJourney.primarySceneId);
+        }
+        return;
+      case "resume-automation":
+        void handleResumeAutomation();
+        return;
+      case "remerge-final":
+        void handleFinalMerge();
+        return;
+      case "download-final":
+        handleFinalDownload();
+        return;
+      case "start-automation":
+        void handleStartAutomation();
+        return;
     }
-    if (hasFinalDelivery) {
-      handleFinalDownload();
-      return;
-    }
-    void handleStartAutomation();
   }, [
     automationActive,
-    canResumeAutomation,
     finalMergeInFlight,
+    focusVideoScene,
     handleFinalDownload,
+    handleFinalMerge,
     handleResumeAutomation,
     handleStartAutomation,
-    hasFinalDelivery,
     isRecoveringAutomation,
+    onOpenImageWorkspace,
+    productionJourney.primaryIntent,
+    productionJourney.primarySceneId,
   ]);
+
+  const handleJourneyStepSelect = useCallback(
+    (target: StoryboardProductionJourneyTarget, sceneId?: string | null) => {
+      if (target === "image-design" || target === "image-generation") {
+        onOpenImageWorkspace();
+        return;
+      }
+      if (target === "final-delivery") {
+        const finalDelivery = document.getElementById(
+          "storyboard-final-delivery",
+        );
+        const targetElement =
+          finalDelivery ||
+          document.getElementById("storyboard-production-primary-action");
+        if (!targetElement) return;
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+        targetElement.scrollIntoView({
+          behavior: reduceMotion ? "auto" : "smooth",
+          block: "center",
+        });
+        targetElement.focus({ preventScroll: true });
+        return;
+      }
+      const targetSceneId =
+        sceneId ||
+        (target === "video-design"
+          ? firstMissingVideoDesignSceneId ||
+            nextQualityAction?.scene.id ||
+            storyboard.scenes[selectedSceneIndex]?.id
+          : firstMissingVideoSceneId ||
+            firstMissingApprovalSceneId ||
+            storyboard.scenes[selectedSceneIndex]?.id);
+      if (targetSceneId) focusVideoScene(targetSceneId);
+    },
+    [
+      firstMissingApprovalSceneId,
+      firstMissingVideoDesignSceneId,
+      firstMissingVideoSceneId,
+      focusVideoScene,
+      nextQualityAction?.scene.id,
+      onOpenImageWorkspace,
+      selectedSceneIndex,
+      storyboard.scenes,
+    ],
+  );
 
   return (
     <ProductionSurface
@@ -3192,30 +4097,103 @@ export default function StoryboardVideoProductionPanel({
             편의 영상으로 연결합니다.
           </p>
         </div>
-        <AutomaticBadge>
-          <i className="fas fa-wand-magic-sparkles" aria-hidden="true" />
-          OpenRouter 자동 선택
-        </AutomaticBadge>
+        <HeaderActions>
+          <AutomaticBadge>
+            <i className="fas fa-wand-magic-sparkles" aria-hidden="true" />
+            자동 품질 관리 켜짐
+          </AutomaticBadge>
+        </HeaderActions>
       </ProductionHeader>
+
+      {workerStatusPending ? (
+        <CreditReadiness $blocked={false} role="status" aria-live="polite">
+          <div>
+            <span>영상 서버 확인 중</span>
+            <strong>추가 비용 전에 안전 버전을 확인하고 있습니다.</strong>
+            <small>확인이 끝나면 영상 제작 버튼이 자동으로 활성화됩니다.</small>
+          </div>
+        </CreditReadiness>
+      ) : workerBlockingMessage ? (
+        <CreditReadiness $blocked role="alert">
+          <div>
+            <span>영상 제작 일시 중지</span>
+            <strong>영상 처리 서버 연결을 다시 확인해 주세요.</strong>
+            <small>
+              장면 설계와 편집은 계속할 수 있으며, 안전한 처리 서버가 확인되기
+              전에는 새 유료 영상 요청과 복구 요청을 보내지 않습니다.
+            </small>
+            <small>{workerBlockingMessage}</small>
+          </div>
+          <RuntimeStatusRetryButton
+            type="button"
+            onClick={handleRefreshRuntimeStatus}
+            aria-label="영상 처리 서버 상태 다시 확인"
+          >
+            <i className="fas fa-rotate" aria-hidden="true" /> 서버 다시 확인
+          </RuntimeStatusRetryButton>
+        </CreditReadiness>
+      ) : null}
+
+      {creditIssue ? (
+        <CreditReadiness $blocked role="alert">
+          <div>
+            <span>영상 제작 잔액 부족</span>
+            <strong>{creditIssue}</strong>
+            <small>
+              충전 전에는 새 유료 영상 요청만 막고, 장면 설계·편집과 기존 결과
+              확인은 그대로 사용할 수 있습니다.
+            </small>
+          </div>
+          <a
+            href="https://openrouter.ai/settings/credits"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <i
+              className="fas fa-arrow-up-right-from-square"
+              aria-hidden="true"
+            />
+            OpenRouter 충전
+          </a>
+        </CreditReadiness>
+      ) : null}
 
       <StoryboardProductionJourney
         model={productionJourney}
         onPause={handlePauseAutomation}
         onPrimaryAction={handleJourneyPrimaryAction}
-        onSelectScene={onActiveSceneChange}
+        onSelectScene={focusVideoScene}
+        onSelectStep={handleJourneyStepSelect}
       />
 
       <ProductionDetails>
         <summary>
           <span>
-            <i className="fas fa-sliders" aria-hidden="true" /> 품질·비용·세부
-            준비
+            <i className="fas fa-sliders" aria-hidden="true" /> 고급
+            설정·비용·기술 정보
           </span>
           <small>
             {qualityReadiness.score}점 · 예상 {formatUsd(projectedCost)}
           </small>
           <i className="fas fa-chevron-down" aria-hidden="true" />
         </summary>
+        <HeaderActions>
+          <ModelCatalogRefreshButton
+            type="button"
+            onClick={() => {
+              forceModelCatalogRefreshRef.current = true;
+              runtimeStatusAutoRetryCountRef.current = 0;
+              setRuntimeStatusRefreshRequest((current) => current + 1);
+              setModelCatalogRefreshRequest((current) => current + 1);
+            }}
+            disabled={!currentUser || projectBusy}
+            aria-busy={pricingCheckPending || workerStatusPending}
+            title="영상 모델·가격·잔액과 처리 서버 상태를 다시 확인합니다"
+          >
+            <i className="fas fa-rotate" aria-hidden="true" />
+            모델·서버·잔액 새로고침
+          </ModelCatalogRefreshButton>
+        </HeaderActions>
         <ControlStrip>
           <QualitySelector aria-label="영상 제작 품질">
             <button
@@ -3249,7 +4227,7 @@ export default function StoryboardVideoProductionPanel({
           </QualitySelector>
           <MetricsGrid
             aria-live="polite"
-            aria-busy={!estimate && !estimateError}
+            aria-busy={!representativeEstimate && !estimateError}
           >
             <Metric>
               <span>완성본 길이</span>
@@ -3274,19 +4252,85 @@ export default function StoryboardVideoProductionPanel({
               <small>
                 {hasUnknownProfilePricing
                   ? "OpenRouter 가격표가 없는 장면은 합계를 표시하지 않습니다."
-                  : estimate
-                    ? `장면 조건별 합산 · 대표 ${estimate.resolvedResolution} · ${estimate.resolvedDuration}초`
+                  : representativeEstimate
+                    ? `장면 조건별 합산 · 대표 ${representativeEstimate.resolvedResolution} · ${representativeEstimate.resolvedDuration}초`
                     : estimateError || "가격표 확인 중"}
               </small>
             </Metric>
             <Metric>
-              <span>실제 사용</span>
+              <span>현재 채택 영상 비용</span>
               <strong>{formatUsd(actualCost)}</strong>
               <small>
                 {readySceneCount}/{storyboard.scenes.length} 장면 완료
               </small>
             </Metric>
+            <Metric>
+              <span>제작 가능 잔액</span>
+              <strong>
+                {creditBalanceRestricted
+                  ? "관리자 전용"
+                  : formatUsd(remainingCreditUsd)}
+              </strong>
+              <small>
+                {creditBalanceRestricted
+                  ? creditEstimate?.credit.message
+                  : creditEstimate?.credit.state === "available"
+                    ? creditRequiredUsd !== null
+                      ? `${creditBlockScope === "scene" ? "가장 높은 장면 예상" : "이번 제작 예상"} ${formatUsd(creditRequiredUsd)}`
+                      : "예상 비용을 계산하면 전체 제작 가능 여부를 확인합니다."
+                    : creditEstimate?.credit.message ||
+                      "OpenRouter 잔액을 확인하는 중입니다."}
+              </small>
+            </Metric>
+            <Metric>
+              <span>모델·정책 기준</span>
+              <strong>
+                {representativeEstimate
+                  ? representativeEstimate.catalog.source === "live"
+                    ? "실시간 확인"
+                    : "최근 확인"
+                  : "확인 중"}
+              </strong>
+              <small>
+                {representativeEstimate
+                  ? [
+                      representativeEstimate.catalogModelCount,
+                      "개 중 ",
+                      representativeEstimate.compatibleModelCount,
+                      "개 호환",
+                    ].join("")
+                  : estimateError || "OpenRouter 카탈로그를 확인합니다."}
+              </small>
+            </Metric>
           </MetricsGrid>
+          {!creditBlocked &&
+          creditEstimate?.credit.state === "unavailable" ? (
+            <CreditReadiness
+              $blocked={false}
+              role="status"
+              aria-live="polite"
+            >
+              <div>
+                <span>CREDIT CHECK</span>
+                <strong>잔액을 확인하지 못했습니다.</strong>
+                <small>
+                  {creditEstimate.credit.message ||
+                    "생성 시 OpenRouter에서 잔액을 최종 확인합니다."}
+                </small>
+              </div>
+              <a
+                href="https://openrouter.ai/settings/credits"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <i
+                  className="fas fa-arrow-up-right-from-square"
+                  aria-hidden="true"
+                />
+                OpenRouter 충전
+              </a>
+            </CreditReadiness>
+          ) : null}
         </ControlStrip>
 
         <QualityReadiness $score={qualityReadiness.score}>
@@ -3416,7 +4460,7 @@ export default function StoryboardVideoProductionPanel({
                 <button
                   key={scene.id}
                   type="button"
-                  onClick={() => onActiveSceneChange(scene.id)}
+                  onClick={() => focusVideoScene(scene.id)}
                   aria-current={scene.id === activeSceneId ? "step" : undefined}
                 >
                   <span className="order">{scene.order}</span>
@@ -3441,41 +4485,72 @@ export default function StoryboardVideoProductionPanel({
         </QualityGate>
       </ProductionDetails>
 
-      <StoryboardAutomationConsoleView
-        model={{
-          allowUnknownPricing: storyboard.videoProduction.allowUnknownPricing,
-          automationErrorMessage:
-            storyboard.videoProduction.automationErrorMessage,
-          automationProgress,
-          automationRetryCount: storyboard.videoProduction.automationRetryCount,
-          automationStatus,
-          budgetBlocked: budgetExceeded || unknownPricingBlocked,
-          budgetExceeded,
-          budgetSummary: budgetExceeded
-            ? "예산 초과"
-            : `예상 ${formatUsd(projectedCost)} / 한도 ${formatUsd(maxBudgetUsd)}`,
-          canPauseAutomation,
-          canResumeAutomation,
-          finalErrorMessage: storyboard.videoProduction.finalErrorMessage,
-          hasFinalDelivery,
-          hasUnknownProfilePricing,
-          isRecoveringAutomation,
-          jobSubscriptionError,
-          jobSubscriptionReady,
-          maxBudgetUsd,
-          pendingSceneCount,
-          progressDescription: automationProgressDescription,
-          projectedCostLabel: formatUsd(projectedCost),
-          projectBusy,
-          qualityMode: storyboard.videoProduction.qualityMode,
-          recovery: automationRecovery,
-          reusableSceneCount: reusableSceneIds.size,
-        }}
-        onAllowUnknownPricingChange={handleAllowUnknownPricingChange}
-        onBudgetChange={handleBudgetChange}
-        onPause={handlePauseAutomation}
-        onResume={() => void handleResumeAutomation()}
-      />
+      <ProductionDetails
+        id="storyboard-production-recovery-details"
+        open={
+          automationStatus === "failed" ||
+          Boolean(storyboard.videoProduction.automationErrorMessage) ||
+          Boolean(storyboard.videoProduction.finalErrorMessage) ||
+          Boolean(jobSubscriptionError) ||
+          Boolean(workerBlockingMessage)
+        }
+      >
+        <summary>
+          <span>
+            <i className="fas fa-shield-heart" aria-hidden="true" /> 작업
+            상태·오류 복구
+          </span>
+          <small>
+            {automationStatus === "failed"
+              ? "확인이 필요합니다"
+              : automationActive
+                ? "제작 진행 중"
+                : "멈췄을 때만 열기"}
+          </small>
+          <i className="fas fa-chevron-down" aria-hidden="true" />
+        </summary>
+        <StoryboardAutomationConsoleView
+          model={{
+            allowUnknownPricing: storyboard.videoProduction.allowUnknownPricing,
+            automationErrorMessage:
+              storyboard.videoProduction.automationErrorMessage,
+            automationProgress,
+            automationRetryCount: Math.min(
+              storyboard.videoProduction.automationRetryCount,
+              AUTOMATION_RETRY_LIMIT,
+            ),
+            automationStatus,
+            budgetBlocked: budgetExceeded || unknownPricingBlocked,
+            budgetExceeded,
+            budgetSummary: budgetExceeded
+              ? "예산 초과"
+              : `예상 ${formatUsd(projectedCost)} / 한도 ${formatUsd(maxBudgetUsd)}`,
+            canPauseAutomation,
+            canResumeAutomation,
+            finalErrorMessage: storyboard.videoProduction.finalErrorMessage,
+            hasFinalDelivery,
+            hasUnknownProfilePricing,
+            isRecoveringAutomation,
+            jobSubscriptionError,
+            jobSubscriptionReady,
+            maxBudgetUsd,
+            pendingSceneCount,
+            progressDescription: automationProgressDescription,
+            projectedCostLabel: formatUsd(projectedCost),
+            projectBusy,
+            qualityMode: storyboard.videoProduction.qualityMode,
+            recovery: automationRecovery,
+            reusableSceneCount: reusableSceneIds.size,
+            workerIssue: pendingSceneCount > 0 ? workerBlockingMessage : null,
+            workerStatusPending: pendingSceneCount > 0 && workerStatusPending,
+          }}
+          onAllowUnknownPricingChange={handleAllowUnknownPricingChange}
+          onBudgetChange={handleBudgetChange}
+          onPause={handlePauseAutomation}
+          onResume={() => void handleResumeAutomation()}
+          onRetryJobSubscription={retryJobSubscription}
+        />
+      </ProductionDetails>
 
       {storyboard.videoProduction.finalVideoUrl ? (
         <StoryboardFinalDelivery
@@ -3531,11 +4606,15 @@ export default function StoryboardVideoProductionPanel({
             sceneAudioVolume: storyboard.videoProduction.sceneAudioVolume,
             storyboardIdAvailable: Boolean(storyboardId),
             voiceDirection: storyboard.videoProduction.voiceDirection,
+            voiceProfiles: storyboard.videoProduction.voiceProfiles,
           }}
           onAssemblyPatch={patchAssemblySettings}
           onAudioMixPreset={handleAudioMixPreset}
           onBackgroundMusicFile={(file) => void handleBackgroundMusicFile(file)}
           onRemoveBackgroundMusic={handleRemoveBackgroundMusic}
+          onVoiceProfileAdd={handleAddVoiceProfile}
+          onVoiceProfileChange={handleVoiceProfilePatch}
+          onVoiceProfileRemove={handleRemoveVoiceProfile}
           onVoiceDirectionCommit={patchVoiceDirection}
         />
 
@@ -3548,14 +4627,14 @@ export default function StoryboardVideoProductionPanel({
         />
       </ProductionDetails>
 
-      <TimelineOverview aria-label="영상 장면 타임라인">
+      <TimelineOverview as="nav" aria-label="영상 장면 타임라인">
         {storyboard.scenes.map((scene) => (
           <TimelineScene
             key={scene.id}
             type="button"
             $status={scene.video.status}
             $active={scene.id === storyboard.scenes[selectedSceneIndex]?.id}
-            onClick={() => onActiveSceneChange(scene.id)}
+            onClick={() => focusVideoScene(scene.id)}
             aria-current={
               scene.id === storyboard.scenes[selectedSceneIndex]?.id
                 ? "step"
@@ -3631,19 +4710,24 @@ export default function StoryboardVideoProductionPanel({
           const hasPendingVideoChanges = Boolean(
             scene.video.videoUrl && scene.video.status === "brief",
           );
+          const sceneJob = scene.video.jobId
+            ? jobsById.get(scene.video.jobId)
+            : undefined;
+          const isInputImagePrivacyBlocked = isInputImagePrivacyFailure(
+            scene.video.errorMessage,
+            sceneJob,
+          );
           const sceneEstimateProfileKey = videoEstimateProfileKey({
             duration: effectiveSceneDuration(scene),
             audioMode: sceneAudioMode,
             hasReferenceImage: hasStartFrame,
             hasEndReferenceImage: hasNextEndFrame,
             hasVisualReferenceImages: selectedReferenceAssets.length > 0,
+            knownInputImagePrivacyBlock: isInputImagePrivacyBlocked,
           });
-          const sceneEstimate =
-            estimatesByProfile.get(sceneEstimateProfileKey)?.estimatedCostUsd ??
-            null;
-          const sceneJob = scene.video.jobId
-            ? jobsById.get(scene.video.jobId)
-            : undefined;
+          const scenePreflight =
+            estimatesByProfile.get(sceneEstimateProfileKey) ?? null;
+          const sceneEstimate = scenePreflight?.estimatedCostUsd ?? null;
           const sceneAudioVerified = hasVerifiedAudibleAudio(sceneJob);
           const sceneRecovery = scene.video.errorMessage
             ? describeStoryboardVideoRecovery({
@@ -3651,11 +4735,6 @@ export default function StoryboardVideoProductionPanel({
                 job: sceneJob,
               })
             : null;
-          const isInputImagePrivacyBlocked = isInputImagePrivacyFailure(
-            scene.video.errorMessage,
-            sceneJob,
-          );
-
           return (
             <StoryboardSceneProductionEditor
               key={scene.id}
@@ -3669,11 +4748,22 @@ export default function StoryboardVideoProductionPanel({
                 dialogueTiming,
                 downloadingAssetUrl,
                 durationOptions: STORYBOARD_VIDEO_DURATION_OPTIONS,
+                generationBlockedReason: !currentUser
+                  ? "로그인 상태를 확인한 뒤 영상을 제작할 수 있습니다."
+                  : workerStatusPending
+                    ? "영상 처리 서버의 안전 버전을 확인하고 있습니다. 확인 후 제작 버튼이 자동으로 활성화됩니다."
+                    : workerBlockingMessage ||
+                      (scene.video.jobId && jobSubscriptionError
+                        ? "기존 영상 작업 기록을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요."
+                        : scene.video.jobId && !jobSubscriptionReady
+                          ? "기존 영상 작업 기록을 확인하고 있습니다. 확인 후 제작 버튼이 자동으로 활성화됩니다."
+                          : null),
                 hasManualReferenceSelection,
                 hasNextEndFrame,
                 hasPendingVideoChanges,
-                hasRepresentativeEstimate: Boolean(estimate),
+                hasRepresentativeEstimate: Boolean(representativeEstimate),
                 hasStartFrame,
+                modelPreflight: scenePreflight,
                 isQueueing: queueingSceneId === scene.id,
                 isSceneBusy,
                 isInputImagePrivacyBlocked,
@@ -3681,7 +4771,9 @@ export default function StoryboardVideoProductionPanel({
                 nextScene,
                 projectBusy,
                 referenceAssets,
-                retryAdvice: scene.video.errorMessage
+                retryAdvice:
+                  scene.video.errorMessage &&
+                  sceneRecovery?.canReuseProviderJob
                   ? getSceneRetryAdvice(scene.video.errorMessage)
                   : "",
                 scene,
@@ -3694,6 +4786,7 @@ export default function StoryboardVideoProductionPanel({
                 statusLabel: STATUS_LABELS[scene.video.status],
                 storyboardTitle: storyboard.title,
                 suggestedPrompt,
+                voiceProfiles: storyboard.videoProduction.voiceProfiles,
               }}
               actions={{
                 onApproval: () => handleApproval(scene),
@@ -3704,9 +4797,21 @@ export default function StoryboardVideoProductionPanel({
                 onDurationChange: (duration) =>
                   patchSceneDuration(scene.id, duration),
                 onGenerate: () => handleGenerateScene(scene),
+                onRegenerate: () =>
+                  handleGenerateScene(scene, {
+                    forceNewProviderRequest: true,
+                  }),
                 onGenerateWithoutVisualInputs: () =>
                   handleGenerateWithoutVisualInputs(scene),
                 onPatchVideo: (patch) => patchSceneVideo(scene.id, patch),
+                onVoiceProfileChange: (voiceProfileId) =>
+                  patchSceneVideo(scene.id, {
+                    voiceProfileId,
+                    status: scene.video.videoUrl
+                      ? "brief"
+                      : scene.video.status,
+                    approvedAt: null,
+                  }),
               }}
             />
           );

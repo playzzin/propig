@@ -6,23 +6,10 @@ import {
     ImageStoryboardFlowRedesignSchema,
 } from '@/schemas/imageStoryboard';
 import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
+import { parseStoryboardJsonObject } from '@/lib/server/storyboard-json';
 import { runManagedTextChat, runManagedVisionChat, type ManagedVisionMessage } from '@/lib/server/managed-text-provider';
 import { enforceUserRateLimit } from '@/lib/server/rate-limit';
 import { requireUserAuth } from '@/lib/server/user-auth';
-
-function extractJsonObjectText(text: string): string {
-    const cleaned = text
-        .trim()
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-    const objectStart = cleaned.indexOf('{');
-    const objectEnd = cleaned.lastIndexOf('}');
-    if (objectStart < 0 || objectEnd <= objectStart) {
-        throw new Error('AI response does not contain a complete JSON object.');
-    }
-    return cleaned.slice(objectStart, objectEnd + 1);
-}
 
 type FlowInput = z.infer<typeof ImageStoryboardFlowRedesignRequestSchema>;
 
@@ -71,7 +58,7 @@ function buildMessages(input: FlowInput, qualityIssue?: string): ManagedVisionMe
             ? 'Treat attached reference images as visual source-of-truth. Preserve labelled subjects, product geometry, architecture, materials, and palette. Do not invent logos or readable text.'
             : 'Use the supplied continuity bible as the source of truth for recurring identity, setting, and lighting.',
         'Each scene must be one feasible focused frame or shot, not a collage. Vary composition and camera direction purposefully while keeping transitions practical.',
-        'dialogueOrCaption is spoken or narration context only. Keep it brief enough for the stated scene duration and never request it as visible on-screen text.',
+        'dialogueOrCaption must contain only the exact words a visible character will speak. Do not include speaker labels, action descriptions, quotation marks, narration, subtitles, or camera directions. Use an empty string when nobody speaks and keep spoken lines brief enough for the stated duration.',
         'Write user-facing fields in Korean. imagePrompt and negativePrompt must be English.',
         'imagePrompt must be a detailed single image-generation prompt with subject, action, foreground/midground/background, composition or lens, lighting, material cues, and finish.',
         'negativePrompt must be compact English comma-separated exclusions.',
@@ -99,7 +86,7 @@ function buildMessages(input: FlowInput, qualityIssue?: string): ManagedVisionMe
 
 function parseFlow(content: string) {
     try {
-        const raw = JSON.parse(extractJsonObjectText(content)) as unknown;
+        const raw = parseStoryboardJsonObject(content);
         const parsed = ImageStoryboardFlowRedesignSchema.safeParse(raw);
         return parsed.success ? parsed.data : null;
     } catch {

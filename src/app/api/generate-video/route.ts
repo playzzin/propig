@@ -5,11 +5,11 @@ import {
     generateOpenRouterVideo,
     validateVideoPayload,
 } from '@/lib/server/video-generation';
-import { requireUserAuth } from '@/lib/server/user-auth';
+import { requireAdminAuth } from '@/lib/server/admin-auth';
 
 export async function POST(req: NextRequest) {
     try {
-        const auth = await requireUserAuth(req);
+        const auth = await requireAdminAuth(req);
         if (!auth.ok) {
             return NextResponse.json({ success: false, error: auth.message }, { status: auth.status });
         }

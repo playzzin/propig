@@ -13,6 +13,7 @@ import {
     type ImageReferenceDraft,
     type ImageReferenceRole,
 } from '@/types/imageReference';
+import { validateReferenceImageSignature } from '@/lib/reference-image-validation';
 
 type ReferenceImageAssetManagerProps = {
     assets: ImageReferenceAsset[];
@@ -25,6 +26,7 @@ type ReferenceImageAssetManagerProps = {
 };
 
 const ROLE_CYCLE: ImageReferenceRole[] = ['building', 'product', 'character', 'background'];
+const MAX_IMAGE_REFERENCE_PIXELS = 32_000_000;
 
 const Shell = styled.section`
     padding: 16px;
@@ -223,6 +225,27 @@ function readFileAsDataUrl(file: File): Promise<string> {
     });
 }
 
+async function validateReferenceImageFile(file: File): Promise<void> {
+    await validateReferenceImageSignature(file);
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const candidate = new window.Image();
+            candidate.decoding = 'async';
+            candidate.onload = () => resolve(candidate);
+            candidate.onerror = () => reject(new Error('이미지 데이터를 읽을 수 없습니다. 손상된 파일인지 확인해 주세요.'));
+            candidate.src = objectUrl;
+        });
+        const pixels = image.naturalWidth * image.naturalHeight;
+        if (!image.naturalWidth || !image.naturalHeight || pixels > MAX_IMAGE_REFERENCE_PIXELS) {
+            throw new Error('이미지 해상도가 너무 큽니다. 가로·세로 크기를 줄인 뒤 다시 선택해 주세요.');
+        }
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
 export default function ReferenceImageAssetManager({
     assets,
     onAddAssets,
@@ -263,13 +286,25 @@ export default function ReferenceImageAssetManager({
         if (!validFiles.length) return;
 
         try {
-            const nextAssets = await Promise.all(validFiles.map(async (file, index): Promise<ImageReferenceDraft> => ({
+            const validation = await Promise.allSettled(validFiles.map(validateReferenceImageFile));
+            const verifiedFiles = validFiles.filter((_, index) => validation[index].status === 'fulfilled');
+            const rejected = validation.find((result) => result.status === 'rejected');
+            if (rejected?.status === 'rejected') {
+                toast.error(
+                    rejected.reason instanceof Error
+                        ? rejected.reason.message
+                        : '참조 사진을 검증하지 못했습니다.',
+                );
+            }
+            if (!verifiedFiles.length) return;
+
+            const nextAssets = await Promise.all(verifiedFiles.map(async (file, index): Promise<ImageReferenceDraft> => ({
                 image: await readFileAsDataUrl(file),
                 name: file.name,
                 role: ROLE_CYCLE[(assets.length + index) % ROLE_CYCLE.length],
             })));
             onAddAssets(nextAssets);
-            toast.success(`${nextAssets.length}개의 참조 이미지를 등록했습니다.`);
+            toast.info(`${nextAssets.length}개의 참조 이미지를 확인하고 업로드합니다.`);
         } catch (error) {
             console.error('Failed to read reference images:', error);
             toast.error('참조 이미지를 읽지 못했습니다. 다시 시도해 주세요.');

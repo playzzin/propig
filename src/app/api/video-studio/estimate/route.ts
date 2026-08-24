@@ -1,33 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireUserAuth } from '@/lib/server/user-auth';
+import { requireUserAccessAuth } from '@/lib/server/admin-auth';
 import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
-import { preflightOpenRouterVideo } from '@/lib/server/video-generation';
+import { preflightOpenRouterVideo, type OpenRouterVideoPreflight } from '@/lib/server/video-generation';
 import { STORYBOARD_VIDEO_AUDIO_MODES } from '@/lib/storyboard-video-audio';
 
 export const runtime = 'nodejs';
+
+const redactCreditBalance = (estimate: OpenRouterVideoPreflight): OpenRouterVideoPreflight => ({
+    ...estimate,
+    credit: {
+        ...estimate.credit,
+        remainingUsd: null,
+        totalCreditsUsd: null,
+        totalUsageUsd: null,
+        message:
+            estimate.credit.message ||
+            'OpenRouter 잔액은 관리자에게만 표시됩니다. 장면별 제작 가능 여부는 계속 확인합니다.',
+    },
+});
 
 const EstimateQuerySchema = z.object({
     duration: z.coerce.number().int().min(1).max(15),
     resolution: z.enum(['480p', '720p', '1080p']),
     aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']),
     qualityMode: z.enum(['proof', 'final']).default('proof'),
-    hasReferenceImage: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-    hasEndReferenceImage: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-    hasVisualReferenceImages: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+    hasReferenceImage: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    hasEndReferenceImage: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    hasVisualReferenceImages: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
     audioMode: z.enum(STORYBOARD_VIDEO_AUDIO_MODES).default('silent'),
+    forceModelRefresh: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    knownInputImagePrivacyBlock: z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
 });
 
 export async function GET(req: NextRequest) {
     try {
-        const auth = await requireUserAuth(req);
+        const auth = await requireUserAccessAuth(req);
         if (!auth.ok) {
             return NextResponse.json({ success: false, error: auth.message }, { status: auth.status });
         }
 
-        const parsed = EstimateQuerySchema.safeParse(
-            Object.fromEntries(req.nextUrl.searchParams.entries()),
-        );
+        const parsed = EstimateQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams.entries()));
         if (!parsed.success) {
             return NextResponse.json(
                 { success: false, error: '영상 예상 비용 조건을 확인해 주세요.' },
@@ -47,7 +75,10 @@ export async function GET(req: NextRequest) {
             apiKey: runtimeConfig.openRouterApiKey,
             ...parsed.data,
         });
-        return NextResponse.json({ success: true, estimate });
+        return NextResponse.json({
+            success: true,
+            estimate: auth.isAdmin ? estimate : redactCreditBalance(estimate),
+        });
     } catch (error) {
         console.error('[API] video-studio/estimate failed:', error);
         return NextResponse.json(

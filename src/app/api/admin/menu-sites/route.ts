@@ -15,7 +15,7 @@ const MenuSitesUpdateSchema = z.object({
 
 const MENU_SETTINGS_COLLECTION = 'menuSettings';
 const MENU_SETTINGS_DOC_ID = 'sites';
-const MENU_SETTINGS_VERSION = 42;
+const MENU_SETTINGS_VERSION = 45;
 
 const countMenuItems = (items: MenuItem[] = []): number =>
   items.reduce((total, item) => {

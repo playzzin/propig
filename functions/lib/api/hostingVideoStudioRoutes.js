@@ -13,18 +13,37 @@ exports.handleVideoStudioTimeline = handleVideoStudioTimeline;
 exports.handleVideoStudioProjectStorage = handleVideoStudioProjectStorage;
 const node_crypto_1 = require("node:crypto");
 const admin = require("firebase-admin");
+const logger = require("firebase-functions/logger");
 const zod_1 = require("zod");
 const processor_1 = require("../videoStudio/processor");
 const request_1 = require("../videoStudio/request");
 const openrouter_1 = require("../videoStudio/openrouter");
 const ffmpeg_1 = require("../videoStudio/ffmpeg");
+const idempotency_1 = require("../videoStudio/idempotency");
+const workerContract_1 = require("../videoStudio/workerContract");
+const storagePath_1 = require("../videoStudio/storagePath");
+const repeatCost_1 = require("../videoStudio/repeatCost");
 const hostingCommon_1 = require("./hostingCommon");
 const hostingAiRuntime_1 = require("./hostingAiRuntime");
+const security_1 = require("./security");
 const PROJECTS = 'video_studio_projects';
 const CLIPS = 'video_studio_clips';
 const JOBS = 'video_studio_jobs';
 const VIDEO_STUDIO_STORAGE_PAGE_SIZE = 250;
 const ACTIVE_STORAGE_JOB_STATUSES = new Set(['queued', 'running', 'uploading']);
+const PROVIDER_JOB_OPERATIONS = new Set(['generate', 'extend', 'continue', 'edit']);
+const WORKER_PROBE_CREATE_PHASE_TIMEOUT_MS = 16000;
+const WORKER_PROBE_TOTAL_TIMEOUT_MS = 24000;
+const WORKER_PROBE_POLL_INTERVAL_MS = 500;
+const WORKER_PROBE_SUCCESS_CACHE_MS = 60000;
+const WORKER_PROBE_FAILURE_CACHE_MS = 10000;
+function redactCreditBalance(estimate) {
+    return Object.assign(Object.assign({}, estimate), { credit: Object.assign(Object.assign({}, estimate.credit), { remainingUsd: null, totalCreditsUsd: null, totalUsageUsd: null, message: estimate.credit.message ||
+                'OpenRouter 잔액은 관리자에게만 표시됩니다. 장면별 제작 가능 여부는 계속 확인합니다.' }) });
+}
+function toStoredPreflight(preflight) {
+    return Object.assign(Object.assign({}, preflight), { credit: Object.assign(Object.assign({}, preflight.credit), { remainingUsd: null, totalCreditsUsd: null, totalUsageUsd: null }) });
+}
 async function requireOwnedProject(uid, projectId) {
     const snapshot = await hostingCommon_1.db.collection(PROJECTS).doc(projectId).get();
     if (!snapshot.exists)
@@ -47,19 +66,338 @@ function nullableText(value) {
     const text = value === null || value === void 0 ? void 0 : value.trim();
     return text || null;
 }
+let workerProbeCache = null;
+let workerProbeInFlight = null;
+function waitForWorkerProbePoll() {
+    return new Promise((resolve) => setTimeout(resolve, WORKER_PROBE_POLL_INTERVAL_MS));
+}
+function workerProbeFailure(params) {
+    return {
+        state: params.state,
+        compatible: false,
+        protocolVersion: null,
+        capabilities: [],
+        checkedAt: params.checkedAt,
+        latencyMs: Date.now() - params.startedAt,
+        message: params.message,
+    };
+}
+async function waitForWorkerProbeResponse(params) {
+    while (Date.now() < params.deadline) {
+        await waitForWorkerProbePoll();
+        const snapshot = await params.probeRef.get();
+        if (!snapshot.exists)
+            return { outcome: 'missing', response: null };
+        const data = snapshot.data() || {};
+        const response = (0, workerContract_1.readVideoStudioWorkerProbeResponse)(data);
+        if (response)
+            return { outcome: 'response', response };
+        const status = typeof data.status === 'string' ? data.status : '';
+        if (status === 'failed' || status === 'canceled' || status === 'completed') {
+            return { outcome: 'terminal', response: null };
+        }
+    }
+    return { outcome: 'timeout', response: null };
+}
+function isCompatibleWorkerProbeResponse(params) {
+    const availableCapabilities = new Set(params.response.capabilities);
+    return (params.response.challenge === params.challenge
+        && params.response.phase === params.phase
+        && params.response.handler === params.handler
+        && params.response.protocolVersion >= workerContract_1.VIDEO_STUDIO_WORKER_PROTOCOL_VERSION
+        && workerContract_1.VIDEO_STUDIO_WORKER_CAPABILITIES.every((capability) => availableCapabilities.has(capability)));
+}
+async function runVideoStudioQueueTriggerProbe() {
+    const startedAt = Date.now();
+    const checkedAt = new Date(startedAt).toISOString();
+    const createChallenge = (0, node_crypto_1.randomUUID)();
+    const probeRef = hostingCommon_1.db.collection(JOBS).doc(`__worker_contract_probe_${(0, node_crypto_1.randomUUID)().replace(/-/g, '')}`);
+    let probeCreated = false;
+    try {
+        await probeRef.create({
+            userId: '__video_studio_worker_probe__',
+            projectId: '__video_studio_worker_probe__',
+            kind: workerContract_1.VIDEO_STUDIO_WORKER_PROBE_KIND,
+            title: 'Video Studio worker contract probe',
+            prompt: '',
+            status: 'queued',
+            progress: 0,
+            message: 'Waiting for the deployed queue trigger to answer a contract challenge.',
+            metadata: {
+                workerContractProbe: {
+                    version: workerContract_1.VIDEO_STUDIO_WORKER_PROBE_VERSION,
+                    phase: 'create',
+                    challenge: createChallenge,
+                    requestedProtocolVersion: workerContract_1.VIDEO_STUDIO_WORKER_PROTOCOL_VERSION,
+                    requiredCapabilities: [...workerContract_1.VIDEO_STUDIO_WORKER_CAPABILITIES],
+                    requestedAt: checkedAt,
+                },
+            },
+            clipId: null,
+            resultVideoUrl: null,
+            resultFrameUrl: null,
+            errorMessage: null,
+            attemptCount: 0,
+            claimedAt: null,
+            heartbeatAt: null,
+            leaseExpiresAt: null,
+            nextAttemptAt: null,
+            startedAt: null,
+            finishedAt: null,
+            probeExpiresAt: admin.firestore.Timestamp.fromMillis(startedAt + 5 * 60 * 1000),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        probeCreated = true;
+        const createResult = await waitForWorkerProbeResponse({
+            probeRef,
+            deadline: startedAt + WORKER_PROBE_CREATE_PHASE_TIMEOUT_MS,
+        });
+        if (createResult.outcome !== 'response') {
+            return workerProbeFailure({
+                state: createResult.outcome === 'terminal' ? 'outdated' : 'unavailable',
+                checkedAt,
+                startedAt,
+                message: createResult.outcome === 'terminal'
+                    ? '배포된 신규 작업 트리거가 challenge 규격을 처리하지 못했습니다. 최신 Functions 배포가 필요합니다.'
+                    : '신규 영상 작업 트리거가 제한 시간 안에 응답하지 않아 유료 작업 접수를 중단했습니다.',
+            });
+        }
+        if (!isCompatibleWorkerProbeResponse({
+            response: createResult.response,
+            challenge: createChallenge,
+            phase: 'create',
+            handler: 'onVideoStudioJobQueued',
+        })) {
+            return {
+                state: 'outdated',
+                compatible: false,
+                protocolVersion: createResult.response.protocolVersion,
+                capabilities: [...createResult.response.capabilities],
+                checkedAt,
+                latencyMs: Date.now() - startedAt,
+                message: '신규 영상 작업 트리거의 프로토콜 또는 기능이 현재 앱과 맞지 않습니다.',
+            };
+        }
+        const requeueChallenge = (0, node_crypto_1.randomUUID)();
+        await probeRef.update({
+            status: 'queued',
+            progress: 0,
+            message: 'Waiting for the deployed requeue trigger to answer a contract challenge.',
+            errorMessage: null,
+            claimedAt: null,
+            heartbeatAt: null,
+            leaseExpiresAt: null,
+            nextAttemptAt: null,
+            startedAt: null,
+            finishedAt: null,
+            'metadata.workerContractProbe': {
+                version: workerContract_1.VIDEO_STUDIO_WORKER_PROBE_VERSION,
+                phase: 'requeue',
+                challenge: requeueChallenge,
+                requestedProtocolVersion: workerContract_1.VIDEO_STUDIO_WORKER_PROTOCOL_VERSION,
+                requiredCapabilities: [...workerContract_1.VIDEO_STUDIO_WORKER_CAPABILITIES],
+                requestedAt: new Date().toISOString(),
+            },
+            'metadata.queueDispatchToken': (0, node_crypto_1.randomUUID)(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        const requeueResult = await waitForWorkerProbeResponse({
+            probeRef,
+            deadline: startedAt + WORKER_PROBE_TOTAL_TIMEOUT_MS,
+        });
+        if (requeueResult.outcome !== 'response') {
+            return workerProbeFailure({
+                state: requeueResult.outcome === 'terminal' ? 'outdated' : 'unavailable',
+                checkedAt,
+                startedAt,
+                message: requeueResult.outcome === 'terminal'
+                    ? '배포된 재등록 트리거가 challenge 규격을 처리하지 못했습니다. 최신 Functions 배포가 필요합니다.'
+                    : '영상 재등록 트리거가 제한 시간 안에 응답하지 않아 유료 작업 접수를 중단했습니다.',
+            });
+        }
+        if (!isCompatibleWorkerProbeResponse({
+            response: requeueResult.response,
+            challenge: requeueChallenge,
+            phase: 'requeue',
+            handler: 'onVideoStudioJobRequeued',
+        })) {
+            return {
+                state: 'outdated',
+                compatible: false,
+                protocolVersion: requeueResult.response.protocolVersion,
+                capabilities: [...requeueResult.response.capabilities],
+                checkedAt,
+                latencyMs: Date.now() - startedAt,
+                message: '영상 재등록 트리거의 프로토콜 또는 기능이 현재 앱과 맞지 않습니다.',
+            };
+        }
+        const requeueCapabilities = new Set(requeueResult.response.capabilities);
+        return {
+            state: 'ready',
+            compatible: true,
+            protocolVersion: Math.min(createResult.response.protocolVersion, requeueResult.response.protocolVersion),
+            capabilities: createResult.response.capabilities.filter((capability) => (requeueCapabilities.has(capability))),
+            checkedAt,
+            latencyMs: Date.now() - startedAt,
+            message: '신규 작업과 재등록 영상 큐 트리거가 모두 최신 처리 규격으로 응답했습니다.',
+        };
+    }
+    catch (error) {
+        logger.warn('[VideoStudioWorkerProbe] Failed to verify the deployed queue trigger.', {
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return workerProbeFailure({
+            state: 'unavailable',
+            checkedAt,
+            startedAt,
+            message: '영상 큐 트리거의 실제 동작을 확인하지 못해 유료 작업 접수를 중단했습니다.',
+        });
+    }
+    finally {
+        if (probeCreated) {
+            await probeRef.delete().catch((error) => {
+                logger.warn('[VideoStudioWorkerProbe] Failed to remove a completed probe document.', {
+                    probeId: probeRef.id,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                return probeRef.set({
+                    status: 'canceled',
+                    message: 'Worker contract probe cleanup is pending.',
+                    finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true }).catch((fallbackError) => {
+                    logger.error('[VideoStudioWorkerProbe] Failed to quarantine a residual probe document.', {
+                        probeId: probeRef.id,
+                        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+                    });
+                });
+            });
+        }
+    }
+}
+async function inspectVideoStudioQueueTrigger() {
+    const now = Date.now();
+    if (workerProbeCache && workerProbeCache.expiresAt > now) {
+        return workerProbeCache.inspection;
+    }
+    if (workerProbeInFlight) {
+        return workerProbeInFlight;
+    }
+    const probePromise = runVideoStudioQueueTriggerProbe();
+    workerProbeInFlight = probePromise;
+    try {
+        const inspection = await probePromise;
+        workerProbeCache = {
+            inspection,
+            expiresAt: Date.now() + (inspection.compatible
+                ? WORKER_PROBE_SUCCESS_CACHE_MS
+                : WORKER_PROBE_FAILURE_CACHE_MS),
+        };
+        return inspection;
+    }
+    finally {
+        if (workerProbeInFlight === probePromise) {
+            workerProbeInFlight = null;
+        }
+    }
+}
+async function inspectVideoStudioWorkerAvailability() {
+    const [runtime, probe] = await Promise.all([
+        (0, hostingAiRuntime_1.getHostingAiRuntime)(),
+        inspectVideoStudioQueueTrigger(),
+    ]);
+    const apiKeyConfigured = Boolean(runtime.openRouterApiKey);
+    const automaticProcessorConfigured = apiKeyConfigured && probe.compatible;
+    return {
+        runtime,
+        worker: Object.assign(Object.assign({}, probe), { state: probe.compatible && !apiKeyConfigured ? 'misconfigured' : probe.state, compatible: automaticProcessorConfigured, message: probe.compatible && !apiKeyConfigured
+                ? '실제 영상 큐 트리거는 정상이나 OPENROUTER_API_KEY가 설정되지 않았습니다.'
+                : probe.message }),
+        automaticProcessorConfigured,
+    };
+}
+async function requireFreshProviderWorker() {
+    const availability = await inspectVideoStudioWorkerAvailability();
+    if (!availability.runtime.openRouterApiKey) {
+        throw new hostingCommon_1.ApiError(503, 'OPENROUTER_API_KEY가 설정되지 않아 영상 작업을 접수하지 않았습니다.');
+    }
+    if (!availability.automaticProcessorConfigured) {
+        throw new hostingCommon_1.ApiError(503, availability.worker.message);
+    }
+    return availability.runtime;
+}
+function requiresProviderWorker(operation) {
+    return typeof operation === 'string' && PROVIDER_JOB_OPERATIONS.has(operation);
+}
+function queuedJobRequiresProviderWorker(job) {
+    if (requiresProviderWorker(job.kind))
+        return true;
+    const metadata = job.metadata && typeof job.metadata === 'object'
+        ? job.metadata
+        : null;
+    const request = (metadata === null || metadata === void 0 ? void 0 : metadata.request) && typeof metadata.request === 'object'
+        ? metadata.request
+        : null;
+    return requiresProviderWorker(request === null || request === void 0 ? void 0 : request.operation);
+}
+function hasResumableProviderVideo(job) {
+    const metadata = job.metadata && typeof job.metadata === 'object'
+        ? job.metadata
+        : null;
+    const accessIssue = metadata === null || metadata === void 0 ? void 0 : metadata.providerVideoAccessIssue;
+    if (accessIssue && typeof accessIssue === 'object') {
+        const candidate = accessIssue;
+        const hasAlreadyRequeued = typeof (metadata === null || metadata === void 0 ? void 0 : metadata.queueDispatchToken) === 'string'
+            && metadata.queueDispatchToken.length > 0;
+        if ((candidate.recoverable === false || hasAlreadyRequeued)
+            && (candidate.httpStatus === 401 || candidate.httpStatus === 403))
+            return false;
+    }
+    const unavailableOutput = metadata === null || metadata === void 0 ? void 0 : metadata.providerVideoDiscarded;
+    if (unavailableOutput && typeof unavailableOutput === 'object') {
+        const discarded = unavailableOutput;
+        const reason = discarded.reason;
+        const terminalLegacyUnavailable = reason === 'provider_output_unavailable'
+            && discarded.httpStatus !== 401
+            && discarded.httpStatus !== 403;
+        if (reason === 'provider_output_not_found'
+            || reason === 'provider_output_expired'
+            || terminalLegacyUnavailable)
+            return false;
+    }
+    if ((0, openrouter_1.isResumableOpenRouterVideoCheckpoint)(metadata === null || metadata === void 0 ? void 0 : metadata.providerVideo))
+        return true;
+    const discarded = (metadata === null || metadata === void 0 ? void 0 : metadata.providerVideoDiscarded)
+        && typeof metadata.providerVideoDiscarded === 'object'
+        ? metadata.providerVideoDiscarded
+        : null;
+    const renderResult = (metadata === null || metadata === void 0 ? void 0 : metadata.renderResult) && typeof metadata.renderResult === 'object'
+        ? metadata.renderResult
+        : null;
+    return Boolean(discarded
+        && renderResult
+        && discarded.reason === 'resolution_mismatch'
+        && discarded.recoverable !== false
+        && typeof discarded.providerJobId === 'string'
+        && discarded.providerJobId.length > 0
+        && renderResult.requestId === discarded.providerJobId
+        && renderResult.modelUsed === discarded.modelId);
+}
 async function handleVideoStudioStatus(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'GET');
     await (0, hostingCommon_1.requireUser)(req);
-    const runtime = await (0, hostingAiRuntime_1.getHostingAiRuntime)();
+    const availability = await inspectVideoStudioWorkerAvailability();
     res.status(200).json({
         success: true,
         status: {
             provider: 'openrouter',
             devMode: false,
-            openRouterApiKeyConfigured: Boolean(runtime.openRouterApiKey),
-            configSource: runtime.source,
-            processorSecretConfigured: false,
-            automaticProcessorConfigured: true,
+            openRouterApiKeyConfigured: Boolean(availability.runtime.openRouterApiKey),
+            configSource: availability.runtime.source,
+            processorSecretConfigured: Boolean(availability.runtime.openRouterApiKey),
+            automaticProcessorConfigured: availability.automaticProcessorConfigured,
+            worker: Object.assign(Object.assign({}, availability.worker), { requiredProtocolVersion: workerContract_1.VIDEO_STUDIO_WORKER_PROTOCOL_VERSION, verification: 'firestore-trigger-challenge' }),
         },
     });
 }
@@ -68,14 +406,31 @@ const VideoEstimateQuerySchema = zod_1.z.object({
     resolution: zod_1.z.enum(['480p', '720p', '1080p']),
     aspectRatio: zod_1.z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']),
     qualityMode: zod_1.z.enum(['proof', 'final']).default('proof'),
-    hasReferenceImage: zod_1.z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-    hasEndReferenceImage: zod_1.z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-    hasVisualReferenceImages: zod_1.z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+    hasReferenceImage: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    hasEndReferenceImage: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    hasVisualReferenceImages: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
     audioMode: zod_1.z.enum(['silent', 'ambient', 'dialogue']).default('silent'),
+    forceModelRefresh: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    knownInputImagePrivacyBlock: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
 });
 async function handleVideoStudioEstimate(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'GET');
-    await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireUserAccess)(req);
     const parsed = VideoEstimateQuerySchema.safeParse({
         duration: req.query.duration,
         resolution: req.query.resolution,
@@ -85,6 +440,8 @@ async function handleVideoStudioEstimate(req, res) {
         hasEndReferenceImage: req.query.hasEndReferenceImage,
         hasVisualReferenceImages: req.query.hasVisualReferenceImages,
         audioMode: req.query.audioMode,
+        forceModelRefresh: req.query.forceModelRefresh,
+        knownInputImagePrivacyBlock: req.query.knownInputImagePrivacyBlock,
     });
     if (!parsed.success)
         throw new hostingCommon_1.ApiError(400, '영상 예상 비용 조건을 확인해 주세요.');
@@ -92,16 +449,28 @@ async function handleVideoStudioEstimate(req, res) {
     if (!runtime.openRouterApiKey)
         throw new hostingCommon_1.ApiError(503, 'OPENROUTER_API_KEY가 설정되지 않았습니다.');
     const estimate = await (0, openrouter_1.preflightOpenRouterVideo)(Object.assign({ apiKey: runtime.openRouterApiKey }, parsed.data));
-    res.status(200).json({ success: true, estimate });
+    res.status(200).json({
+        success: true,
+        estimate: auth.isAdmin ? estimate : redactCreditBalance(estimate),
+    });
 }
 const VideoReadinessQuerySchema = zod_1.z.object({
     duration: zod_1.z.coerce.number().int().min(1).max(15).default(6),
     resolution: zod_1.z.enum(['480p', '720p', '1080p']).default('720p'),
     aspectRatio: zod_1.z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']).default('16:9'),
     qualityMode: zod_1.z.enum(['proof', 'final']).default('proof'),
-    hasReferenceImage: zod_1.z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-    hasEndReferenceImage: zod_1.z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-    hasVisualReferenceImages: zod_1.z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+    hasReferenceImage: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    hasEndReferenceImage: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
+    hasVisualReferenceImages: zod_1.z
+        .enum(['true', 'false'])
+        .default('false')
+        .transform((value) => value === 'true'),
     audioMode: zod_1.z.enum(['silent', 'ambient', 'dialogue']).default('silent'),
 });
 async function handleVideoStudioReadiness(req, res) {
@@ -121,27 +490,55 @@ async function handleVideoStudioReadiness(req, res) {
         throw new hostingCommon_1.ApiError(400, '영상 제작 사전 점검 조건이 올바르지 않습니다.');
     const runtime = await (0, hostingAiRuntime_1.getHostingAiRuntime)();
     const [firestore, storage, storageSigning, ffmpeg] = await Promise.all([
-        hostingCommon_1.db.collection(JOBS).limit(1).get().then(() => ({ ok: true, message: 'Firestore Admin read access is available.' }), (error) => ({
+        hostingCommon_1.db
+            .collection(JOBS)
+            .limit(1)
+            .get()
+            .then(() => ({
+            ok: true,
+            message: 'Firestore Admin read access is available.',
+        }), (error) => ({
             ok: false,
             message: error instanceof Error ? error.message : 'Firestore Admin read access failed.',
         })),
-        admin.storage().bucket().getMetadata().then(() => ({ ok: true, message: 'Firebase Storage Admin access is available.' }), (error) => ({
+        admin
+            .storage()
+            .bucket()
+            .getMetadata()
+            .then(() => ({
+            ok: true,
+            message: 'Firebase Storage Admin access is available.',
+        }), (error) => ({
             ok: false,
             message: error instanceof Error ? error.message : 'Firebase Storage Admin access failed.',
         })),
-        admin.storage().bucket().file('__readiness__/signing-probe.txt').getSignedUrl({
+        admin
+            .storage()
+            .bucket()
+            .file('__readiness__/signing-probe.txt')
+            .getSignedUrl({
             action: 'read',
             expires: Date.now() + 60 * 1000,
-        }).then(() => ({ ok: true, message: 'Firebase Storage URL signing is available.' }), (error) => ({
+        })
+            .then(() => ({
+            ok: true,
+            message: 'Firebase Storage URL signing is available.',
+        }), (error) => ({
             ok: false,
-            message: error instanceof Error
-                ? error.message
-                : 'Firebase Storage URL signing is unavailable.',
+            message: error instanceof Error && /client[_ ]?email|cannot sign data/i.test(error.message)
+                ? 'Signed URLs are unavailable with local application-default credentials. Storyboard media continues to use Firebase download-token URLs.'
+                : error instanceof Error
+                    ? error.message
+                    : 'Firebase Storage URL signing is unavailable.',
         })),
         (0, ffmpeg_1.inspectFfmpegRuntime)(),
     ]);
     const openRouter = runtime.openRouterApiKey
-        ? await (0, openrouter_1.preflightOpenRouterVideo)(Object.assign({ apiKey: runtime.openRouterApiKey }, parsed.data)).then((preflight) => ({ ok: true, preflight, message: '호환되는 영상 모델을 확인했습니다.' }), (error) => ({
+        ? await (0, openrouter_1.preflightOpenRouterVideo)(Object.assign({ apiKey: runtime.openRouterApiKey }, parsed.data)).then((preflight) => ({
+            ok: true,
+            preflight,
+            message: '호환되는 영상 모델을 확인했습니다.',
+        }), (error) => ({
             ok: false,
             preflight: null,
             message: error instanceof Error ? error.message : 'OpenRouter 영상 모델 점검에 실패했습니다.',
@@ -163,15 +560,21 @@ async function handleVideoStudioReadiness(req, res) {
                     canPersistToFirestore: firestore.ok,
                     canSignStorageUrls: storageSigning.ok,
                     credentialMode: 'application_default',
-                    message: !firestore.ok
-                        ? firestore.message
-                        : !storageSigning.ok
-                            ? storageSigning.message
-                            : null,
+                    // Storyboard artifacts use Firebase download tokens. URL
+                    // signing is diagnostic-only and must not downgrade a
+                    // runtime that can read/write Firestore and Storage.
+                    message: !firestore.ok ? firestore.message : !storage.ok ? storage.message : null,
                 },
                 firestore,
                 storage,
                 storageSigning,
+                storageDelivery: {
+                    ok: storage.ok,
+                    mode: 'firebase_download_token',
+                    message: storage.ok
+                        ? 'Storyboard media is delivered with Firebase download-token URLs and does not require service-account URL signing.'
+                        : storage.message,
+                },
             },
             ffmpeg: {
                 ok: ffmpeg.ok,
@@ -182,6 +585,15 @@ async function handleVideoStudioReadiness(req, res) {
         },
     });
 }
+const ExternalVideoUrlSchema = zod_1.z.string().trim().max(4096).url().refine((value) => {
+    try {
+        (0, security_1.normalizeExternalHttpsUrl)(value);
+        return true;
+    }
+    catch (_a) {
+        return false;
+    }
+}, '영상 주소는 HTTPS여야 하며 로컬 또는 사설 네트워크를 가리킬 수 없습니다.');
 const CreateClipSchema = zod_1.z.object({
     userId: zod_1.z.string().min(1).optional(),
     projectId: zod_1.z.string().min(1),
@@ -189,7 +601,7 @@ const CreateClipSchema = zod_1.z.object({
     prompt: zod_1.z.string().trim().min(1).max(6000),
     mode: zod_1.z.enum(['generate', 'extend', 'continue', 'edit', 'merge']),
     status: zod_1.z.enum(['ready', 'processing', 'failed']).default('ready'),
-    videoUrl: zod_1.z.string().url(),
+    videoUrl: ExternalVideoUrlSchema,
     posterUrl: zod_1.z.string().url().nullable().optional(),
     lastFrameUrl: zod_1.z.string().url().nullable().optional(),
     continuityNotes: zod_1.z.string().max(3000).nullable().optional(),
@@ -199,7 +611,7 @@ const CreateClipSchema = zod_1.z.object({
     parentTakeClipId: zod_1.z.string().max(240).nullable().optional(),
     takeIndex: zod_1.z.number().int().min(1).nullable().optional(),
     sourceClipId: zod_1.z.string().max(240).nullable().optional(),
-    sourceVideoUrl: zod_1.z.string().url().nullable().optional(),
+    sourceVideoUrl: ExternalVideoUrlSchema.nullable().optional(),
     mergeSourceClipIds: zod_1.z.array(zod_1.z.string().min(1).max(240)).max(100).default([]),
     duration: zod_1.z.number().int().min(1).max(15).nullable().optional(),
     aspectRatio: zod_1.z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']),
@@ -210,15 +622,25 @@ async function handleVideoStudioClips(req, res) {
     const auth = await (0, hostingCommon_1.requireUser)(req);
     const payload = (0, hostingCommon_1.parseJson)(req, CreateClipSchema);
     await requireOwnedProject(auth.uid, payload.projectId);
+    let videoUrl;
+    let sourceVideoUrl;
+    try {
+        [videoUrl, sourceVideoUrl] = await Promise.all([
+            (0, security_1.assertExternalHttpsUrl)(payload.videoUrl),
+            payload.sourceVideoUrl
+                ? (0, security_1.assertExternalHttpsUrl)(payload.sourceVideoUrl)
+                : Promise.resolve(null),
+        ]);
+    }
+    catch (_a) {
+        throw new hostingCommon_1.ApiError(400, '영상 주소가 공개 HTTPS 서버로 연결되는지 확인해 주세요.');
+    }
     const projectRef = hostingCommon_1.db.collection(PROJECTS).doc(payload.projectId);
     const clipRef = hostingCommon_1.db.collection(CLIPS).doc();
     const result = await hostingCommon_1.db.runTransaction(async (transaction) => {
         var _a, _b, _c, _d, _e;
         const query = hostingCommon_1.db.collection(CLIPS).where('projectId', '==', payload.projectId);
-        const [project, clips] = await Promise.all([
-            transaction.get(projectRef),
-            transaction.get(query),
-        ]);
+        const [project, clips] = await Promise.all([transaction.get(projectRef), transaction.get(query)]);
         if (!project.exists)
             throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
         if (((_a = project.data()) === null || _a === void 0 ? void 0 : _a.userId) !== auth.uid)
@@ -238,7 +660,7 @@ async function handleVideoStudioClips(req, res) {
             }
             takeIndex = highestTake + 1;
         }
-        const coverUrl = payload.posterUrl || payload.lastFrameUrl || payload.videoUrl;
+        const coverUrl = payload.posterUrl || payload.lastFrameUrl || videoUrl;
         transaction.set(clipRef, {
             userId: auth.uid,
             projectId: payload.projectId,
@@ -248,7 +670,7 @@ async function handleVideoStudioClips(req, res) {
             status: payload.status,
             provider: 'openrouter',
             sequence,
-            videoUrl: payload.videoUrl,
+            videoUrl,
             posterUrl: payload.posterUrl || payload.lastFrameUrl || null,
             lastFrameUrl: payload.lastFrameUrl || null,
             continuityNotes: nullableText(payload.continuityNotes),
@@ -258,7 +680,7 @@ async function handleVideoStudioClips(req, res) {
             parentTakeClipId: payload.parentTakeClipId || null,
             takeIndex,
             sourceClipId: payload.sourceClipId || null,
-            sourceVideoUrl: payload.sourceVideoUrl || null,
+            sourceVideoUrl,
             mergeSourceClipIds: payload.mergeSourceClipIds,
             duration: (_e = payload.duration) !== null && _e !== void 0 ? _e : null,
             aspectRatio: payload.aspectRatio,
@@ -290,10 +712,7 @@ async function handleVideoStudioClipById(req, res, clipId) {
             throw new hostingCommon_1.ApiError(403, 'You do not have access to this clip.');
         const projectRef = hostingCommon_1.db.collection(PROJECTS).doc(String(clip.projectId));
         const clipsQuery = hostingCommon_1.db.collection(CLIPS).where('projectId', '==', clip.projectId);
-        const [project, clips] = await Promise.all([
-            transaction.get(projectRef),
-            transaction.get(clipsQuery),
-        ]);
+        const [project, clips] = await Promise.all([transaction.get(projectRef), transaction.get(clipsQuery)]);
         if (!project.exists)
             throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
         if (((_a = project.data()) === null || _a === void 0 ? void 0 : _a.userId) !== auth.uid)
@@ -331,42 +750,117 @@ function defaultJobTitle(operation) {
     };
     return titles[operation] || 'Video Studio 작업';
 }
+function readVideoStudioIdempotency(req, uid, payload) {
+    try {
+        return (0, idempotency_1.parseVideoStudioIdempotencyContract)({
+            rawKey: req.get('idempotency-key') || null,
+            userId: uid,
+            request: payload,
+        });
+    }
+    catch (error) {
+        if (error instanceof idempotency_1.VideoStudioIdempotencyError) {
+            throw new hostingCommon_1.ApiError(error.status, error.message);
+        }
+        throw error;
+    }
+}
+function validateIdempotentQueuedJob(params) {
+    const metadata = params.data.metadata && typeof params.data.metadata === 'object'
+        ? params.data.metadata
+        : null;
+    const stored = (metadata === null || metadata === void 0 ? void 0 : metadata.idempotency) && typeof metadata.idempotency === 'object'
+        ? metadata.idempotency
+        : null;
+    if (params.data.userId !== params.uid
+        || params.data.projectId !== params.projectId
+        || (stored === null || stored === void 0 ? void 0 : stored.version) !== params.idempotency.version
+        || (stored === null || stored === void 0 ? void 0 : stored.keyHash) !== params.idempotency.keyHash
+        || (stored === null || stored === void 0 ? void 0 : stored.requestFingerprint) !== params.idempotency.requestFingerprint) {
+        throw new hostingCommon_1.ApiError(409, 'The same video request key was already used with different content.');
+    }
+    return {
+        id: params.snapshotId,
+        data: params.data,
+    };
+}
+async function getIdempotentQueuedJob(params) {
+    const snapshot = await hostingCommon_1.db.collection(JOBS).doc(params.idempotency.jobId).get();
+    if (!snapshot.exists)
+        return null;
+    return validateIdempotentQueuedJob(Object.assign({ snapshotId: snapshot.id, data: snapshot.data() || {} }, params));
+}
 async function handleVideoStudioJobs(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'POST');
-    const auth = await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireAdmin)(req);
     const payload = (0, hostingCommon_1.parseJson)(req, request_1.videoStudioJobRequestSchema);
+    const idempotency = readVideoStudioIdempotency(req, auth.uid, payload);
+    if (idempotency) {
+        const existing = await getIdempotentQueuedJob({
+            uid: auth.uid,
+            projectId: payload.projectId,
+            idempotency,
+        });
+        if (existing) {
+            res.status(200).json({
+                success: true,
+                jobId: existing.id,
+                status: existing.data.status || 'queued',
+                deduplicated: true,
+            });
+            return;
+        }
+    }
     const project = await requireOwnedProject(auth.uid, payload.projectId);
-    const preflight = await preflightQueuedVideoStudioJob(payload, project.data);
-    const jobId = await createQueuedJob(auth.uid, payload, preflight);
-    res.status(200).json({ success: true, jobId, status: 'queued' });
+    const runtime = requiresProviderWorker(payload.operation)
+        ? await requireFreshProviderWorker()
+        : null;
+    const preflight = await preflightQueuedVideoStudioJob(payload, project.data, runtime);
+    const created = await createQueuedJob(auth.uid, payload, preflight, idempotency);
+    res.status(200).json({
+        success: true,
+        jobId: created.jobId,
+        status: created.status,
+        deduplicated: created.deduplicated,
+    });
 }
-async function preflightQueuedVideoStudioJob(payload, project) {
-    var _a, _b;
+async function preflightQueuedVideoStudioJob(payload, project, verifiedRuntime = null) {
+    var _a, _b, _c;
     if (!['generate', 'extend', 'continue', 'edit'].includes(payload.operation)) {
         return null;
     }
-    const runtime = await (0, hostingAiRuntime_1.getHostingAiRuntime)();
+    const runtime = verifiedRuntime !== null && verifiedRuntime !== void 0 ? verifiedRuntime : await (0, hostingAiRuntime_1.getHostingAiRuntime)();
     if (!runtime.openRouterApiKey) {
         throw new hostingCommon_1.ApiError(503, 'OPENROUTER_API_KEY가 설정되지 않았습니다.');
     }
-    const aspectRatio = zod_1.z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'])
-        .parse(project.aspectRatio);
+    const aspectRatio = zod_1.z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']).parse(project.aspectRatio);
     const resolution = zod_1.z.enum(['480p', '720p', '1080p']).parse(project.resolution);
-    return (0, openrouter_1.preflightOpenRouterVideo)({
+    const usesVisualInputs = payload.visualInputMode !== 'text-only';
+    const needsContinuationFrame = (payload.repeatCount || 1) > 1;
+    const singleSegmentPreflight = await (0, openrouter_1.preflightOpenRouterVideo)({
         apiKey: runtime.openRouterApiKey,
         duration: (_a = payload.duration) !== null && _a !== void 0 ? _a : 6,
         resolution,
         aspectRatio,
         qualityMode: payload.qualityMode || 'proof',
-        hasReferenceImage: Boolean(payload.referenceImage || payload.sourceClipId),
-        hasEndReferenceImage: Boolean(payload.endReferenceImage),
-        hasVisualReferenceImages: Boolean((_b = payload.visualReferenceImages) === null || _b === void 0 ? void 0 : _b.length),
+        hasReferenceImage: usesVisualInputs &&
+            Boolean(payload.referenceImage || payload.sourceClipId || needsContinuationFrame),
+        hasEndReferenceImage: usesVisualInputs && Boolean(payload.endReferenceImage),
+        hasVisualReferenceImages: usesVisualInputs && Boolean((_b = payload.visualReferenceImages) === null || _b === void 0 ? void 0 : _b.length),
         audioMode: payload.audioMode || (payload.generateAudio ? 'ambient' : 'silent'),
     });
+    const preflight = (0, repeatCost_1.applyVideoStudioRepeatCost)(singleSegmentPreflight, (_c = payload.repeatCount) !== null && _c !== void 0 ? _c : 1);
+    if (!preflight.canSubmit) {
+        throw new hostingCommon_1.ApiError(402, 'OpenRouter credit balance is below the total estimated cost including repeated generations. Add credits at https://openrouter.ai/settings/credits and retry.');
+    }
+    if (preflight.estimatedCostUsd === null) {
+        throw new hostingCommon_1.ApiError(409, 'The selected OpenRouter model has no verifiable live price. Refresh the model catalog and retry.');
+    }
+    return preflight;
 }
-async function createQueuedJob(uid, payload, preflight) {
+async function createQueuedJob(uid, payload, preflight, idempotency = null) {
     var _a, _b;
-    const ref = await hostingCommon_1.db.collection(JOBS).add({
+    const data = {
         userId: uid,
         projectId: payload.projectId,
         kind: payload.operation === 'extract-frame' ? 'extract-frame' : payload.operation,
@@ -377,24 +871,71 @@ async function createQueuedJob(uid, payload, preflight) {
         message: 'Job accepted and waiting for a processor.',
         sourceClipId: payload.sourceClipId || null,
         mergeSourceClipIds: payload.mergeClipIds || [],
-        metadata: Object.assign({ request: payload }, (preflight ? { preflight } : {})),
+        metadata: Object.assign(Object.assign(Object.assign(Object.assign({ request: payload }, (preflight ? { preflight: toStoredPreflight(preflight) } : {})), (preflight
+            ? {
+                costEstimate: {
+                    repeatCount: preflight.repeatCount,
+                    estimatedCostUsdPerSegment: preflight.estimatedCostUsdPerSegment,
+                    estimatedTotalCostUsd: preflight.estimatedTotalCostUsd,
+                },
+            }
+            : {})), (preflight
+            ? {
+                executionPlan: (0, openrouter_1.createOpenRouterVideoExecutionPlan)(preflight, payload.qualityMode || 'proof'),
+            }
+            : {})), (idempotency
+            ? {
+                idempotency: {
+                    version: idempotency.version,
+                    keyHash: idempotency.keyHash,
+                    requestFingerprint: idempotency.requestFingerprint,
+                },
+            }
+            : {})),
         clipId: null,
         resultVideoUrl: null,
         resultFrameUrl: null,
         errorMessage: null,
         attemptCount: 0,
         claimedAt: null,
+        nextAttemptAt: null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (!idempotency) {
+        const ref = await hostingCommon_1.db.collection(JOBS).add(data);
+        return { jobId: ref.id, status: 'queued', deduplicated: false };
+    }
+    const ref = hostingCommon_1.db.collection(JOBS).doc(idempotency.jobId);
+    return hostingCommon_1.db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        if (snapshot.exists) {
+            const existing = validateIdempotentQueuedJob({
+                snapshotId: snapshot.id,
+                data: snapshot.data() || {},
+                uid,
+                projectId: payload.projectId,
+                idempotency,
+            });
+            return {
+                jobId: existing.id,
+                status: typeof existing.data.status === 'string' ? existing.data.status : 'queued',
+                deduplicated: true,
+            };
+        }
+        transaction.create(ref, data);
+        return { jobId: ref.id, status: 'queued', deduplicated: false };
     });
-    return ref.id;
 }
 const ProcessJobSchema = zod_1.z.object({ jobId: zod_1.z.string().min(1).max(240) });
 async function handleVideoStudioJobProcess(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'POST');
-    const auth = await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireAdmin)(req);
     const payload = (0, hostingCommon_1.parseJson)(req, ProcessJobSchema);
-    await requireOwnedJob(auth.uid, payload.jobId);
+    const existing = await requireOwnedJob(auth.uid, payload.jobId);
+    if (queuedJobRequiresProviderWorker(existing.data)) {
+        await requireFreshProviderWorker();
+    }
     await (0, processor_1.processQueuedVideoStudioJob)(payload.jobId);
     const completed = await requireOwnedJob(auth.uid, payload.jobId);
     res.status(200).json({
@@ -408,28 +949,61 @@ async function handleVideoStudioJobProcess(req, res) {
 }
 async function handleVideoStudioJobRun(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'POST');
-    const auth = await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireAdmin)(req);
     const payload = (0, hostingCommon_1.parseJson)(req, request_1.videoStudioJobRequestSchema);
+    const idempotency = readVideoStudioIdempotency(req, auth.uid, payload);
+    if (idempotency) {
+        const existing = await getIdempotentQueuedJob({
+            uid: auth.uid,
+            projectId: payload.projectId,
+            idempotency,
+        });
+        if (existing) {
+            res.status(200).json({
+                success: true,
+                jobId: existing.id,
+                status: existing.data.status || 'queued',
+                clipId: existing.data.clipId || null,
+                resultVideoUrl: existing.data.resultVideoUrl || null,
+                resultFrameUrl: existing.data.resultFrameUrl || null,
+                deduplicated: true,
+            });
+            return;
+        }
+    }
     const project = await requireOwnedProject(auth.uid, payload.projectId);
-    const preflight = await preflightQueuedVideoStudioJob(payload, project.data);
-    const jobId = await createQueuedJob(auth.uid, payload, preflight);
-    await (0, processor_1.processQueuedVideoStudioJob)(jobId);
-    const completed = await requireOwnedJob(auth.uid, jobId);
+    const runtime = requiresProviderWorker(payload.operation)
+        ? await requireFreshProviderWorker()
+        : null;
+    const preflight = await preflightQueuedVideoStudioJob(payload, project.data, runtime);
+    const created = await createQueuedJob(auth.uid, payload, preflight, idempotency);
+    if (!created.deduplicated) {
+        await (0, processor_1.processQueuedVideoStudioJob)(created.jobId);
+    }
+    const completed = await requireOwnedJob(auth.uid, created.jobId);
     res.status(200).json({
         success: true,
-        jobId,
+        jobId: created.jobId,
         status: completed.data.status,
         clipId: completed.data.clipId || null,
         resultVideoUrl: completed.data.resultVideoUrl || null,
         resultFrameUrl: completed.data.resultFrameUrl || null,
+        deduplicated: created.deduplicated,
     });
 }
-const UpdateJobSchema = zod_1.z.object({ action: zod_1.z.enum(['requeue', 'cancel']) });
+const UpdateJobSchema = zod_1.z.object({
+    action: zod_1.z.enum(['requeue', 'cancel']),
+    requireProviderResume: zod_1.z.boolean().optional().default(false),
+});
 async function handleVideoStudioJobById(req, res, jobId) {
     (0, hostingCommon_1.requireMethod)(req, 'PATCH');
-    const auth = await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireAdmin)(req);
     const payload = (0, hostingCommon_1.parseJson)(req, UpdateJobSchema);
     const ref = hostingCommon_1.db.collection(JOBS).doc(jobId);
+    const existing = await requireOwnedJob(auth.uid, jobId);
+    if (payload.action === 'requeue' && queuedJobRequiresProviderWorker(existing.data)) {
+        await requireFreshProviderWorker();
+    }
     const updated = await hostingCommon_1.db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(ref);
         if (!snapshot.exists)
@@ -439,11 +1013,18 @@ async function handleVideoStudioJobById(req, res, jobId) {
             throw new hostingCommon_1.ApiError(403, 'You do not have access to this job.');
         if (job.status === 'completed')
             throw new hostingCommon_1.ApiError(409, `Completed jobs cannot be ${payload.action === 'cancel' ? 'canceled' : 'requeued'}.`);
-        if (job.status === 'running' || job.status === 'uploading') {
-            throw new hostingCommon_1.ApiError(409, `Jobs that are already processing cannot be ${payload.action === 'cancel' ? 'canceled' : 'requeued'}.`);
+        if (payload.action === 'requeue'
+            && (job.status === 'running' || job.status === 'uploading')) {
+            throw new hostingCommon_1.ApiError(409, 'Jobs that are already processing cannot be requeued.');
         }
-        if (payload.action === 'cancel' && job.status === 'canceled')
-            throw new hostingCommon_1.ApiError(409, 'This job is already canceled.');
+        if (payload.action === 'cancel' && job.status === 'canceled') {
+            return { status: 'canceled', cancellationRequested: false, message: job.message || null };
+        }
+        if (payload.action === 'requeue' && payload.requireProviderResume && !hasResumableProviderVideo(job)) {
+            throw new hostingCommon_1.ApiError(409, '저장된 OpenRouter 작업을 안전하게 이어받을 수 없습니다. 새 유료 요청은 전송하지 않았습니다.');
+        }
+        const activeCancellation = payload.action === 'cancel'
+            && (job.status === 'running' || job.status === 'uploading');
         const values = payload.action === 'requeue'
             ? {
                 status: 'queued',
@@ -456,18 +1037,35 @@ async function handleVideoStudioJobById(req, res, jobId) {
                 nextAttemptAt: null,
                 startedAt: null,
                 finishedAt: null,
+                cancelRequestedAt: null,
+                canceledAt: null,
             }
-            : {
-                status: 'canceled',
-                message: 'Job canceled before processing.',
-                finishedAt: admin.firestore.FieldValue.serverTimestamp(),
-            };
+            : activeCancellation
+                ? {
+                    status: job.status,
+                    message: 'Cancellation requested. Processing will stop at the next safe checkpoint.',
+                    cancelRequestedAt: job.cancelRequestedAt || admin.firestore.FieldValue.serverTimestamp(),
+                }
+                : {
+                    status: 'canceled',
+                    message: 'Job canceled before processing.',
+                    cancelRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    canceledAt: admin.firestore.FieldValue.serverTimestamp(),
+                    leaseExpiresAt: null,
+                    nextAttemptAt: null,
+                    finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+                };
         transaction.update(ref, Object.assign(Object.assign(Object.assign({}, values), (payload.action === 'requeue'
-            ? { 'metadata.queueDispatchToken': (0, node_crypto_1.randomUUID)() }
-            : {})), { updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
-        return values.status;
+            ? Object.assign({ 'metadata.queueDispatchToken': (0, node_crypto_1.randomUUID)() }, (payload.requireProviderResume
+                ? { 'metadata.providerResumeRequired': true }
+                : {})) : {})), { updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
+        return {
+            status: values.status,
+            cancellationRequested: activeCancellation,
+            message: values.message,
+        };
     });
-    res.status(200).json({ success: true, jobId, status: updated });
+    res.status(updated.cancellationRequested ? 202 : 200).json(Object.assign({ success: true, jobId }, updated));
 }
 const ResequenceSchema = zod_1.z.object({
     clipIds: zod_1.z.array(zod_1.z.string().min(1).max(240)).min(1).max(500),
@@ -483,10 +1081,7 @@ async function handleVideoStudioTimeline(req, res, projectId) {
     const clipCount = await hostingCommon_1.db.runTransaction(async (transaction) => {
         var _a, _b;
         const query = hostingCommon_1.db.collection(CLIPS).where('projectId', '==', projectId);
-        const [project, clips] = await Promise.all([
-            transaction.get(projectRef),
-            transaction.get(query),
-        ]);
+        const [project, clips] = await Promise.all([transaction.get(projectRef), transaction.get(query)]);
         if (!project.exists)
             throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
         if (((_a = project.data()) === null || _a === void 0 ? void 0 : _a.userId) !== auth.uid)
@@ -518,22 +1113,6 @@ const StorageCleanupSchema = zod_1.z.object({
 function videoStudioStoragePrefix(userId, projectId) {
     return `video_studio/${userId}/${projectId}/`;
 }
-function storagePathFromDownloadUrl(value, prefix) {
-    if (typeof value !== 'string' || !value.trim())
-        return null;
-    try {
-        const url = new URL(value);
-        const marker = '/o/';
-        const index = url.pathname.indexOf(marker);
-        if (index < 0)
-            return null;
-        const path = decodeURIComponent(url.pathname.slice(index + marker.length));
-        return path.startsWith(prefix) ? path : null;
-    }
-    catch (_a) {
-        return null;
-    }
-}
 function storedVideoFileKind(path) {
     if (/\.(mp4|mov|webm)$/i.test(path))
         return 'video';
@@ -552,7 +1131,7 @@ async function getOwnedVideoStudioStorageSnapshot(userId, projectId) {
     ]);
     const protectedPaths = new Set();
     const collectPath = (value) => {
-        const storagePath = storagePathFromDownloadUrl(value, prefix);
+        const storagePath = (0, storagePath_1.storagePathFromVideoStudioUrl)(value, prefix);
         if (storagePath)
             protectedPaths.add(storagePath);
     };
@@ -563,13 +1142,17 @@ async function getOwnedVideoStudioStorageSnapshot(userId, projectId) {
         collectPath(clip.lastFrameUrl);
         collectPath(clip.sourceVideoUrl);
     });
+    const existingClipIds = new Set(clipSnapshot.docs.map((snapshot) => snapshot.id));
     let activeJobCount = 0;
     jobSnapshot.docs.forEach((snapshot) => {
         const job = snapshot.data();
-        collectPath(job.resultVideoUrl);
-        collectPath(job.resultFrameUrl);
-        if (ACTIVE_STORAGE_JOB_STATUSES.has(String(job.status || '')))
+        const active = ACTIVE_STORAGE_JOB_STATUSES.has(String(job.status || ''));
+        if (active)
             activeJobCount += 1;
+        if (active || !job.clipId || existingClipIds.has(String(job.clipId))) {
+            collectPath(job.resultVideoUrl);
+            collectPath(job.resultFrameUrl);
+        }
     });
     const [files] = await admin.storage().bucket().getFiles({
         prefix,
@@ -599,7 +1182,10 @@ async function getOwnedVideoStudioStorageSnapshot(userId, projectId) {
         cleanupCandidates,
         truncated: files.length >= VIDEO_STUDIO_STORAGE_PAGE_SIZE,
     };
-    return { overview, candidatePaths: new Set(cleanupCandidates.map((file) => file.path)) };
+    return {
+        overview,
+        candidatePaths: new Set(cleanupCandidates.map((file) => file.path)),
+    };
 }
 async function handleVideoStudioProjectStorage(req, res, projectId) {
     (0, hostingCommon_1.requireMethod)(req, ['GET', 'DELETE']);
@@ -637,9 +1223,7 @@ async function handleVideoStudioProjectStorage(req, res, projectId) {
     res.status(200).json({
         success: true,
         deletedStoragePaths: results.filter((result) => result.deleted).map((result) => result.storagePath),
-        failed: results.flatMap((result) => result.deleted || !result.message
-            ? []
-            : [{ storagePath: result.storagePath, message: result.message }]),
+        failed: results.flatMap((result) => result.deleted || !result.message ? [] : [{ storagePath: result.storagePath, message: result.message }]),
     });
 }
 //# sourceMappingURL=hostingVideoStudioRoutes.js.map

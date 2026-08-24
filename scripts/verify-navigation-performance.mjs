@@ -106,13 +106,16 @@ async function runViewport(browser, viewport) {
     );
   }
 
-  if (isDefaultCompanyCheck && viewport.width >= 1_000) {
-    await page.locator('.auth-login-btn').click();
-    const dialog = page.locator('.auth-modal-overlay[role="dialog"]');
-    await dialog.waitFor({ state: 'visible', timeout: 5_000 });
-    await dialog.locator('button[type="submit"]').click();
-    const fieldErrorCount = await dialog.locator('.auth-alert.error').count();
-    assert.ok(fieldErrorCount >= 2, `Login form validation did not render both field errors (${fieldErrorCount})`);
+  if (isDefaultCompanyCheck) {
+    for (const href of routes) {
+      assert.equal(
+        await page.locator(`#sidebar a[href="${href}"]`).count(),
+        1,
+        `${viewport.width}px company navigation is missing ${href}`,
+      );
+    }
+    assert.equal(await page.locator('#sidebar').count(), 1, `${viewport.width}px company route lost the site navigation`);
+    assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 1, `${viewport.width}px company route lost site-mode switching`);
   }
 
   assert.deepEqual(pageErrors, [], `${viewport.width}px page errors: ${pageErrors.join(' | ')}`);

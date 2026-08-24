@@ -14,10 +14,19 @@ class MenuService implements MenuServiceInterface {
   private readonly REMOTE_COLLECTION = 'menuSettings';
   private readonly REMOTE_DOC_ID = 'sites';
   private readonly REMOTE_LOAD_TIMEOUT_MS = 1200;
-  private readonly CURRENT_DATA_VERSION = 42;
-  private readonly RETIRED_MENU_PATHS = new Set(['/mandalart']);
-  private readonly RETIRED_MENU_ITEM_IDS = new Set(['admin-5']);
+  private readonly CURRENT_DATA_VERSION = 46;
+  private readonly RETIRED_MENU_PATHS = new Set([
+    '/mandalart',
+    '/admin/ai-workforce',
+    '/corp/company/history',
+  ]);
+  private readonly RETIRED_MENU_ITEM_IDS = new Set([
+    'admin-5',
+    'admin-22',
+    'corp-company-intro-history',
+  ]);
   private readonly DEPRECATED_CORP_COMPANY_MENU_PATHS = new Set([
+    '/corp/company/history',
     '/corp/company/founding-background',
     '/corp/company/vision',
     '/corp/company/vision-mission',
@@ -1277,6 +1286,29 @@ class MenuService implements MenuServiceInterface {
       }
 
       const existingItem = nextMenu[existingIndex];
+      if (templateItem.id === 'corp-partnership') {
+        const requiresPartnershipNormalization =
+          existingItem.text !== templateItem.text ||
+          existingItem.path !== templateItem.path ||
+          existingItem.icon !== templateItem.icon ||
+          existingItem.type !== templateItem.type ||
+          Boolean(existingItem.sub?.length);
+
+        if (requiresPartnershipNormalization) {
+          const normalizedPartnershipItem: MenuItem = {
+            ...existingItem,
+            text: templateItem.text,
+            path: templateItem.path,
+            icon: templateItem.icon,
+            type: templateItem.type,
+          };
+          delete normalizedPartnershipItem.sub;
+          nextMenu[existingIndex] = normalizedPartnershipItem;
+          changed = true;
+        }
+        continue;
+      }
+
       const mergedSub = this.mergeTemplateSubMenu(existingItem.sub, templateItem.sub);
       if (mergedSub.changed) {
         nextMenu[existingIndex] = {
@@ -2148,44 +2180,11 @@ class MenuService implements MenuServiceInterface {
       {
         id: 'corp-partnership',
         text: '제휴하기',
+        path: '/corp/partnership/business',
         icon: 'handshake',
-        type: 'folder',
+        type: 'link',
         roles: [],
         position: ['ceo', 'manager', 'staff'],
-        sub: [
-          {
-            id: 'corp-partnership-1',
-            text: '사업제휴',
-            path: '/corp/partnership/business',
-            icon: 'briefcase',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-partnership-2',
-            text: '광고제휴',
-            path: '/corp/partnership/advertising',
-            icon: 'bullhorn',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-partnership-3',
-            text: '투자제휴',
-            path: '/corp/partnership/investment',
-            icon: 'chart-line',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-partnership-4',
-            text: '후원하기',
-            path: '/corp/partnership/sponsorship',
-            icon: 'gift',
-            type: 'link',
-            roles: [],
-          },
-        ],
       },
       {
         id: 'corp-career',

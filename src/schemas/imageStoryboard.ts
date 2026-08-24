@@ -1,10 +1,17 @@
 import { z } from 'zod';
 import { IMAGE_REFERENCE_ROLES, MAX_IMAGE_REFERENCE_REQUESTS } from '@/types/imageReference';
-import { STORYBOARD_VIDEO_AUDIO_MODES } from '@/lib/storyboard-video-audio';
+import {
+    normalizeStoryboardSpokenDialogue,
+    STORYBOARD_VIDEO_AUDIO_MODES,
+} from '@/lib/storyboard-video-audio';
 
 export const STORYBOARD_ASPECT_RATIOS = ['1:1', '9:16', '16:9', '4:3', '3:4'] as const;
 export const STORYBOARD_FORMATS = ['brand-film', 'product-launch', 'social-short', 'editorial'] as const;
 export const STORYBOARD_AUDIO_MIX_PRESETS = ['dialogue-first', 'balanced', 'music-first', 'custom'] as const;
+// A storyboard can retry a failed provider job once. Keeping this limit in the
+// persisted schema prevents an older document from making the UI claim that it
+// will keep spending credits on repeated retries.
+export const STORYBOARD_AUTOMATION_RETRY_LIMIT = 1;
 export const STORYBOARD_WORKFLOW_STAGES = [
     'image-design',
     'image-production',
@@ -48,6 +55,20 @@ export const StoryboardVideoFinalStatusSchema = z.enum([
     'completed',
     'failed',
 ]);
+
+export const StoryboardVoiceProfileSchema = z.object({
+    id: z.string().trim().min(1).max(80),
+    characterName: z.string().trim().min(1).max(80),
+    voiceDescription: z.string().trim().min(1).max(240),
+    speakingStyle: z.string().trim().max(180).default('자연스러운 한국어 발음과 호흡, 감정이 달라져도 같은 음색 유지'),
+});
+
+const StoryboardDialogueOrCaptionSchema = z.preprocess(
+    (value) => typeof value === 'string'
+        ? normalizeStoryboardSpokenDialogue(value)
+        : value,
+    z.string().trim().max(240),
+);
 
 export const StoryboardTransitionQualitySchema = z.object({
     identity: z.number().int().min(0).max(100),
@@ -110,6 +131,7 @@ const StoryboardVideoSceneObjectSchema = z.object({
     useNextSceneAsEndFrame: z.boolean().default(true),
     audioMode: StoryboardVideoAudioModeSchema.default('silent'),
     generateAudio: z.boolean().default(false),
+    voiceProfileId: z.string().trim().min(1).max(80).nullable().default(null),
     trimStartSeconds: z.number().finite().min(0).max(14).default(0),
     trimEndSeconds: z.number().finite().min(0).max(14).default(0),
     playbackRate: z.number().finite().min(0.5).max(2).default(1),
@@ -153,6 +175,7 @@ export const StoryboardVideoProductionSchema = z.object({
     maxBudgetUsd: z.number().finite().positive().max(1000).nullable().default(5),
     allowUnknownPricing: z.boolean().default(false),
     voiceDirection: z.string().trim().max(240).default('따뜻하고 자신감 있는 자연스러운 한국어 목소리'),
+    voiceProfiles: z.array(StoryboardVoiceProfileSchema).max(12).default([]),
     backgroundMusicUrl: z.string().url().nullable().default(null),
     backgroundMusicName: z.string().trim().max(180).nullable().default(null),
     backgroundMusicStoragePath: z.string().trim().max(600).nullable().default(null),
@@ -164,7 +187,15 @@ export const StoryboardVideoProductionSchema = z.object({
     automationStatus: StoryboardVideoAutomationStatusSchema.default('idle'),
     automationCurrentSceneIndex: z.number().int().min(0).max(48).nullable().default(null),
     automationCompletedSceneIds: z.array(z.string().min(1).max(240)).max(48).default([]),
-    automationRetryCount: z.number().int().min(0).max(96).default(0),
+    // Older projects may contain a retry count from the former unbounded
+    // recovery flow. Clamp it while reading so those projects remain usable
+    // and the displayed recovery state matches the actual one-retry policy.
+    automationRetryCount: z.preprocess(
+        (value) => typeof value === 'number' && Number.isFinite(value)
+            ? Math.min(Math.max(Math.trunc(value), 0), STORYBOARD_AUTOMATION_RETRY_LIMIT)
+            : value,
+        z.number().int().min(0).max(STORYBOARD_AUTOMATION_RETRY_LIMIT).default(0),
+    ),
     automationStartedAt: z.number().int().positive().nullable().default(null),
     automationUpdatedAt: z.number().int().positive().nullable().default(null),
     automationErrorMessage: z.string().max(1200).nullable().default(null),
@@ -190,6 +221,7 @@ export function createStoryboardVideoScene(): z.infer<typeof StoryboardVideoScen
         useNextSceneAsEndFrame: true,
         audioMode: 'silent',
         generateAudio: false,
+        voiceProfileId: null,
         trimStartSeconds: 0,
         trimEndSeconds: 0,
         playbackRate: 1,
@@ -221,6 +253,7 @@ export function createStoryboardVideoProduction(): z.infer<typeof StoryboardVide
         maxBudgetUsd: 5,
         allowUnknownPricing: false,
         voiceDirection: '따뜻하고 자신감 있는 자연스러운 한국어 목소리',
+        voiceProfiles: [],
         backgroundMusicUrl: null,
         backgroundMusicName: null,
         backgroundMusicStoragePath: null,
@@ -268,9 +301,15 @@ export const StoryboardStorageCleanupAssetSchema = z.object({
     id: z.string().min(1).max(240),
     storagePath: z.string().trim().min(1).max(600),
     label: z.string().trim().min(1).max(180),
-    kind: z.enum(['reference', 'background-music']),
+    kind: z.enum(['reference', 'background-music', 'scene-image']),
     queuedAt: z.number().int().positive(),
 });
+
+export const StoryboardGeneratedImageProvenanceSchema = z.object({
+    kind: z.literal('storyboard-scene'),
+    storyboardId: z.string().trim().min(1).max(240),
+    sceneId: z.string().trim().min(1).max(240).nullable().default(null),
+}).nullable().default(null);
 
 // Planning uses deliberately compact copies of local files. This preserves the
 // visual reference for OpenRouter without allowing a storyboard brief to exceed
@@ -292,7 +331,7 @@ export const StoryboardSceneSchema = z.object({
     narrativeBeat: z.string().trim().max(280),
     shotSize: z.string().trim().max(80),
     cameraDirection: z.string().trim().max(180),
-    dialogueOrCaption: z.string().trim().max(240),
+    dialogueOrCaption: StoryboardDialogueOrCaptionSchema,
     visualPrompt: z.string().trim().max(900),
     imagePrompt: z.string().trim().max(1200).default(''),
     continuityAnchor: z.string().trim().max(280).default(''),
@@ -308,6 +347,8 @@ export const StoryboardSceneSchema = z.object({
         id: z.string().min(1),
         url: z.string().url(),
         generatedAt: z.number().int().positive(),
+        storagePath: z.string().trim().max(1024).nullable().optional(),
+        provenance: StoryboardGeneratedImageProvenanceSchema.optional(),
     }).nullable(),
     video: StoryboardVideoSceneSchema.default(createStoryboardVideoScene),
 });
@@ -324,6 +365,8 @@ export const ImageStoryboardSchema = z.object({
     title: z.string().trim().min(1).max(100),
     logline: z.string().trim().max(280),
     audience: z.string().trim().max(120),
+    format: z.enum(STORYBOARD_FORMATS).default('brand-film'),
+    plannedSceneCount: z.number().int().min(1).max(12).default(5),
     aspectRatio: z.enum(STORYBOARD_ASPECT_RATIOS),
     stylePreset: z.string().trim().max(80),
     artDirection: z.string().trim().max(320),
@@ -345,6 +388,7 @@ export const ImageStoryboardGenerationPayloadSchema = z.object({
     width: z.number().int().min(64).max(4096),
     height: z.number().int().min(64).max(4096),
     stylePreset: z.string().trim().max(80),
+    resourceMode: z.literal('efficient').default('efficient'),
     referenceImage: z.string().trim().url().max(4096).optional(),
     referenceImages: z.array(ImageStoryboardReferenceSchema).max(MAX_IMAGE_REFERENCE_REQUESTS).optional(),
 });
@@ -364,7 +408,7 @@ export const ImageStoryboardPlanSceneSchema = z.object({
     narrativeBeat: z.string().trim().min(1).max(280),
     shotSize: z.string().trim().min(1).max(80),
     cameraDirection: z.string().trim().max(180),
-    dialogueOrCaption: z.string().trim().max(240),
+    dialogueOrCaption: StoryboardDialogueOrCaptionSchema,
     visualPrompt: z.string().trim().min(1).max(900),
     imagePrompt: z.string().trim().min(80).max(1200),
     continuityAnchor: z.string().trim().min(1).max(280),
@@ -389,7 +433,7 @@ export const ImageStoryboardSceneRedesignInputSchema = z.object({
     narrativeBeat: z.string().trim().max(280).default(''),
     shotSize: z.string().trim().max(80).default(''),
     cameraDirection: z.string().trim().max(180).default(''),
-    dialogueOrCaption: z.string().trim().max(240).default(''),
+    dialogueOrCaption: StoryboardDialogueOrCaptionSchema.default(''),
     visualPrompt: z.string().trim().max(900).default(''),
     imagePrompt: z.string().trim().max(1200).default(''),
     continuityAnchor: z.string().trim().max(280).default(''),
@@ -446,6 +490,7 @@ export type StoryboardArtifact = z.infer<typeof StoryboardArtifactSchema>;
 export type StoryboardFinalAssemblyManifest = z.infer<typeof StoryboardFinalAssemblyManifestSchema>;
 export type StoryboardVideoAutomationStatus = z.infer<typeof StoryboardVideoAutomationStatusSchema>;
 export type StoryboardVideoSceneStatus = z.infer<typeof StoryboardVideoSceneStatusSchema>;
+export type StoryboardVoiceProfile = z.infer<typeof StoryboardVoiceProfileSchema>;
 export type StoryboardVideoScene = z.infer<typeof StoryboardVideoSceneSchema>;
 export type StoryboardVideoProduction = z.infer<typeof StoryboardVideoProductionSchema>;
 export type StoryboardStorageCleanupAsset = z.infer<typeof StoryboardStorageCleanupAssetSchema>;

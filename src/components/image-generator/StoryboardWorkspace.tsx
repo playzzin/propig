@@ -74,6 +74,8 @@ import {
   TopicHint,
   QuickSelectField,
   PlanButton,
+  PlanDisclosure,
+  PaidActionApproval,
   AdvancedDetails,
   AdvancedDetailsBody,
   BriefGrid,
@@ -123,6 +125,7 @@ import {
   SignInState,
   EmptyBoardState,
   ErrorNotice,
+  QualityRepairButton,
 } from "./StoryboardWorkspace.styles";
 
 import {
@@ -135,11 +138,10 @@ import {
   type ComponentPropsWithoutRef,
 } from "react";
 import { toast } from "sonner";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
 import { IMAGE_STYLE_PRESETS } from "@/constants/imageStylePresets";
-import ReferenceImageAssetManager from "@/components/image-generator/ReferenceImageAssetManager";
 import StoryboardProjectDashboard from "@/components/image-generator/StoryboardProjectDashboard";
-import StoryboardVideoProductionPanel from "@/components/image-generator/StoryboardVideoProductionPanel";
 import {
   BufferedTextInput as BaseBufferedTextInput,
   BufferedTextarea as BaseBufferedTextarea,
@@ -151,6 +153,7 @@ import {
 } from "@/lib/client/media-download";
 import { KOREAN_DATE_TIME_FORMAT } from "@/lib/date-formatters";
 import { resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
+import { inspectStoryboardQuality } from "@/lib/storyboard-quality";
 import {
   getStoryboardProjectStatus,
   STORYBOARD_PROJECT_STATUS_LABELS,
@@ -187,9 +190,20 @@ import {
   type ImageReferenceRole,
 } from "@/types/imageReference";
 
+const ReferenceImageAssetManager = dynamic(
+  () => import("@/components/image-generator/ReferenceImageAssetManager"),
+  { ssr: false },
+);
+
+const StoryboardVideoProductionPanel = dynamic(
+  () => import("@/components/image-generator/StoryboardVideoProductionPanel"),
+  { ssr: false },
+);
+
 type GeneratedStoryboardImage = {
   id: string;
   url: string;
+  storagePath?: string | null;
 };
 
 type StoryboardWorkspaceProps = {
@@ -234,6 +248,11 @@ const STORYBOARD_FORMAT_OPTIONS = [
 type StoryboardFormat = (typeof STORYBOARD_FORMAT_OPTIONS)[number]["value"];
 type SceneRedesignScope = "scene" | "flow";
 type WorkspaceSurface = "dashboard" | "editor";
+type StoryboardOpenIntent = "edit" | "result" | "recovery";
+type PendingStoryboardPaidAction =
+  | { kind: "planning"; requestCount: number }
+  | { kind: "scene"; sceneId: string; order: number; replacing: boolean }
+  | { kind: "bulk"; sceneCount: number };
 type PendingStoryboardSave = {
   storyboardId: string;
   draft: ImageStoryboard;
@@ -314,6 +333,7 @@ type ReadinessCheck = {
     | "brief"
     | "references"
     | "continuity"
+    | "quality"
     | "scenes"
     | "production"
     | "files";
@@ -397,6 +417,8 @@ function createStoryboard(): ImageStoryboard {
     title: "새 스토리보드",
     logline: "",
     audience: "",
+    format: "brand-film",
+    plannedSceneCount: 5,
     aspectRatio: "16:9",
     stylePreset: "cinematic",
     artDirection: "",
@@ -436,6 +458,24 @@ function queueReclaimableStorageAsset(
       queuedAt: Date.now(),
     },
   ].slice(-80);
+}
+
+function storagePathFromFirebaseDownloadUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const marker = "/o/";
+    const markerIndex = url.pathname.indexOf(marker);
+    if (
+      markerIndex < 0 ||
+      (url.hostname !== "firebasestorage.googleapis.com" &&
+        url.hostname !== "storage.googleapis.com")
+    ) {
+      return null;
+    }
+    return decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+  } catch {
+    return null;
+  }
 }
 
 function reindexScenes(scenes: ImageStoryboardScene[]): ImageStoryboardScene[] {
@@ -642,6 +682,7 @@ function buildGenerationPayload(
     width: dimensions.width,
     height: dimensions.height,
     stylePreset: storyboard.stylePreset,
+    resourceMode: "efficient",
     ...(referenceImages.length ? { referenceImages } : {}),
   });
 }
@@ -649,6 +690,27 @@ function buildGenerationPayload(
 function formatSavedTime(timestamp: number | null): string {
   if (!timestamp) return "저장 대기";
   return `저장됨 ${new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(timestamp)}`;
+}
+
+function isTextEditingElement(target: EventTarget | null): boolean {
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement) {
+    return !["button", "checkbox", "color", "file", "radio", "range", "reset", "submit"].includes(
+      target.type,
+    );
+  }
+  return target instanceof HTMLElement && target.isContentEditable;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof DOMException
+      ? error.name === "AbortError"
+      : typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          (error as { name?: unknown }).name === "AbortError"
+  );
 }
 
 function loadReferenceImage(source: string): Promise<HTMLImageElement> {
@@ -720,14 +782,25 @@ export default function StoryboardWorkspace({
   isGenerating,
   presentation = "page",
 }: StoryboardWorkspaceProps) {
-  const { currentUser } = useAuth();
+  const {
+    currentUser,
+    loading: authLoading,
+    isConfigured: isAuthConfigured,
+    loginWithGoogle,
+  } = useAuth();
   const [storyboards, setStoryboards] = useState<SavedImageStoryboard[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ImageStoryboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [subscriptionRetryEpoch, setSubscriptionRetryEpoch] = useState(0);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(
+    null,
+  );
+  const [signInError, setSignInError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [generatingSceneId, setGeneratingSceneId] = useState<string | null>(
     null,
@@ -735,11 +808,11 @@ export default function StoryboardWorkspace({
   const [downloadingSceneImageId, setDownloadingSceneImageId] = useState<
     string | null
   >(null);
-  const [plannerSceneCount, setPlannerSceneCount] = useState(5);
-  const [plannerFormat, setPlannerFormat] =
-    useState<StoryboardFormat>("brand-film");
   const [isPlanning, setIsPlanning] = useState(false);
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
+  const [pendingPaidAction, setPendingPaidAction] =
+    useState<PendingStoryboardPaidAction | null>(null);
+  const [paidActionAccepted, setPaidActionAccepted] = useState(false);
   const [redesigningSceneId, setRedesigningSceneId] = useState<string | null>(
     null,
   );
@@ -763,6 +836,9 @@ export default function StoryboardWorkspace({
   );
   const [hasRestoredUrlState, setHasRestoredUrlState] = useState(false);
   const [versions, setVersions] = useState<SavedStoryboardVersion[]>([]);
+  const [versionsProjectId, setVersionsProjectId] = useState<string | null>(
+    null,
+  );
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isVersionsLoading, setIsVersionsLoading] = useState(false);
   const [isUploadingReferences, setIsUploadingReferences] = useState(false);
@@ -785,22 +861,95 @@ export default function StoryboardWorkspace({
   const savedRevisionRef = useRef(new Map<string, number>());
   const saveConflictRef = useRef(false);
   const activeIdRef = useRef<string | null>(null);
+  const draftRef = useRef<ImageStoryboard | null>(null);
+  const isDirtyRef = useRef(false);
   const revisionRef = useRef(0);
   const planningRequestRef = useRef(0);
   const sceneRedesignRequestRef = useRef(0);
   const projectSwitchRequestRef = useRef(0);
+  const intentRevealCleanupRef = useRef<(() => void) | null>(null);
+  const versionHistoryRequestRef = useRef(0);
+  const versionsProjectIdRef = useRef<string | null>(null);
+  const planningAbortControllerRef = useRef<AbortController | null>(null);
+  const sceneRedesignAbortControllerRef =
+    useRef<AbortController | null>(null);
+  const referenceUploadRequestRef = useRef(0);
+  const referenceUploadInProgressRef = useRef(false);
+  const isMountedRef = useRef(true);
   const historyPastRef = useRef<ImageStoryboard[]>([]);
   const historyFutureRef = useRef<ImageStoryboard[]>([]);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const projectReferenceAssets = useMemo(
     () => draft?.referenceAssets ?? [],
     [draft?.referenceAssets],
   );
 
+  const replaceDraft = useCallback((nextDraft: ImageStoryboard | null) => {
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+  }, []);
+
+  const invalidateVersionHistory = useCallback(() => {
+    versionHistoryRequestRef.current += 1;
+    versionsProjectIdRef.current = null;
+    setVersionsProjectId(null);
+    setVersions([]);
+    setIsVersionsLoading(false);
+    setIsHistoryOpen(false);
+  }, []);
+
+  const activateStoryboardId = useCallback(
+    (nextStoryboardId: string | null) => {
+      if (activeIdRef.current !== nextStoryboardId) {
+        invalidateVersionHistory();
+        setLastPlanReferenceAnalysis(null);
+        activeIdRef.current = nextStoryboardId;
+      }
+      setActiveId(nextStoryboardId);
+    },
+    [invalidateVersionHistory],
+  );
+
+  const cancelDraftScopedRequests = useCallback(() => {
+    planningRequestRef.current += 1;
+    sceneRedesignRequestRef.current += 1;
+    referenceUploadRequestRef.current += 1;
+    planningAbortControllerRef.current?.abort();
+    sceneRedesignAbortControllerRef.current?.abort();
+    planningAbortControllerRef.current = null;
+    sceneRedesignAbortControllerRef.current = null;
+    referenceUploadInProgressRef.current = false;
+    if (isMountedRef.current) {
+      setIsPlanning(false);
+      setRedesigningSceneId(null);
+      setIsUploadingReferences(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      planningAbortControllerRef.current?.abort();
+      sceneRedesignAbortControllerRef.current?.abort();
+      referenceUploadRequestRef.current += 1;
+      versionHistoryRequestRef.current += 1;
+    };
+  }, []);
+
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -814,37 +963,48 @@ export default function StoryboardWorkspace({
   }, []);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!currentUser?.uid) {
+      cancelDraftScopedRequests();
       setStoryboards([]);
-      setActiveId(null);
-      setDraft(null);
+      activateStoryboardId(null);
+      replaceDraft(null);
       pendingSaveRef.current = null;
       inFlightSaveRef.current = null;
       savedRevisionRef.current.clear();
       saveConflictRef.current = false;
+      isDirtyRef.current = false;
       setSaveConflict(false);
       setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
-    setLoadError(null);
+    setSubscriptionError(null);
     const unsubscribe = imageStoryboardService.subscribe(
       currentUser.uid,
       (nextStoryboards) => {
         setStoryboards(dedupeStoryboardsById(nextStoryboards));
+        setSubscriptionError(null);
         setIsLoading(false);
       },
       (error) => {
         console.error(error);
-        setLoadError(
+        setSubscriptionError(
           "스토리보드를 불러오지 못했습니다. 네트워크 상태와 권한을 확인해 주세요.",
         );
         setIsLoading(false);
       },
     );
     return unsubscribe;
-  }, [currentUser?.uid]);
+  }, [
+    activateStoryboardId,
+    authLoading,
+    cancelDraftScopedRequests,
+    currentUser?.uid,
+    replaceDraft,
+    subscriptionRetryEpoch,
+  ]);
 
   useEffect(() => {
     if (activeId || draft || storyboards.length === 0) return;
@@ -856,14 +1016,14 @@ export default function StoryboardWorkspace({
       storyboards.find((storyboard) => storyboard.id === requestedId) ??
       storyboards.find((storyboard) => !storyboard.archivedAt) ??
       storyboards[0];
-    setActiveId(initial.id);
-    setDraft({
+    activateStoryboardId(initial.id);
+    replaceDraft({
       ...initial,
       scenes: initial.scenes.map((scene) => ({ ...scene })),
     });
     savedRevisionRef.current.set(initial.id, initial.revision);
     setLastSavedAt(initial.updatedAt);
-  }, [activeId, draft, storyboards]);
+  }, [activeId, activateStoryboardId, draft, replaceDraft, storyboards]);
 
   useEffect(() => {
     if (!draft?.scenes.length) {
@@ -931,18 +1091,23 @@ export default function StoryboardWorkspace({
               nextServerRevision,
             );
             inFlightSaveRef.current = null;
-            setDraft((current) =>
-              activeIdRef.current === requestedSave.storyboardId && current
-                ? { ...current, revision: nextServerRevision }
-                : current,
-            );
+            setDraft((current) => {
+              const nextDraft =
+                activeIdRef.current === requestedSave.storyboardId && current
+                  ? { ...current, revision: nextServerRevision }
+                  : current;
+              draftRef.current = nextDraft;
+              return nextDraft;
+            });
             saveConflictRef.current = false;
             setSaveConflict(false);
+            setLoadError(null);
 
             if (
               revisionRef.current === requestedSave.changeRevision &&
               !pendingSaveRef.current
             ) {
+              isDirtyRef.current = false;
               setIsDirty(false);
               setLastSavedAt(Date.now());
             }
@@ -974,24 +1139,57 @@ export default function StoryboardWorkspace({
     [currentUser?.uid],
   );
 
+  const flushFocusedWorkspaceField = useCallback(async () => {
+    const focused = document.activeElement;
+    const isBufferedField =
+      focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement;
+
+    if (!isBufferedField || !workspaceRef.current?.contains(focused)) return;
+
+    focused.blur();
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  }, []);
+
   const handleClose = useCallback(async () => {
+    cancelDraftScopedRequests();
+    await flushFocusedWorkspaceField();
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    if (activeId && draft && isDirty) {
-      const saved = await persistDraft(activeId, draft, revisionRef.current);
+    const currentStoryboardId = activeIdRef.current;
+    const currentDraft = draftRef.current;
+    if (currentStoryboardId && currentDraft && isDirtyRef.current) {
+      const saved = await persistDraft(
+        currentStoryboardId,
+        currentDraft,
+        revisionRef.current,
+      );
       if (!saved) {
         toast.error("변경 내용을 저장하지 못해 작업공간을 닫지 않았습니다.");
         return;
       }
     }
     onClose();
-  }, [activeId, draft, isDirty, onClose, persistDraft]);
+  }, [
+    cancelDraftScopedRequests,
+    flushFocusedWorkspaceField,
+    onClose,
+    persistDraft,
+  ]);
 
   useEffect(() => {
     if (presentation !== "dialog") return undefined;
+    previouslyFocusedElementRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     const frame = window.requestAnimationFrame(() =>
       closeButtonRef.current?.focus(),
     );
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      const previous = previouslyFocusedElementRef.current;
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
   }, [presentation]);
 
   useEffect(() => {
@@ -1008,7 +1206,11 @@ export default function StoryboardWorkspace({
         container.querySelectorAll<HTMLElement>(
           'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((element) => !element.hasAttribute("hidden"));
+      ).filter(
+        (element) =>
+          !element.hasAttribute("hidden") &&
+          element.getClientRects().length > 0,
+      );
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -1072,61 +1274,72 @@ export default function StoryboardWorkspace({
 
   const updateDraft = useCallback(
     (updater: (current: ImageStoryboard) => ImageStoryboard) => {
-      setDraft((current) => {
-        if (!current) return current;
-        const next = updater(current);
-        if (next === current) return current;
-        historyPastRef.current = [
-          ...historyPastRef.current.slice(-29),
-          current,
-        ];
-        historyFutureRef.current = [];
-        setHistoryState({ canUndo: true, canRedo: false });
-        revisionRef.current += 1;
-        setIsDirty(true);
-        return next;
-      });
+      const current = draftRef.current;
+      if (!current) return;
+      const next = updater(current);
+      if (next === current) return;
+      historyPastRef.current = [...historyPastRef.current.slice(-29), current];
+      historyFutureRef.current = [];
+      draftRef.current = next;
+      isDirtyRef.current = true;
+      setHistoryState({ canUndo: true, canRedo: false });
+      revisionRef.current += 1;
+      setIsDirty(true);
+      setDraft(next);
     },
     [],
   );
 
   const undoDraft = useCallback(() => {
-    setDraft((current) => {
-      const previous = historyPastRef.current.pop();
-      if (!current || !previous) return current;
-      historyFutureRef.current = [current, ...historyFutureRef.current].slice(
-        0,
-        30,
-      );
-      revisionRef.current += 1;
-      setIsDirty(true);
-      setHistoryState({
-        canUndo: historyPastRef.current.length > 0,
-        canRedo: true,
-      });
-      return { ...previous, revision: current.revision };
+    const current = draftRef.current;
+    const previous = historyPastRef.current.pop();
+    if (!current || !previous) return;
+
+    historyFutureRef.current = [current, ...historyFutureRef.current].slice(
+      0,
+      30,
+    );
+    revisionRef.current += 1;
+    isDirtyRef.current = true;
+    setIsDirty(true);
+    setHistoryState({
+      canUndo: historyPastRef.current.length > 0,
+      canRedo: true,
     });
+    const nextDraft = { ...previous, revision: current.revision };
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
   }, []);
 
   const redoDraft = useCallback(() => {
-    setDraft((current) => {
-      const next = historyFutureRef.current.shift();
-      if (!current || !next) return current;
-      historyPastRef.current = [...historyPastRef.current.slice(-29), current];
-      revisionRef.current += 1;
-      setIsDirty(true);
-      setHistoryState({
-        canUndo: true,
-        canRedo: historyFutureRef.current.length > 0,
-      });
-      return { ...next, revision: current.revision };
+    const current = draftRef.current;
+    const next = historyFutureRef.current.shift();
+    if (!current || !next) return;
+
+    historyPastRef.current = [...historyPastRef.current.slice(-29), current];
+    revisionRef.current += 1;
+    isDirtyRef.current = true;
+    setIsDirty(true);
+    setHistoryState({
+      canUndo: true,
+      canRedo: historyFutureRef.current.length > 0,
     });
+    const nextDraft = { ...next, revision: current.revision };
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+  }, []);
+
+  const retryStoryboardSubscription = useCallback(() => {
+    setSubscriptionError(null);
+    setIsLoading(true);
+    setSubscriptionRetryEpoch((current) => current + 1);
   }, []);
 
   useEffect(() => {
     const handleEditorShortcut = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
+      if (isTextEditingElement(event.target) && key !== "s") return;
       if (key === "z" && !event.shiftKey && historyPastRef.current.length) {
         event.preventDefault();
         undoDraft();
@@ -1136,15 +1349,25 @@ export default function StoryboardWorkspace({
       ) {
         event.preventDefault();
         redoDraft();
-      } else if (key === "s" && activeId && draft) {
+      } else if (key === "s") {
         event.preventDefault();
-        if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-        void persistDraft(activeId, draft, revisionRef.current);
+        void (async () => {
+          await flushFocusedWorkspaceField();
+          const currentStoryboardId = activeIdRef.current;
+          const currentDraft = draftRef.current;
+          if (!currentStoryboardId || !currentDraft) return;
+          if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+          await persistDraft(
+            currentStoryboardId,
+            currentDraft,
+            revisionRef.current,
+          );
+        })();
       }
     };
     window.addEventListener("keydown", handleEditorShortcut);
     return () => window.removeEventListener("keydown", handleEditorShortcut);
-  }, [activeId, draft, persistDraft, redoDraft, undoDraft]);
+  }, [flushFocusedWorkspaceField, persistDraft, redoDraft, undoDraft]);
 
   const updateStoryboardMetadata = useCallback(
     (updater: (current: ImageStoryboard) => ImageStoryboard) => {
@@ -1189,19 +1412,132 @@ export default function StoryboardWorkspace({
     [updateDraft, updateStoryboardBrief, updateStoryboardMetadata],
   );
 
+  const revealStoryboardOpenIntent = useCallback(
+    (intent: StoryboardOpenIntent) => {
+      intentRevealCleanupRef.current?.();
+      intentRevealCleanupRef.current = null;
+      setWorkspaceMode(intent === "edit" ? "storyboard" : "video");
+      if (intent === "edit") return;
+
+      let observer: MutationObserver | null = null;
+      let timeoutId: number | null = null;
+      let frameId: number | null = null;
+      let settled = false;
+
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        observer?.disconnect();
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
+        if (frameId !== null) window.cancelAnimationFrame(frameId);
+        if (intentRevealCleanupRef.current === cleanup) {
+          intentRevealCleanupRef.current = null;
+        }
+      };
+
+      const revealTarget = () => {
+        if (settled) return true;
+        if (intent === "recovery") {
+          const recoveryDetails = document.getElementById(
+            "storyboard-production-recovery-details",
+          );
+          if (recoveryDetails instanceof HTMLDetailsElement) {
+            recoveryDetails.open = true;
+          }
+        }
+
+        const selectors =
+          intent === "result"
+            ? [
+                "#storyboard-final-delivery",
+                "#storyboard-production-primary-action:not([disabled])",
+                "#storyboard-production-recovery-console",
+              ]
+            : [
+                "#storyboard-production-subscription-retry:not([disabled])",
+                "#storyboard-production-recovery-action:not([disabled])",
+                "#storyboard-production-recovery-notice",
+                "#storyboard-production-subscription-error",
+                "#storyboard-production-final-error",
+                "#storyboard-production-worker-readiness",
+                "#storyboard-production-recovery-console",
+              ];
+        const target = selectors
+          .map((selector) => document.querySelector<HTMLElement>(selector))
+          .find((candidate): candidate is HTMLElement => Boolean(candidate));
+        if (!target) return false;
+
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+        target.scrollIntoView({
+          behavior: reduceMotion ? "auto" : "smooth",
+          block: "center",
+        });
+        if (!target.hasAttribute("tabindex")) target.tabIndex = -1;
+        target.focus({ preventScroll: true });
+        cleanup();
+        return true;
+      };
+
+      intentRevealCleanupRef.current = cleanup;
+      observer = new MutationObserver(() => {
+        revealTarget();
+      });
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["open", "disabled"],
+      });
+      frameId = window.requestAnimationFrame(() => {
+        frameId = window.requestAnimationFrame(() => {
+          revealTarget();
+        });
+      });
+      timeoutId = window.setTimeout(() => {
+        if (!revealTarget()) cleanup();
+      }, 4_000);
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      intentRevealCleanupRef.current?.();
+      intentRevealCleanupRef.current = null;
+    },
+    [],
+  );
+
   const selectStoryboard = useCallback(
-    async (storyboard: SavedImageStoryboard) => {
+    async (
+      storyboard: SavedImageStoryboard,
+      intent: StoryboardOpenIntent = "edit",
+    ) => {
       const requestId = projectSwitchRequestRef.current + 1;
       projectSwitchRequestRef.current = requestId;
+      await flushFocusedWorkspaceField();
+      setPendingPaidAction(null);
+      setPaidActionAccepted(false);
+      const currentStoryboardId = activeIdRef.current;
+      const currentDraft = draftRef.current;
       setWorkspaceSurface("editor");
-      if (activeId === storyboard.id) {
+      if (currentStoryboardId === storyboard.id) {
         setProjectSwitchState("ready");
+        revealStoryboardOpenIntent(intent);
         return;
       }
+      invalidateVersionHistory();
+      cancelDraftScopedRequests();
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-      if (activeId && draft && isDirty) {
+      if (currentStoryboardId && currentDraft && isDirtyRef.current) {
         setProjectSwitchState("saving");
-        const saved = await persistDraft(activeId, draft, revisionRef.current);
+        const saved = await persistDraft(
+          currentStoryboardId,
+          currentDraft,
+          revisionRef.current,
+        );
         if (!saved) {
           if (projectSwitchRequestRef.current === requestId) {
             setProjectSwitchState(
@@ -1211,10 +1547,7 @@ export default function StoryboardWorkspace({
           return;
         }
       }
-      if (
-        projectSwitchRequestRef.current !== requestId ||
-        !currentUser?.uid
-      ) {
+      if (projectSwitchRequestRef.current !== requestId || !currentUser?.uid) {
         return;
       }
       setProjectSwitchState("loading");
@@ -1229,15 +1562,17 @@ export default function StoryboardWorkspace({
         historyFutureRef.current = [];
         setHistoryState({ canUndo: false, canRedo: false });
         savedRevisionRef.current.set(latest.id, latest.revision);
-        setActiveId(latest.id);
-        setDraft({
+        activateStoryboardId(latest.id);
+        replaceDraft({
           ...latest,
           scenes: latest.scenes.map((scene) => ({ ...scene })),
         });
+        isDirtyRef.current = false;
         setIsDirty(false);
         setLastSavedAt(latest.updatedAt);
         setLoadError(null);
         setProjectSwitchState("ready");
+        revealStoryboardOpenIntent(intent);
       } catch (error) {
         if (projectSwitchRequestRef.current !== requestId) return;
         console.error(error);
@@ -1247,18 +1582,36 @@ export default function StoryboardWorkspace({
         );
       }
     },
-    [activeId, currentUser?.uid, draft, isDirty, persistDraft],
+    [
+      activateStoryboardId,
+      cancelDraftScopedRequests,
+      currentUser?.uid,
+      flushFocusedWorkspaceField,
+      invalidateVersionHistory,
+      persistDraft,
+      replaceDraft,
+      revealStoryboardOpenIntent,
+    ],
   );
 
   const createNewStoryboard = useCallback(async () => {
+    await flushFocusedWorkspaceField();
     if (!currentUser?.uid) {
       toast.error("로그인 후 스토리보드를 만들 수 있습니다.");
       return;
     }
 
+    cancelDraftScopedRequests();
+
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    if (activeId && draft && isDirty) {
-      const saved = await persistDraft(activeId, draft, revisionRef.current);
+    const currentStoryboardId = activeIdRef.current;
+    const currentDraft = draftRef.current;
+    if (currentStoryboardId && currentDraft && isDirtyRef.current) {
+      const saved = await persistDraft(
+        currentStoryboardId,
+        currentDraft,
+        revisionRef.current,
+      );
       if (!saved) return;
     }
 
@@ -1284,8 +1637,9 @@ export default function StoryboardWorkspace({
       savedRevisionRef.current.set(id, nextStoryboard.revision);
       saveConflictRef.current = false;
       setSaveConflict(false);
-      setActiveId(id);
-      setDraft(nextStoryboard);
+      activateStoryboardId(id);
+      replaceDraft(nextStoryboard);
+      isDirtyRef.current = false;
       setWorkspaceSurface("editor");
       setIsDirty(false);
       setLastSavedAt(now);
@@ -1294,16 +1648,31 @@ export default function StoryboardWorkspace({
       console.error(error);
       setLoadError("새 스토리보드를 만들지 못했습니다. 다시 시도해 주세요.");
     }
-  }, [activeId, currentUser?.uid, draft, isDirty, persistDraft]);
+  }, [
+    activateStoryboardId,
+    cancelDraftScopedRequests,
+    currentUser?.uid,
+    flushFocusedWorkspaceField,
+    persistDraft,
+    replaceDraft,
+  ]);
 
   const duplicateCurrentStoryboard = useCallback(async () => {
-    if (!currentUser?.uid || !draft) return;
-    if (activeId && isDirty) {
-      const saved = await persistDraft(activeId, draft, revisionRef.current);
+    await flushFocusedWorkspaceField();
+    const currentDraft = draftRef.current;
+    const currentStoryboardId = activeIdRef.current;
+    if (!currentUser?.uid || !currentDraft) return;
+    if (currentStoryboardId && isDirtyRef.current) {
+      const saved = await persistDraft(
+        currentStoryboardId,
+        currentDraft,
+        revisionRef.current,
+      );
       if (!saved) return;
     }
+    cancelDraftScopedRequests();
     try {
-      const copy = createIndependentStoryboardCopy(draft);
+      const copy = createIndependentStoryboardCopy(currentDraft);
       const id = await imageStoryboardService.create(currentUser.uid, copy);
       const now = Date.now();
       const savedCopy: SavedImageStoryboard = {
@@ -1316,8 +1685,9 @@ export default function StoryboardWorkspace({
       savedRevisionRef.current.set(id, copy.revision);
       saveConflictRef.current = false;
       setSaveConflict(false);
-      setActiveId(id);
-      setDraft(copy);
+      activateStoryboardId(id);
+      replaceDraft(copy);
+      isDirtyRef.current = false;
       setWorkspaceSurface("editor");
       setIsDirty(false);
       setLastSavedAt(now);
@@ -1332,19 +1702,34 @@ export default function StoryboardWorkspace({
       console.error(error);
       toast.error("프로젝트를 복제하지 못했습니다.");
     }
-  }, [activeId, currentUser?.uid, draft, isDirty, persistDraft]);
+  }, [
+    activateStoryboardId,
+    cancelDraftScopedRequests,
+    currentUser?.uid,
+    flushFocusedWorkspaceField,
+    persistDraft,
+    replaceDraft,
+  ]);
 
   const duplicateCurrentStoryboardWithMedia = useCallback(async () => {
-    if (!currentUser?.uid || !draft || mediaCopyProgress) return;
-    if (activeId && isDirty) {
-      const saved = await persistDraft(activeId, draft, revisionRef.current);
+    await flushFocusedWorkspaceField();
+    const currentDraft = draftRef.current;
+    const currentStoryboardId = activeIdRef.current;
+    if (!currentUser?.uid || !currentDraft || mediaCopyProgress) return;
+    if (currentStoryboardId && isDirtyRef.current) {
+      const saved = await persistDraft(
+        currentStoryboardId,
+        currentDraft,
+        revisionRef.current,
+      );
       if (!saved) return;
     }
+    cancelDraftScopedRequests();
     setMediaCopyProgress({ completed: 0, total: 1 });
     try {
       const id = await imageStoryboardService.duplicateWithMedia(
         currentUser.uid,
-        draft,
+        currentDraft,
         (completed, total) => setMediaCopyProgress({ completed, total }),
       );
       const savedCopy = await imageStoryboardService.get(currentUser.uid, id);
@@ -1352,11 +1737,12 @@ export default function StoryboardWorkspace({
       savedRevisionRef.current.set(id, savedCopy.revision);
       saveConflictRef.current = false;
       setSaveConflict(false);
-      setActiveId(id);
-      setDraft({
+      activateStoryboardId(id);
+      replaceDraft({
         ...savedCopy,
         scenes: savedCopy.scenes.map((scene) => ({ ...scene })),
       });
+      isDirtyRef.current = false;
       setWorkspaceSurface("editor");
       setIsDirty(false);
       setLastSavedAt(savedCopy.updatedAt);
@@ -1378,12 +1764,13 @@ export default function StoryboardWorkspace({
       setMediaCopyProgress(null);
     }
   }, [
-    activeId,
+    activateStoryboardId,
+    cancelDraftScopedRequests,
     currentUser?.uid,
-    draft,
-    isDirty,
+    flushFocusedWorkspaceField,
     mediaCopyProgress,
     persistDraft,
+    replaceDraft,
   ]);
 
   const toggleArchiveCurrentStoryboard = useCallback(() => {
@@ -1406,6 +1793,7 @@ export default function StoryboardWorkspace({
       `"${draft.title}" 프로젝트를 영구 삭제할까요?\n장면 이미지·영상·완성본·배경음·버전 기록까지 함께 정리되며 복구할 수 없습니다.`,
     );
     if (!confirmed) return;
+    cancelDraftScopedRequests();
     try {
       const authToken = await currentUser.getIdToken();
       await imageStoryboardService.removeWithMedia(authToken, activeId);
@@ -1416,16 +1804,23 @@ export default function StoryboardWorkspace({
       saveConflictRef.current = false;
       setSaveConflict(false);
       setLoadError(null);
-      setActiveId(null);
-      setDraft(null);
+      activateStoryboardId(null);
+      replaceDraft(null);
+      isDirtyRef.current = false;
       setIsDirty(false);
-      setVersions([]);
       toast.success("프로젝트와 연결된 생성 파일을 모두 정리했습니다.");
     } catch (error) {
       console.error(error);
       toast.error("프로젝트를 삭제하지 못했습니다.");
     }
-  }, [activeId, currentUser, draft]);
+  }, [
+    activeId,
+    activateStoryboardId,
+    cancelDraftScopedRequests,
+    currentUser,
+    draft,
+    replaceDraft,
+  ]);
 
   const renameStoryboardProject = useCallback(
     async (storyboard: SavedImageStoryboard) => {
@@ -1490,12 +1885,7 @@ export default function StoryboardWorkspace({
         toast.error("기획 복사본을 만들지 못했습니다.");
       }
     },
-    [
-      activeId,
-      currentUser?.uid,
-      draft,
-      duplicateCurrentStoryboard,
-    ],
+    [activeId, currentUser?.uid, draft, duplicateCurrentStoryboard],
   );
 
   const duplicateStoryboardMedia = useCallback(
@@ -1559,18 +1949,15 @@ export default function StoryboardWorkspace({
           }),
         );
         savedRevisionRef.current.set(storyboard.id, nextRevision);
-        toast.success(archivedAt ? "프로젝트를 보관했습니다." : "프로젝트를 복원했습니다.");
+        toast.success(
+          archivedAt ? "프로젝트를 보관했습니다." : "프로젝트를 복원했습니다.",
+        );
       } catch (error) {
         console.error(error);
         toast.error("프로젝트 보관 상태를 변경하지 못했습니다.");
       }
     },
-    [
-      activeId,
-      currentUser?.uid,
-      draft,
-      toggleArchiveCurrentStoryboard,
-    ],
+    [activeId, currentUser?.uid, draft, toggleArchiveCurrentStoryboard],
   );
 
   const deleteStoryboardProject = useCallback(
@@ -1586,10 +1973,7 @@ export default function StoryboardWorkspace({
       if (!confirmed) return;
       try {
         const authToken = await currentUser.getIdToken();
-        await imageStoryboardService.removeWithMedia(
-          authToken,
-          storyboard.id,
-        );
+        await imageStoryboardService.removeWithMedia(authToken, storyboard.id);
         setStoryboards((current) =>
           current.filter((item) => item.id !== storyboard.id),
         );
@@ -1626,6 +2010,7 @@ export default function StoryboardWorkspace({
   const importStoryboardFile = useCallback(
     async (file: File) => {
       if (!currentUser?.uid) return;
+      cancelDraftScopedRequests();
       try {
         const parsed = ImageStoryboardSchema.parse(
           JSON.parse(await file.text()),
@@ -1650,8 +2035,9 @@ export default function StoryboardWorkspace({
         savedRevisionRef.current.set(id, imported.revision);
         saveConflictRef.current = false;
         setSaveConflict(false);
-        setActiveId(id);
-        setDraft(imported);
+        activateStoryboardId(id);
+        replaceDraft(imported);
+        isDirtyRef.current = false;
         setWorkspaceSurface("editor");
         setIsDirty(false);
         setLastSavedAt(now);
@@ -1661,37 +2047,85 @@ export default function StoryboardWorkspace({
         toast.error("가져올 수 없는 프로젝트 파일입니다.");
       }
     },
-    [currentUser?.uid],
+    [
+      activateStoryboardId,
+      cancelDraftScopedRequests,
+      currentUser?.uid,
+      replaceDraft,
+    ],
   );
 
   const refreshVersions = useCallback(async () => {
-    if (!currentUser?.uid || !activeId) return;
+    const userId = currentUser?.uid;
+    const storyboardIdAtRequest = activeIdRef.current;
+    if (!userId || !storyboardIdAtRequest) {
+      invalidateVersionHistory();
+      return;
+    }
+
+    const requestId = versionHistoryRequestRef.current + 1;
+    versionHistoryRequestRef.current = requestId;
+    versionsProjectIdRef.current = null;
+    setVersionsProjectId(null);
+    setVersions([]);
     setIsVersionsLoading(true);
     try {
-      setVersions(
-        await imageStoryboardService.listVersions(currentUser.uid, activeId),
+      const nextVersions = await imageStoryboardService.listVersions(
+        userId,
+        storyboardIdAtRequest,
       );
+      if (
+        !isMountedRef.current ||
+        versionHistoryRequestRef.current !== requestId ||
+        activeIdRef.current !== storyboardIdAtRequest
+      ) {
+        return;
+      }
+      versionsProjectIdRef.current = storyboardIdAtRequest;
+      setVersionsProjectId(storyboardIdAtRequest);
+      setVersions(nextVersions);
     } catch (error) {
+      if (
+        !isMountedRef.current ||
+        versionHistoryRequestRef.current !== requestId ||
+        activeIdRef.current !== storyboardIdAtRequest
+      ) {
+        return;
+      }
       console.error(error);
       toast.error("버전 기록을 불러오지 못했습니다.");
     } finally {
-      setIsVersionsLoading(false);
+      if (
+        isMountedRef.current &&
+        versionHistoryRequestRef.current === requestId &&
+        activeIdRef.current === storyboardIdAtRequest
+      ) {
+        setIsVersionsLoading(false);
+      }
     }
-  }, [activeId, currentUser?.uid]);
+  }, [currentUser?.uid, invalidateVersionHistory]);
 
   const saveNamedVersion = useCallback(async () => {
-    if (!currentUser?.uid || !activeId || !draft) return;
-    if (isDirty) {
-      const saved = await persistDraft(activeId, draft, revisionRef.current);
+    await flushFocusedWorkspaceField();
+    const currentStoryboardId = activeIdRef.current;
+    const currentDraft = draftRef.current;
+    if (!currentUser?.uid || !currentStoryboardId || !currentDraft) return;
+    if (isDirtyRef.current) {
+      const saved = await persistDraft(
+        currentStoryboardId,
+        currentDraft,
+        revisionRef.current,
+      );
       if (!saved) return;
     }
     try {
       await imageStoryboardService.saveVersion(
         currentUser.uid,
-        activeId,
-        draft,
+        currentStoryboardId,
+        currentDraft,
         `수동 저장 · ${KOREAN_DATE_TIME_FORMAT.format(new Date())}`,
       );
+      if (activeIdRef.current !== currentStoryboardId) return;
       await refreshVersions();
       toast.success("현재 상태를 버전으로 저장했습니다.");
     } catch (error) {
@@ -1699,27 +2133,41 @@ export default function StoryboardWorkspace({
       toast.error("버전을 저장하지 못했습니다.");
     }
   }, [
-    activeId,
     currentUser?.uid,
-    draft,
-    isDirty,
+    flushFocusedWorkspaceField,
     persistDraft,
     refreshVersions,
   ]);
 
   const restoreVersion = useCallback(
-    (version: SavedStoryboardVersion) => {
-      if (!draft) return;
+    (
+      version: SavedStoryboardVersion,
+      versionStoryboardId: string | null,
+    ) => {
+      const currentStoryboardId = activeIdRef.current;
+      const currentDraft = draftRef.current;
+      if (
+        !currentDraft ||
+        !currentStoryboardId ||
+        versionStoryboardId !== currentStoryboardId ||
+        versionsProjectIdRef.current !== currentStoryboardId
+      ) {
+        setIsHistoryOpen(false);
+        toast.error("프로젝트가 변경되어 이 버전을 복원하지 않았습니다.", {
+          description: "현재 프로젝트에서 버전 기록을 다시 열어 주세요.",
+        });
+        return;
+      }
       updateDraft(() => ({
         ...version.storyboard,
-        revision: draft.revision,
+        revision: currentDraft.revision,
       }));
       setIsHistoryOpen(false);
       toast.success(`"${version.label}" 상태를 복원했습니다.`, {
         description: "자동 저장 전에는 되돌리기로 취소할 수 있습니다.",
       });
     },
-    [draft, updateDraft],
+    [updateDraft],
   );
 
   const recoverConflictAsCopy = useCallback(async () => {
@@ -1743,8 +2191,9 @@ export default function StoryboardWorkspace({
       );
       savedRevisionRef.current.set(id, copy.revision);
       saveConflictRef.current = false;
-      setActiveId(id);
-      setDraft(copy);
+      activateStoryboardId(id);
+      replaceDraft(copy);
+      isDirtyRef.current = false;
       setIsDirty(false);
       setSaveConflict(false);
       setLoadError(null);
@@ -1754,7 +2203,7 @@ export default function StoryboardWorkspace({
       console.error(error);
       toast.error("복구 복사본을 만들지 못했습니다.");
     }
-  }, [currentUser?.uid, draft]);
+  }, [activateStoryboardId, currentUser?.uid, draft, replaceDraft]);
 
   const reloadLatestAfterConflict = useCallback(async () => {
     if (!currentUser?.uid || !activeId) return;
@@ -1774,10 +2223,11 @@ export default function StoryboardWorkspace({
       savedRevisionRef.current.set(latest.id, latest.revision);
       saveConflictRef.current = false;
       setHistoryState({ canUndo: false, canRedo: false });
-      setDraft({
+      replaceDraft({
         ...latest,
         scenes: latest.scenes.map((scene) => ({ ...scene })),
       });
+      isDirtyRef.current = false;
       setIsDirty(false);
       setSaveConflict(false);
       setLoadError(null);
@@ -1787,11 +2237,21 @@ export default function StoryboardWorkspace({
       console.error(error);
       toast.error("최신 버전을 불러오지 못했습니다.");
     }
-  }, [activeId, currentUser?.uid]);
+  }, [activeId, currentUser?.uid, replaceDraft]);
 
   const handleAddProjectReferences = useCallback(
     async (assets: ImageReferenceDraft[]) => {
-      if (!currentUser?.uid || !activeId || !assets.length) return;
+      if (
+        !currentUser?.uid ||
+        !activeId ||
+        !assets.length ||
+        referenceUploadInProgressRef.current
+      )
+        return;
+      const storyboardIdAtRequest = activeId;
+      const requestId = referenceUploadRequestRef.current + 1;
+      referenceUploadRequestRef.current = requestId;
+      referenceUploadInProgressRef.current = true;
       const available = Math.max(
         0,
         MAX_IMAGE_REFERENCE_ASSETS - projectReferenceAssets.length,
@@ -1805,17 +2265,83 @@ export default function StoryboardWorkspace({
 
       setIsUploadingReferences(true);
       try {
-        const uploaded = await Promise.all(
+        const uploadResults = await Promise.allSettled(
           assets
             .slice(0, available)
             .map((asset) =>
               imageStoryboardService.uploadReferenceAsset(
                 currentUser.uid,
-                activeId,
+                storyboardIdAtRequest,
                 asset,
               ),
             ),
         );
+        const uploaded = uploadResults.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : [],
+        );
+        const failedUpload = uploadResults.find(
+          (result) => result.status === "rejected",
+        );
+        const requestIsCurrent =
+          referenceUploadRequestRef.current === requestId &&
+          activeIdRef.current === storyboardIdAtRequest &&
+          isMountedRef.current;
+
+        if (failedUpload || !requestIsCurrent) {
+          const cleanup = uploaded.length
+            ? await imageStoryboardService.deleteReclaimableStorageAssets(
+                currentUser.uid,
+                storyboardIdAtRequest,
+                uploaded.flatMap((asset) =>
+                  asset.storagePath
+                    ? [
+                        {
+                          id: asset.id,
+                          storagePath: asset.storagePath,
+                          label: asset.name,
+                          kind: "reference" as const,
+                          queuedAt: Date.now(),
+                        },
+                      ]
+                    : [],
+                ),
+              )
+            : { failed: [] };
+
+          if (requestIsCurrent && cleanup.failed.length) {
+            updateDraft((current) => ({
+              ...current,
+              cleanupStatus: "retry",
+              cleanupErrorMessage:
+                "일부 참조 사진 업로드를 취소했지만 임시 파일 정리가 필요합니다. 파일 관리에서 다시 정리해 주세요.",
+              reclaimableStorageAssets: cleanup.failed.reduce(
+                (queued, failed) =>
+                  queueReclaimableStorageAsset(
+                    { ...current, reclaimableStorageAssets: queued },
+                    {
+                      storagePath: failed.storagePath,
+                      label: "취소된 참조 사진",
+                      kind: "reference",
+                    },
+                  ),
+                current.reclaimableStorageAssets,
+              ),
+            }));
+          }
+
+          if (requestIsCurrent && failedUpload) {
+            const message =
+              failedUpload.reason instanceof Error
+                ? failedUpload.reason.message
+                : "참조 사진 업로드를 완료하지 못했습니다.";
+            toast.error(message, {
+              description:
+                "이미 올라간 임시 파일은 자동으로 정리했습니다. 같은 사진을 다시 선택해 주세요.",
+            });
+          }
+          return;
+        }
+
         const persistedAssets = uploaded.map((asset) => ({
           ...asset,
           storagePath: asset.storagePath ?? null,
@@ -1848,7 +2374,10 @@ export default function StoryboardWorkspace({
             : "참조 사진을 저장하지 못했습니다.",
         );
       } finally {
-        setIsUploadingReferences(false);
+        if (referenceUploadRequestRef.current === requestId) {
+          referenceUploadInProgressRef.current = false;
+          if (isMountedRef.current) setIsUploadingReferences(false);
+        }
       }
     },
     [activeId, currentUser?.uid, projectReferenceAssets.length, updateDraft],
@@ -1972,14 +2501,10 @@ export default function StoryboardWorkspace({
             duration: `${durationSeconds}초`,
             assetFreshness: "current",
             staleReason: null,
-            imageDesignRevision:
-              (previous?.imageDesignRevision ?? 0) + 1,
-            videoDesignRevision:
-              (previous?.videoDesignRevision ?? 0) + 1,
-            approvedImageArtifactId:
-              previous?.approvedImageArtifactId ?? null,
-            approvedVideoArtifactId:
-              previous?.approvedVideoArtifactId ?? null,
+            imageDesignRevision: (previous?.imageDesignRevision ?? 0) + 1,
+            videoDesignRevision: (previous?.videoDesignRevision ?? 0) + 1,
+            approvedImageArtifactId: previous?.approvedImageArtifactId ?? null,
+            approvedVideoArtifactId: previous?.approvedVideoArtifactId ?? null,
             generatedImage: previous?.generatedImage ?? null,
             video: previous
               ? { ...previous.video, durationSeconds }
@@ -2036,16 +2561,19 @@ export default function StoryboardWorkspace({
   );
 
   const handlePlanWithAI = useCallback(async () => {
+    await flushFocusedWorkspaceField();
+    const draftAtRequest = draftRef.current;
     if (
       !currentUser ||
-      !draft ||
+      !draftAtRequest ||
       isPlanning ||
       isGenerating ||
       isBulkGenerating ||
-      redesigningSceneId
+      redesigningSceneId ||
+      planningAbortControllerRef.current
     )
       return;
-    const topic = draft.topic.trim();
+    const topic = draftAtRequest.topic.trim();
     if (topic.length < 2) {
       toast.error("스토리 주제를 두 글자 이상 입력해 주세요.");
       return;
@@ -2054,6 +2582,9 @@ export default function StoryboardWorkspace({
     const requestId = planningRequestRef.current + 1;
     planningRequestRef.current = requestId;
     const storyboardIdAtRequest = activeId;
+    const revisionAtRequest = revisionRef.current;
+    const abortController = new AbortController();
+    planningAbortControllerRef.current = abortController;
     setIsPlanning(true);
     setLoadError(null);
 
@@ -2063,23 +2594,28 @@ export default function StoryboardWorkspace({
       );
       const result = await generateImageStoryboardPlan(currentUser, {
         topic,
-        sceneCount: plannerSceneCount,
-        aspectRatio: draft.aspectRatio,
-        stylePreset: draft.stylePreset,
-        format: plannerFormat,
+        sceneCount: draftAtRequest.plannedSceneCount,
+        aspectRatio: draftAtRequest.aspectRatio,
+        stylePreset: draftAtRequest.stylePreset,
+        format: draftAtRequest.format,
         ...(referenceImages.length ? { referenceImages } : {}),
-      });
+      }, { signal: abortController.signal });
       if (
         planningRequestRef.current !== requestId ||
-        activeIdRef.current !== storyboardIdAtRequest
-      )
+        activeIdRef.current !== storyboardIdAtRequest ||
+        revisionRef.current !== revisionAtRequest
+      ) {
+        toast.info(
+          "설계 중 프로젝트 내용이 변경되어 결과를 적용하지 않았습니다. 최신 내용으로 다시 요청해 주세요.",
+        );
         return;
+      }
       if (activeId) {
         await imageStoryboardService
           .saveVersion(
             currentUser.uid,
             activeId,
-            draft,
+            draftAtRequest,
             `AI 재설계 전 · ${KOREAN_DATE_TIME_FORMAT.format(new Date())}`,
           )
           .catch((error) =>
@@ -2088,7 +2624,8 @@ export default function StoryboardWorkspace({
       }
       if (
         planningRequestRef.current !== requestId ||
-        activeIdRef.current !== storyboardIdAtRequest
+        activeIdRef.current !== storyboardIdAtRequest ||
+        revisionRef.current !== revisionAtRequest
       )
         return;
       applyStoryboardPlan(topic, result.plan);
@@ -2103,6 +2640,7 @@ export default function StoryboardWorkspace({
         },
       );
     } catch (error) {
+      if (isAbortError(error)) return;
       const message =
         error instanceof Error
           ? error.message
@@ -2110,18 +2648,21 @@ export default function StoryboardWorkspace({
       setLoadError(message);
       toast.error(message);
     } finally {
-      if (planningRequestRef.current === requestId) setIsPlanning(false);
+      if (planningAbortControllerRef.current === abortController) {
+        planningAbortControllerRef.current = null;
+      }
+      if (planningRequestRef.current === requestId && isMountedRef.current) {
+        setIsPlanning(false);
+      }
     }
   }, [
     activeId,
     applyStoryboardPlan,
     currentUser,
-    draft,
+    flushFocusedWorkspaceField,
     isBulkGenerating,
     isGenerating,
     isPlanning,
-    plannerFormat,
-    plannerSceneCount,
     projectReferenceAssets,
     redesigningSceneId,
   ]);
@@ -2134,7 +2675,8 @@ export default function StoryboardWorkspace({
         isPlanning ||
         isGenerating ||
         isBulkGenerating ||
-        redesigningSceneId
+        redesigningSceneId ||
+        sceneRedesignAbortControllerRef.current
       )
         return;
       const sceneIndex = draft.scenes.findIndex((item) => item.id === scene.id);
@@ -2144,6 +2686,8 @@ export default function StoryboardWorkspace({
       sceneRedesignRequestRef.current = requestId;
       const storyboardIdAtRequest = activeId;
       const revisionAtRequest = revisionRef.current;
+      const abortController = new AbortController();
+      sceneRedesignAbortControllerRef.current = abortController;
       const previousScene =
         sceneIndex > 0 ? draft.scenes[sceneIndex - 1] : undefined;
       const nextScene =
@@ -2161,7 +2705,7 @@ export default function StoryboardWorkspace({
           topic: draft.topic,
           aspectRatio: draft.aspectRatio,
           stylePreset: draft.stylePreset,
-          format: plannerFormat,
+          format: draft.format,
           artDirection: draft.artDirection,
           characterContinuity: draft.characterContinuity,
           settingContinuity: draft.settingContinuity,
@@ -2171,7 +2715,7 @@ export default function StoryboardWorkspace({
           ...(nextScene ? { nextScene } : {}),
           instruction: sceneRedesignInstructions[scene.id] ?? "",
           ...(referenceImages.length ? { referenceImages } : {}),
-        });
+        }, { signal: abortController.signal });
         if (
           sceneRedesignRequestRef.current !== requestId ||
           activeIdRef.current !== storyboardIdAtRequest ||
@@ -2226,6 +2770,7 @@ export default function StoryboardWorkspace({
             : "다른 장면은 유지했습니다. 생성용 프롬프트를 확인한 뒤 바로 이미지를 만들 수 있습니다.",
         });
       } catch (error) {
+        if (isAbortError(error)) return;
         const message =
           error instanceof Error
             ? error.message
@@ -2233,7 +2778,13 @@ export default function StoryboardWorkspace({
         setLoadError(message);
         toast.error(message);
       } finally {
-        if (sceneRedesignRequestRef.current === requestId)
+        if (sceneRedesignAbortControllerRef.current === abortController) {
+          sceneRedesignAbortControllerRef.current = null;
+        }
+        if (
+          sceneRedesignRequestRef.current === requestId &&
+          isMountedRef.current
+        )
           setRedesigningSceneId(null);
       }
     },
@@ -2244,7 +2795,6 @@ export default function StoryboardWorkspace({
       isBulkGenerating,
       isGenerating,
       isPlanning,
-      plannerFormat,
       projectReferenceAssets,
       redesigningSceneId,
       sceneRedesignInstructions,
@@ -2260,7 +2810,8 @@ export default function StoryboardWorkspace({
         isPlanning ||
         isGenerating ||
         isBulkGenerating ||
-        redesigningSceneId
+        redesigningSceneId ||
+        sceneRedesignAbortControllerRef.current
       )
         return;
       const sceneIndex = draft.scenes.findIndex((item) => item.id === scene.id);
@@ -2276,6 +2827,8 @@ export default function StoryboardWorkspace({
       sceneRedesignRequestRef.current = requestId;
       const storyboardIdAtRequest = activeId;
       const revisionAtRequest = revisionRef.current;
+      const abortController = new AbortController();
+      sceneRedesignAbortControllerRef.current = abortController;
       const previousScene =
         sceneIndex > 0 ? draft.scenes[sceneIndex - 1] : undefined;
       const nextScene = draft.scenes[sceneIndex + affectedScenes.length];
@@ -2290,7 +2843,7 @@ export default function StoryboardWorkspace({
           topic: draft.topic,
           aspectRatio: draft.aspectRatio,
           stylePreset: draft.stylePreset,
-          format: plannerFormat,
+          format: draft.format,
           artDirection: draft.artDirection,
           characterContinuity: draft.characterContinuity,
           settingContinuity: draft.settingContinuity,
@@ -2300,7 +2853,7 @@ export default function StoryboardWorkspace({
           ...(nextScene ? { nextScene } : {}),
           instruction: sceneRedesignInstructions[scene.id] ?? "",
           ...(referenceImages.length ? { referenceImages } : {}),
-        });
+        }, { signal: abortController.signal });
         if (
           sceneRedesignRequestRef.current !== requestId ||
           activeIdRef.current !== storyboardIdAtRequest ||
@@ -2389,6 +2942,7 @@ export default function StoryboardWorkspace({
           },
         );
       } catch (error) {
+        if (isAbortError(error)) return;
         const message =
           error instanceof Error
             ? error.message
@@ -2396,7 +2950,13 @@ export default function StoryboardWorkspace({
         setLoadError(message);
         toast.error(message);
       } finally {
-        if (sceneRedesignRequestRef.current === requestId)
+        if (sceneRedesignAbortControllerRef.current === abortController) {
+          sceneRedesignAbortControllerRef.current = null;
+        }
+        if (
+          sceneRedesignRequestRef.current === requestId &&
+          isMountedRef.current
+        )
           setRedesigningSceneId(null);
       }
     },
@@ -2407,7 +2967,6 @@ export default function StoryboardWorkspace({
       isBulkGenerating,
       isGenerating,
       isPlanning,
-      plannerFormat,
       projectReferenceAssets,
       redesigningSceneId,
       sceneRedesignInstructions,
@@ -2418,11 +2977,14 @@ export default function StoryboardWorkspace({
   const applyQuickStartTemplate = useCallback(
     (template: (typeof QUICK_START_TEMPLATES)[number]) => {
       const previousTopic = draft?.topic ?? "";
-      const previousFormat = plannerFormat;
-      const previousSceneCount = plannerSceneCount;
-      updateDraft((current) => ({ ...current, topic: template.topic }));
-      setPlannerFormat(template.format);
-      setPlannerSceneCount(template.sceneCount);
+      const previousFormat = draft?.format ?? "brand-film";
+      const previousSceneCount = draft?.plannedSceneCount ?? 5;
+      updateDraft((current) => ({
+        ...current,
+        topic: template.topic,
+        format: template.format,
+        plannedSceneCount: template.sceneCount,
+      }));
       toast.success(`${template.label} 시작값을 적용했습니다.`, {
         description: previousTopic.trim()
           ? "기존 주제와 설계 옵션을 바꿨습니다."
@@ -2430,15 +2992,18 @@ export default function StoryboardWorkspace({
         action: {
           label: "되돌리기",
           onClick: () => {
-            updateDraft((current) => ({ ...current, topic: previousTopic }));
-            setPlannerFormat(previousFormat);
-            setPlannerSceneCount(previousSceneCount);
+            updateDraft((current) => ({
+              ...current,
+              topic: previousTopic,
+              format: previousFormat,
+              plannedSceneCount: previousSceneCount,
+            }));
             toast.success("이전 시작값으로 되돌렸습니다.");
           },
         },
       });
     },
-    [draft?.topic, plannerFormat, plannerSceneCount, updateDraft],
+    [draft?.format, draft?.plannedSceneCount, draft?.topic, updateDraft],
   );
 
   const addScene = useCallback(() => {
@@ -2486,24 +3051,34 @@ export default function StoryboardWorkspace({
     [updateDraft],
   );
 
-  const updateSceneMetadata = useCallback(
-    (sceneId: string, patch: Partial<ImageStoryboardScene>) => {
-      updateDraft((current) => ({
-        ...current,
-        scenes: current.scenes.map((scene) =>
-          scene.id === sceneId ? { ...scene, ...patch } : scene,
-        ),
-      }));
-    },
-    [updateDraft],
-  );
-
   const commitSceneText = useCallback(
     (sceneId: string | undefined, field: string, value: string) => {
       if (!sceneId) return;
+      if (field === "title" && !value.trim()) {
+        updateDraft((current) => ({
+          ...current,
+          scenes: current.scenes.map((scene) =>
+            scene.id === sceneId
+              ? { ...scene, title: `장면 ${scene.order}` }
+              : scene,
+          ),
+        }));
+        return;
+      }
       updateScene(sceneId, { [field]: value } as Partial<ImageStoryboardScene>);
     },
-    [updateScene],
+    [updateDraft, updateScene],
+  );
+
+  const commitSceneRedesignInstruction = useCallback(
+    (sceneId: string | undefined, _field: string, value: string) => {
+      if (!sceneId) return;
+      setSceneRedesignInstructions((current) => ({
+        ...current,
+        [sceneId]: value,
+      }));
+    },
+    [],
   );
 
   const duplicateScene = useCallback(
@@ -2637,7 +3212,14 @@ export default function StoryboardWorkspace({
       replacedImage: ImageStoryboardScene["generatedImage"],
       replacedSceneId: string,
     ) => {
-      if (!replacedImage || !currentUser?.uid) return;
+      if (!replacedImage || !currentUser?.uid || !activeId) return;
+      const storagePath =
+        replacedImage.storagePath ||
+        storagePathFromFirebaseDownloadUrl(replacedImage.url);
+      const ownedStoryboardPrefix = `users/${currentUser.uid}/storyboards/${activeId}/`;
+      // Shared generation-history files are retired by the artifact audit.
+      // Only a project-private copy is safe to delete immediately.
+      if (!storagePath?.startsWith(ownedStoryboardPrefix)) return;
       const stillUsed = draft?.scenes.some(
         (scene) =>
           scene.id !== replacedSceneId &&
@@ -2647,20 +3229,36 @@ export default function StoryboardWorkspace({
       try {
         await imageStoryboardService.deleteGeneratedImage(
           currentUser.uid,
-          replacedImage,
+          activeId,
+          { id: replacedImage.id, storagePath },
         );
       } catch (error) {
         console.error("[Storyboard] replaced image cleanup failed:", error);
-        updateDraft((current) => ({
-          ...current,
-          cleanupStatus: "retry",
-          cleanupErrorMessage:
-            "교체된 장면 이미지 파일을 정리하지 못했습니다. 파일 관리에서 다시 정리해 주세요.",
-        }));
+        updateDraft((current) => {
+          const isStillCurrent = current.scenes.some(
+            (item) =>
+              item.generatedImage?.id === replacedImage.id ||
+              (storagePath && item.generatedImage?.storagePath === storagePath),
+          );
+          return {
+            ...current,
+            cleanupStatus: "retry",
+            cleanupErrorMessage:
+              "교체된 장면 이미지 파일을 정리하지 못했습니다. 파일 관리에서 다시 정리해 주세요.",
+            reclaimableStorageAssets:
+              storagePath && !isStillCurrent
+                ? queueReclaimableStorageAsset(current, {
+                    storagePath,
+                    label: "교체된 장면 이미지",
+                    kind: "scene-image",
+                  })
+                : current.reclaimableStorageAssets,
+          };
+        });
         toast.warning("새 이미지는 적용했지만 이전 파일 정리가 필요합니다.");
       }
     },
-    [currentUser?.uid, draft?.scenes, updateDraft],
+    [activeId, currentUser?.uid, draft?.scenes, updateDraft],
   );
 
   const handleGenerateScene = useCallback(
@@ -2697,6 +3295,14 @@ export default function StoryboardWorkspace({
                     id: image.id,
                     url: image.url,
                     generatedAt: Date.now(),
+                    storagePath: image.storagePath ?? null,
+                    provenance: activeId
+                      ? {
+                          kind: "storyboard-scene",
+                          storyboardId: activeId,
+                          sceneId: scene.id,
+                        }
+                      : null,
                   },
                   approvedImageArtifactId: `scene-image:${image.id}`,
                   approvedVideoArtifactId: null,
@@ -2716,6 +3322,7 @@ export default function StoryboardWorkspace({
       }
     },
     [
+      activeId,
       buildSceneReferences,
       cleanupReplacedSceneImage,
       draft,
@@ -2740,7 +3347,7 @@ export default function StoryboardWorkspace({
 
     const pendingScenes = draft.scenes.filter(
       (scene) =>
-        scene.status !== "generated" && deriveSceneStatus(scene) === "ready",
+        !scene.generatedImage?.url && deriveSceneStatus(scene) === "ready",
     );
     if (!pendingScenes.length) {
       toast.info(
@@ -2752,66 +3359,113 @@ export default function StoryboardWorkspace({
     setIsBulkGenerating(true);
     let previousImageUrl: string | undefined;
     let generatedCount = 0;
+    const externalReferences: ImageReferenceInput[] =
+      projectReferenceAssets.map(({ image, role }) => ({ image, role }));
+
+    const generateScene = async (
+      scene: ImageStoryboardScene,
+      references: ImageReferenceInput[],
+    ) => {
+      const payload = buildGenerationPayload(draft, scene, references);
+      const image = await onGenerateScene(payload);
+      generatedCount += 1;
+      updateDraft((current) => ({
+        ...current,
+        videoProduction: resetStoryboardVideoProduction(
+          current.videoProduction,
+        ),
+        scenes: current.scenes.map((item) =>
+          item.id === scene.id
+            ? {
+                ...item,
+                status: "generated",
+                assetFreshness: "current",
+                staleReason: null,
+                generatedImage: {
+                  id: image.id,
+                  url: image.url,
+                  generatedAt: Date.now(),
+                  storagePath: image.storagePath ?? null,
+                  provenance: activeId
+                    ? {
+                        kind: "storyboard-scene",
+                        storyboardId: activeId,
+                        sceneId: scene.id,
+                      }
+                    : null,
+                },
+                approvedImageArtifactId: `scene-image:${image.id}`,
+                approvedVideoArtifactId: null,
+                video: sceneHasVideoResult(item)
+                  ? { ...item.video, status: "review", approvedAt: null }
+                  : resetSceneVideo(item),
+              }
+            : item,
+        ),
+      }));
+      return image;
+    };
 
     try {
-      for (const scene of draft.scenes) {
-        if (scene.generatedImage?.url) {
-          previousImageUrl = scene.generatedImage.url;
-          continue;
-        }
-        if (deriveSceneStatus(scene) !== "ready") continue;
+      if (draft.usePreviousSceneAsReference) {
+        for (const scene of draft.scenes) {
+          if (scene.generatedImage?.url) {
+            previousImageUrl = scene.generatedImage.url;
+            continue;
+          }
+          if (deriveSceneStatus(scene) !== "ready") continue;
 
-        const externalReferences: ImageReferenceInput[] =
-          projectReferenceAssets.map(({ image, role }) => ({ image, role }));
-        const references =
-          draft.usePreviousSceneAsReference &&
-          previousImageUrl &&
-          !externalReferences.some(
-            (reference) => reference.image === previousImageUrl,
-          )
-            ? [
-                ...externalReferences,
-                { image: previousImageUrl, role: "style" as const },
-              ].slice(0, MAX_IMAGE_REFERENCE_REQUESTS)
-            : externalReferences;
-        const payload = buildGenerationPayload(draft, scene, references);
-        setGeneratingSceneId(scene.id);
-        const image = await onGenerateScene(payload);
-        previousImageUrl = image.url;
-        generatedCount += 1;
-        updateDraft((current) => ({
-          ...current,
-          videoProduction: resetStoryboardVideoProduction(
-            current.videoProduction,
-          ),
-          scenes: current.scenes.map((item) =>
-            item.id === scene.id
-              ? {
-                  ...item,
-                  status: "generated",
-                  assetFreshness: "current",
-                  staleReason: null,
-                  generatedImage: {
-                    id: image.id,
-                    url: image.url,
-                    generatedAt: Date.now(),
-                  },
-                  approvedImageArtifactId: `scene-image:${image.id}`,
-                  approvedVideoArtifactId: null,
-                  video: sceneHasVideoResult(item)
-                    ? { ...item.video, status: "review", approvedAt: null }
-                    : resetSceneVideo(item),
-                }
-              : item,
-          ),
-        }));
-        await cleanupReplacedSceneImage(scene.generatedImage, scene.id);
+          const references =
+            previousImageUrl &&
+            !externalReferences.some(
+              (reference) => reference.image === previousImageUrl,
+            )
+              ? [
+                  ...externalReferences,
+                  { image: previousImageUrl, role: "style" as const },
+                ].slice(0, MAX_IMAGE_REFERENCE_REQUESTS)
+              : externalReferences;
+          setGeneratingSceneId(scene.id);
+          const image = await generateScene(scene, references);
+          previousImageUrl = image.url;
+        }
+      } else {
+        let nextSceneIndex = 0;
+        const failures: Array<{ order: number; message: string }> = [];
+        const workers = Array.from(
+          { length: Math.min(2, pendingScenes.length) },
+          async () => {
+            while (nextSceneIndex < pendingScenes.length) {
+              const scene = pendingScenes[nextSceneIndex];
+              nextSceneIndex += 1;
+              try {
+                await generateScene(scene, externalReferences);
+              } catch (error) {
+                failures.push({
+                  order: scene.order,
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "이미지 생성에 실패했습니다.",
+                });
+              }
+            }
+          },
+        );
+        await Promise.all(workers);
+        if (failures.length) {
+          const message = `${failures.map((failure) => failure.order).join(", ")}번 장면은 생성하지 못했습니다. 해당 장면만 다시 시도해 주세요.`;
+          setLoadError(message);
+          toast.warning(message);
+        }
       }
-      toast.success(`${generatedCount}개 장면을 순서대로 생성했습니다.`, {
-        description: draft.usePreviousSceneAsReference
-          ? "이전 장면을 다음 장면의 참조로 이어서 일관성을 유지했습니다."
-          : "공통 참조 사진과 연속성 가이드를 각 장면에 적용했습니다.",
-      });
+      if (generatedCount > 0) {
+        toast.success(`${generatedCount}개 장면을 생성했습니다.`, {
+          description: draft.usePreviousSceneAsReference
+            ? "이전 장면을 다음 장면의 참조로 이어서 일관성을 유지했습니다."
+            : "공통 참조와 연속성 가이드를 유지하며 최대 2장씩 병렬 처리했습니다.",
+        });
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -2824,8 +3478,8 @@ export default function StoryboardWorkspace({
       setIsBulkGenerating(false);
     }
   }, [
+    activeId,
     draft,
-    cleanupReplacedSceneImage,
     isBulkGenerating,
     isGenerating,
     isPlanning,
@@ -2873,8 +3527,83 @@ export default function StoryboardWorkspace({
   const readySceneCount =
     draft?.scenes.filter(
       (scene) =>
-        scene.status !== "generated" && deriveSceneStatus(scene) === "ready",
+        !scene.generatedImage?.url && deriveSceneStatus(scene) === "ready",
     ).length ?? 0;
+
+  const openPaidActionApproval = useCallback(
+    (action: PendingStoryboardPaidAction) => {
+      setPendingPaidAction(action);
+      setPaidActionAccepted(false);
+      const targetId =
+        action.kind === "planning"
+          ? "storyboard-planning-approval"
+          : "storyboard-generation-approval";
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const target = document.getElementById(targetId);
+          if (!target) return;
+          target.scrollIntoView({
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
+              .matches
+              ? "auto"
+              : "smooth",
+            block: "center",
+          });
+          target.querySelector<HTMLElement>("input")?.focus({
+            preventScroll: true,
+          });
+        });
+      });
+    },
+    [],
+  );
+
+  const cancelPaidActionApproval = useCallback(() => {
+    setPendingPaidAction(null);
+    setPaidActionAccepted(false);
+  }, []);
+
+  const approvePendingPaidAction = useCallback(async () => {
+    if (!paidActionAccepted || !pendingPaidAction) return;
+    const action = pendingPaidAction;
+    setPendingPaidAction(null);
+    setPaidActionAccepted(false);
+
+    if (action.kind === "planning") {
+      await handlePlanWithAI();
+      return;
+    }
+    if (action.kind === "bulk") {
+      const currentReadyCount =
+        draftRef.current?.scenes.filter(
+          (scene) =>
+            !scene.generatedImage?.url && deriveSceneStatus(scene) === "ready",
+        ).length ?? 0;
+      if (!currentReadyCount || currentReadyCount !== action.sceneCount) {
+        toast.info(
+          "승인 후 준비된 장면 수가 바뀌었습니다. 현재 장면을 확인하고 다시 승인해 주세요.",
+        );
+        return;
+      }
+      await handleGenerateAllScenes();
+      return;
+    }
+
+    const currentScene = draftRef.current?.scenes.find(
+      (scene) => scene.id === action.sceneId,
+    );
+    if (!currentScene) {
+      toast.info("승인한 장면을 찾을 수 없습니다. 현재 장면을 다시 확인해 주세요.");
+      return;
+    }
+    await handleGenerateScene(currentScene);
+  }, [
+    handleGenerateAllScenes,
+    handleGenerateScene,
+    handlePlanWithAI,
+    paidActionAccepted,
+    pendingPaidAction,
+  ]);
   const activeScene =
     draft?.scenes.find((scene) => scene.id === activeSceneId) ??
     draft?.scenes[0] ??
@@ -2889,6 +3618,68 @@ export default function StoryboardWorkspace({
   const generatedSceneCount = draft?.scenes.length
     ? draft.scenes.length - missingImageScenes.length
     : 0;
+  const qualityReport = useMemo(
+    () => (draft ? inspectStoryboardQuality(draft) : null),
+    [draft],
+  );
+  const repairableQualityIssueCount = qualityReport
+    ? qualityReport.issues.filter((item) =>
+        [
+          "scene-order",
+          "missing-negative-prompt",
+          "missing-transition",
+        ].includes(item.code),
+      ).length
+    : 0;
+
+  const applyBasicQualityRepairs = useCallback(() => {
+    if (!draft) return;
+    const repairedCount = draft.scenes.filter(
+      (scene, index) =>
+        scene.order !== index + 1 ||
+        !scene.negativePrompt.trim() ||
+        (index > 0 && !scene.transition.trim()),
+    ).length;
+    if (!repairedCount) {
+      toast.info("자동으로 보완할 기본 항목이 없습니다.");
+      return;
+    }
+    updateDraft((current) => {
+      const orderChanged = current.scenes.some(
+        (scene, index) => scene.order !== index + 1,
+      );
+      const scenes = current.scenes.map((scene, index) => {
+        const nextTransition =
+          index > 0 && !scene.transition.trim()
+            ? "앞 장면의 시선과 조명 흐름을 이어 자연스럽게 전환"
+            : scene.transition;
+        const nextNegativePrompt = scene.negativePrompt.trim()
+          ? scene.negativePrompt
+          : DEFAULT_NEGATIVE_PROMPT;
+        return {
+          ...scene,
+          order: index + 1,
+          transition: nextTransition,
+          negativePrompt: nextNegativePrompt,
+        };
+      });
+      return {
+        ...current,
+        videoProduction: orderChanged
+          ? resetStoryboardVideoProduction(current.videoProduction)
+          : current.videoProduction,
+        scenes: orderChanged
+          ? scenes.map((scene) =>
+              markSceneForReview(
+                scene,
+                "장면 순서를 복구했습니다. 최종 영상 조립 전에 영상 연결을 다시 확인해 주세요.",
+              ),
+            )
+          : scenes,
+      };
+    });
+    toast.success(`${repairedCount}개 장면의 기본 품질 항목을 보완했습니다.`);
+  }, [draft, updateDraft]);
 
   const readinessChecks = useMemo<ReadinessCheck[]>(() => {
     if (!draft) return [];
@@ -2904,16 +3695,6 @@ export default function StoryboardWorkspace({
         action: "brief",
       },
       {
-        id: "references",
-        label: "시각 일관성",
-        description: projectReferenceAssets.length
-          ? `참조 사진 ${projectReferenceAssets.length}장이 전체 장면에 연결됩니다.`
-          : "제품·인물·공간 참조 사진을 한 장 이상 넣으세요.",
-        ready: projectReferenceAssets.length > 0,
-        actionLabel: "사진 추가",
-        action: "references",
-      },
-      {
         id: "continuity",
         label: "연속성 가이드",
         description:
@@ -2923,6 +3704,24 @@ export default function StoryboardWorkspace({
         ready: continuityReadyCount === 4,
         actionLabel: "가이드 확인",
         action: "continuity",
+      },
+      {
+        id: "quality",
+        label: "장면 품질 점검",
+        description: qualityReport
+          ? qualityReport.errorCount
+            ? `수정이 필요한 오류 ${qualityReport.errorCount}개가 있습니다.`
+            : qualityReport.warningCount
+              ? `검토 권장 항목 ${qualityReport.warningCount}개가 있습니다.`
+              : "장면 순서·프롬프트·전환·대사 설정을 확인했습니다."
+          : "장면 품질을 확인하는 중입니다.",
+        ready: Boolean(
+          qualityReport &&
+            qualityReport.errorCount === 0 &&
+            qualityReport.warningCount === 0,
+        ),
+        actionLabel: "품질 점검",
+        action: "quality",
       },
       {
         id: "scenes",
@@ -2966,7 +3765,7 @@ export default function StoryboardWorkspace({
     generatedSceneCount,
     hasTopic,
     missingImageScenes,
-    projectReferenceAssets.length,
+    qualityReport,
   ]);
   const readinessScore = readinessChecks.length
     ? Math.round(
@@ -3017,6 +3816,41 @@ export default function StoryboardWorkspace({
     setWorkspaceSurface("dashboard");
   }, [activeId, draft, isDirty, persistDraft]);
 
+  const handleGoogleLogin = useCallback(async () => {
+    if (!isAuthConfigured) {
+      const message =
+        "Firebase Google 인증 설정이 없습니다. 관리자에게 인증 환경 설정을 요청해 주세요.";
+      setSignInError(message);
+      toast.error("로그인 설정을 확인해 주세요.", { description: message });
+      return;
+    }
+
+    setSignInError(null);
+    setIsSigningIn(true);
+    try {
+      await loginWithGoogle();
+    } catch (error) {
+      console.error(error);
+      const code =
+        typeof error === "object" && error && "code" in error
+          ? String(error.code)
+          : "";
+      const message = code.includes("unauthorized-domain")
+        ? "현재 접속 주소가 Google 로그인 허용 도메인에 등록되지 않았습니다. 관리자에게 Firebase 승인 도메인 등록을 요청해 주세요."
+        : code.includes("network-request-failed")
+          ? "네트워크 연결을 확인한 뒤 다시 시도해 주세요."
+          : code.includes("popup-closed") || code.includes("cancelled-popup")
+            ? "로그인 창이 완료 전에 닫혔습니다. 팝업 차단을 해제하고 다시 시도해 주세요."
+            : "로그인을 완료하지 못했습니다. 잠시 후 다시 시도하거나 관리자에게 인증 설정을 확인해 달라고 요청해 주세요.";
+      setSignInError(message);
+      toast.error("Google 로그인을 완료하지 못했습니다.", {
+        description: message,
+      });
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [isAuthConfigured, loginWithGoogle]);
+
   const openProductionConsole = useCallback(() => {
     setWorkspaceSurface("editor");
     setWorkspaceMode("video");
@@ -3052,6 +3886,7 @@ export default function StoryboardWorkspace({
         brief: "storyboard-project-brief",
         references: "storyboard-reference-assets",
         continuity: "storyboard-continuity-settings",
+        quality: "storyboard-quality-report",
         scenes: activeScene
           ? `storyboard-scene-${activeScene.id}`
           : "storyboard-scenes",
@@ -3076,8 +3911,11 @@ export default function StoryboardWorkspace({
       aria-labelledby="storyboard-workspace-title"
     >
       <Workspace ref={workspaceRef} $pageView={presentation === "page"}>
-        <WorkspaceHeader>
-          <TitleGroup>
+        <WorkspaceHeader
+          data-page-view={presentation === "page"}
+          data-signed-out={!currentUser}
+        >
+          <TitleGroup data-page-view={presentation === "page"}>
             <HeaderIcon className="fas fa-clapperboard" aria-hidden="true" />
             <div>
               <Eyebrow>CREATIVE WORKSPACE</Eyebrow>
@@ -3086,7 +3924,7 @@ export default function StoryboardWorkspace({
           </TitleGroup>
           <HeaderActions>
             {draft ? (
-              <HeaderToolGroup aria-label="편집 기록">
+                <HeaderToolGroup role="group" aria-label="편집 기록">
                 <HeaderToolButton
                   type="button"
                   onClick={undoDraft}
@@ -3121,15 +3959,17 @@ export default function StoryboardWorkspace({
               </HeaderToolGroup>
             ) : null}
             <SaveState aria-live="polite">
-              {projectSwitchState === "saving"
-                ? "변경 저장 후 이동 중…"
+              {!currentUser
+                ? "로그인 전"
+                : projectSwitchState === "saving"
+                  ? "변경 저장 후 이동 중…"
                 : projectSwitchState === "loading"
                   ? "프로젝트 여는 중…"
                   : isSaving
-                ? "저장 중…"
-                : isDirty
-                  ? "변경 저장 대기"
-                  : formatSavedTime(lastSavedAt)}
+                    ? "저장 중…"
+                    : isDirty
+                      ? "변경 저장 대기"
+                      : formatSavedTime(lastSavedAt)}
             </SaveState>
             <CloseButton
               ref={closeButtonRef}
@@ -3154,18 +3994,58 @@ export default function StoryboardWorkspace({
           </HeaderActions>
         </WorkspaceHeader>
 
-        {!currentUser ? (
-          <SignInState>
-            <i className="fas fa-lock" aria-hidden="true" />
-            <h3>로그인 후 스토리보드를 저장할 수 있습니다</h3>
-            <p>
-              장면, 연속성 가이드, 생성 결과를 사용자별 작업공간에 안전하게
-              보관합니다.
-            </p>
+        {authLoading ? (
+          <SignInState role="status" aria-live="polite">
+            <div className="signin-card signin-loading">
+              <span className="signin-icon"><i className="fas fa-spinner fa-spin" aria-hidden="true" /></span>
+              <h3>스토리보드 작업공간을 준비하고 있습니다</h3>
+              <p>로그인 상태와 저장된 프로젝트를 안전하게 확인하는 중입니다.</p>
+            </div>
+          </SignInState>
+        ) : !currentUser ? (
+          <SignInState
+            role="region"
+            aria-labelledby="storyboard-sign-in-title"
+          >
+            <div className="signin-card">
+              <div className="signin-intro">
+                <span className="signin-icon"><i className="fas fa-clapperboard" aria-hidden="true" /></span>
+                <span className="signin-eyebrow">STORYBOARD PRODUCTION</span>
+                <h3 id="storyboard-sign-in-title">아이디어부터 완성 영상까지 한 작업공간에서</h3>
+                <p>로그인하면 프로젝트와 장면, 생성 결과, 편집 버전을 자동 저장하고 다른 기기에서도 안전하게 이어서 제작할 수 있습니다.</p>
+              </div>
+              <ol className="signin-journey" aria-label="스토리보드 제작 과정">
+                <li><span>1</span><div><strong>기획·장면 구성</strong><small>주제와 스타일로 장면 흐름 설계</small></div></li>
+                <li><span>2</span><div><strong>이미지·영상 제작</strong><small>장면별 생성, 검토, 재설계</small></div></li>
+                <li><span>3</span><div><strong>편집·최종 전달</strong><small>연결, 오디오, 렌더링, 다운로드</small></div></li>
+              </ol>
+              <ul className="signin-trust" aria-label="로그인과 데이터 사용 안내">
+                <li><i className="fas fa-cloud-arrow-up" aria-hidden="true" /><span>프로젝트 변경 사항과 생성 결과를 사용자별 작업공간에 자동 저장합니다.</span></li>
+                <li><i className="fas fa-shield-halved" aria-hidden="true" /><span>로그인만으로 AI 생성을 시작하지 않으며, 생성 단계에서 비용과 외부 전송을 별도로 확인합니다.</span></li>
+              </ul>
+              {!isAuthConfigured ? <p className="signin-warning" role="alert">현재 Google 로그인 설정을 확인할 수 없습니다. 관리자에게 Firebase 인증 설정을 요청해 주세요.</p> : null}
+              {signInError ? <p className="signin-warning" role="alert">{signInError}</p> : null}
+              <button
+                type="button"
+                onClick={() => void handleGoogleLogin()}
+                disabled={isSigningIn || !isAuthConfigured}
+                aria-busy={isSigningIn}
+              >
+                <i className="fab fa-google" aria-hidden="true" />
+                {isSigningIn ? "로그인 중…" : "Google로 로그인하고 작업 시작"}
+              </button>
+              <small className="signin-footnote">로그인 전에는 프로젝트 저장이나 AI 생성이 시작되지 않습니다.</small>
+            </div>
           </SignInState>
         ) : (
-          <WorkspaceBody>
-            <ProjectSidebar aria-label="스토리보드 프로젝트 목록">
+          <WorkspaceBody
+            $dashboardMode={workspaceSurface === "dashboard"}
+            $compactVideoMode={
+              workspaceSurface === "editor" && workspaceMode === "video"
+            }
+          >
+            {workspaceSurface === "editor" ? (
+              <ProjectSidebar aria-label="스토리보드 프로젝트 목록">
               <SidebarTop>
                 <div>
                   <SidebarLabel>프로젝트</SidebarLabel>
@@ -3181,11 +4061,9 @@ export default function StoryboardWorkspace({
               </SidebarTop>
               <SidebarDashboardButton
                 type="button"
-                $active={workspaceSurface === "dashboard"}
+                aria-label="프로젝트 대시보드 열기"
+                $active={false}
                 onClick={() => void openDashboard()}
-                aria-current={
-                  workspaceSurface === "dashboard" ? "page" : undefined
-                }
               >
                 <i className="fas fa-chart-pie" aria-hidden="true" />
                 <span>
@@ -3207,9 +4085,14 @@ export default function StoryboardWorkspace({
                       <ProjectItem
                         type="button"
                         $active={activeId === storyboard.id}
+                        aria-current={
+                          activeId === storyboard.id ? "page" : undefined
+                        }
                         onClick={() => void selectStoryboard(storyboard)}
                       >
-                        <span className="project-title">{storyboard.title}</span>
+                        <span className="project-title">
+                          {storyboard.title}
+                        </span>
                         <span className="project-meta">
                           {storyboard.scenes.length}장면 ·{" "}
                           {storyboard.aspectRatio}
@@ -3227,7 +4110,10 @@ export default function StoryboardWorkspace({
                           aria-label={`${storyboard.title} 프로젝트 관리`}
                           title="프로젝트 관리"
                         >
-                          <i className="fas fa-ellipsis-vertical" aria-hidden="true" />
+                          <i
+                            className="fas fa-ellipsis-vertical"
+                            aria-hidden="true"
+                          />
                         </summary>
                         <div role="menu">
                           <button
@@ -3235,13 +4121,18 @@ export default function StoryboardWorkspace({
                             role="menuitem"
                             onClick={() => void selectStoryboard(storyboard)}
                           >
-                            <i className="fas fa-folder-open" aria-hidden="true" />
+                            <i
+                              className="fas fa-folder-open"
+                              aria-hidden="true"
+                            />
                             열기
                           </button>
                           <button
                             type="button"
                             role="menuitem"
-                            onClick={() => void renameStoryboardProject(storyboard)}
+                            onClick={() =>
+                              void renameStoryboardProject(storyboard)
+                            }
                           >
                             <i className="fas fa-pen" aria-hidden="true" />
                             이름 변경
@@ -3249,7 +4140,9 @@ export default function StoryboardWorkspace({
                           <button
                             type="button"
                             role="menuitem"
-                            onClick={() => void duplicateStoryboardDesign(storyboard)}
+                            onClick={() =>
+                              void duplicateStoryboardDesign(storyboard)
+                            }
                           >
                             <i className="fas fa-copy" aria-hidden="true" />
                             기획만 복제
@@ -3258,15 +4151,22 @@ export default function StoryboardWorkspace({
                             type="button"
                             role="menuitem"
                             disabled={Boolean(mediaCopyProgress)}
-                            onClick={() => void duplicateStoryboardMedia(storyboard)}
+                            onClick={() =>
+                              void duplicateStoryboardMedia(storyboard)
+                            }
                           >
-                            <i className="fas fa-photo-film" aria-hidden="true" />
+                            <i
+                              className="fas fa-photo-film"
+                              aria-hidden="true"
+                            />
                             결과 포함 복제
                           </button>
                           <button
                             type="button"
                             role="menuitem"
-                            onClick={() => void toggleArchiveStoryboard(storyboard)}
+                            onClick={() =>
+                              void toggleArchiveStoryboard(storyboard)
+                            }
                           >
                             <i
                               className={`fas ${
@@ -3282,7 +4182,9 @@ export default function StoryboardWorkspace({
                             type="button"
                             role="menuitem"
                             className="danger"
-                            onClick={() => void deleteStoryboardProject(storyboard)}
+                            onClick={() =>
+                              void deleteStoryboardProject(storyboard)
+                            }
                           >
                             <i className="fas fa-trash" aria-hidden="true" />
                             삭제
@@ -3293,15 +4195,19 @@ export default function StoryboardWorkspace({
                   ))}
                 </ProjectList>
               )}
-            </ProjectSidebar>
+              </ProjectSidebar>
+            ) : null}
 
             {workspaceSurface === "dashboard" ? (
               <StoryboardProjectDashboard
                 storyboards={storyboards}
                 isLoading={isLoading}
-                loadError={loadError}
+                loadError={subscriptionError}
                 onCreate={() => void createNewStoryboard()}
-                onOpen={(storyboard) => void selectStoryboard(storyboard)}
+                onOpen={(storyboard, intent) =>
+                  void selectStoryboard(storyboard, intent)
+                }
+                onRetry={retryStoryboardSubscription}
               />
             ) : draft ? (
               <>
@@ -3349,13 +4255,15 @@ export default function StoryboardWorkspace({
                         <VersionEmpty aria-live="polite">
                           버전 기록을 불러오는 중…
                         </VersionEmpty>
-                      ) : versions.length ? (
+                      ) : versionsProjectId === activeId && versions.length ? (
                         <VersionList>
                           {versions.map((version) => (
                             <button
                               key={version.id}
                               type="button"
-                              onClick={() => restoreVersion(version)}
+                              onClick={() =>
+                                restoreVersion(version, versionsProjectId)
+                              }
                             >
                               <strong>{version.label}</strong>
                               <span>
@@ -3379,14 +4287,16 @@ export default function StoryboardWorkspace({
                     <div>
                       <BoardKicker>PROJECT BRIEF</BoardKicker>
                       <TitleInput
+                        id="storyboard-title"
                         name="storyboardTitle"
                         value={draft.title}
-                        onChange={(event) =>
+                        onCommit={(title) =>
                           updateStoryboardMetadata((current) => ({
                             ...current,
-                            title: event.target.value || "새 스토리보드",
+                            title: title || "새 스토리보드",
                           }))
                         }
+                        delayMs={450}
                         aria-label="스토리보드 제목"
                         maxLength={100}
                         autoComplete="off"
@@ -3396,7 +4306,8 @@ export default function StoryboardWorkspace({
                           type="button"
                           onClick={() => void duplicateCurrentStoryboard()}
                         >
-                          <i className="fas fa-copy" aria-hidden="true" /> 기획 복제
+                          <i className="fas fa-copy" aria-hidden="true" /> 기획
+                          복제
                         </button>
                         <button
                           type="button"
@@ -3454,10 +4365,12 @@ export default function StoryboardWorkspace({
                       </ProjectActionRow>
                     </div>
                     <ProgressSummary>
-                      <span>제작 진행</span>
-                      <strong>{productionProgress}%</strong>
+                      <span>장면 이미지</span>
+                      <strong>
+                        {progress.generated}/{progress.total}
+                      </strong>
                       <small>
-                        {progress.generated} / {progress.total} 장면 생성
+                        {productionProgress}% · 영상·완성본은 영상 제작에서 확인
                       </small>
                       <ProgressTrack aria-hidden="true">
                         <ProgressFill $progress={productionProgress} />
@@ -3503,32 +4416,10 @@ export default function StoryboardWorkspace({
                   {workspaceMode === "storyboard" ? (
                     <>
                       <ProductionFlow aria-label="빠른 제작 흐름">
-                        <WorkflowStep
-                          $complete={projectReferenceAssets.length > 0}
-                          $active={false}
-                        >
+                        <WorkflowStep $complete={hasTopic} $active={!hasTopic}>
                           <WorkflowNumber>01</WorkflowNumber>
                           <div>
-                            <strong>시각 기준</strong>
-                            <span>
-                              {projectReferenceAssets.length
-                                ? `참조 ${projectReferenceAssets.length}장 준비됨`
-                                : "선택하면 일관성이 높아집니다"}
-                            </span>
-                          </div>
-                          <i
-                            className={
-                              projectReferenceAssets.length
-                                ? "fas fa-check"
-                                : "fas fa-images"
-                            }
-                            aria-hidden="true"
-                          />
-                        </WorkflowStep>
-                        <WorkflowStep $complete={hasTopic} $active={!hasTopic}>
-                          <WorkflowNumber>02</WorkflowNumber>
-                          <div>
-                            <strong>이야기 설계</strong>
+                            <strong>주제·AI 설계</strong>
                             <span>
                               {hasTopic
                                 ? "주제 준비됨 · AI 설계 가능"
@@ -3540,6 +4431,28 @@ export default function StoryboardWorkspace({
                               hasTopic
                                 ? "fas fa-check"
                                 : "fas fa-wand-magic-sparkles"
+                            }
+                            aria-hidden="true"
+                          />
+                        </WorkflowStep>
+                        <WorkflowStep
+                          $complete={true}
+                          $active={false}
+                        >
+                          <WorkflowNumber>02</WorkflowNumber>
+                          <div>
+                            <strong>선택 시각 기준</strong>
+                            <span>
+                              {projectReferenceAssets.length
+                                ? `참조 ${projectReferenceAssets.length}장 준비됨`
+                                : "필요할 때 추가하면 일관성이 높아집니다"}
+                            </span>
+                          </div>
+                          <i
+                            className={
+                              projectReferenceAssets.length
+                                ? "fas fa-check"
+                                : "fas fa-images"
                             }
                             aria-hidden="true"
                           />
@@ -3573,7 +4486,7 @@ export default function StoryboardWorkspace({
                       <QuickPlanner aria-labelledby="quick-storyboard-title">
                         <QuickPlannerHeading>
                           <div>
-                            <span>02 · AI STORY PLAN</span>
+                            <span>01 · TOPIC & AI STORY PLAN</span>
                             <h3 id="quick-storyboard-title">
                               주제 한 줄로 완성도 있는 장면을 설계합니다
                             </h3>
@@ -3609,7 +4522,7 @@ export default function StoryboardWorkspace({
                               aria-live="polite"
                             >
                               {hasTopic
-                                ? `${plannerSceneCount}개 장면으로 AI 설계를 시작할 수 있습니다.`
+                                ? `${draft.plannedSceneCount}개 장면으로 AI 설계를 시작할 수 있습니다.`
                                 : "두 글자 이상 입력하면 AI 장면 설계를 시작할 수 있습니다."}
                             </TopicHint>
                           </QuickTopicField>
@@ -3620,11 +4533,13 @@ export default function StoryboardWorkspace({
                             <select
                               id="storyboard-format"
                               name="storyboardFormat"
-                              value={plannerFormat}
+                              value={draft.format}
                               onChange={(event) =>
-                                setPlannerFormat(
-                                  event.target.value as StoryboardFormat,
-                                )
+                                updateStoryboardMetadata((current) => ({
+                                  ...current,
+                                  format: event.target
+                                    .value as StoryboardFormat,
+                                }))
                               }
                               disabled={isPlanning || isBulkGenerating}
                             >
@@ -3642,9 +4557,14 @@ export default function StoryboardWorkspace({
                             <select
                               id="storyboard-scene-count"
                               name="storyboardSceneCount"
-                              value={plannerSceneCount}
+                              value={draft.plannedSceneCount}
                               onChange={(event) =>
-                                setPlannerSceneCount(Number(event.target.value))
+                                updateStoryboardMetadata((current) => ({
+                                  ...current,
+                                  plannedSceneCount: Number(
+                                    event.target.value,
+                                  ),
+                                }))
                               }
                               disabled={isPlanning || isBulkGenerating}
                             >
@@ -3657,11 +4577,17 @@ export default function StoryboardWorkspace({
                           </QuickSelectField>
                           <PlanButton
                             type="button"
-                            onClick={() => void handlePlanWithAI()}
+                            onClick={() =>
+                              openPaidActionApproval({
+                                kind: "planning",
+                                requestCount: 2,
+                              })
+                            }
                             disabled={
                               isPlanning || isWorkspaceBusy || !hasTopic
                             }
                             aria-busy={isPlanning}
+                            aria-describedby="storyboard-planning-disclosure"
                           >
                             {isPlanning ? (
                               <>
@@ -3669,7 +4595,7 @@ export default function StoryboardWorkspace({
                                   className="fas fa-spinner fa-spin"
                                   aria-hidden="true"
                                 />{" "}
-                                {plannerSceneCount}개 장면 설계 중…
+                                {draft.plannedSceneCount}개 장면 설계 중…
                               </>
                             ) : (
                               <>
@@ -3677,11 +4603,61 @@ export default function StoryboardWorkspace({
                                   className="fas fa-wand-magic-sparkles"
                                   aria-hidden="true"
                                 />{" "}
-                                AI 장면 설계
+                                AI 장면 설계 시작
                               </>
                             )}
                           </PlanButton>
                         </QuickPlannerFields>
+                        <PlanDisclosure id="storyboard-planning-disclosure">
+                          <i className="fas fa-circle-info" aria-hidden="true" />
+                          <span><strong>AI 장면 설계는 이미지 생성과 별도입니다.</strong> OpenRouter 텍스트·비전 요청을 1회 사용하고 품질 보정이 필요하면 최대 1회 더 요청합니다. 첨부한 참조 사진은 선택된 모델 공급자에게 함께 전송되며, 실제 장면 이미지 생성은 설계 확인 후 장면별로 따로 실행합니다.</span>
+                        </PlanDisclosure>
+                        {pendingPaidAction?.kind === "planning" ? (
+                          <PaidActionApproval
+                            id="storyboard-planning-approval"
+                            aria-labelledby="storyboard-planning-approval-title"
+                          >
+                            <div className="approval-heading">
+                              <i className="fas fa-shield-halved" aria-hidden="true" />
+                              <div>
+                                <h4 id="storyboard-planning-approval-title">
+                                  AI 장면 설계 요청 전 확인
+                                </h4>
+                                <p>
+                                  지금은 공급자 요청이 시작되지 않았습니다. 아래 내용을 확인하고 승인하면 실행합니다.
+                                </p>
+                              </div>
+                            </div>
+                            <ul>
+                              <li>OpenRouter 텍스트·비전 요청 1회, 품질 보정 시 최대 {pendingPaidAction.requestCount}회</li>
+                              <li>현재 주제·형식·장면 수와 참조 사진이 선택 모델 공급자에게 전송됨</li>
+                              <li>실제 사용량에 따라 OpenRouter 비용이 발생할 수 있음</li>
+                            </ul>
+                            <label htmlFor="storyboard-planning-approval-acceptance">
+                              <input
+                                id="storyboard-planning-approval-acceptance"
+                                type="checkbox"
+                                checked={paidActionAccepted}
+                                onChange={(event) =>
+                                  setPaidActionAccepted(event.target.checked)
+                                }
+                              />
+                              외부 전송과 비용 발생 가능성을 확인했습니다.
+                            </label>
+                            <div className="approval-actions">
+                              <button type="button" onClick={cancelPaidActionApproval}>
+                                취소
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void approvePendingPaidAction()}
+                                disabled={!paidActionAccepted}
+                              >
+                                승인하고 AI 설계 시작
+                              </button>
+                            </div>
+                          </PaidActionApproval>
+                        ) : null}
                         <QuickStartRow aria-label="빠른 시작 템플릿">
                           <span>빠른 시작</span>
                           {QUICK_START_TEMPLATES.map((template) => (
@@ -3710,11 +4686,12 @@ export default function StoryboardWorkspace({
                           onRemoveAsset={handleRemoveProjectReference}
                           onUpdateRole={handleUpdateProjectReferenceRole}
                           disabled={isWorkspaceBusy || isUploadingReferences}
-                          title="01. 시각 기준"
-                          description="건물·제품·캐릭터·배경 사진을 역할별로 넣으면 모든 장면에 반영되고 프로젝트와 함께 안전하게 저장됩니다."
+                          title="02. 선택 시각 기준"
+                          description="동일한 건물·제품·캐릭터를 유지해야 할 때만 참조 사진을 추가하세요. 사진이 없어도 장면 설계와 생성은 정상적으로 진행됩니다."
                         />
                       </WorkspaceAnchor>
                       <PlanReadiness
+                        id="storyboard-quality-report"
                         aria-label="스토리보드 제작 준비 상태"
                         aria-live="polite"
                       >
@@ -3723,7 +4700,15 @@ export default function StoryboardWorkspace({
                             <span>AI PRODUCTION CHECK</span>
                             <h3>생성 전, 필요한 기준을 한눈에 확인하세요</h3>
                           </div>
-                          {isBulkGenerating ? (
+                          {repairableQualityIssueCount ? (
+                            <QualityRepairButton
+                              type="button"
+                              onClick={applyBasicQualityRepairs}
+                              disabled={isWorkspaceBusy}
+                            >
+                              기본 항목 자동 보완
+                            </QualityRepairButton>
+                          ) : isBulkGenerating ? (
                             <BulkStatus>
                               <i
                                 className="fas fa-spinner fa-spin"
@@ -3734,9 +4719,7 @@ export default function StoryboardWorkspace({
                           ) : null}
                         </PlanReadinessHeading>
                         <ReadinessGrid>
-                          <ReadinessItem
-                            $ready={projectReferenceAssets.length > 0}
-                          >
+                          <ReadinessItem $ready={true}>
                             <i
                               className={
                                 projectReferenceAssets.length > 0
@@ -3749,7 +4732,7 @@ export default function StoryboardWorkspace({
                               <strong>
                                 {projectReferenceAssets.length
                                   ? `${projectReferenceAssets.length}개 사진 기준`
-                                  : "사진 기준은 선택"}
+                                  : "선택 품질 향상"}
                               </strong>
                               <span>
                                 {lastPlanReferenceAnalysis === "visual"
@@ -3798,6 +4781,36 @@ export default function StoryboardWorkspace({
                               <span>
                                 전환과 고정 요소가 있어야 다음 장면도
                                 자연스럽습니다
+                              </span>
+                            </div>
+                          </ReadinessItem>
+                          <ReadinessItem
+                            $ready={Boolean(
+                              qualityReport &&
+                                qualityReport.errorCount === 0 &&
+                                qualityReport.warningCount === 0,
+                            )}
+                          >
+                            <i
+                              className={
+                                qualityReport?.errorCount
+                                  ? "fas fa-triangle-exclamation"
+                                  : qualityReport?.warningCount
+                                    ? "fas fa-circle-exclamation"
+                                    : "fas fa-shield-heart"
+                              }
+                              aria-hidden="true"
+                            />
+                            <div>
+                              <strong>
+                                장면 품질 {qualityReport?.score ?? 0}점
+                              </strong>
+                              <span>
+                                {qualityReport?.errorCount
+                                  ? `수정 필요 ${qualityReport.errorCount}개 · 검토 ${qualityReport.warningCount}개`
+                                  : qualityReport?.warningCount
+                                    ? `검토 권장 ${qualityReport.warningCount}개`
+                                    : "장면 순서·프롬프트·전환·대사 설정이 준비되었습니다."}
                               </span>
                             </div>
                           </ReadinessItem>
@@ -3986,8 +4999,9 @@ export default function StoryboardWorkspace({
                                   이전 생성 장면을 참조 이미지로 사용
                                 </strong>
                                 <span>
-                                  완성된 앞 장면이 있을 때만 다음 장면에 전달해
-                                  인물·제품·공간의 일관성을 높입니다.
+                                  켜면 인물·제품·공간의 일관성을 높이기 위해
+                                  순서대로 생성합니다. 끄면 공통 기준을 유지하며
+                                  최대 2장씩 빠르게 생성합니다.
                                 </span>
                               </label>
                             </ReferenceToggle>
@@ -4008,11 +5022,24 @@ export default function StoryboardWorkspace({
                             </SceneCount>
                             <BulkGenerateButton
                               type="button"
-                              onClick={() => void handleGenerateAllScenes()}
+                              onClick={() =>
+                                openPaidActionApproval({
+                                  kind: "bulk",
+                                  sceneCount: readySceneCount,
+                                })
+                              }
                               disabled={
                                 isWorkspaceBusy || readySceneCount === 0
                               }
                               aria-busy={isBulkGenerating}
+                              aria-describedby="storyboard-scene-generation-disclosure"
+                              title={
+                                readySceneCount === 0
+                                  ? "제목과 장면 설명이 준비된 미생성 장면이 없습니다."
+                                  : draft.usePreviousSceneAsReference
+                                    ? "고효율 이미지 모델로 순서대로 생성합니다."
+                                    : "고효율 이미지 모델로 최대 2장씩 병렬 생성합니다."
+                              }
                             >
                               {isBulkGenerating ? (
                                 <>
@@ -4020,7 +5047,9 @@ export default function StoryboardWorkspace({
                                     className="fas fa-spinner fa-spin"
                                     aria-hidden="true"
                                   />{" "}
-                                  순서 생성 중
+                                  {draft.usePreviousSceneAsReference
+                                    ? "순서 생성 중"
+                                    : "빠른 생성 중"}
                                 </>
                               ) : (
                                 <>
@@ -4028,7 +5057,10 @@ export default function StoryboardWorkspace({
                                     className="fas fa-layer-group"
                                     aria-hidden="true"
                                   />{" "}
-                                  {readySceneCount}개 일괄 생성
+                                  {readySceneCount}개{" "}
+                                  {draft.usePreviousSceneAsReference
+                                    ? "순차 생성"
+                                    : "빠른 생성"}
                                 </>
                               )}
                             </BulkGenerateButton>
@@ -4042,6 +5074,66 @@ export default function StoryboardWorkspace({
                             </AddSceneButton>
                           </SceneHeaderActions>
                         </SectionHeading>
+                        <PlanDisclosure id="storyboard-scene-generation-disclosure">
+                          <i className="fas fa-coins" aria-hidden="true" />
+                          <span><strong>장면 이미지 생성은 외부 이미지 모델 요청을 시작합니다.</strong> {readySceneCount === 0 ? "현재 제목과 장면 설명이 준비된 미생성 장면이 없습니다. 각 장면의 입력 내용을 먼저 확인해 주세요." : `일괄 생성은 현재 준비된 ${readySceneCount}개 장면을 대상으로 합니다.`} 프로젝트 참조 이미지와 연속성용 이전 장면이 선택된 모델 공급자에게 전송될 수 있으며, 같은 장면을 재생성하면 새 요청으로 처리됩니다.</span>
+                        </PlanDisclosure>
+                        {pendingPaidAction &&
+                        pendingPaidAction.kind !== "planning" ? (
+                          <PaidActionApproval
+                            id="storyboard-generation-approval"
+                            aria-labelledby="storyboard-generation-approval-title"
+                          >
+                            <div className="approval-heading">
+                              <i className="fas fa-coins" aria-hidden="true" />
+                              <div>
+                                <h4 id="storyboard-generation-approval-title">
+                                  장면 이미지 생성 요청 전 확인
+                                </h4>
+                                <p>
+                                  지금은 이미지 공급자 요청이 시작되지 않았습니다. 승인 후에만 실제 생성을 실행합니다.
+                                </p>
+                              </div>
+                            </div>
+                            <ul>
+                              <li>
+                                {pendingPaidAction.kind === "bulk"
+                                  ? `준비된 ${pendingPaidAction.sceneCount}개 장면에 각각 이미지 생성 요청`
+                                  : `${pendingPaidAction.order}번 장면 이미지 생성 요청 1회`}
+                              </li>
+                              <li>장면 프롬프트와 프로젝트 참조·연속성 이미지가 선택 모델 공급자에게 전송될 수 있음</li>
+                              <li>
+                                {pendingPaidAction.kind === "scene" &&
+                                pendingPaidAction.replacing
+                                  ? "현재 결과를 교체하며 새 이미지 생성 비용이 발생할 수 있음"
+                                  : "실제 사용량에 따라 이미지 생성 비용이 발생할 수 있음"}
+                              </li>
+                            </ul>
+                            <label htmlFor="storyboard-generation-approval-acceptance">
+                              <input
+                                id="storyboard-generation-approval-acceptance"
+                                type="checkbox"
+                                checked={paidActionAccepted}
+                                onChange={(event) =>
+                                  setPaidActionAccepted(event.target.checked)
+                                }
+                              />
+                              요청 수, 외부 전송, 결과 교체와 비용 가능성을 확인했습니다.
+                            </label>
+                            <div className="approval-actions">
+                              <button type="button" onClick={cancelPaidActionApproval}>
+                                취소
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void approvePendingPaidAction()}
+                                disabled={!paidActionAccepted}
+                              >
+                                승인하고 이미지 생성
+                              </button>
+                            </div>
+                          </PaidActionApproval>
+                        ) : null}
 
                         {missingImageScenes.length ? (
                           <MissingImageFinder
@@ -4131,17 +5223,13 @@ export default function StoryboardWorkspace({
                               </SceneRail>
                               <SceneBody>
                                 <SceneTopLine>
-                                  <input
+                                  <BufferedInput
                                     id={`scene-title-${scene.id}`}
                                     name={`sceneTitle-${scene.id}`}
                                     value={scene.title}
-                                    onChange={(event) =>
-                                      updateSceneMetadata(scene.id, {
-                                        title:
-                                          event.target.value ||
-                                          `장면 ${scene.order}`,
-                                      })
-                                    }
+                                    entityId={scene.id}
+                                    field="title"
+                                    onValueCommit={commitSceneText}
                                     aria-label={`${scene.order}번 장면 제목`}
                                     maxLength={80}
                                     autoComplete="off"
@@ -4385,20 +5473,17 @@ export default function StoryboardWorkspace({
                                       >
                                         바꾸고 싶은 점 <span>선택</span>
                                       </label>
-                                      <textarea
+                                      <BufferedTextarea
                                         id={`scene-redesign-instruction-${scene.id}`}
                                         name={`sceneRedesignInstruction-${scene.id}`}
                                         value={
                                           sceneRedesignInstructions[scene.id] ??
                                           ""
                                         }
-                                        onChange={(event) =>
-                                          setSceneRedesignInstructions(
-                                            (current) => ({
-                                              ...current,
-                                              [scene.id]: event.target.value,
-                                            }),
-                                          )
+                                        entityId={scene.id}
+                                        field="redesignInstruction"
+                                        onValueCommit={
+                                          commitSceneRedesignInstruction
                                         }
                                         placeholder="예: 제품을 더 가까이 보여주고, 새벽의 차분한 빛으로 바꿔 주세요. 인물의 표정은 자신감 있게 유지합니다."
                                         maxLength={600}
@@ -4727,9 +5812,17 @@ export default function StoryboardWorkspace({
                                     <GenerateSceneButton
                                       type="button"
                                       onClick={() =>
-                                        void handleGenerateScene(scene)
+                                        openPaidActionApproval({
+                                          kind: "scene",
+                                          sceneId: scene.id,
+                                          order: scene.order,
+                                          replacing: Boolean(
+                                            scene.generatedImage?.url,
+                                          ),
+                                        })
                                       }
                                       disabled={isWorkspaceBusy}
+                                      aria-describedby="storyboard-scene-generation-disclosure"
                                     >
                                       {generatingSceneId === scene.id ? (
                                         <>
@@ -4745,7 +5838,9 @@ export default function StoryboardWorkspace({
                                             className="fas fa-wand-magic-sparkles"
                                             aria-hidden="true"
                                           />{" "}
-                                          이 장면 생성
+                                          {scene.generatedImage?.url
+                                            ? "다시 생성 · 비용 발생"
+                                            : "이 장면 생성"}
                                         </>
                                       )}
                                     </GenerateSceneButton>
@@ -4797,12 +5892,21 @@ export default function StoryboardWorkspace({
                       activeSceneId={activeSceneId}
                       onActiveSceneChange={setActiveSceneId}
                       onDuplicateScene={duplicateScene}
+                      onOpenImageWorkspace={() => {
+                        const missingScene =
+                          draft.scenes.find(
+                            (scene) => !scene.generatedImage?.url,
+                          ) ?? draft.scenes[0];
+                        setWorkspaceMode("storyboard");
+                        if (missingScene) focusScene(missingScene.id);
+                      }}
                       disabled={isWorkspaceBusy}
                       onChange={updateDraft}
                     />
                   )}
                 </BoardContent>
-                <ProductionAssistantRail aria-label="제작 품질 도우미">
+                {workspaceMode === "storyboard" ? (
+                  <ProductionAssistantRail aria-label="제작 품질 도우미">
                   <AssistantRailHeader>
                     <div>
                       <span>QUALITY GATE</span>
@@ -4989,7 +6093,8 @@ export default function StoryboardWorkspace({
                       <i className="fas fa-arrow-right" aria-hidden="true" />
                     </ProductionShortcutButton>
                   </ProductionShortcuts>
-                </ProductionAssistantRail>
+                  </ProductionAssistantRail>
+                ) : null}
               </>
             ) : (
               <EmptyBoardState>

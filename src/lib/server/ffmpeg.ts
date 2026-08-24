@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { fetchExternalHttpUrl } from './http-safety';
+import { fetchExternalHttpsUrl, readCappedBinaryResponse } from './http-safety';
 import { inspectFfmpegRuntime } from './ffmpeg-runtime';
 
 export { inspectFfmpegRuntime };
@@ -20,6 +20,13 @@ export type MergeVideoInput = {
     transitionStyle?: 'cut' | 'crossfade' | 'match-cut' | 'bridge';
     transitionSeconds?: number;
 };
+
+export type MergeVideoDependencies = {
+    /** Test/in-process adapter; production callers use the guarded HTTPS downloader. */
+    downloadMedia?: (source: string, targetPath: string) => Promise<void>;
+};
+
+export type ExtractVideoFrameDependencies = MergeVideoDependencies;
 
 export type VideoAudioInspection = {
     hasAudioStream: boolean;
@@ -68,6 +75,12 @@ export type VideoQualityRequirements = {
 
 const MIN_AUDIBLE_MEAN_VOLUME_DB = -65;
 const MIN_AUDIBLE_MAX_VOLUME_DB = -50;
+// Some providers encode the requested canvas on macroblock boundaries. The
+// aspect-ratio check remains strict; this tolerance prevents discarding a
+// usable clip when its stored frame is normalized in the assembly pipeline.
+export const PROVIDER_CANVAS_DIMENSION_TOLERANCE_PIXELS = 24;
+const VIDEO_STUDIO_MEDIA_DOWNLOAD_TIMEOUT_MS = 2 * 60 * 1000;
+const VIDEO_STUDIO_MEDIA_MAX_BYTES = 256 * 1024 * 1024;
 
 type BackgroundMusicMixProfile = {
     threshold: number;
@@ -77,7 +90,12 @@ type BackgroundMusicMixProfile = {
 };
 
 const BACKGROUND_MUSIC_MIX_PROFILES: Record<Exclude<AudioMixPreset, 'custom'>, BackgroundMusicMixProfile> = {
-    'dialogue-first': { threshold: 0.018, ratio: 12, attackMs: 12, releaseMs: 420 },
+    'dialogue-first': {
+        threshold: 0.018,
+        ratio: 12,
+        attackMs: 12,
+        releaseMs: 420,
+    },
     balanced: { threshold: 0.028, ratio: 7, attackMs: 18, releaseMs: 360 },
     'music-first': { threshold: 0.04, ratio: 3.5, attackMs: 24, releaseMs: 280 },
 };
@@ -89,47 +107,28 @@ export function resolveFfmpegBinaryPath(reportedPath?: string | null): string {
     const pathSeparator = process.platform === 'win32' ? '\\' : '/';
     const configuredPath = process.env.FFMPEG_BIN?.trim();
     if (configuredPath) return configuredPath;
-    const runtimeRoot =
-        process.env.INIT_CWD?.trim()
-        || process.env.npm_config_local_prefix?.trim()
-        || process.env.PROJECT_CWD?.trim();
+    const runtimeRoot = process.env.INIT_CWD?.trim() || process.env.npm_config_local_prefix?.trim() || process.env.PROJECT_CWD?.trim();
 
-    const bundledPath = reportedPath === undefined
-        ? null
-        : reportedPath?.trim();
+    const bundledPath = reportedPath === undefined ? null : reportedPath?.trim();
     if (bundledPath) {
         const rootRelativeMatch = bundledPath.match(/^[\\/]+ROOT[\\/]+(.+)$/i);
         if (rootRelativeMatch) {
             if (!runtimeRoot) {
-                throw new Error(
-                    'Cannot recover the FFmpeg package path. Configure FFMPEG_BIN or PROJECT_CWD.',
-                );
+                throw new Error('Cannot recover the FFmpeg package path. Configure FFMPEG_BIN or PROJECT_CWD.');
             }
             const relativePath = rootRelativeMatch[1].replace(/[\\/]+/g, pathSeparator);
-            return [
-                runtimeRoot.replace(/[\\/]+$/, ''),
-                relativePath,
-            ].join(pathSeparator);
+            return [runtimeRoot.replace(/[\\/]+$/, ''), relativePath].join(pathSeparator);
         }
         return bundledPath;
     }
 
     if (!runtimeRoot) {
-        throw new Error(
-            'FFmpeg executable was not found. Configure FFMPEG_BIN or PROJECT_CWD.',
-        );
+        throw new Error('FFmpeg executable was not found. Configure FFMPEG_BIN or PROJECT_CWD.');
     }
-    return [
-        runtimeRoot.replace(/[\\/]+$/, ''),
-        'node_modules',
-        'ffmpeg-static',
-        executableName,
-    ].join(pathSeparator);
+    return [runtimeRoot.replace(/[\\/]+$/, ''), 'node_modules', 'ffmpeg-static', executableName].join(pathSeparator);
 }
 
-export function resolveBackgroundMusicMixProfile(
-    preset: AudioMixPreset | undefined,
-): BackgroundMusicMixProfile {
+export function resolveBackgroundMusicMixProfile(preset: AudioMixPreset | undefined): BackgroundMusicMixProfile {
     return BACKGROUND_MUSIC_MIX_PROFILES[preset === 'custom' || !preset ? 'balanced' : preset];
 }
 
@@ -179,15 +178,19 @@ async function hasAudioStream(inputPath: string): Promise<boolean> {
 async function getMediaDuration(inputPath: string): Promise<number> {
     const binary = resolveFfmpegBinaryPath();
     const stderr = await new Promise<string>((resolve, reject) => {
-        const child = spawn(binary, ['-hide_banner', '-i', inputPath], { windowsHide: true });
+        const child = spawn(binary, ['-hide_banner', '-i', inputPath], {
+            windowsHide: true,
+        });
         let output = '';
-        child.stderr.on('data', (chunk) => { output += chunk.toString(); });
+        child.stderr.on('data', (chunk) => {
+            output += chunk.toString();
+        });
         child.on('error', reject);
         child.on('close', () => resolve(output));
     });
     const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
     if (!match) throw new Error('Could not determine video duration for final editing.');
-    return (Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3]);
+    return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
 }
 
 async function inspectAudioLoudness(inputPath: string): Promise<VideoAudioInspection> {
@@ -203,18 +206,7 @@ async function inspectAudioLoudness(inputPath: string): Promise<VideoAudioInspec
 
     const binary = resolveFfmpegBinaryPath();
     const stderr = await new Promise<string>((resolve, reject) => {
-        const child = spawn(binary, [
-            '-hide_banner',
-            '-i',
-            inputPath,
-            '-map',
-            '0:a:0',
-            '-af',
-            'volumedetect',
-            '-f',
-            'null',
-            '-',
-        ], {
+        const child = spawn(binary, ['-hide_banner', '-i', inputPath, '-map', '0:a:0', '-af', 'volumedetect', '-f', 'null', '-'], {
             windowsHide: true,
         });
         let output = '';
@@ -235,10 +227,11 @@ async function inspectAudioLoudness(inputPath: string): Promise<VideoAudioInspec
 
     return {
         hasAudioStream: true,
-        hasAudibleAudio: meanVolumeDb !== null
-            && maxVolumeDb !== null
-            && meanVolumeDb > MIN_AUDIBLE_MEAN_VOLUME_DB
-            && maxVolumeDb > MIN_AUDIBLE_MAX_VOLUME_DB,
+        hasAudibleAudio:
+            meanVolumeDb !== null &&
+            maxVolumeDb !== null &&
+            meanVolumeDb > MIN_AUDIBLE_MEAN_VOLUME_DB &&
+            maxVolumeDb > MIN_AUDIBLE_MAX_VOLUME_DB,
         meanVolumeDb,
         maxVolumeDb,
     };
@@ -268,22 +261,15 @@ function parseVideoMetadata(stderr: string): {
     hasVideoStream: boolean;
 } {
     const durationMatch = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
-    const videoLine = stderr
-        .split(/\r?\n/)
-        .find((line) => /Stream #\d+:\d+.*Video:/i.test(line));
+    const videoLine = stderr.split(/\r?\n/).find((line) => /Stream #\d+:\d+.*Video:/i.test(line));
     const dimensionMatch = videoLine?.match(/\b(\d{2,5})x(\d{2,5})\b/);
     const fpsMatch = videoLine?.match(/\b(\d+(?:\.\d+)?)\s+fps\b/i);
     const durationSeconds = durationMatch
-        ? (Number(durationMatch[1]) * 3600)
-            + (Number(durationMatch[2]) * 60)
-            + Number(durationMatch[3])
+        ? Number(durationMatch[1]) * 3600 + Number(durationMatch[2]) * 60 + Number(durationMatch[3])
         : null;
 
     return {
-        durationSeconds:
-            durationSeconds !== null && Number.isFinite(durationSeconds)
-                ? durationSeconds
-                : null,
+        durationSeconds: durationSeconds !== null && Number.isFinite(durationSeconds) ? durationSeconds : null,
         width: dimensionMatch ? Number(dimensionMatch[1]) : null,
         height: dimensionMatch ? Number(dimensionMatch[2]) : null,
         fps: fpsMatch ? Number(fpsMatch[1]) : null,
@@ -291,10 +277,7 @@ function parseVideoMetadata(stderr: string): {
     };
 }
 
-async function inspectBlackFrames(
-    inputPath: string,
-    durationSeconds: number | null,
-): Promise<{ duration: number; ratio: number | null }> {
+async function inspectBlackFrames(inputPath: string, durationSeconds: number | null): Promise<{ duration: number; ratio: number | null }> {
     const stderr = await captureFfmpegStderr([
         '-hide_banner',
         '-i',
@@ -312,24 +295,16 @@ async function inspectBlackFrames(
     const duration = blackDurations.reduce((total, value) => total + value, 0);
     return {
         duration: Number(duration.toFixed(3)),
-        ratio:
-            durationSeconds && durationSeconds > 0
-                ? Number(Math.min(1, duration / durationSeconds).toFixed(4))
-                : null,
+        ratio: durationSeconds && durationSeconds > 0 ? Number(Math.min(1, duration / durationSeconds).toFixed(4)) : null,
     };
 }
 
-async function inspectVideoFileQuality(
-    inputPath: string,
-    requirements: VideoQualityRequirements,
-): Promise<VideoQualityInspection> {
+async function inspectVideoFileQuality(inputPath: string, requirements: VideoQualityRequirements): Promise<VideoQualityInspection> {
     const metadataOutput = await captureFfmpegStderr(['-hide_banner', '-i', inputPath]);
     const metadata = parseVideoMetadata(metadataOutput);
     const [audio, blackFrames] = await Promise.all([
         inspectAudioLoudness(inputPath),
-        metadata.hasVideoStream
-            ? inspectBlackFrames(inputPath, metadata.durationSeconds)
-            : Promise.resolve({ duration: 0, ratio: null }),
+        metadata.hasVideoStream ? inspectBlackFrames(inputPath, metadata.durationSeconds) : Promise.resolve({ duration: 0, ratio: null }),
     ]);
     const issues: VideoQualityInspection['issues'] = [];
 
@@ -346,26 +321,21 @@ async function inspectVideoFileQuality(
         });
     }
     if (
-        metadata.durationSeconds
-        && requirements.expectedDurationSeconds
-        && Math.abs(metadata.durationSeconds - requirements.expectedDurationSeconds)
-            > (requirements.durationToleranceSeconds ?? Math.max(1.5, requirements.expectedDurationSeconds * 0.3))
+        metadata.durationSeconds &&
+        requirements.expectedDurationSeconds &&
+        Math.abs(metadata.durationSeconds - requirements.expectedDurationSeconds) >
+            (requirements.durationToleranceSeconds ?? Math.max(1.5, requirements.expectedDurationSeconds * 0.3))
     ) {
         issues.push({
             code: 'duration_mismatch',
             message: `Expected about ${requirements.expectedDurationSeconds}s but received ${metadata.durationSeconds.toFixed(2)}s.`,
         });
     }
-    if (
-        metadata.width
-        && metadata.height
-        && requirements.expectedWidth
-        && requirements.expectedHeight
-    ) {
+    if (metadata.width && metadata.height && requirements.expectedWidth && requirements.expectedHeight) {
         const tolerance = requirements.dimensionTolerancePixels ?? 4;
         if (
-            Math.abs(metadata.width - requirements.expectedWidth) > tolerance
-            || Math.abs(metadata.height - requirements.expectedHeight) > tolerance
+            Math.abs(metadata.width - requirements.expectedWidth) > tolerance ||
+            Math.abs(metadata.height - requirements.expectedHeight) > tolerance
         ) {
             issues.push({
                 code: 'resolution_mismatch',
@@ -373,15 +343,9 @@ async function inspectVideoFileQuality(
             });
         }
     }
-    if (
-        metadata.width
-        && metadata.height
-        && requirements.expectedAspectRatio
-    ) {
+    if (metadata.width && metadata.height && requirements.expectedAspectRatio) {
         const actualAspectRatio = metadata.width / metadata.height;
-        const aspectRatioDelta =
-            Math.abs(actualAspectRatio - requirements.expectedAspectRatio)
-            / requirements.expectedAspectRatio;
+        const aspectRatioDelta = Math.abs(actualAspectRatio - requirements.expectedAspectRatio) / requirements.expectedAspectRatio;
         if (aspectRatioDelta > (requirements.aspectRatioTolerance ?? 0.04)) {
             issues.push({
                 code: 'aspect_ratio_mismatch',
@@ -400,10 +364,7 @@ async function inspectVideoFileQuality(
             message: 'The generated video contains an audio stream but no audible signal.',
         });
     }
-    if (
-        blackFrames.ratio !== null
-        && blackFrames.ratio > (requirements.maxBlackFrameRatio ?? 0.18)
-    ) {
+    if (blackFrames.ratio !== null && blackFrames.ratio > (requirements.maxBlackFrameRatio ?? 0.18)) {
         issues.push({
             code: 'excessive_black_frames',
             message: `${Math.round(blackFrames.ratio * 100)}% of the generated video was detected as black frames.`,
@@ -439,16 +400,7 @@ async function normalizeVideoClip(params: {
     const finalVolume = Math.min(4, Math.max(0, clipVolume * params.sceneAudioVolume));
     const inputArgs = includesAudio
         ? ['-ss', String(trimStart), '-i', params.inputPath]
-        : [
-            '-ss',
-            String(trimStart),
-            '-i',
-            params.inputPath,
-            '-f',
-            'lavfi',
-            '-i',
-            'anullsrc=channel_layout=stereo:sample_rate=48000',
-        ];
+        : ['-ss', String(trimStart), '-i', params.inputPath, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000'];
     const audioMap = includesAudio ? '0:a:0' : '1:a:0';
     const videoFilters = [
         `scale=${params.width}:${params.height}:force_original_aspect_ratio=decrease`,
@@ -543,17 +495,78 @@ export async function inspectVideoBufferQuality(
     });
 }
 
-async function downloadRemoteFile(url: string, targetPath: string): Promise<void> {
-    const response = await fetchExternalHttpUrl(url, {
-        cache: 'no-store',
+/**
+ * Canonicalize a provider clip before it is stored as a storyboard scene.
+ *
+ * Some video providers return a codec-aligned size that is a few pixels away
+ * from the requested canvas.  We preserve the source aspect ratio and crop
+ * only the minimal overflow, rather than discarding an otherwise valid clip.
+ */
+export async function normalizeVideoBufferToCanvas(params: { buffer: Buffer; width: number; height: number }): Promise<Buffer> {
+    return withTempDir('video-canvas-normalization-', async (dir) => {
+        const inputPath = join(dir, 'input.mp4');
+        const outputPath = join(dir, 'normalized.mp4');
+        await writeFile(inputPath, params.buffer);
+
+        const includesAudio = await hasAudioStream(inputPath);
+        const videoFilters = [
+            `scale=${params.width}:${params.height}:force_original_aspect_ratio=increase:force_divisible_by=2:flags=lanczos`,
+            `crop=${params.width}:${params.height}`,
+            'setsar=1',
+            'format=yuv420p',
+        ];
+        const args = [
+            '-y',
+            '-i',
+            inputPath,
+            '-map',
+            '0:v:0',
+            ...(includesAudio ? ['-map', '0:a:0?'] : []),
+            '-vf',
+            videoFilters.join(','),
+            '-c:v',
+            'libx264',
+            '-preset',
+            'veryfast',
+            '-crf',
+            '20',
+            '-pix_fmt',
+            'yuv420p',
+            ...(includesAudio ? ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2'] : ['-an']),
+            '-movflags',
+            '+faststart',
+            outputPath,
+        ];
+
+        await runFfmpeg(args);
+        return readFile(outputPath);
     });
+}
 
-    if (!response.ok) {
-        throw new Error(`Failed to download media asset. HTTP ${response.status}`);
+async function downloadRemoteFile(url: string, targetPath: string): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), VIDEO_STUDIO_MEDIA_DOWNLOAD_TIMEOUT_MS);
+
+    try {
+        const response = await fetchExternalHttpsUrl(
+            url,
+            {
+                cache: 'no-store',
+                signal: controller.signal,
+            },
+            VIDEO_STUDIO_MEDIA_DOWNLOAD_TIMEOUT_MS,
+        );
+
+        if (!response.ok) {
+            await response.body?.cancel();
+            throw new Error(`Failed to download media asset. HTTP ${response.status}`);
+        }
+
+        const buffer = await readCappedBinaryResponse(response, VIDEO_STUDIO_MEDIA_MAX_BYTES);
+        await writeFile(targetPath, buffer);
+    } finally {
+        clearTimeout(timeout);
     }
-
-    const arrayBuffer = await response.arrayBuffer();
-    await writeFile(targetPath, Buffer.from(arrayBuffer));
 }
 
 export function getVideoCanvasSize(
@@ -582,16 +595,15 @@ export function getVideoCanvasSize(
     }
 }
 
-export async function extractVideoFrame(params: {
-    videoUrl: string;
-    position?: 'first' | 'last';
-    timeSec?: number;
-}): Promise<Buffer> {
+export async function extractVideoFrame(
+    params: { videoUrl: string; position?: 'first' | 'last'; timeSec?: number },
+    dependencies: ExtractVideoFrameDependencies = {},
+): Promise<Buffer> {
     return withTempDir('video-frame-', async (dir) => {
         const inputPath = join(dir, 'input.mp4');
         const outputPath = join(dir, 'frame.png');
 
-        await downloadRemoteFile(params.videoUrl, inputPath);
+        await (dependencies.downloadMedia ?? downloadRemoteFile)(params.videoUrl, inputPath);
 
         const args = ['-y'];
 
@@ -608,22 +620,16 @@ export async function extractVideoFrame(params: {
     });
 }
 
-function resolveClipTransitionDuration(
-    edit: MergeVideoInput,
-    outgoingDuration: number,
-    incomingDuration: number,
-): number {
+function resolveClipTransitionDuration(edit: MergeVideoInput, outgoingDuration: number, incomingDuration: number): number {
     if (!edit.transitionStyle || edit.transitionStyle === 'cut') return 0;
     const requested = edit.transitionSeconds ?? 0.35;
-    const strategyDuration = edit.transitionStyle === 'match-cut'
-        ? Math.min(requested, 0.25)
-        : edit.transitionStyle === 'bridge'
-            ? Math.max(requested, 0.5)
-            : requested;
-    return Math.max(
-        0.08,
-        Math.min(strategyDuration, outgoingDuration / 2, incomingDuration / 2, 1.5),
-    );
+    const strategyDuration =
+        edit.transitionStyle === 'match-cut'
+            ? Math.min(requested, 0.25)
+            : edit.transitionStyle === 'bridge'
+              ? Math.max(requested, 0.5)
+              : requested;
+    return Math.max(0.08, Math.min(strategyDuration, outgoingDuration / 2, incomingDuration / 2, 1.5));
 }
 
 async function mergeNormalizedClipsWithTransitions(params: {
@@ -641,11 +647,7 @@ async function mergeNormalizedClipsWithTransitions(params: {
     for (let index = 1; index < params.normalizedPaths.length; index += 1) {
         const outputVideo = `v${index}`;
         const outputAudio = `a${index}`;
-        const transitionDuration = resolveClipTransitionDuration(
-            params.clips[index - 1],
-            assembledDuration,
-            params.durations[index],
-        );
+        const transitionDuration = resolveClipTransitionDuration(params.clips[index - 1], assembledDuration, params.durations[index]);
 
         if (transitionDuration > 0) {
             const offset = Math.max(0, assembledDuration - transitionDuration);
@@ -705,20 +707,21 @@ export async function mergeVideos(params: {
     backgroundMusicVolume?: number;
     sceneAudioVolume?: number;
     audioCrossfadeSeconds?: number;
-}): Promise<Buffer> {
+}, dependencies: MergeVideoDependencies = {}): Promise<Buffer> {
     if (params.clips.length === 0) {
         throw new Error('At least one clip is required for merging.');
     }
 
     const fps = params.fps ?? 30;
     const { width, height } = getVideoCanvasSize(params.aspectRatio, params.resolution);
+    const downloadMedia = dependencies.downloadMedia ?? downloadRemoteFile;
 
     return withTempDir('video-merge-', async (dir) => {
         const inputPaths: string[] = [];
 
         for (let index = 0; index < params.clips.length; index += 1) {
             const inputPath = join(dir, `input-${index}.mp4`);
-            await downloadRemoteFile(params.clips[index].url, inputPath);
+            await downloadMedia(params.clips[index].url, inputPath);
             inputPaths.push(inputPath);
         }
 
@@ -742,9 +745,7 @@ export async function mergeVideos(params: {
         let assembledPath = normalizedPaths[0];
         if (normalizedPaths.length > 1) {
             assembledPath = join(dir, 'merged.mp4');
-            const hasOverlapTransition = params.clips
-                .slice(0, -1)
-                .some((clip) => clip.transitionStyle && clip.transitionStyle !== 'cut');
+            const hasOverlapTransition = params.clips.slice(0, -1).some((clip) => clip.transitionStyle && clip.transitionStyle !== 'cut');
             if (hasOverlapTransition) {
                 await mergeNormalizedClipsWithTransitions({
                     normalizedPaths,
@@ -782,7 +783,7 @@ export async function mergeVideos(params: {
 
         const musicPath = join(dir, 'background-music');
         const mixedPath = join(dir, 'mixed.mp4');
-        await downloadRemoteFile(params.backgroundMusicUrl, musicPath);
+        await downloadMedia(params.backgroundMusicUrl, musicPath);
         const musicVolume = Math.min(1, Math.max(0, params.backgroundMusicVolume ?? 0.16));
         const dropout = Math.min(2, Math.max(0, params.audioCrossfadeSeconds ?? 0.35));
         const mixProfile = resolveBackgroundMusicMixProfile(params.audioMixPreset);

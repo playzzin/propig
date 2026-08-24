@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -8,7 +7,7 @@ import ffmpegPath from "ffmpeg-static";
 import {
   inspectVideoBufferQuality,
   mergeVideos,
-} from "../functions/src/videoStudio/ffmpeg.ts";
+} from "../functions/lib/videoStudio/ffmpeg.js";
 
 function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
@@ -74,59 +73,47 @@ try {
     ]),
   ]);
 
-  const server = createServer(async (request, response) => {
-    const filePath = request.url === "/blue.mp4" ? bluePath : redPath;
-    response.writeHead(200, { "Content-Type": "video/mp4" });
-    response.end(await readFile(filePath));
+  const merged = await mergeVideos({
+    clips: [
+      {
+        url: redPath,
+        transitionStyle: "crossfade",
+        transitionSeconds: 0.35,
+      },
+      { url: bluePath, transitionStyle: "cut" },
+    ],
+    aspectRatio: "16:9",
+    resolution: "480p",
+    fps: 30,
+  }, {
+    downloadMedia: copyFile,
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const inspection = await inspectVideoBufferQuality(merged, {
+    expectedDurationSeconds: 2.65,
+    durationToleranceSeconds: 0.3,
+    expectedWidth: 854,
+    expectedHeight: 480,
+    requireAudibleAudio: true,
+    maxBlackFrameRatio: 0.02,
+  });
 
-  try {
-    const address = server.address();
-    assert.ok(address && typeof address === "object");
-    const baseUrl = `http://127.0.0.1:${address.port}`;
-    const merged = await mergeVideos({
-      clips: [
-        {
-          url: `${baseUrl}/red.mp4`,
-          transitionStyle: "crossfade",
-          transitionSeconds: 0.35,
-        },
-        { url: `${baseUrl}/blue.mp4`, transitionStyle: "cut" },
-      ],
-      aspectRatio: "16:9",
-      resolution: "480p",
-      fps: 30,
-    });
-    const inspection = await inspectVideoBufferQuality(merged, {
-      expectedDurationSeconds: 2.65,
-      durationToleranceSeconds: 0.3,
-      expectedWidth: 854,
-      expectedHeight: 480,
-      requireAudibleAudio: true,
-      maxBlackFrameRatio: 0.02,
-    });
-
-    assert.equal(
-      inspection.passed,
-      true,
-      inspection.issues.map((issue) => issue.message).join("\n"),
-    );
-    assert.ok(
-      inspection.durationSeconds &&
-        inspection.durationSeconds > 2.4 &&
-        inspection.durationSeconds < 2.9,
-      `Expected overlap duration around 2.65s, received ${inspection.durationSeconds}`,
-    );
-    assert.equal(inspection.audio.hasAudibleAudio, true);
-    assert.ok(
-      inspection.blackFrameRatio === null ||
-        inspection.blackFrameRatio <= 0.02,
-      `Unexpected black transition ratio: ${inspection.blackFrameRatio}`,
-    );
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+  assert.equal(
+    inspection.passed,
+    true,
+    inspection.issues.map((issue) => issue.message).join("\n"),
+  );
+  assert.ok(
+    inspection.durationSeconds &&
+      inspection.durationSeconds > 2.4 &&
+      inspection.durationSeconds < 2.9,
+    `Expected overlap duration around 2.65s, received ${inspection.durationSeconds}`,
+  );
+  assert.equal(inspection.audio.hasAudibleAudio, true);
+  assert.ok(
+    inspection.blackFrameRatio === null ||
+      inspection.blackFrameRatio <= 0.02,
+    `Unexpected black transition ratio: ${inspection.blackFrameRatio}`,
+  );
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

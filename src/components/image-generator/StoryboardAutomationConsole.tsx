@@ -64,6 +64,8 @@ export type StoryboardAutomationConsoleModel = {
     title: string;
   } | null;
   reusableSceneCount: number;
+  workerIssue: string | null;
+  workerStatusPending: boolean;
 };
 
 type StoryboardAutomationConsoleProps = {
@@ -72,6 +74,7 @@ type StoryboardAutomationConsoleProps = {
   onBudgetChange: (budget: number | null) => void;
   onPause: () => void;
   onResume: () => void;
+  onRetryJobSubscription: () => void;
 };
 
 export default function StoryboardAutomationConsoleView({
@@ -80,6 +83,7 @@ export default function StoryboardAutomationConsoleView({
   onBudgetChange,
   onPause,
   onResume,
+  onRetryJobSubscription,
 }: StoryboardAutomationConsoleProps) {
   const finalError =
     model.finalErrorMessage &&
@@ -89,6 +93,8 @@ export default function StoryboardAutomationConsoleView({
 
   return (
     <AutomationConsole
+      id="storyboard-production-recovery-console"
+      tabIndex={-1}
       $status={model.automationStatus}
       aria-labelledby="storyboard-auto-production-title"
       data-testid="storyboard-video-automation"
@@ -196,11 +202,57 @@ export default function StoryboardAutomationConsoleView({
             ? ` · 자동 재시도 ${model.automationRetryCount}회`
             : ""}
         </small>
+        {model.workerStatusPending || model.workerIssue ? (
+          <RecoveryNotice
+            id="storyboard-production-worker-readiness"
+            tabIndex={-1}
+            role={model.workerIssue ? "alert" : "status"}
+            $safe={!model.workerIssue}
+            data-testid="storyboard-video-worker-readiness"
+          >
+            <i
+              className={
+                model.workerIssue
+                  ? "fas fa-server"
+                  : "fas fa-spinner fa-spin"
+              }
+              aria-hidden="true"
+            />
+            <div>
+              <strong>
+                {model.workerIssue
+                  ? "영상 처리 서버 업데이트가 필요합니다"
+                  : "영상 처리 서버를 확인하고 있습니다"}
+              </strong>
+              <p>
+                {model.workerIssue ||
+                  "추가 비용이 생기기 전에 캔버스 보정과 작업 복구 기능을 확인합니다."}
+              </p>
+            </div>
+          </RecoveryNotice>
+        ) : null}
         {model.jobSubscriptionError ? (
-          <SceneError role="alert">{model.jobSubscriptionError}</SceneError>
+          <>
+            <SceneError
+              id="storyboard-production-subscription-error"
+              tabIndex={-1}
+              role="alert"
+            >
+              {model.jobSubscriptionError}
+            </SceneError>
+            <SecondaryAutomationButton
+              id="storyboard-production-subscription-retry"
+              type="button"
+              onClick={onRetryJobSubscription}
+            >
+              <i className="fas fa-rotate" aria-hidden="true" /> 작업 상태 다시 연결
+            </SecondaryAutomationButton>
+          </>
         ) : null}
         {model.automationErrorMessage && model.recovery ? (
           <RecoveryNotice
+            id="storyboard-production-recovery-notice"
+            tabIndex={-1}
             role="alert"
             $safe={model.recovery.canReuseProviderJob}
             data-testid="storyboard-video-recovery"
@@ -223,7 +275,15 @@ export default function StoryboardAutomationConsoleView({
             </div>
           </RecoveryNotice>
         ) : null}
-        {finalError ? <SceneError role="alert">{finalError}</SceneError> : null}
+        {finalError ? (
+          <SceneError
+            id="storyboard-production-final-error"
+            tabIndex={-1}
+            role="alert"
+          >
+            {finalError}
+          </SceneError>
+        ) : null}
       </AutomationProgress>
 
       <AutomationFooter>
@@ -253,12 +313,15 @@ export default function StoryboardAutomationConsoleView({
           ) : null}
           {model.canResumeAutomation ? (
             <PrimaryAutomationButton
+              id="storyboard-production-recovery-action"
               type="button"
               onClick={onResume}
               disabled={
                 model.isRecoveringAutomation ||
                 !model.jobSubscriptionReady ||
-                Boolean(model.jobSubscriptionError)
+                Boolean(model.jobSubscriptionError) ||
+                model.workerStatusPending ||
+                Boolean(model.workerIssue)
               }
               aria-busy={model.isRecoveringAutomation}
               data-testid="storyboard-video-recovery-action"

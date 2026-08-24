@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import admin, { db, getFirebaseAdminStatus } from '@/lib/firebase-admin';
+import type { VideoStudioIdempotencyContract } from '@/lib/server/video-studio-idempotency';
+import { isResumableOpenRouterVideoCheckpoint } from '@/lib/server/video-generation';
 import {
     extractVideoFrame,
     mergeVideos,
@@ -36,6 +38,26 @@ export class VideoStudioServerError extends Error {
     }
 }
 
+export class VideoStudioJobCanceledError extends Error {
+    constructor() {
+        super('The video studio job was canceled.');
+        this.name = 'VideoStudioJobCanceledError';
+    }
+}
+
+function canceledJobUpdate() {
+    return {
+        status: 'canceled' as const,
+        message: 'Cancellation completed. No further processing will be started.',
+        errorMessage: null,
+        nextAttemptAt: null,
+        leaseExpiresAt: null,
+        canceledAt: FieldValue.serverTimestamp(),
+        finishedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+    };
+}
+
 function normalizeOptionalStudioText(value?: string | null): string | null {
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
@@ -66,16 +88,50 @@ function isStalledActiveVideoStudioJob(job: Omit<VideoStudioJob, 'id'>): boolean
 
 function hasResumableProviderVideo(metadata: VideoStudioJob['metadata']): boolean {
     if (!metadata || typeof metadata !== 'object') return false;
-    const checkpoint = metadata.providerVideo;
-    if (!checkpoint || typeof checkpoint !== 'object') return false;
-    const candidate = checkpoint as { jobId?: unknown; status?: unknown };
-    return typeof candidate.jobId === 'string'
-        && candidate.jobId.length > 0
-        && (
-            candidate.status === 'pending'
-            || candidate.status === 'in_progress'
-            || candidate.status === 'completed'
-        );
+    const accessIssue = metadata.providerVideoAccessIssue;
+    if (accessIssue && typeof accessIssue === 'object') {
+        const candidate = accessIssue as Record<string, unknown>;
+        const hasAlreadyRequeued =
+            typeof metadata.queueDispatchToken === 'string'
+            && metadata.queueDispatchToken.length > 0;
+        if (
+            (candidate.recoverable === false || hasAlreadyRequeued)
+            && (candidate.httpStatus === 401 || candidate.httpStatus === 403)
+        ) return false;
+    }
+    const unavailableOutput = metadata.providerVideoDiscarded;
+    if (unavailableOutput && typeof unavailableOutput === 'object') {
+        const discarded = unavailableOutput as Record<string, unknown>;
+        const reason = discarded.reason;
+        const terminalLegacyUnavailable = reason === 'provider_output_unavailable'
+            && discarded.httpStatus !== 401
+            && discarded.httpStatus !== 403;
+        if (
+            reason === 'provider_output_not_found'
+            || reason === 'provider_output_expired'
+            || terminalLegacyUnavailable
+        ) return false;
+    }
+    if (isResumableOpenRouterVideoCheckpoint(metadata.providerVideo)) return true;
+
+    const discarded = metadata.providerVideoDiscarded;
+    const renderResult = metadata.renderResult;
+    if (
+        !discarded
+        || typeof discarded !== 'object'
+        || !renderResult
+        || typeof renderResult !== 'object'
+    ) {
+        return false;
+    }
+    const discardedCandidate = discarded as Record<string, unknown>;
+    const renderCandidate = renderResult as Record<string, unknown>;
+    return discardedCandidate.reason === 'resolution_mismatch'
+        && discardedCandidate.recoverable !== false
+        && typeof discardedCandidate.providerJobId === 'string'
+        && discardedCandidate.providerJobId.length > 0
+        && renderCandidate.requestId === discardedCandidate.providerJobId
+        && renderCandidate.modelUsed === discardedCandidate.modelId;
 }
 
 function ensureAdminReady() {
@@ -107,19 +163,6 @@ function buildFirebaseStorageDownloadUrl(params: {
     return `https://firebasestorage.googleapis.com/v0/b/${params.bucketName}/o/${encodedPath}?alt=media&token=${encodedToken}`;
 }
 
-async function fetchRemoteBuffer(url: string): Promise<{ buffer: Buffer; contentType: string }> {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-        throw new VideoStudioServerError(502, `Failed to download media asset. HTTP ${response.status}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    return {
-        buffer: Buffer.from(arrayBuffer),
-        contentType: response.headers.get('content-type') || 'application/octet-stream',
-    };
-}
-
 export async function uploadBufferToVideoStudioStorage(params: {
     buffer: Buffer;
     userId: string;
@@ -129,7 +172,17 @@ export async function uploadBufferToVideoStudioStorage(params: {
 }): Promise<string> {
     const bucket = getStorageBucket();
     const file = bucket.file(`video_studio/${params.userId}/${params.projectId}/${params.pathSuffix}`);
-    const downloadToken = randomUUID();
+    let downloadToken: string = randomUUID();
+    try {
+        const [existingMetadata] = await file.getMetadata();
+        const existingTokens = existingMetadata.metadata?.firebaseStorageDownloadTokens;
+        const existingToken = typeof existingTokens === 'string'
+            ? existingTokens.split(',').map((token) => token.trim()).find(Boolean)
+            : null;
+        if (existingToken) downloadToken = existingToken;
+    } catch (error) {
+        if (!isStorageObjectNotFound(error)) throw error;
+    }
 
     await file.save(params.buffer, {
         metadata: {
@@ -147,21 +200,50 @@ export async function uploadBufferToVideoStudioStorage(params: {
     });
 }
 
-export async function uploadRemoteFileToVideoStudioStorage(params: {
-    sourceUrl: string;
+function assertOwnedVideoStudioStoragePath(params: {
     userId: string;
     projectId: string;
-    pathSuffix: string;
-    fallbackContentType: string;
-}): Promise<string> {
-    const downloaded = await fetchRemoteBuffer(params.sourceUrl);
-    return uploadBufferToVideoStudioStorage({
-        buffer: downloaded.buffer,
-        userId: params.userId,
-        projectId: params.projectId,
-        pathSuffix: params.pathSuffix,
-        contentType: downloaded.contentType || params.fallbackContentType,
-    });
+    storagePath: string;
+}): void {
+    const ownedPrefix = `video_studio/${params.userId}/${params.projectId}/`;
+    if (!params.storagePath.startsWith(ownedPrefix)) {
+        throw new VideoStudioServerError(403, 'The staged video does not belong to this project.');
+    }
+}
+
+function isStorageObjectNotFound(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const candidate = error as { code?: unknown };
+    return candidate.code === 404 || candidate.code === '404';
+}
+
+export async function downloadVideoStudioStorageBuffer(params: {
+    userId: string;
+    projectId: string;
+    storagePath: string;
+}): Promise<{ buffer: Buffer; contentType: string } | null> {
+    assertOwnedVideoStudioStoragePath(params);
+    const file = getStorageBucket().file(params.storagePath);
+
+    try {
+        const [[buffer], [metadata]] = await Promise.all([file.download(), file.getMetadata()]);
+        return {
+            buffer,
+            contentType: metadata.contentType || 'video/mp4',
+        };
+    } catch (error) {
+        if (isStorageObjectNotFound(error)) return null;
+        throw error;
+    }
+}
+
+export async function deleteVideoStudioStorageObject(params: {
+    userId: string;
+    projectId: string;
+    storagePath: string;
+}): Promise<void> {
+    assertOwnedVideoStudioStoragePath(params);
+    await getStorageBucket().file(params.storagePath).delete({ ignoreNotFound: true });
 }
 
 export async function getOwnedProject(userId: string, projectId: string): Promise<VideoStudioProject> {
@@ -225,7 +307,7 @@ export async function getOwnedClips(params: {
     );
 }
 
-export async function createVideoStudioJob(params: {
+type CreateVideoStudioJobParams = {
     userId: string;
     projectId: string;
     kind: VideoStudioJobKind;
@@ -237,10 +319,85 @@ export async function createVideoStudioJob(params: {
     sourceClipId?: string | null;
     mergeSourceClipIds?: string[];
     metadata?: Record<string, unknown> | null;
-}): Promise<string> {
+};
+
+type CreateVideoStudioJobResult = {
+    jobId: string;
+    status: VideoStudioJobStatus;
+    deduplicated: boolean;
+};
+
+function validateIdempotentVideoStudioJob(params: {
+    snapshotId: string;
+    data: Record<string, unknown>;
+    userId: string;
+    projectId: string;
+    idempotency: VideoStudioIdempotencyContract;
+}): VideoStudioJob {
+    const metadata = params.data.metadata && typeof params.data.metadata === 'object'
+        ? params.data.metadata as Record<string, unknown>
+        : null;
+    const stored = metadata?.idempotency && typeof metadata.idempotency === 'object'
+        ? metadata.idempotency as Record<string, unknown>
+        : null;
+    if (
+        params.data.userId !== params.userId
+        || params.data.projectId !== params.projectId
+        || stored?.version !== params.idempotency.version
+        || stored?.keyHash !== params.idempotency.keyHash
+        || stored?.requestFingerprint !== params.idempotency.requestFingerprint
+    ) {
+        throw new VideoStudioServerError(
+            409,
+            'The same video request key was already used with different content.',
+        );
+    }
+
+    return {
+        id: params.snapshotId,
+        ...(params.data as Omit<VideoStudioJob, 'id'>),
+    };
+}
+
+export async function getIdempotentVideoStudioJob(params: {
+    userId: string;
+    projectId: string;
+    idempotency: VideoStudioIdempotencyContract;
+}): Promise<VideoStudioJob | null> {
     ensureAdminReady();
 
-    const docRef = await db.collection(VIDEO_STUDIO_JOBS_COLLECTION).add({
+    const snapshot = await db
+        .collection(VIDEO_STUDIO_JOBS_COLLECTION)
+        .doc(params.idempotency.jobId)
+        .get();
+    if (!snapshot.exists) return null;
+    return validateIdempotentVideoStudioJob({
+        snapshotId: snapshot.id,
+        data: snapshot.data() || {},
+        ...params,
+    });
+}
+
+export async function createOrReuseVideoStudioJob(
+    params: CreateVideoStudioJobParams & {
+        idempotency?: VideoStudioIdempotencyContract | null;
+    },
+): Promise<CreateVideoStudioJobResult> {
+    ensureAdminReady();
+
+    const metadata = {
+        ...(params.metadata || {}),
+        ...(params.idempotency
+            ? {
+                  idempotency: {
+                      version: params.idempotency.version,
+                      keyHash: params.idempotency.keyHash,
+                      requestFingerprint: params.idempotency.requestFingerprint,
+                  },
+              }
+            : {}),
+    };
+    const data = {
         userId: params.userId,
         projectId: params.projectId,
         kind: params.kind,
@@ -251,18 +408,59 @@ export async function createVideoStudioJob(params: {
         message: params.message || null,
         sourceClipId: params.sourceClipId || null,
         mergeSourceClipIds: params.mergeSourceClipIds || [],
-        metadata: params.metadata || null,
+        metadata,
         clipId: null,
         resultVideoUrl: null,
         resultFrameUrl: null,
         errorMessage: null,
         attemptCount: 0,
         claimedAt: null,
+        nextAttemptAt: null,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
 
-    return docRef.id;
+    if (!params.idempotency) {
+        const docRef = await db.collection(VIDEO_STUDIO_JOBS_COLLECTION).add(data);
+        return {
+            jobId: docRef.id,
+            status: data.status,
+            deduplicated: false,
+        };
+    }
+
+    const jobRef = db
+        .collection(VIDEO_STUDIO_JOBS_COLLECTION)
+        .doc(params.idempotency.jobId);
+    return db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(jobRef);
+        if (snapshot.exists) {
+            const existing = validateIdempotentVideoStudioJob({
+                snapshotId: snapshot.id,
+                data: snapshot.data() || {},
+                userId: params.userId,
+                projectId: params.projectId,
+                idempotency: params.idempotency!,
+            });
+            return {
+                jobId: existing.id,
+                status: existing.status,
+                deduplicated: true,
+            };
+        }
+
+        transaction.create(jobRef, data);
+        return {
+            jobId: jobRef.id,
+            status: data.status,
+            deduplicated: false,
+        };
+    });
+}
+
+export async function createVideoStudioJob(params: CreateVideoStudioJobParams): Promise<string> {
+    const result = await createOrReuseVideoStudioJob(params);
+    return result.jobId;
 }
 
 export async function updateVideoStudioJob(
@@ -271,9 +469,46 @@ export async function updateVideoStudioJob(
 ): Promise<void> {
     ensureAdminReady();
 
-    await db.collection(VIDEO_STUDIO_JOBS_COLLECTION).doc(jobId).update({
-        ...data,
-        updatedAt: FieldValue.serverTimestamp(),
+    const jobRef = db.collection(VIDEO_STUDIO_JOBS_COLLECTION).doc(jobId);
+    const cancellationObserved = await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(jobRef);
+        if (!snapshot.exists) {
+            throw new VideoStudioServerError(404, 'The selected job no longer exists.');
+        }
+        const current = snapshot.data() as Omit<VideoStudioJob, 'id'>;
+        if (current.status === 'canceled' || current.cancelRequestedAt) {
+            if (current.status !== 'canceled') {
+                transaction.update(jobRef, canceledJobUpdate());
+            }
+            return true;
+        }
+        transaction.update(jobRef, {
+            ...data,
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+        return false;
+    });
+
+    if (cancellationObserved) {
+        throw new VideoStudioJobCanceledError();
+    }
+}
+
+export async function assertVideoStudioJobCanContinue(jobId: string): Promise<void> {
+    await updateVideoStudioJob(jobId, {});
+}
+
+export async function finalizeVideoStudioJobCancellationIfRequested(jobId: string): Promise<boolean> {
+    ensureAdminReady();
+    const jobRef = db.collection(VIDEO_STUDIO_JOBS_COLLECTION).doc(jobId);
+    return db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(jobRef);
+        if (!snapshot.exists) return false;
+        const current = snapshot.data() as Omit<VideoStudioJob, 'id'>;
+        if (current.status === 'canceled') return true;
+        if (!current.cancelRequestedAt) return false;
+        transaction.update(jobRef, canceledJobUpdate());
+        return true;
     });
 }
 
@@ -341,6 +576,9 @@ export async function claimVideoStudioJobForProcessing(params: {
         if (job.status === 'canceled') {
             throw new VideoStudioServerError(409, 'Canceled jobs cannot be processed.');
         }
+        if (job.cancelRequestedAt) {
+            throw new VideoStudioServerError(409, 'Cancellation has already been requested for this job.');
+        }
 
         const currentAttempt = Number(job.attemptCount ?? 0);
         const nextAttempt = hasResumableProviderVideo(job.metadata)
@@ -373,6 +611,7 @@ export async function claimVideoStudioJobForProcessing(params: {
 export async function requeueOwnedVideoStudioJob(params: {
     jobId: string;
     userId: string;
+    requireProviderResume?: boolean;
 }): Promise<VideoStudioJob> {
     ensureAdminReady();
 
@@ -396,6 +635,12 @@ export async function requeueOwnedVideoStudioJob(params: {
         ) {
             throw new VideoStudioServerError(409, 'Jobs that are already processing cannot be requeued.');
         }
+        if (params.requireProviderResume && !hasResumableProviderVideo(job.metadata)) {
+            throw new VideoStudioServerError(
+                409,
+                '저장된 OpenRouter 작업을 안전하게 이어받을 수 없습니다. 새 유료 요청은 전송하지 않았습니다.',
+            );
+        }
 
         // A job may already be queued when its Firestore trigger was unavailable.
         // Bump a durable token so the requeue trigger can safely claim it again.
@@ -403,6 +648,7 @@ export async function requeueOwnedVideoStudioJob(params: {
         const metadata = {
             ...(job.metadata || {}),
             queueDispatchToken,
+            ...(params.requireProviderResume ? { providerResumeRequired: true } : {}),
         };
         transaction.update(jobRef, {
             status: 'queued',
@@ -413,6 +659,8 @@ export async function requeueOwnedVideoStudioJob(params: {
             claimedAt: null,
             startedAt: null,
             finishedAt: null,
+            cancelRequestedAt: null,
+            canceledAt: null,
             updatedAt: FieldValue.serverTimestamp(),
         });
 
@@ -427,6 +675,8 @@ export async function requeueOwnedVideoStudioJob(params: {
             claimedAt: null,
             startedAt: null,
             finishedAt: null,
+            cancelRequestedAt: null,
+            canceledAt: null,
         };
     });
 }
@@ -451,18 +701,29 @@ export async function cancelOwnedVideoStudioJob(params: {
         if (job.status === 'completed') {
             throw new VideoStudioServerError(409, 'Completed jobs cannot be canceled.');
         }
-        if (job.status === 'running' || job.status === 'uploading') {
-            throw new VideoStudioServerError(409, 'Jobs that are already processing cannot be canceled.');
-        }
         if (job.status === 'canceled') {
-            throw new VideoStudioServerError(409, 'This job is already canceled.');
+            return { id: snapshot.id, ...job };
+        }
+
+        if (job.status === 'running' || job.status === 'uploading') {
+            if (!job.cancelRequestedAt) {
+                transaction.update(jobRef, {
+                    cancelRequestedAt: FieldValue.serverTimestamp(),
+                    message: 'Cancellation requested. Processing will stop at the next safe checkpoint.',
+                    updatedAt: FieldValue.serverTimestamp(),
+                });
+            }
+            return {
+                id: snapshot.id,
+                ...job,
+                cancelRequestedAt: job.cancelRequestedAt || new Date().toISOString(),
+                message: 'Cancellation requested. Processing will stop at the next safe checkpoint.',
+            };
         }
 
         transaction.update(jobRef, {
-            status: 'canceled',
-            message: 'Job canceled before processing.',
-            updatedAt: FieldValue.serverTimestamp(),
-            finishedAt: FieldValue.serverTimestamp(),
+            ...canceledJobUpdate(),
+            cancelRequestedAt: FieldValue.serverTimestamp(),
         });
 
         return {
@@ -470,6 +731,8 @@ export async function cancelOwnedVideoStudioJob(params: {
             ...job,
             status: 'canceled',
             message: 'Job canceled before processing.',
+            cancelRequestedAt: new Date().toISOString(),
+            canceledAt: new Date().toISOString(),
         };
     });
 }
@@ -507,6 +770,7 @@ function resolveStoredClipCover(clip?: {
 }
 
 export async function createVideoStudioClipRecord(params: {
+    clipId?: string;
     userId: string;
     projectId: string;
     title: string;
@@ -532,16 +796,19 @@ export async function createVideoStudioClipRecord(params: {
     ensureAdminReady();
 
     const projectRef = db.collection(VIDEO_STUDIO_PROJECTS_COLLECTION).doc(params.projectId);
-    const clipRef = db.collection(VIDEO_STUDIO_CLIPS_COLLECTION).doc();
+    const clipRef = params.clipId
+        ? db.collection(VIDEO_STUDIO_CLIPS_COLLECTION).doc(params.clipId)
+        : db.collection(VIDEO_STUDIO_CLIPS_COLLECTION).doc();
 
     const result = await db.runTransaction(async (transaction) => {
         const clipsQuery = db
             .collection(VIDEO_STUDIO_CLIPS_COLLECTION)
             .where('projectId', '==', params.projectId);
 
-        const [projectDoc, clipDocs] = await Promise.all([
+        const [projectDoc, clipDocs, existingClipDoc] = await Promise.all([
             transaction.get(projectRef),
             transaction.get(clipsQuery),
+            transaction.get(clipRef),
         ]);
         if (!projectDoc.exists) {
             throw new VideoStudioServerError(404, 'The selected project no longer exists.');
@@ -552,9 +819,19 @@ export async function createVideoStudioClipRecord(params: {
             throw new VideoStudioServerError(403, 'You do not have permission to add clips to this project.');
         }
 
-        const nextSequence = computeNextClipSequenceFromSnapshot(clipDocs);
+        const existingClip = existingClipDoc.exists ? existingClipDoc.data() as StoredClip : null;
+        if (
+            existingClip
+            && (existingClip.userId !== params.userId || existingClip.projectId !== params.projectId)
+        ) {
+            throw new VideoStudioServerError(409, 'The deterministic clip identity is already in use.');
+        }
+
+        const nextSequence = existingClip
+            ? Number(existingClip.sequence ?? 0)
+            : computeNextClipSequenceFromSnapshot(clipDocs);
         const normalizedTakeGroupId = params.takeGroupId || null;
-        let resolvedTakeIndex: number | null = params.takeIndex ?? null;
+        let resolvedTakeIndex: number | null = params.takeIndex ?? existingClip?.takeIndex ?? null;
 
         if (normalizedTakeGroupId && !resolvedTakeIndex) {
             let highestTakeIndex = 1;
@@ -576,7 +853,7 @@ export async function createVideoStudioClipRecord(params: {
             resolvedTakeIndex = highestTakeIndex + 1;
         }
 
-        transaction.set(clipRef, {
+        const clipData = {
             userId: params.userId,
             projectId: params.projectId,
             title: params.title.trim(),
@@ -600,12 +877,19 @@ export async function createVideoStudioClipRecord(params: {
             duration: params.duration ?? null,
             aspectRatio: params.aspectRatio,
             resolution: params.resolution,
-            createdAt: FieldValue.serverTimestamp(),
+            ...(!existingClip ? { createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
-        });
+        };
+        if (existingClip) {
+            transaction.set(clipRef, clipData, { merge: true });
+        } else {
+            transaction.set(clipRef, clipData);
+        }
 
         transaction.update(projectRef, {
-            clipCount: nextSequence + 1,
+            clipCount: existingClip
+                ? Math.max(Number(project.clipCount ?? 0), clipDocs.size)
+                : nextSequence + 1,
             coverClipId: clipRef.id,
             coverUrl: params.posterUrl || params.lastFrameUrl || params.videoUrl,
             updatedAt: FieldValue.serverTimestamp(),
@@ -959,12 +1243,19 @@ async function getOwnedVideoStudioStorageSnapshot(params: {
         collectPath(clip.sourceVideoUrl);
     });
 
+    const existingClipIds = new Set(clipSnapshot.docs.map((snapshot) => snapshot.id));
+
     let activeJobCount = 0;
     jobSnapshot.docs.forEach((snapshot) => {
         const job = snapshot.data() as Omit<VideoStudioJob, 'id'>;
-        collectPath(job.resultVideoUrl);
-        collectPath(job.resultFrameUrl);
-        if (ACTIVE_VIDEO_STUDIO_JOB_STATUSES.has(job.status)) activeJobCount += 1;
+        const active = ACTIVE_VIDEO_STUDIO_JOB_STATUSES.has(job.status);
+        if (active) activeJobCount += 1;
+        // A completed job whose clip was explicitly removed is residue, not a
+        // live reference. Jobs without a clip remain protected for recovery.
+        if (active || !job.clipId || existingClipIds.has(job.clipId)) {
+            collectPath(job.resultVideoUrl);
+            collectPath(job.resultFrameUrl);
+        }
     });
 
     const bucket = getStorageBucket();

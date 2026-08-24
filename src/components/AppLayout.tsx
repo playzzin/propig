@@ -269,6 +269,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { currentSite, filteredMenu } = useMenuContext();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const menuTitle = React.useMemo(() => findMenuTitle(filteredMenu, pathname), [filteredMenu, pathname]);
   const viewState = React.useMemo(() => getRouteViewState(pathname, menuTitle), [menuTitle, pathname]);
   const isCorpRoute = Boolean(pathname?.startsWith('/corp'));
@@ -286,8 +287,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [shouldUseCorpChrome]);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(max-width: 720px)');
+    const mediaQuery = window.matchMedia('(max-width: 820px)');
     const syncMobileSidebar = () => {
+      setIsMobileViewport(mediaQuery.matches);
       if (!mediaQuery.matches) {
         setIsMobileSidebarOpen(false);
       }
@@ -298,11 +300,61 @@ export function AppLayout({ children }: AppLayoutProps) {
     return () => mediaQuery.removeEventListener('change', syncMobileSidebar);
   }, []);
 
-  const isMobileViewport = () =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches;
+  useEffect(() => {
+    if (!isMobileViewport || !isMobileSidebarOpen) return;
+    const sidebar = document.getElementById('sidebar');
+    const opener = document.getElementById('mobile-menu-toggle');
+    if (!sidebar) return;
+    const focusableSelector = [
+      'button:not(:disabled)',
+      'a[href]',
+      'input:not(:disabled)',
+      'select:not(:disabled)',
+      'textarea:not(:disabled)',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+    const focusFrame = window.requestAnimationFrame(() => {
+      sidebar.querySelector<HTMLElement>(focusableSelector)?.focus({ preventScroll: true });
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsMobileSidebarOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...sidebar.querySelectorAll<HTMLElement>(focusableSelector)];
+      if (!focusable.length) {
+        event.preventDefault();
+        sidebar.focus({ preventScroll: true });
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!sidebar.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', handleKeyDown, true);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [isMobileSidebarOpen, isMobileViewport]);
+
+  const matchesMobileViewport = () =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches;
 
   const toggleSidebar = () => {
-    if (isMobileViewport()) {
+    if (matchesMobileViewport()) {
       setIsMobileSidebarOpen((isOpen) => !isOpen);
       return;
     }
@@ -317,17 +369,20 @@ export function AppLayout({ children }: AppLayoutProps) {
     <div className="app-wrapper" style={{ display: 'flex', width: '100vw', height: '100vh' }}>
       <DynamicFavicon />
 
-      <button
-        type="button"
-        className={`mobile-sidebar-backdrop ${isMobileSidebarOpen ? 'active' : ''}`}
-        aria-label="메뉴 닫기"
-        onClick={closeMobileSidebar}
-      />
+      {isMobileSidebarOpen ? (
+        <button
+          type="button"
+          className="mobile-sidebar-backdrop active"
+          aria-label="메뉴 닫기"
+          onClick={closeMobileSidebar}
+        />
+      ) : null}
 
       <Sidebar
         currentEnv={currentSite}
         isCollapsed={isSidebarCollapsed}
         isMobileOpen={isMobileSidebarOpen}
+        isMobileViewport={isMobileViewport}
         closeMobileSidebar={closeMobileSidebar}
         setViewTitle={() => undefined}
         toggleSidebar={toggleSidebar}
@@ -335,6 +390,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       <div
         className="main-view"
+        aria-hidden={isMobileViewport && isMobileSidebarOpen ? true : undefined}
+        inert={isMobileViewport && isMobileSidebarOpen ? true : undefined}
         style={{
           flex: 1,
           minWidth: 0,

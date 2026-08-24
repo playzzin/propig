@@ -2,6 +2,7 @@ import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
 import app from './config';
 
 export const functions = getFunctions(app);
+export const asiaNortheastFunctions = getFunctions(app, 'asia-northeast3');
 
 const shouldDebugFirebase =
   (process.env.NEXT_PUBLIC_DEBUG_FIREBASE ?? '').toLowerCase() === 'true';
@@ -16,6 +17,7 @@ if (shouldUseFunctionsEmulator) {
 
   if (Number.isFinite(port)) {
     connectFunctionsEmulator(functions, host, port);
+    connectFunctionsEmulator(asiaNortheastFunctions, host, port);
     if (shouldDebugFirebase) {
       console.info(`[Firebase] Connected to Functions Emulator (${host}:${port})`);
     }

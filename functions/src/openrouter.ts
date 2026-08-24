@@ -31,6 +31,7 @@ type OpenRouterResponse = {
         cost?: number;
     };
     model?: string;
+    provider?: string;
     error?: { message?: string };
 };
 
@@ -145,6 +146,7 @@ export class OpenRouterGenerativeModel {
             completionTokens: payload.usage?.completion_tokens,
             totalTokens: payload.usage?.total_tokens,
             costUsd: payload.usage?.cost,
+            providerSlug: payload.provider,
         });
         return {
             response: {

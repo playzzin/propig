@@ -203,6 +203,21 @@ function getMonthRangeDateKeys(dateKey: string): string[] {
   return keys;
 }
 
+function getTimelineHours(occurrences: Occurrence[]): number[] {
+  const hours = new Set(DAY_HOURS);
+
+  for (const { task } of occurrences) {
+    if (!task.time) continue;
+
+    const hour = Number(task.time.slice(0, 2));
+    if (Number.isInteger(hour) && hour >= 0 && hour <= 23) {
+      hours.add(hour);
+    }
+  }
+
+  return [...hours].sort((a, b) => a - b);
+}
+
 function uniqueSortedDates(dates: string[]): string[] {
   return [...new Set(dates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)))].sort();
 }
@@ -457,6 +472,7 @@ export function TodoListApp() {
     () => filterOccurrences(getOccurrencesForDate(filteredTasks, selectedDate), statusFilter),
     [filteredTasks, selectedDate, statusFilter],
   );
+  const dayTimelineHours = useMemo(() => getTimelineHours(selectedOccurrences), [selectedOccurrences]);
   const listedTasks = useMemo(() => {
     return [...filteredTasks]
       .filter((task) => {
@@ -480,13 +496,26 @@ export function TodoListApp() {
   const doneCount = rangeAllOccurrences.filter((item) => item.completed).length;
   const hasActiveFilters = statusFilter !== 'all' || categoryFilter !== 'all';
   const visibleListOpenCount = listedTasks.filter((task) => !isTaskDoneInList(task)).length;
-  const overdueCount = useMemo(() => {
+  const overdueOccurrences = useMemo(() => {
     const today = getTodayKey();
-    return tasks.filter((task) => {
-      if (task.recurrence.mode !== 'once') return false;
-      return task.startDate < today && !task.completedDates.includes(task.startDate);
-    }).length;
+    return tasks
+      .filter((task) => task.recurrence.mode === 'once' && task.startDate < today && !task.completedDates.includes(task.startDate))
+      .map((task) => ({
+        task,
+        dateKey: task.startDate,
+        completed: false,
+      }));
   }, [tasks]);
+  const overdueCount = overdueOccurrences.length;
+  const focusOccurrences = useMemo(() => {
+    const seen = new Set<string>();
+    return [...overdueOccurrences, ...todayOccurrences.filter((item) => !item.completed)].filter((item) => {
+      const key = `${item.task.id}-${item.dateKey}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [overdueOccurrences, todayOccurrences]);
   const completedRecordCount = tasks.reduce((count, task) => count + task.completedDates.length, 0);
   const hasCompletionRecords = completedRecordCount > 0;
   const hasWorkspaceData = tasks.length > 0 || categories.length > 0;
@@ -831,12 +860,30 @@ export function TodoListApp() {
           <ClipboardList size={54} />
           <span />
         </GateVisual>
+        <GateEyebrow>PERSONAL PLANNER</GateEyebrow>
         <h1>Firestore로 동기화되는 할일 일정표</h1>
         <p>로그인하면 분류와 반복 일정이 Cloud Firestore에 저장되고 다른 기기에서도 이어서 관리할 수 있습니다.</p>
+        <GateFeatureList aria-label="할일 일정표 주요 기능">
+          <GateFeature>
+            <CalendarRange size={18} />
+            <span>일·주·월 단위로<br />일정을 한눈에 확인</span>
+          </GateFeature>
+          <GateFeature>
+            <RotateCcw size={18} />
+            <span>반복 일정도<br />놓치지 않고 관리</span>
+          </GateFeature>
+          <GateFeature>
+            <CheckCircle2 size={18} />
+            <span>완료 현황을 바로 보고<br />오늘의 우선순위에 집중</span>
+          </GateFeature>
+        </GateFeatureList>
         <GateButton type="button" disabled={!isConfigured} onClick={() => void loginWithGoogle()}>
           <LogIn size={18} />
           Google로 시작하기
         </GateButton>
+        <GateStatus $configured={isConfigured}>
+          {isConfigured ? '로그인하면 내 일정이 안전하게 동기화됩니다.' : '로그인 설정을 준비하는 중입니다.'}
+        </GateStatus>
       </Gate>
     );
   }
@@ -857,6 +904,10 @@ export function TodoListApp() {
             <span>완료율 {getCompletionPercent(todayOccurrences)}%</span>
           </HeroMeta>
           <HeroActions>
+            <HeaderAddButton type="button" onClick={() => openComposerForDate(selectedDate)} aria-controls="todo-composer-body">
+              <Plus size={17} />
+              할 일 추가
+            </HeaderAddButton>
             <ManageToggleButton
               type="button"
               $active={isManageOpen}
@@ -893,6 +944,38 @@ export function TodoListApp() {
           </KpiCard>
         </KpiGrid>
       </HeaderBand>
+
+      {focusOccurrences.length > 0 ? (
+        <FocusPanel aria-labelledby="todo-focus-heading">
+          <FocusPanelHeader>
+            <div>
+              <FocusEyebrow>
+                <Target size={15} />
+                지금 처리할 일
+              </FocusEyebrow>
+              <h2 id="todo-focus-heading">
+                {overdueCount > 0 ? `기한이 지난 일정 ${overdueCount}건을 먼저 정리해 보세요.` : '오늘의 남은 일을 한 번에 처리하세요.'}
+              </h2>
+            </div>
+            <FocusJumpButton
+              type="button"
+              onClick={() => {
+                setSelectedDate(focusOccurrences[0]?.dateKey ?? getTodayKey());
+                setStatusFilter('open');
+                setCategoryFilter('all');
+                setView('day');
+              }}
+            >
+              일정으로 이동
+              <ChevronRight size={16} />
+            </FocusJumpButton>
+          </FocusPanelHeader>
+          <FocusTaskList>
+            {focusOccurrences.slice(0, 3).map((occurrence) => renderOccurrence(occurrence, true))}
+            {focusOccurrences.length > 3 ? <FocusMoreText>+{focusOccurrences.length - 3}개의 남은 일정</FocusMoreText> : null}
+          </FocusTaskList>
+        </FocusPanel>
+      ) : null}
 
       {isManageOpen ? (
         <ManagementPanel id="todo-management-panel" aria-label="할일 일정표 관리">
@@ -1435,7 +1518,7 @@ export function TodoListApp() {
               </AllDayLane>
 
               <Timeline>
-                {DAY_HOURS.map((hour) => {
+                {dayTimelineHours.map((hour) => {
                   const hourItems = selectedOccurrences.filter((item) => {
                     if (!item.task.time) return false;
                     return Number(item.task.time.slice(0, 2)) === hour;
@@ -1718,6 +1801,55 @@ const HeroActions = styled.div`
   margin-top: 14px;
 `;
 
+const HeaderAddButton = styled.button`
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #d1fae5;
+  color: #064e3b;
+  font-weight: 950;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(34, 197, 94, 0.16);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    background: #ecfdf5;
+    box-shadow: 0 14px 26px rgba(34, 197, 94, 0.22);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(167, 243, 208, 0.5);
+    outline-offset: 2px;
+  }
+
+  body[data-propig-design='codeit'] & {
+    background: var(--codeit-primary);
+    color: #ffffff;
+    box-shadow: 0 12px 28px rgba(52, 81, 209, 0.18);
+  }
+
+  body[data-propig-design='codeit'] &:hover {
+    background: var(--codeit-primary-hover);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:hover {
+      transform: none;
+    }
+  }
+`;
+
 const ManageToggleButton = styled.button<{ $active: boolean }>`
   min-height: 40px;
   display: inline-flex;
@@ -1767,6 +1899,137 @@ const KpiGrid = styled.div`
 
   @media (max-width: 620px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+`;
+
+const FocusPanel = styled.section`
+  display: grid;
+  gap: 14px;
+  margin: 0 32px 18px;
+  padding: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.24);
+  border-radius: 8px;
+  background:
+    linear-gradient(105deg, rgba(251, 191, 36, 0.14), rgba(74, 222, 128, 0.06) 55%, transparent),
+    rgba(12, 17, 15, 0.8);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  body[data-propig-design='codeit'] & {
+    border-color: var(--codeit-primary-border);
+    background: linear-gradient(105deg, rgba(255, 242, 196, 0.82), var(--codeit-surface));
+    border-radius: var(--codeit-radius);
+    box-shadow: var(--codeit-shadow-sm);
+  }
+
+  @media (max-width: 720px) {
+    margin: 0 12px 14px;
+    padding: 14px;
+  }
+`;
+
+const FocusPanelHeader = styled.div`
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+
+  h2 {
+    margin: 5px 0 0;
+    color: #fffdf5;
+    font-size: 1rem;
+    line-height: 1.4;
+    letter-spacing: 0;
+    text-wrap: balance;
+    word-break: keep-all;
+  }
+
+  body[data-propig-design='codeit'] & h2 {
+    color: var(--codeit-text);
+  }
+
+  @media (max-width: 560px) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+`;
+
+const FocusEyebrow = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fde68a;
+  font-size: 0.73rem;
+  font-weight: 950;
+
+  body[data-propig-design='codeit'] & {
+    color: #9a6700;
+  }
+`;
+
+const FocusJumpButton = styled.button`
+  min-height: 36px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid rgba(253, 230, 138, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fef3c7;
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    transform 0.18s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    border-color: rgba(253, 230, 138, 0.56);
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(253, 230, 138, 0.22);
+    outline-offset: 2px;
+  }
+
+  body[data-propig-design='codeit'] & {
+    border-color: var(--codeit-primary-border);
+    background: #ffffff;
+    color: var(--codeit-primary);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:hover {
+      transform: none;
+    }
+  }
+`;
+
+const FocusTaskList = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+
+  @media (max-width: 980px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const FocusMoreText = styled.span`
+  align-self: center;
+  color: rgba(253, 230, 138, 0.82);
+  font-size: 0.8rem;
+  font-weight: 900;
+
+  body[data-propig-design='codeit'] & {
+    color: var(--codeit-muted);
   }
 `;
 
@@ -3100,6 +3363,19 @@ const TaskCheckButton = styled.button`
   background: transparent;
   color: #bbf7d0;
   cursor: pointer;
+
+  &:hover {
+    background: rgba(74, 222, 128, 0.12);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(74, 222, 128, 0.28);
+    outline-offset: 2px;
+  }
+
+  body[data-propig-design='codeit'] & {
+    color: var(--codeit-primary);
+  }
 `;
 
 const TaskBody = styled.div`
@@ -3184,6 +3460,11 @@ const TaskActionButton = styled.button<{ $compact?: boolean; $danger?: boolean }
     border-color: ${({ $danger }) => ($danger ? 'rgba(251, 113, 133, 0.54)' : 'rgba(74, 222, 128, 0.38)')};
     background: ${({ $danger }) => ($danger ? 'rgba(251, 113, 133, 0.15)' : 'rgba(74, 222, 128, 0.1)')};
     color: #fff;
+  }
+
+  &:focus-visible {
+    outline: 3px solid ${({ $danger }) => ($danger ? 'rgba(251, 113, 133, 0.3)' : 'rgba(74, 222, 128, 0.24)')};
+    outline-offset: 2px;
   }
 
   body[data-propig-design='codeit'] & {
@@ -3536,6 +3817,67 @@ const Gate = styled(CenteredPanel)`
   }
 `;
 
+const GateEyebrow = styled.span`
+  margin-top: 2px;
+  color: #a7f3d0;
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.13em;
+
+  body[data-propig-design='codeit'] & {
+    color: var(--codeit-primary);
+  }
+`;
+
+const GateFeatureList = styled.div`
+  width: min(100%, 620px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 0 8px;
+
+  @media (max-width: 620px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const GateFeature = styled.div`
+  min-width: 0;
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(203, 213, 225, 0.76);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.55;
+  text-align: left;
+
+  svg {
+    color: #86efac;
+  }
+
+  body[data-propig-design='codeit'] & {
+    border-color: var(--codeit-border);
+    background: #ffffff;
+    color: var(--codeit-muted);
+  }
+
+  body[data-propig-design='codeit'] & svg {
+    color: var(--codeit-primary);
+  }
+
+  @media (max-width: 620px) {
+    min-height: 58px;
+    align-items: center;
+  }
+`;
+
 const GateVisual = styled.div`
   position: relative;
   display: grid;
@@ -3586,5 +3928,33 @@ const GateButton = styled.button`
     background: var(--codeit-primary);
     color: #ffffff;
     box-shadow: 0 12px 28px rgba(52, 81, 209, 0.18);
+  }
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 30px rgba(74, 222, 128, 0.18);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(167, 243, 208, 0.48);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:hover:not(:disabled) {
+      transform: none;
+    }
+  }
+`;
+
+const GateStatus = styled.span<{ $configured: boolean }>`
+  color: ${({ $configured }) => ($configured ? 'rgba(167, 243, 208, 0.78)' : 'rgba(203, 213, 225, 0.58)')};
+  font-size: 0.76rem;
+  font-weight: 750;
+
+  body[data-propig-design='codeit'] & {
+    color: var(--codeit-muted);
   }
 `;

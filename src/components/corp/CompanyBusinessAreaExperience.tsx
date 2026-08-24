@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type SyntheticEvent } from 'react';
 import styled from 'styled-components';
 
 interface CompanyBusinessAreaExperienceProps {
@@ -10,6 +10,7 @@ interface CompanyBusinessAreaExperienceProps {
 interface CompanyBusinessAreaSectionsProps {
   id?: string;
   pageLabel?: string;
+  showBusinessVideoSection?: boolean;
 }
 
 const BUSINESS_VIDEO_ID = 'M0q4Q2pWedU';
@@ -23,17 +24,23 @@ const BUSINESS_PREVIEW_SCROLL_MESSAGE = 'propig-business-preview-scroll';
 
 export function CompanyBusinessAreaSections({
   id,
+  showBusinessVideoSection = true,
   pageLabel = '사업영역',
 }: CompanyBusinessAreaSectionsProps = {}) {
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const previewObserverRef = useRef<ResizeObserver | null>(null);
+  const previewStabilizationTimerRef = useRef<number | null>(null);
   const [previewHeight, setPreviewHeight] = useState(BUSINESS_PREVIEW_MIN_HEIGHT);
 
   const syncPreviewHeight = useCallback((frame: HTMLIFrameElement) => {
+    if (!frame.isConnected) return;
+
     const frameDocument = frame.contentDocument;
     if (!frameDocument) return;
 
     const { body, documentElement } = frameDocument;
+    if (!documentElement) return;
+
     const nextHeight = Math.ceil(
       Math.max(
         BUSINESS_PREVIEW_MIN_HEIGHT,
@@ -54,6 +61,9 @@ export function CompanyBusinessAreaSections({
 
       previewFrameRef.current = frame;
       previewObserverRef.current?.disconnect();
+      if (previewStabilizationTimerRef.current !== null) {
+        window.clearInterval(previewStabilizationTimerRef.current);
+      }
       syncPreviewHeight(frame);
       frame.contentWindow?.postMessage(
         { type: BUSINESS_PREVIEW_MEASURE_MESSAGE },
@@ -66,11 +76,21 @@ export function CompanyBusinessAreaSections({
       observer.observe(frameDocument.documentElement);
       if (frameDocument.body) observer.observe(frameDocument.body);
       previewObserverRef.current = observer;
+
+      let remainingMeasurements = 12;
+      previewStabilizationTimerRef.current = window.setInterval(() => {
+        syncPreviewHeight(frame);
+        remainingMeasurements -= 1;
+        if (remainingMeasurements <= 0 && previewStabilizationTimerRef.current !== null) {
+          window.clearInterval(previewStabilizationTimerRef.current);
+          previewStabilizationTimerRef.current = null;
+        }
+      }, 250);
     },
     [syncPreviewHeight],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const handlePreviewHeightMessage = (event: MessageEvent<unknown>) => {
       const frame = previewFrameRef.current;
       if (event.origin !== window.location.origin || !frame || event.source !== frame.contentWindow) return;
@@ -98,8 +118,23 @@ export function CompanyBusinessAreaSections({
     return () => {
       window.removeEventListener('message', handlePreviewHeightMessage);
       previewObserverRef.current?.disconnect();
+      if (previewStabilizationTimerRef.current !== null) {
+        window.clearInterval(previewStabilizationTimerRef.current);
+        previewStabilizationTimerRef.current = null;
+      }
     };
   }, []);
+
+  useLayoutEffect(() => {
+    const frame = previewFrameRef.current;
+    if (!frame) return undefined;
+
+    // Changing the iframe height can switch the embedded responsive layout,
+    // which in turn changes its document height. Measure once more after the
+    // new viewport has been painted and converge until the value is stable.
+    const frameId = window.requestAnimationFrame(() => syncPreviewHeight(frame));
+    return () => window.cancelAnimationFrame(frameId);
+  }, [previewHeight, syncPreviewHeight]);
 
   const isProductIntroduction = pageLabel === '제품소개';
   const eyebrow = isProductIntroduction
@@ -135,7 +170,8 @@ export function CompanyBusinessAreaSections({
           사업제휴 문의
         </button>
       </VerificationMarkers>
-      <BusinessNewsSection aria-labelledby="business-news-title">
+      {showBusinessVideoSection ? (
+        <BusinessNewsSection aria-labelledby="business-news-title">
         <BusinessHero aria-label={`${pageLabel} 소개 영상`}>
           <HeroPoster
             src={BUSINESS_VIDEO_POSTER_URL}
@@ -188,7 +224,8 @@ export function CompanyBusinessAreaSections({
             <span>WORLDWIDE, NOT TOO FULL OF ITSELF</span>
           </NewsMeta>
         </GlobalPigBrief>
-      </BusinessNewsSection>
+        </BusinessNewsSection>
+      ) : null}
       <PreviewFrame
         title={`프로피그 4대 ${pageLabel} 전체 섹션`}
         src="/corp-business-area-preview.html"
@@ -503,8 +540,13 @@ const PreviewFrame = styled.iframe<{ $height: number }>`
   display: block;
   flex: 0 0 auto;
   width: 100%;
-  height: ${(props) => `${props.$height}px`};
+  height: ${(props) => `max(${props.$height}px, 1360px)`};
+  min-height: 0;
   border: 0;
   background: #030712;
   overflow: hidden;
+
+  @media (max-width: 720px) {
+    height: ${(props) => `max(${props.$height}px, 1160px)`};
+  }
 `;

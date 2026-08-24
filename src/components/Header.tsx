@@ -15,6 +15,10 @@ const ProfileButton = dynamic(
     () => import('./ProfileButton').then((module) => module.ProfileButton),
     { ssr: false },
 );
+const SiteModeSwitcher = dynamic(
+    () => import('./SiteModeSwitcher').then((module) => module.SiteModeSwitcher),
+    { ssr: false },
+);
 
 interface HeaderProps {
     isMobileSidebarOpen: boolean;
@@ -57,10 +61,13 @@ export default function Header({
             <header id="header">
                 <div className="header-main">
                     <button
+                        id="mobile-menu-toggle"
                         type="button"
                         className="mobile-logo-toggle"
                         onClick={toggleMobileSidebar}
                         aria-label={menuLabel}
+                        aria-controls="sidebar"
+                        aria-expanded={isMobileSidebarOpen}
                         title={menuLabel}
                     >
                         {logoImage.canRenderImage ? (
@@ -95,6 +102,7 @@ export default function Header({
                 </div>
 
                 <div className="header-actions">
+                    <SiteModeSwitcher />
                     {currentUser ? (
                         <ProfileButton />
                     ) : (

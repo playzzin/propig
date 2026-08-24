@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import styled, { keyframes } from 'styled-components';
 import type { CorpPageDefinition } from '@/constants/corpPages';
+import { CyProjectAtlas } from '@/components/corp/CyProjectAtlas';
 
 type Program = {
   id: string;
@@ -146,6 +147,7 @@ export function PortfolioUnderConstructionPage({ page: _page }: PortfolioUnderCo
             <strong>CHEONGYEON ENG</strong>
           </BrandMark>
           <SectionNav aria-label="포트폴리오 섹션">
+            <a href="#portfolio-map">제품 지도</a>
             <a href="#portfolio-programs">프로그램</a>
             <a href="#portfolio-automation">자동화</a>
             <a href="#portfolio-process">실행 방식</a>
@@ -254,6 +256,8 @@ export function PortfolioUnderConstructionPage({ page: _page }: PortfolioUnderCo
             <small>현장 · 판단 · 기록 중심</small>
           </MetricItem>
         </MetricStrip>
+
+        <CyProjectAtlas />
 
         <Section id="portfolio-programs" aria-labelledby="portfolio-programs-title">
           <SectionHeading>

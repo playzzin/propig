@@ -1,884 +1,422 @@
 'use client';
 
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
   BadgeCheck,
-  BriefcaseBusiness,
-  ChevronDown,
-  ClipboardCheck,
-  HeartHandshake,
-  PartyPopper,
-  Route,
-  UserRoundPlus,
+  CircleHelp,
+  Heart,
+  Lightbulb,
+  MessageCircleHeart,
+  ShieldCheck,
+  Sparkles,
   UsersRound,
-  type LucideIcon,
 } from 'lucide-react';
 import styled from 'styled-components';
+import {
+  CAREER_FAQS,
+  CAREER_PROCESS,
+  CAREER_TRACKS,
+  getCareerTrack,
+  type CareerTrackId,
+} from '@/constants/careersExperience';
 import type { CorpPageDefinition } from '@/constants/corpPages';
 
 interface CareersJobsExperienceProps {
   page: CorpPageDefinition;
 }
 
-interface WantedField {
-  id: string;
-  eyebrow: string;
-  title: string;
-  role: string;
-  summary: string;
-  accent: string;
-  icon: LucideIcon;
-  status: string;
-  employmentType: string;
-  location: string;
-  details: {
-    intro: string;
-    responsibilities: string[];
-    requirements: string[];
-    process: string[];
+const WORKING_PRINCIPLES = [
+  {
+    title: '문제 앞에서는 직급보다 맥락',
+    description: '누가 말했는지보다 왜 필요한지, 사용자가 어디에서 막혔는지, 어떤 제약이 있는지부터 함께 봅니다.',
+    icon: Lightbulb,
+  },
+  {
+    title: '빠르게 만들되 검수는 사람답게',
+    description: 'AI와 자동화를 적극적으로 사용하지만 사실, 품질, 권리, 안전에 대한 마지막 책임은 사람에게 남깁니다.',
+    icon: ShieldCheck,
+  },
+  {
+    title: '모르는 것을 숨기지 않는 팀',
+    description: '완벽한 답보다 빠른 질문과 위험 공유를 환영합니다. 실수는 비난보다 재발 방지 장치로 바꿉니다.',
+    icon: MessageCircleHeart,
+  },
+  {
+    title: '지속 가능한 속도로 끝까지',
+    description: '야근과 희생을 열정의 기본값으로 삼지 않습니다. 우선순위와 완료 기준을 맞추고 작은 결과를 꾸준히 냅니다.',
+    icon: Heart,
+  },
+] as const;
+
+export function CareersJobsExperience({ page: _page }: CareersJobsExperienceProps) {
+  const [activeTrackId, setActiveTrackId] = useState<CareerTrackId>(() => getCareerTrack(undefined).id);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const activeTrack = getCareerTrack(activeTrackId);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      const params = new URLSearchParams(window.location.search);
+      setActiveTrackId(getCareerTrack(params.get('track') ?? params.get('position') ?? undefined).id);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
+
+  const selectTrack = (trackId: CareerTrackId) => {
+    setActiveTrackId(trackId);
+    const url = new URL(window.location.href);
+    url.searchParams.set('track', trackId);
+    url.searchParams.delete('position');
+    window.history.replaceState(window.history.state, '', url);
   };
-}
 
-const WANTED_FIELDS: WantedField[] = [
-  {
-    id: 'staff',
-    eyebrow: '01 · Staff',
-    title: '직원구함',
-    role: '실행력 있는 인간 멀티툴',
-    summary: '회의에서 고개만 끄덕이지 않고, 아이디어를 결과물로 바꿀 동료를 모십니다.',
-    accent: '#60a5fa',
-    icon: BriefcaseBusiness,
-    status: '상시 채용',
-    employmentType: '정규직 / 프로젝트 계약',
-    location: '안산 / 하이브리드',
-    details: {
-      intro:
-        'PRO PIG는 “누가 해주겠지”라는 말이 사무실에 정착하기 전에 일을 끝내는 팀입니다. 일은 진지하게, 회의는 짧게, 커피는 각자 취향대로 마시며 결과를 만드는 동료를 찾습니다.',
-      responsibilities: [
-        '생각난 아이디어를 회의록에서 끝내지 않고 실제 화면·문서·결과물로 옮기기',
-        'AI에게 반복 업무를 맡기되, 최종 검수는 인간의 눈과 양심으로 하기',
-        '문제가 생기면 “괜찮습니다”로 덮지 말고 “막혔습니다”라고 먼저 공유하기',
-        '동료의 좋은 제안에는 박수를, 아쉬운 제안에는 근거 있는 태클을 보내기',
-      ],
-      requirements: [
-        '마감 직전의 초인적 집중력보다 평소의 꾸준함을 갖춘 분',
-        '슬랙·노션·커피 중 두 가지 이상과 평화롭게 공존 가능한 분',
-        '내 업무뿐 아니라 팀의 다음 병목도 한 번쯤 살펴보는 분',
-        '직급보다 결과물과 약속을 더 중요하게 생각하는 분',
-      ],
-      process: [
-        '이력서 또는 “이건 내가 진짜 잘했다” 싶은 작업물 1개 제출',
-        '실무 대화: 일하는 방식과 밈 취향의 교집합 확인',
-        '가벼운 과제 또는 함께 커피 마시며 문제 푸는 시간',
-        '조건 협의 후 첫 출근, 그리고 팀 단체방 이모지 세례',
-      ],
-    },
-  },
-  {
-    id: 'friends',
-    eyebrow: '02 · Friends',
-    title: '친구구함',
-    role: '퇴근 후에도 어색하지 않은 장기 동료',
-    summary: '별일 없어도 안부를 묻고, 취향과 아이디어를 편하게 나눌 친구를 찾습니다.',
-    accent: '#5eead4',
-    icon: UserRoundPlus,
-    status: '상시 채용',
-    employmentType: '비정규 우정직 / 장기 계약',
-    location: '온라인 + 수도권',
-    details: {
-      intro:
-        '급한 업무는 없지만 오래 갈 가능성이 높은 포지션입니다. 재미있는 일이 생기면 가장 먼저 공유하고, 힘든 날에는 말없이 옆자리를 내어줄 수 있는 친구를 기다립니다.',
-      responsibilities: [
-        '별일 없는 날에도 “뭐 해?”라는 안부를 가끔 먼저 보내기',
-        '맛집·전시·영화·게임·새 취미를 함께 검토하고 필요하면 즉시 실행하기',
-        '상대방의 한숨에 정답부터 내놓기보다 일단 충분히 들어주기',
-        '약속을 바꿔야 할 때는 잠수 대신 사전 공지와 다음 일정 제안하기',
-      ],
-      requirements: [
-        '읽씹은 가끔 가능하지만 잠수는 프로젝트 종료 사유라는 데 동의하는 분',
-        '취향이 달라도 “왜 좋아해?”부터 물어보는 분',
-        '연락 템포가 다르면 서로의 기본값을 합의할 수 있는 분',
-        '자기 이야기만큼 상대의 소소한 근황도 기억해 주는 분',
-      ],
-      process: [
-        '지원 메시지에 최근 가장 웃겼던 일 한 가지 첨부',
-        '관심사 사전 인터뷰: 음악·음식·주말 사용법 중 자유 선택',
-        '안전한 공개 장소에서 1차 커피 또는 산책',
-        '첫 만남 후 서로의 재지원 의사 확인, 잘 맞으면 장기 계약 전환',
-      ],
-    },
-  },
-  {
-    id: 'girlfriend',
-    eyebrow: '03 · Love',
-    title: '여친구함',
-    role: '서로의 편이 되어 줄 장기 파트너',
-    summary: '솔직한 대화와 배려를 바탕으로 일상과 미래를 천천히 나눌 여자친구를 찾습니다.',
-    accent: '#fb7185',
-    icon: HeartHandshake,
-    status: '진지하게 채용 중',
-    employmentType: '연애직 / 상호 동의 계약',
-    location: '수도권 / 협의',
-    details: {
-      intro:
-        '화려한 스펙보다 대화가 잘 통하고 함께 있을 때 마음이 편한 관계를 원합니다. 연애를 상대방의 일정 파괴 프로젝트로 만들지 않고, 좋은 날과 힘든 날을 자연스럽게 나눌 수 있으면 좋겠습니다.',
-      responsibilities: [
-        '“오늘 뭐 해?”라는 질문에 “아무거나” 대신 최소 한 가지 선택지를 제안하기',
-        '좋은 일은 두 배로 기뻐하고, 힘든 일은 해결책보다 공감부터 제공하기',
-        '각자의 일·친구·혼자만의 시간을 존중하면서도 필요한 순간에는 든든하게 출석하기',
-        '기념일을 암기 시험으로 만들지 않고 서로의 방식으로 잘 챙기기',
-      ],
-      requirements: [
-        '성인으로서 서로의 경계와 관계의 속도를 존중하는 분',
-        '잠수에 대응하는 방법이 와이파이 문제 하나뿐인 분',
-        '솔직함을 무례함으로 포장하지 않고 대화로 조율하는 분',
-        '다정함과 유머를 함께 나누며 상대를 바꾸려 하지 않는 분',
-      ],
-      process: [
-        '지원서 대신 나를 잘 보여 주는 자기소개와 좋아하는 데이트 한 가지 제출',
-        '대화 면접: 가치관·연락 방식·주말 사용법을 편하게 확인',
-        '안전한 공개 장소에서 1차 만남, 귀가 후 무사 귀가 보고는 선택 아닌 필수',
-        '서로의 재지원 의사가 맞으면 상호 합의 후 정식 연애직 전환',
-      ],
-    },
-  },
-  {
-    id: 'other',
-    eyebrow: '04 · Other',
-    title: '기타구함',
-    role: '정의되지 않은 빈칸을 채울 특별 인재',
-    summary: '운동메이트, 여행동행, 밥친구처럼 아직 이름 붙이기 전인 모든 포지션의 지원을 기다립니다.',
-    accent: '#f5c766',
-    icon: PartyPopper,
-    status: '수시 접수',
-    employmentType: '단기 / 장기 / 한 번 웃고 끝',
-    location: '전국 / 생각보다 가까운 곳',
-    details: {
-      intro:
-        '모든 사람은 어느 날 갑자기 필요한 직무가 됩니다. 운동메이트, 여행동행, 반려식물 상담사, 점심 메뉴 결정권자처럼 공고에 이름이 없다고 지원 기회까지 없는 것은 아닙니다.',
-      responsibilities: [
-        '새벽 운동·점심 탐험·주말 여행·반려식물 구조 등 맞춤형 미션 수행',
-        '특이한 취미가 있다면 입문 장벽을 낮춰 주고, 없더라도 함께 찾아보기',
-        '매칭된 역할의 범위와 연락 빈도를 서로에게 명확하게 안내하기',
-        '필요하지 않은 날에는 과한 출근 독촉 없이 각자의 일상을 존중하기',
-      ],
-      requirements: [
-        '자기소개 한 문장으로 자신을 너무 과장하지 않는 분',
-        '“기타”라는 말에 서운함보다 가능성을 느끼는 분',
-        '일정 변경이나 거절을 개인적인 패배로 해석하지 않는 분',
-        '기존 공고에 없는 포지션을 새로 제안할 용기가 있는 분',
-      ],
-      process: [
-        '지원하고 싶은 역할을 자유 형식으로 기재',
-        '3문장 미니 인터뷰: 왜 필요한지, 무엇을 할지, 언제 가능한지',
-        '서로의 기대치·비용·연락 주기를 짧고 명확하게 조율',
-        '필요한 날 기분 좋게 출근 또는 합류, 아니면 다음 공고를 기다리기',
-      ],
-    },
-  },
-];
-
-export function CareersJobsExperience({ page }: CareersJobsExperienceProps) {
-  const [activeFieldId, setActiveFieldId] = useState(WANTED_FIELDS[0].id);
-  const activeField = WANTED_FIELDS.find((field) => field.id === activeFieldId) ?? WANTED_FIELDS[0];
-
-  const handleFieldKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const currentIndex = WANTED_FIELDS.findIndex((field) => field.id === activeFieldId);
-
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-      event.preventDefault();
-      setActiveFieldId(WANTED_FIELDS[(currentIndex + 1) % WANTED_FIELDS.length].id);
-    }
-
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      setActiveFieldId(WANTED_FIELDS[(currentIndex - 1 + WANTED_FIELDS.length) % WANTED_FIELDS.length].id);
-    }
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % CAREER_TRACKS.length;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + CAREER_TRACKS.length) % CAREER_TRACKS.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = CAREER_TRACKS.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTrack = CAREER_TRACKS[nextIndex];
+    selectTrack(nextTrack.id);
+    tabRefs.current[nextIndex]?.focus();
   };
 
   return (
-    <Page id="content-area" aria-labelledby="careers-jobs-title" $accent={activeField.accent}>
-      <PageInner>
-        <Hero>
+    <Page id="content-area" aria-labelledby="careers-title">
+      <Hero>
+        <HeroInner>
           <HeroCopy>
-            <Kicker>
-              <UsersRound size={16} strokeWidth={2.4} aria-hidden="true" />
-              PRO PIG Recruitment Notice
-            </Kicker>
-            <h1 id="careers-jobs-title">채용공고</h1>
-            <p>PRO PIG는 일할 직원, 퇴근 후 친구, 서로를 아끼는 여친, 그리고 설명하기 어려운 기타 인재를 찾습니다. 포지션은 달라도 공통 지원 자격은 한 가지, 서로에게 무례하지 않을 것.</p>
+            <Eyebrow><Sparkles size={15} aria-hidden="true" /> CAREERS AT PRO PIG</Eyebrow>
+            <h1 id="careers-title">완성된 사람보다,<br /><em>함께 다음 장면을 만들 사람</em></h1>
+            <p>
+              우리는 혼자 모든 답을 아는 사람보다 모르는 것을 질문하고, 작은 약속을 지키며,
+              아이디어를 실제 결과까지 데려가는 사람과 오래 일하고 싶습니다.
+            </p>
+            <HeroActions>
+              <PrimaryLink href="#career-tracks">함께할 분야 보기 <ArrowRight size={17} aria-hidden="true" /></PrimaryLink>
+              <SecondaryLink href="/corp/careers/apply">인재풀 문의 작성</SecondaryLink>
+            </HeroActions>
           </HeroCopy>
 
-          <SignalPanel $accent={activeField.accent}>
-            <UsersRound size={28} strokeWidth={2.2} aria-hidden="true" />
-            <span>모집 포지션</span>
-            <strong>4</strong>
-            <small>{page.description}</small>
-          </SignalPanel>
-        </Hero>
+          <StatusCard aria-label="현재 채용 안내">
+            <StatusDot><span /> CURRENT STATUS</StatusDot>
+            <strong>지금은 확정 공고보다<br />좋은 인연을 먼저 기다립니다.</strong>
+            <p>현재 공개된 확정 인원·마감일이 있는 포지션은 없습니다. 인재풀 또는 협업 제안을 보내주시면 역할이 실제로 열릴 때 먼저 살펴봅니다.</p>
+            <StatusMeta>
+              <span><b>접수 형태</b> 인재풀 · 협업 제안</span>
+              <span><b>서류 형식</b> 자유 형식 · 링크 가능</span>
+              <span><b>중요 기준</b> 문제 해결 과정과 태도</span>
+            </StatusMeta>
+          </StatusCard>
+        </HeroInner>
+      </Hero>
 
-        <FieldGrid onKeyDown={handleFieldKeyDown} aria-label={`${page.title} 모집 공고`}>
-          {WANTED_FIELDS.map((field, index) => {
-            const FieldIcon = field.icon;
-            const isActive = field.id === activeField.id;
+      <Content>
+        <WarmIntro aria-labelledby="warm-intro-title">
+          <WarmHeadline>
+            <span>사람을 채우기보다 관계를 시작합니다</span>
+            <h2 id="warm-intro-title">지원 버튼 앞에서 망설이는 마음까지 이해하고 싶습니다.</h2>
+          </WarmHeadline>
+          <WarmCopy>
+            <p>“내 경력이 충분할까”, “지금 지원해도 될까”, “공고에 없는 경험도 의미가 있을까.” 지원 전의 망설임은 자연스럽습니다.</p>
+            <p>모든 조건에 맞추려 자신을 과장하지 않아도 됩니다. 해본 일, 배우는 방식, 함께 풀고 싶은 문제를 솔직하게 들려주세요. 우리도 아직 정해지지 않은 조건을 멋진 문구로 포장하지 않겠습니다.</p>
+          </WarmCopy>
+        </WarmIntro>
 
-            return (
-              <FieldCard key={field.id} $active={isActive} $accent={field.accent}>
-                <FieldButton
+        <Section aria-labelledby="principles-title">
+          <SectionHeading>
+            <span>HOW WE WORK</span>
+            <h2 id="principles-title">함께 일할 때 지키고 싶은 네 가지</h2>
+            <p>복지 목록보다 먼저, 매일의 대화와 의사결정에서 실제로 지키고 싶은 기준을 공유합니다.</p>
+          </SectionHeading>
+          <PrincipleGrid>
+            {WORKING_PRINCIPLES.map(({ title, description, icon: Icon }) => (
+              <PrincipleCard key={title}>
+                <Icon size={21} aria-hidden="true" />
+                <strong>{title}</strong>
+                <p>{description}</p>
+              </PrincipleCard>
+            ))}
+          </PrincipleGrid>
+        </Section>
+
+        <Section id="career-tracks" aria-labelledby="tracks-title">
+          <SectionHeading>
+            <span>WHERE YOU CAN CONTRIBUTE</span>
+            <h2 id="tracks-title">직함보다 기여하고 싶은 장면을 골라주세요.</h2>
+            <p>아래 분야는 확정 채용 공고가 아니라 관심과 경험을 설명하기 위한 안내입니다. 실제 역할이 열리면 조건을 별도 공고로 확인합니다.</p>
+          </SectionHeading>
+
+          <TrackTabs role="tablist" aria-label="관심 분야 선택">
+            {CAREER_TRACKS.map((track, index) => {
+              const active = track.id === activeTrack.id;
+              return (
+                <TrackTab
+                  key={track.id}
+                  ref={(element) => { tabRefs.current[index] = element; }}
+                  id={`career-track-${track.id}-tab`}
                   type="button"
-                  aria-pressed={isActive}
-                  aria-controls={`${field.id}-details`}
-                  onClick={() => setActiveFieldId(field.id)}
+                  role="tab"
+                  aria-selected={active}
+                  aria-controls={`career-track-${track.id}-panel`}
+                  tabIndex={active ? 0 : -1}
+                  $active={active}
+                  $accent={track.accent}
+                  onClick={() => selectTrack(track.id)}
+                  onKeyDown={(event) => handleTabKeyDown(event, index)}
                 >
-                  <FieldTop>
-                    <FieldNumber>{String(index + 1).padStart(2, '0')}</FieldNumber>
-                    <FieldIcon size={23} strokeWidth={2.35} aria-hidden="true" />
-                  </FieldTop>
-                  <FieldTitle>
-                    <span>{field.eyebrow}</span>
-                    <strong>{field.title}</strong>
-                    <small>{field.role}</small>
-                  </FieldTitle>
-                  <FieldSummary>{field.summary}</FieldSummary>
-                  <FieldMeta>
-                    <span>{field.status}</span>
-                    <span>{field.location}</span>
-                  </FieldMeta>
-                </FieldButton>
-              </FieldCard>
-            );
-          })}
-        </FieldGrid>
+                  <small>{track.eyebrow}</small>
+                  <strong>{track.label}</strong>
+                  <span>{track.summary}</span>
+                </TrackTab>
+              );
+            })}
+          </TrackTabs>
 
-        <AccordionSection aria-label={`${page.title} 상세 채용 공고`}>
-          {WANTED_FIELDS.map((field) => {
-            const isActive = field.id === activeField.id;
-            const FieldIcon = field.icon;
+          <TrackPanel
+            id={`career-track-${activeTrack.id}-panel`}
+            role="tabpanel"
+            aria-labelledby={`career-track-${activeTrack.id}-tab`}
+            tabIndex={0}
+            $accent={activeTrack.accent}
+          >
+            <TrackLead>
+              <span>{activeTrack.eyebrow}</span>
+              <h3>{activeTrack.title}</h3>
+              <p>{activeTrack.mission}</p>
+              <TrackApplyLink href={`/corp/careers/apply?track=${activeTrack.id}`} $accent={activeTrack.accent}>
+                이 분야로 문의 작성 <ArrowRight size={17} aria-hidden="true" />
+              </TrackApplyLink>
+            </TrackLead>
+            <TrackColumns>
+              <TrackList>
+                <h4><BadgeCheck size={17} aria-hidden="true" /> 함께 만들 장면</h4>
+                <ul>{activeTrack.contributions.map((item) => <li key={item}>{item}</li>)}</ul>
+              </TrackList>
+              <TrackList>
+                <h4><UsersRound size={17} aria-hidden="true" /> 반가운 신호</h4>
+                <ul>{activeTrack.signals.map((item) => <li key={item}>{item}</li>)}</ul>
+              </TrackList>
+              <TrackList $muted>
+                <h4><ShieldCheck size={17} aria-hidden="true" /> 없어도 되는 것</h4>
+                <ul>{activeTrack.notRequired.map((item) => <li key={item}>{item}</li>)}</ul>
+              </TrackList>
+            </TrackColumns>
+          </TrackPanel>
+        </Section>
 
-            return (
-              <AccordionItem key={field.id} $active={isActive} $accent={field.accent}>
-                <AccordionButton
-                  type="button"
-                  aria-expanded={isActive}
-                  aria-controls={`${field.id}-details`}
-                  onClick={() => setActiveFieldId(field.id)}
-                >
-                  <AccordionHeading>
-                    <IconBox $accent={field.accent}>
-                      <FieldIcon size={21} strokeWidth={2.35} aria-hidden="true" />
-                    </IconBox>
-                    <span>
-                      <small>{field.eyebrow}</small>
-                      <strong>{field.title}</strong>
-                    </span>
-                  </AccordionHeading>
-                  <AccordionStatus>
-                    <span>{field.status}</span>
-                    <ChevronWrap $active={isActive}>
-                      <ChevronDown size={19} strokeWidth={2.5} aria-hidden="true" />
-                    </ChevronWrap>
-                  </AccordionStatus>
-                </AccordionButton>
+        <Section aria-labelledby="process-title">
+          <SectionHeading>
+            <span>CANDIDATE JOURNEY</span>
+            <h2 id="process-title">평가받는 절차보다 서로 확인하는 대화</h2>
+            <p>역할이 실제로 열렸을 때의 기본 흐름입니다. 역할 특성에 따라 달라지는 부분은 시작 전에 안내합니다.</p>
+          </SectionHeading>
+          <ProcessList>
+            {CAREER_PROCESS.map((item) => (
+              <ProcessCard key={item.step}>
+                <b>{item.step}</b>
+                <div><h3>{item.title}</h3><p>{item.description}</p><small>{item.candidatePromise}</small></div>
+              </ProcessCard>
+            ))}
+          </ProcessList>
+        </Section>
 
-                <AccordionBody id={`${field.id}-details`} hidden={!isActive}>
-                  <RoleIntro>
-                    <strong>{field.role}</strong>
-                    <p>{field.details.intro}</p>
-                  </RoleIntro>
+        <HumanNote>
+          <MessageCircleHeart size={28} aria-hidden="true" />
+          <div>
+            <span>A NOTE FROM THE TEAM</span>
+            <h2>잘 맞는 사람은 체크리스트 밖에 있을 수 있습니다.</h2>
+            <p>요건을 모두 채우지 못해도 괜찮습니다. 대신 지금 할 수 있는 일, 배우고 있는 것, 도움이 필요한 부분을 솔직하게 말해 주세요. 우리도 역할의 기대와 아직 정해지지 않은 조건을 같은 솔직함으로 이야기하겠습니다.</p>
+          </div>
+        </HumanNote>
 
-                  <DetailRows>
-                    <DetailColumn>
-                      <DetailLabel>
-                        <ClipboardCheck size={16} strokeWidth={2.4} aria-hidden="true" />
-                        담당 업무
-                      </DetailLabel>
-                      <List>
-                        {field.details.responsibilities.map((item) => (
-                          <li key={item}>
-                            <BadgeCheck size={15} strokeWidth={2.4} aria-hidden="true" />
-                            {item}
-                          </li>
-                        ))}
-                      </List>
-                    </DetailColumn>
+        <Section aria-labelledby="faq-title">
+          <SectionHeading>
+            <span>BEFORE YOU APPLY</span>
+            <h2 id="faq-title">지원 전에 자주 묻는 질문</h2>
+          </SectionHeading>
+          <FaqList>
+            {CAREER_FAQS.map((item) => (
+              <details key={item.question}>
+                <summary><CircleHelp size={18} aria-hidden="true" /><strong>{item.question}</strong><span>+</span></summary>
+                <p>{item.answer}</p>
+              </details>
+            ))}
+          </FaqList>
+        </Section>
 
-                    <DetailColumn>
-                      <DetailLabel>
-                        <UsersRound size={16} strokeWidth={2.4} aria-hidden="true" />
-                        자격 요건
-                      </DetailLabel>
-                      <List>
-                        {field.details.requirements.map((item) => (
-                          <li key={item}>
-                            <BadgeCheck size={15} strokeWidth={2.4} aria-hidden="true" />
-                            {item}
-                          </li>
-                        ))}
-                      </List>
-                    </DetailColumn>
-
-                    <DetailColumn>
-                      <DetailLabel>
-                        <Route size={16} strokeWidth={2.4} aria-hidden="true" />
-                        전형 절차
-                      </DetailLabel>
-                      <List>
-                        {field.details.process.map((item) => (
-                          <li key={item}>
-                            <BadgeCheck size={15} strokeWidth={2.4} aria-hidden="true" />
-                            {item}
-                          </li>
-                        ))}
-                      </List>
-                    </DetailColumn>
-                  </DetailRows>
-
-                  <InfoStrip>
-                    <span>{field.employmentType}</span>
-                    <span>{field.location}</span>
-                    <ApplyLink href={`/corp/careers/apply?position=${field.id}`}>
-                      지원하기
-                      <ArrowRight size={16} strokeWidth={2.5} aria-hidden="true" />
-                    </ApplyLink>
-                  </InfoStrip>
-                </AccordionBody>
-              </AccordionItem>
-            );
-          })}
-        </AccordionSection>
-      </PageInner>
+        <Closing>
+          <div><span>READY WHEN YOU ARE</span><h2>완벽한 지원서보다 진짜 대화를 기다립니다.</h2><p>지금 열린 역할이 없어도 괜찮습니다. 함께 풀고 싶은 문제와 당신이 일하는 방식을 알려주세요.</p></div>
+          <PrimaryLink href={`/corp/careers/apply?track=${activeTrack.id}`}>인재풀 문의 시작 <ArrowRight size={17} aria-hidden="true" /></PrimaryLink>
+        </Closing>
+      </Content>
     </Page>
   );
 }
 
-const Page = styled.main<{ $accent: string }>`
-  flex: 1;
+const Page = styled.main`
   min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 28px;
-  color: #f4f7ef;
-  background:
-    radial-gradient(circle at 12% 8%, ${(props) => `${props.$accent}22`}, transparent 27%),
-    linear-gradient(135deg, #08100e 0%, #121714 52%, #090b0a 100%);
-
-  @media (max-width: 760px) {
-    padding: 16px;
-  }
-`;
-
-const PageInner = styled.div`
-  width: min(100%, 1240px);
-  margin: 0 auto;
-  display: grid;
-  gap: 18px;
+  color: #15352d;
+  background: #f6f4ed;
 `;
 
 const Hero = styled.section`
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 330px);
-  gap: 18px;
-  align-items: stretch;
-
-  @media (max-width: 860px) {
-    grid-template-columns: 1fr;
-  }
+  padding: clamp(72px, 10vw, 132px) 24px clamp(64px, 9vw, 112px);
+  color: #f8fff9;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(121, 216, 188, 0.22), transparent 31%),
+    radial-gradient(circle at 90% 8%, rgba(139, 188, 255, 0.17), transparent 28%),
+    linear-gradient(145deg, #09261f, #123d32 62%, #0a2922);
 `;
-
+const HeroInner = styled.div`
+  width: min(1180px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(310px, .72fr); gap: clamp(32px, 6vw, 84px); align-items: center;
+  @media (max-width: 860px) { grid-template-columns: 1fr; }
+`;
 const HeroCopy = styled.div`
   min-width: 0;
-  padding: 32px;
-  border: 1px solid rgba(244, 247, 239, 0.12);
-  border-radius: 8px;
-  background: rgba(244, 247, 239, 0.055);
-
-  h1 {
-    margin: 16px 0 0;
-    color: #ffffff;
-    font-size: 2.55rem;
-    line-height: 1.08;
-    font-weight: 950;
-    letter-spacing: 0;
-    word-break: keep-all;
-    text-wrap: balance;
-  }
-
-  p {
-    max-width: 780px;
-    margin: 14px 0 0;
-    color: rgba(244, 247, 239, 0.72);
-    font-size: 1rem;
-    line-height: 1.72;
-    word-break: keep-all;
-    text-wrap: pretty;
-  }
-
-  @media (max-width: 760px) {
-    padding: 24px;
-
-    h1 {
-      font-size: 2rem;
-    }
-  }
+  h1 { margin: 22px 0 0; font-size: clamp(2.65rem, 6.2vw, 5.6rem); line-height: .99; letter-spacing: -.055em; font-weight: 900; word-break: keep-all; text-wrap: balance; }
+  h1 em { color: #a8e7d1; font-style: normal; }
+  p { max-width: 700px; margin: 25px 0 0; color: rgba(248,255,249,.72); font-size: clamp(1rem, 1.4vw, 1.15rem); line-height: 1.8; word-break: keep-all; }
 `;
-
-const Kicker = styled.span`
-  display: inline-flex;
-  width: fit-content;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid rgba(244, 247, 239, 0.18);
-  border-radius: 999px;
-  color: rgba(244, 247, 239, 0.78);
-  background: rgba(244, 247, 239, 0.06);
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0;
+const Eyebrow = styled.span`
+  display: inline-flex; align-items: center; gap: 8px; color: #bdebdc; font-size: .76rem; font-weight: 900; letter-spacing: .14em;
 `;
-
-const SignalPanel = styled.aside<{ $accent: string }>`
-  min-width: 0;
-  min-height: 220px;
-  padding: 24px;
-  border: 1px solid ${(props) => `${props.$accent}55`};
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  color: ${(props) => props.$accent};
-  background:
-    linear-gradient(180deg, ${(props) => `${props.$accent}20`}, rgba(244, 247, 239, 0.04)),
-    rgba(244, 247, 239, 0.045);
-
-  span {
-    margin-top: 28px;
-    color: rgba(244, 247, 239, 0.62);
-    font-size: 0.78rem;
-    font-weight: 900;
-    letter-spacing: 0;
-  }
-
-  strong {
-    margin-top: 8px;
-    color: #ffffff;
-    font-size: 3.3rem;
-    line-height: 0.9;
-    font-weight: 950;
-    letter-spacing: 0;
-  }
-
-  small {
-    margin-top: 12px;
-    color: rgba(244, 247, 239, 0.68);
-    line-height: 1.55;
-    word-break: keep-all;
-  }
+const HeroActions = styled.div`
+  display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px;
+  @media (max-width: 520px) { > a { width: 100%; } }
 `;
-
-const FieldGrid = styled.div`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-
-  @media (max-width: 1120px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @media (max-width: 640px) {
-    grid-template-columns: 1fr;
-  }
+const PrimaryLink = styled(Link)`
+  min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 0 19px; border-radius: 999px; color: #09261f; background: #b8efd9; font-weight: 900; text-decoration: none; transition: transform 180ms ease, background 180ms ease;
+  &:hover { transform: translateY(-2px); background: #d3f8e9; }
+  &:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { transition: none; &:hover { transform: none; } }
 `;
-
-const FieldCard = styled.article<{ $active: boolean; $accent: string }>`
-  height: 100%;
-  min-width: 0;
-  border: 1px solid ${(props) => (props.$active ? `${props.$accent}88` : 'rgba(244, 247, 239, 0.12)')};
-  border-radius: 8px;
-  background:
-    linear-gradient(145deg, ${(props) => (props.$active ? `${props.$accent}19` : 'rgba(244, 247, 239, 0.05)')}, rgba(244, 247, 239, 0.028)),
-    rgba(9, 15, 12, 0.88);
-  box-shadow: ${(props) => (props.$active ? `0 18px 44px ${props.$accent}16` : 'none')};
-  transition:
-    border-color 180ms ease,
-    background 180ms ease,
-    transform 180ms ease;
-
-  &:hover {
-    transform: translateY(-2px);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
-
-    &:hover {
-      transform: none;
-    }
-  }
+const SecondaryLink = styled(Link)`
+  min-height: 48px; display: inline-flex; align-items: center; justify-content: center; padding: 0 19px; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; color: #fff; font-weight: 850; text-decoration: none;
+  &:hover { background: rgba(255,255,255,.08); }
+  &:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 `;
-
-const FieldButton = styled.button`
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 244px;
-  border: 0;
-  padding: 20px;
-  display: grid;
-  gap: 16px;
-  align-content: start;
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-
-  &:focus-visible {
-    outline: 2px solid #ffffff;
-    outline-offset: -4px;
-  }
-
-  @media (max-width: 640px) {
-    min-height: 210px;
-  }
+const StatusCard = styled.aside`
+  padding: 27px; border: 1px solid rgba(255,255,255,.16); border-radius: 26px; background: rgba(255,255,255,.075); box-shadow: 0 24px 70px rgba(0,0,0,.18); backdrop-filter: blur(12px);
+  > strong { display: block; margin-top: 20px; color: #fff; font-size: 1.35rem; line-height: 1.4; word-break: keep-all; }
+  > p { margin: 13px 0 0; color: rgba(255,255,255,.67); font-size: .9rem; line-height: 1.72; word-break: keep-all; }
 `;
-
-const FieldTop = styled.span`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  svg {
-    color: #ffffff;
-  }
+const StatusDot = styled.span`
+  display: inline-flex; align-items: center; gap: 8px; color: #bdebdc; font-size: .68rem; font-weight: 900; letter-spacing: .13em;
+  span { width: 8px; height: 8px; border-radius: 50%; background: #73e6ba; box-shadow: 0 0 0 5px rgba(115,230,186,.13); }
 `;
-
-const FieldNumber = styled.span`
-  color: rgba(244, 247, 239, 0.44);
-  font-size: 0.78rem;
-  font-weight: 950;
+const StatusMeta = styled.div`
+  display: grid; gap: 9px; margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.12);
+  span { display: flex; justify-content: space-between; gap: 16px; color: rgba(255,255,255,.72); font-size: .8rem; }
+  b { color: rgba(255,255,255,.46); font-weight: 800; }
 `;
-
-const FieldTitle = styled.span`
-  min-width: 0;
-  display: grid;
-  gap: 7px;
-
-  span {
-    color: rgba(244, 247, 239, 0.52);
-    font-size: 0.72rem;
-    font-weight: 950;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-
-  strong {
-    color: #ffffff;
-    font-size: 1.42rem;
-    line-height: 1.16;
-    font-weight: 950;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-
-  small {
-    color: rgba(244, 247, 239, 0.6);
-    font-size: 0.82rem;
-    font-weight: 800;
-    letter-spacing: 0;
-  }
+const Content = styled.div`
+  width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: clamp(60px, 8vw, 104px) 0 90px; display: grid; gap: clamp(72px, 9vw, 118px);
+  @media (max-width: 520px) { width: min(100% - 28px, 1180px); }
 `;
-
-const FieldSummary = styled.p`
-  min-width: 0;
-  margin: 0;
-  color: rgba(244, 247, 239, 0.72);
-  font-size: 0.92rem;
-  line-height: 1.58;
-  word-break: keep-all;
+const WarmIntro = styled.section`
+  display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: clamp(30px, 6vw, 86px); align-items: start;
+  @media (max-width: 760px) { grid-template-columns: 1fr; }
 `;
-
-const FieldMeta = styled.span`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: auto;
-
-  span {
-    min-height: 28px;
-    padding: 5px 9px;
-    border: 1px solid rgba(244, 247, 239, 0.12);
-    border-radius: 999px;
-    color: rgba(244, 247, 239, 0.72);
-    background: rgba(244, 247, 239, 0.05);
-    font-size: 0.72rem;
-    font-weight: 850;
-    line-height: 1.25;
-  }
+const WarmHeadline = styled.header`
+  span { color: #397a67; font-size: .75rem; font-weight: 900; letter-spacing: .08em; }
+  h2 { margin: 13px 0 0; font-size: clamp(2rem, 4vw, 3.55rem); line-height: 1.14; letter-spacing: -.045em; word-break: keep-all; text-wrap: balance; }
 `;
-
-const AccordionSection = styled.section`
-  min-width: 0;
-  display: grid;
-  gap: 10px;
+const WarmCopy = styled.div`
+  display: grid; gap: 16px; padding-top: 28px; border-top: 1px solid #cad7cf;
+  p { margin: 0; color: #4b625b; font-size: 1rem; line-height: 1.85; word-break: keep-all; }
 `;
-
-const AccordionItem = styled.article<{ $active: boolean; $accent: string }>`
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid ${(props) => (props.$active ? `${props.$accent}88` : 'rgba(244, 247, 239, 0.11)')};
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, ${(props) => (props.$active ? `${props.$accent}15` : 'rgba(244, 247, 239, 0.045)')}, rgba(244, 247, 239, 0.025)),
-    rgba(8, 13, 11, 0.9);
+const Section = styled.section`scroll-margin-top: 30px;`;
+const SectionHeading = styled.header`
+  max-width: 760px; margin-bottom: 30px;
+  span { color: #3c7d69; font-size: .72rem; font-weight: 950; letter-spacing: .13em; }
+  h2 { margin: 11px 0 0; color: #15352d; font-size: clamp(1.9rem, 3.6vw, 3.15rem); line-height: 1.13; letter-spacing: -.04em; word-break: keep-all; text-wrap: balance; }
+  p { margin: 14px 0 0; color: #64766f; line-height: 1.75; word-break: keep-all; }
 `;
-
-const AccordionButton = styled.button`
-  width: 100%;
-  min-width: 0;
-  min-height: 84px;
-  border: 0;
-  padding: 18px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-
-  &:focus-visible {
-    outline: 2px solid #ffffff;
-    outline-offset: -4px;
-  }
-
-  @media (max-width: 560px) {
-    align-items: flex-start;
-  }
+const PrincipleGrid = styled.div`
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+  @media (max-width: 900px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 540px) { grid-template-columns: 1fr; }
 `;
-
-const AccordionHeading = styled.span`
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-
-  > span {
-    min-width: 0;
-    display: grid;
-    gap: 5px;
-  }
-
-  small {
-    color: rgba(244, 247, 239, 0.52);
-    font-size: 0.72rem;
-    font-weight: 950;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-
-  strong {
-    color: #ffffff;
-    font-size: 1.18rem;
-    line-height: 1.2;
-    font-weight: 950;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
+const PrincipleCard = styled.article`
+  min-width: 0; min-height: 220px; display: flex; flex-direction: column; padding: 24px; border: 1px solid #d8dfda; border-radius: 20px; background: rgba(255,255,255,.55);
+  svg { color: #3d8b72; }
+  strong { margin-top: auto; padding-top: 34px; font-size: 1.03rem; line-height: 1.4; }
+  p { margin: 9px 0 0; color: #66766f; font-size: .86rem; line-height: 1.65; word-break: keep-all; }
 `;
-
-const IconBox = styled.span<{ $accent: string }>`
-  flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  color: #06110f;
-  background: ${(props) => props.$accent};
+const TrackTabs = styled.div`
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px;
+  @media (max-width: 900px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 540px) { grid-template-columns: 1fr; }
 `;
-
-const AccordionStatus = styled.span`
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-
-  > span {
-    color: rgba(244, 247, 239, 0.64);
-    font-size: 0.8rem;
-    font-weight: 900;
-    white-space: nowrap;
-  }
-
-  @media (max-width: 560px) {
-    > span {
-      display: none;
-    }
-  }
+const TrackTab = styled.button<{ $active: boolean; $accent: string }>`
+  min-height: 164px; display: flex; flex-direction: column; align-items: flex-start; padding: 20px; border: 1px solid ${({ $active, $accent }) => $active ? $accent : '#d3dcd6'}; border-radius: 18px; color: #15352d; background: ${({ $active, $accent }) => $active ? `${$accent}24` : 'rgba(255,255,255,.58)'}; text-align: left; font: inherit; cursor: pointer;
+  small { color: #648078; font-size: .65rem; font-weight: 900; letter-spacing: .08em; }
+  strong { margin-top: 12px; font-size: 1rem; }
+  span { margin-top: 9px; color: #697a73; font-size: .78rem; line-height: 1.5; word-break: keep-all; }
+  &:focus-visible { outline: 3px solid #246c58; outline-offset: 3px; }
 `;
-
-const ChevronWrap = styled.span<{ $active: boolean }>`
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(244, 247, 239, 0.13);
-  border-radius: 8px;
-  transform: rotate(${(props) => (props.$active ? '180deg' : '0deg')});
-  transition: transform 180ms ease;
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
-  }
+const TrackPanel = styled.article<{ $accent: string }>`
+  display: grid; grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr); gap: 34px; padding: clamp(25px, 4vw, 42px); border: 1px solid ${({ $accent }) => `${$accent}99`}; border-radius: 26px; background: linear-gradient(140deg, ${({ $accent }) => `${$accent}24`}, rgba(255,255,255,.68));
+  &:focus { outline: none; }
+  @media (max-width: 820px) { grid-template-columns: 1fr; }
 `;
-
-const AccordionBody = styled.div`
-  padding: 0 20px 20px 77px;
-  animation: detailReveal 220ms ease both;
-
-  @keyframes detailReveal {
-    from {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @media (max-width: 720px) {
-    padding-left: 20px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
+const TrackLead = styled.div`
+  > span { color: #47776a; font-size: .69rem; font-weight: 950; letter-spacing: .11em; }
+  h3 { margin: 12px 0 0; font-size: clamp(1.65rem, 3vw, 2.55rem); line-height: 1.16; letter-spacing: -.035em; word-break: keep-all; }
+  p { margin: 15px 0 0; color: #5b7068; line-height: 1.72; word-break: keep-all; }
 `;
-
-const RoleIntro = styled.div`
-  min-width: 0;
-
-  strong {
-    color: #ffffff;
-    font-size: 0.98rem;
-    font-weight: 950;
-    letter-spacing: 0;
-  }
-
-  p {
-    max-width: 900px;
-    margin: 10px 0 0;
-    color: rgba(244, 247, 239, 0.74);
-    line-height: 1.72;
-    word-break: keep-all;
-  }
+const TrackApplyLink = styled(Link)<{ $accent: string }>`
+  min-height: 46px; width: fit-content; display: inline-flex; align-items: center; gap: 8px; margin-top: 23px; padding: 0 17px; border-radius: 999px; color: #15352d; background: ${({ $accent }) => $accent}; font-weight: 900; text-decoration: none;
+  &:focus-visible { outline: 3px solid #15352d; outline-offset: 3px; }
 `;
-
-const DetailRows = styled.div`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 20px;
-  padding-top: 18px;
-  border-top: 1px solid rgba(244, 247, 239, 0.1);
-
-  @media (max-width: 920px) {
-    grid-template-columns: 1fr;
-  }
+const TrackColumns = styled.div`display: grid; gap: 10px;`;
+const TrackList = styled.section<{ $muted?: boolean }>`
+  padding: 18px 20px; border: 1px solid ${({ $muted }) => $muted ? '#d8d7ca' : '#d0ddd6'}; border-radius: 16px; background: ${({ $muted }) => $muted ? 'rgba(246,241,221,.58)' : 'rgba(255,255,255,.6)'};
+  h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: .86rem; }
+  ul { display: grid; gap: 8px; margin: 13px 0 0; padding: 0; list-style: none; }
+  li { position: relative; padding-left: 16px; color: #596c65; font-size: .82rem; line-height: 1.55; word-break: keep-all; }
+  li::before { content: ''; position: absolute; left: 0; top: .62em; width: 5px; height: 5px; border-radius: 50%; background: #64a890; }
 `;
-
-const DetailColumn = styled.div`
-  min-width: 0;
+const ProcessList = styled.ol`
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none;
+  @media (max-width: 920px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 540px) { grid-template-columns: 1fr; }
 `;
-
-const DetailLabel = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: #ffffff;
-  font-size: 0.84rem;
-  font-weight: 950;
+const ProcessCard = styled.li`
+  min-height: 260px; padding: 22px; border-top: 3px solid #67ae96; border-radius: 0 0 18px 18px; background: #fff;
+  > b { color: #5ca088; font-size: 1.35rem; }
+  h3 { margin: 35px 0 0; font-size: 1.05rem; line-height: 1.4; }
+  p { margin: 10px 0 0; color: #65766f; font-size: .82rem; line-height: 1.62; word-break: keep-all; }
+  small { display: block; margin-top: 16px; padding-top: 14px; border-top: 1px solid #e1e5e2; color: #3d705f; font-size: .74rem; line-height: 1.55; word-break: keep-all; }
 `;
-
-const List = styled.ul`
-  display: grid;
-  gap: 10px;
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-
-  li {
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr);
-    gap: 8px;
-    color: rgba(244, 247, 239, 0.72);
-    font-size: 0.9rem;
-    line-height: 1.48;
-    word-break: keep-all;
-  }
+const HumanNote = styled.aside`
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 23px; padding: clamp(28px, 5vw, 52px); border-radius: 28px; color: #f8fff9; background: #153d32;
+  > svg { color: #9de1c9; }
+  span { color: #9de1c9; font-size: .69rem; font-weight: 950; letter-spacing: .13em; }
+  h2 { margin: 10px 0 0; font-size: clamp(1.7rem, 3.2vw, 2.7rem); line-height: 1.18; letter-spacing: -.035em; word-break: keep-all; }
+  p { max-width: 800px; margin: 15px 0 0; color: rgba(255,255,255,.7); line-height: 1.75; word-break: keep-all; }
+  @media (max-width: 540px) { grid-template-columns: 1fr; }
 `;
-
-const InfoStrip = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 20px;
-
-  span {
-    min-height: 30px;
-    padding: 6px 10px;
-    border: 1px solid rgba(244, 247, 239, 0.12);
-    border-radius: 999px;
-    color: rgba(244, 247, 239, 0.72);
-    background: rgba(244, 247, 239, 0.05);
-    font-size: 0.78rem;
-    font-weight: 850;
-  }
+const FaqList = styled.div`
+  border-top: 1px solid #cfd9d3;
+  details { border-bottom: 1px solid #cfd9d3; }
+  summary { min-height: 67px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; cursor: pointer; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary svg { color: #4d927c; }
+  summary strong { font-size: .95rem; line-height: 1.5; word-break: keep-all; }
+  summary span { color: #4d927c; font-size: 1.2rem; }
+  p { margin: 0; padding: 0 36px 23px; color: #61736c; line-height: 1.75; word-break: keep-all; }
+  details[open] summary span { transform: rotate(45deg); }
 `;
-
-const ApplyLink = styled(Link)`
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 11px;
-  border: 1px solid rgba(96, 165, 250, 0.5);
-  border-radius: 999px;
-  color: #dbeafe;
-  background: rgba(96, 165, 250, 0.12);
-  font-size: 0.78rem;
-  font-weight: 900;
-  line-height: 1.25;
-  text-decoration: none;
-  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
-  touch-action: manipulation;
-
-  &:hover,
-  &:focus-visible {
-    border-color: #93c5fd;
-    background: rgba(96, 165, 250, 0.22);
-    transform: translateY(-1px);
-    outline: 2px solid #ffffff;
-    outline-offset: 2px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
-
-    &:hover,
-    &:focus-visible {
-      transform: none;
-    }
-  }
+const Closing = styled.section`
+  display: flex; align-items: center; justify-content: space-between; gap: 32px; padding: clamp(28px, 5vw, 50px); border-radius: 28px; color: #fff; background: linear-gradient(135deg, #17493b, #0c2d25);
+  span { color: #9ce1c8; font-size: .68rem; font-weight: 950; letter-spacing: .12em; }
+  h2 { margin: 9px 0 0; font-size: clamp(1.55rem, 3vw, 2.35rem); line-height: 1.2; word-break: keep-all; }
+  p { margin: 10px 0 0; color: rgba(255,255,255,.65); line-height: 1.65; word-break: keep-all; }
+  > a { flex: 0 0 auto; }
+  @media (max-width: 720px) { align-items: stretch; flex-direction: column; > a { width: 100%; } }
 `;

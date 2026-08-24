@@ -6,12 +6,25 @@ import {
 } from '@/lib/video-studio';
 import { requireUserAuth } from '@/lib/server/user-auth';
 import {
+    assertExternalHttpsUrl,
+    normalizeExternalHttpsUrl,
+} from '@/lib/server/http-safety';
+import {
     VideoStudioServerError,
     createVideoStudioClipRecord,
     getOwnedProject,
 } from '@/lib/server/video-studio-admin';
 
 export const runtime = 'nodejs';
+
+const ExternalVideoUrlSchema = z.string().trim().max(4096).url().refine((value) => {
+    try {
+        normalizeExternalHttpsUrl(value);
+        return true;
+    } catch {
+        return false;
+    }
+}, '영상 주소는 HTTPS여야 하며 로컬 또는 사설 네트워크를 가리킬 수 없습니다.');
 
 const CreateClipSchema = z.object({
     userId: z.string().min(1).optional(),
@@ -20,7 +33,7 @@ const CreateClipSchema = z.object({
     prompt: z.string().min(1),
     mode: z.enum(['generate', 'extend', 'continue', 'edit', 'merge']),
     status: z.enum(['ready', 'processing', 'failed']).optional().default('ready'),
-    videoUrl: z.string().url(),
+    videoUrl: ExternalVideoUrlSchema,
     posterUrl: z.string().url().nullable().optional(),
     lastFrameUrl: z.string().url().nullable().optional(),
     continuityNotes: z.string().nullable().optional(),
@@ -30,7 +43,7 @@ const CreateClipSchema = z.object({
     parentTakeClipId: z.string().nullable().optional(),
     takeIndex: z.number().int().min(1).nullable().optional(),
     sourceClipId: z.string().nullable().optional(),
-    sourceVideoUrl: z.string().url().nullable().optional(),
+    sourceVideoUrl: ExternalVideoUrlSchema.nullable().optional(),
     mergeSourceClipIds: z.array(z.string()).optional().default([]),
     duration: z.number().int().min(1).max(15).nullable().optional(),
     aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']),
@@ -68,7 +81,21 @@ export async function POST(req: NextRequest) {
 
         const payload = parsed.data;
         await getOwnedProject(auth.uid, payload.projectId);
-
+        let videoUrl: string;
+        let sourceVideoUrl: string | null;
+        try {
+            [videoUrl, sourceVideoUrl] = await Promise.all([
+                assertExternalHttpsUrl(payload.videoUrl),
+                payload.sourceVideoUrl
+                    ? assertExternalHttpsUrl(payload.sourceVideoUrl)
+                    : Promise.resolve(null),
+            ]);
+        } catch {
+            throw new VideoStudioServerError(
+                400,
+                '영상 주소가 공개 HTTPS 서버로 연결되는지 확인해 주세요.',
+            );
+        }
         const result = await createVideoStudioClipRecord({
             userId: auth.uid,
             projectId: payload.projectId,
@@ -76,7 +103,7 @@ export async function POST(req: NextRequest) {
             prompt: payload.prompt,
             mode: sanitizeClipMode(payload.mode),
             status: sanitizeClipStatus(payload.status),
-            videoUrl: payload.videoUrl,
+            videoUrl,
             posterUrl: payload.posterUrl || payload.lastFrameUrl || null,
             lastFrameUrl: payload.lastFrameUrl || null,
             continuityNotes: payload.continuityNotes || null,
@@ -86,7 +113,7 @@ export async function POST(req: NextRequest) {
             parentTakeClipId: payload.parentTakeClipId || null,
             takeIndex: payload.takeIndex ?? null,
             sourceClipId: payload.sourceClipId || null,
-            sourceVideoUrl: payload.sourceVideoUrl || null,
+            sourceVideoUrl,
             mergeSourceClipIds: payload.mergeSourceClipIds,
             duration: payload.duration ?? null,
             aspectRatio: payload.aspectRatio,

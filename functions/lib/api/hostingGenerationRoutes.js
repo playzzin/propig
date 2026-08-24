@@ -10,10 +10,12 @@ const node_crypto_1 = require("node:crypto");
 const zod_1 = require("zod");
 const openrouterUsage_1 = require("../openrouterUsage");
 const openrouter_1 = require("../videoStudio/openrouter");
+const dialogue_1 = require("../videoStudio/dialogue");
 const hostingCommon_1 = require("./hostingCommon");
 const security_1 = require("./security");
 const hostingAiRuntime_1 = require("./hostingAiRuntime");
 const ImageReferenceRoleSchema = zod_1.z.enum(['building', 'product', 'character', 'background', 'style']);
+const StoryboardDialogueOrCaptionSchema = zod_1.z.preprocess((value) => typeof value === 'string' ? (0, dialogue_1.normalizeVideoSpokenDialogue)(value) : value, zod_1.z.string().trim().max(240));
 const GenerateImageSchema = zod_1.z.object({
     prompt: zod_1.z.string().trim().min(1).max(4000),
     negativePrompt: zod_1.z.string().max(1500).optional(),
@@ -29,6 +31,7 @@ const GenerateImageSchema = zod_1.z.object({
         image: zod_1.z.string().min(1),
     })).max(5).optional(),
     numberOfImages: zod_1.z.number().int().min(1).max(4).default(1),
+    resourceMode: zod_1.z.enum(['efficient', 'balanced', 'premium']).default('premium'),
     provider: zod_1.z.literal('openrouter').optional().default('openrouter'),
 });
 const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
@@ -41,6 +44,7 @@ const ALLOWED_REFERENCE_TYPES = new Set([
     'image/webp',
 ]);
 const AUTO_IMAGE_MODEL_FALLBACK = 'openai/gpt-image-1';
+const EFFICIENT_STORYBOARD_IMAGE_MODEL = 'openai/gpt-image-1-mini';
 const PREFERRED_AUTO_IMAGE_MODELS = [
     'openai/gpt-5-image',
     'openai/gpt-image-2',
@@ -126,28 +130,18 @@ async function parseReferences(payload) {
             : payload.referenceImageBase64
                 ? [{ role: 'style', image: payload.referenceImageBase64 }]
                 : [];
-    const references = [];
-    let total = 0;
-    for (const item of inputs) {
-        const reference = await parseReference(item.role, item.image, payload.referenceImageMimeType || 'image/png');
-        total += reference.byteLength;
-        if (total > MAX_TOTAL_REFERENCE_BYTES) {
-            throw new hostingCommon_1.ApiError(413, 'Combined reference images exceed the 16 MB limit.');
-        }
-        references.push(reference);
+    const references = await Promise.all(inputs.map((item) => parseReference(item.role, item.image, payload.referenceImageMimeType || 'image/png')));
+    const total = references.reduce((sum, reference) => sum + reference.byteLength, 0);
+    if (total > MAX_TOTAL_REFERENCE_BYTES) {
+        throw new hostingCommon_1.ApiError(413, 'Combined reference images exceed the 16 MB limit.');
     }
     return references;
 }
 async function parseStoryboardReferences(inputs) {
-    const references = [];
-    let total = 0;
-    for (const item of inputs) {
-        const reference = await parseReference(item.role, item.image);
-        total += reference.byteLength;
-        if (total > MAX_TOTAL_REFERENCE_BYTES) {
-            throw new hostingCommon_1.ApiError(413, 'Combined reference images exceed the 16 MB limit.');
-        }
-        references.push(reference);
+    const references = await Promise.all(inputs.map((item) => parseReference(item.role, item.image)));
+    const total = references.reduce((sum, reference) => sum + reference.byteLength, 0);
+    if (total > MAX_TOTAL_REFERENCE_BYTES) {
+        throw new hostingCommon_1.ApiError(413, 'Combined reference images exceed the 16 MB limit.');
     }
     return references;
 }
@@ -242,8 +236,26 @@ async function discoverOpenRouterImageModels(apiKey) {
 async function selectOpenRouterImageModel(params) {
     try {
         const models = await discoverOpenRouterImageModels(params.apiKey);
-        const selected = models
-            .filter((model) => supportsRequestedImageInput(model, params.payload, params.references))
+        const compatibleModels = models.filter((model) => supportsRequestedImageInput(model, params.payload, params.references));
+        const efficientModel = params.payload.resourceMode === 'efficient'
+            ? compatibleModels.find((model) => model.id === EFFICIENT_STORYBOARD_IMAGE_MODEL)
+            : null;
+        if (efficientModel) {
+            return {
+                id: efficientModel.id,
+                supportedParameters: new Set(Object.keys(efficientModel.supported_parameters || {})),
+                selectionSource: 'efficient',
+            };
+        }
+        const configuredModel = compatibleModels.find((model) => model.id === params.configuredModel);
+        if (configuredModel) {
+            return {
+                id: configuredModel.id,
+                supportedParameters: new Set(Object.keys(configuredModel.supported_parameters || {})),
+                selectionSource: 'configured',
+            };
+        }
+        const selected = compatibleModels
             .sort((left, right) => scoreImageModel(right, params.payload) - scoreImageModel(left, params.payload))[0];
         if (selected) {
             return {
@@ -257,7 +269,9 @@ async function selectOpenRouterImageModel(params) {
         console.warn('[hostingApi] OpenRouter image model discovery failed; using the compatibility fallback.', error);
     }
     return {
-        id: AUTO_IMAGE_MODEL_FALLBACK,
+        id: params.payload.resourceMode === 'efficient'
+            ? EFFICIENT_STORYBOARD_IMAGE_MODEL
+            : params.configuredModel || AUTO_IMAGE_MODEL_FALLBACK,
         supportedParameters: null,
         selectionSource: 'fallback',
     };
@@ -276,8 +290,21 @@ function buildOpenRouterImageBody(params, includePresentationOptions) {
     if (includePresentationOptions) {
         if (supports('output_format'))
             body.output_format = 'png';
-        if (params.payload.aspectRatio && /^\d{1,2}:\d{1,2}$/.test(params.payload.aspectRatio) && supports('aspect_ratio')) {
-            body.aspect_ratio = params.payload.aspectRatio;
+        const requestedAspectRatio = params.payload.aspectRatio && /^\d{1,2}:\d{1,2}$/.test(params.payload.aspectRatio)
+            ? params.payload.aspectRatio
+            : undefined;
+        const requestedRatioValue = requestedAspectRatio
+            ? requestedAspectRatio.split(':').map(Number)
+            : [];
+        const aspectRatio = params.model === EFFICIENT_STORYBOARD_IMAGE_MODEL &&
+            requestedAspectRatio &&
+            !new Set(['1:1', '3:2', '2:3', 'auto']).has(requestedAspectRatio)
+            ? requestedRatioValue[0] >= requestedRatioValue[1]
+                ? '3:2'
+                : '2:3'
+            : requestedAspectRatio;
+        if (aspectRatio && supports('aspect_ratio')) {
+            body.aspect_ratio = aspectRatio;
         }
         else if (params.payload.width && params.payload.height && supports('size')) {
             body.size = `${params.payload.width}x${params.payload.height}`;
@@ -323,7 +350,7 @@ function canRetryWithoutPresentationOptions(error) {
     const status = error.status;
     if (status !== 400 && status !== 422)
         return false;
-    return /(?:unsupported|unknown|invalid).{0,80}(?:parameter|size|aspect|format|resolution)|(?:size|aspect_ratio|output_format|resolution).{0,80}(?:unsupported|invalid|not allowed)/i.test(error.message);
+    return /(?:unsupported|not supported|unknown|invalid).{0,80}(?:parameter|size|aspect|format|resolution)|(?:size|aspect_ratio|output_format|resolution).{0,80}(?:unsupported|not supported|invalid|not allowed)/i.test(error.message);
 }
 async function handleGenerateImage(req, res) {
     var _a, _b;
@@ -350,6 +377,7 @@ async function handleGenerateImage(req, res) {
             apiKey: runtime.openRouterApiKey,
             payload,
             references,
+            configuredModel: runtime.imageModel,
         });
         const requestParams = {
             model: selectedImageModel.id,
@@ -437,7 +465,7 @@ const GenerateVideoSchema = zod_1.z.object({
 });
 async function handleGenerateVideo(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'POST');
-    const auth = await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireAdmin)(req);
     const rateLimit = await (0, security_1.enforceUserRateLimit)({
         namespace: 'hosting-generate-video',
         uid: auth.uid,
@@ -476,7 +504,7 @@ const StoryboardSceneSchema = zod_1.z.object({
     narrativeBeat: zod_1.z.string().trim().min(1).max(280),
     shotSize: zod_1.z.string().trim().min(1).max(80),
     cameraDirection: zod_1.z.string().trim().max(180),
-    dialogueOrCaption: zod_1.z.string().trim().max(240),
+    dialogueOrCaption: StoryboardDialogueOrCaptionSchema,
     visualPrompt: zod_1.z.string().trim().min(1).max(900),
     imagePrompt: zod_1.z.string().trim().min(80).max(1200),
     continuityAnchor: zod_1.z.string().trim().min(1).max(280),
@@ -499,7 +527,7 @@ const SceneRedesignInputSchema = zod_1.z.object({
     narrativeBeat: zod_1.z.string().trim().max(280).default(''),
     shotSize: zod_1.z.string().trim().max(80).default(''),
     cameraDirection: zod_1.z.string().trim().max(180).default(''),
-    dialogueOrCaption: zod_1.z.string().trim().max(240).default(''),
+    dialogueOrCaption: StoryboardDialogueOrCaptionSchema.default(''),
     visualPrompt: zod_1.z.string().trim().max(900).default(''),
     imagePrompt: zod_1.z.string().trim().max(1200).default(''),
     continuityAnchor: zod_1.z.string().trim().max(280).default(''),
@@ -597,7 +625,7 @@ function storyboardSystemPrompt(input) {
         'imagePrompt must be a single, detailed English prompt including focal subject, exact action, foreground/midground/background, lens or composition, lighting, materials, and finish. Do not include labels, markdown, or conflicting instructions.',
         'negativePrompt is a compact English comma-separated exclusion list. Exclude artifacts, unwanted people/objects, and readable text unless the topic explicitly needs it.',
         'Keep imagePrompt between 120 and 900 English characters, visualPrompt under 700 Korean characters, and negativePrompt under 300 English characters.',
-        'For dialogueOrCaption, provide only off-image context. Never ask the image model to render Korean text, UI, logos, or subtitles unless the topic explicitly requires it.',
+        'dialogueOrCaption must contain only the exact words a visible character will speak. Do not include speaker labels, action descriptions, quotation marks, narration, subtitles, or camera directions. Use an empty string when nobody speaks.',
         'Return exactly one JSON object with no markdown or explanation.',
         'Shape: {"title":"string","logline":"string","audience":"string","artDirection":"string","characterContinuity":"string","settingContinuity":"string","colorAndLighting":"string","scenes":[{"title":"string","duration":"string","narrativeBeat":"string","shotSize":"string","cameraDirection":"string","dialogueOrCaption":"string","visualPrompt":"string","imagePrompt":"string","continuityAnchor":"string","transition":"string","negativePrompt":"string"}]}',
     ].join('\n');
@@ -693,6 +721,7 @@ function storyboardSceneRedesignMessages(input, references, qualityIssue) {
         'Write user-facing fields in Korean. imagePrompt and negativePrompt must be English.',
         'imagePrompt must be a detailed single image-generation prompt with subject, action, foreground/midground/background, composition or lens, lighting, material cues, and finish.',
         'negativePrompt must be compact English comma-separated exclusions.',
+        'dialogueOrCaption must contain only the exact spoken words, without speaker labels, action descriptions, quotation marks, narration, subtitles, or camera directions. Use an empty string when nobody speaks.',
         'Return exactly one JSON object with no markdown or commentary.',
         'Shape: {"title":"string","duration":"string","narrativeBeat":"string","shotSize":"string","cameraDirection":"string","dialogueOrCaption":"string","visualPrompt":"string","imagePrompt":"string","continuityAnchor":"string","transition":"string","negativePrompt":"string"}',
     ].join('\n');
@@ -840,6 +869,7 @@ function storyboardFlowMessages(input, references, qualityIssue) {
             : 'Use the supplied continuity bible as the source of truth for recurring identity, setting, and lighting.',
         'Write user-facing fields in Korean. imagePrompt and negativePrompt must be English.',
         'imagePrompt must contain subject, action, foreground/midground/background, composition or lens, lighting, material cues, and visual finish. Keep it between 120 and 900 English characters.',
+        'dialogueOrCaption must contain only the exact spoken words, without speaker labels, action descriptions, quotation marks, narration, subtitles, or camera directions. Use an empty string when nobody speaks and keep spoken lines brief enough for the stated duration.',
         'Return exactly one valid JSON object without markdown or commentary using this shape:',
         '{"scenes":[{"title":"string","duration":"string","narrativeBeat":"string","shotSize":"string","cameraDirection":"string","dialogueOrCaption":"string","visualPrompt":"string","imagePrompt":"string","continuityAnchor":"string","transition":"string","negativePrompt":"string"}]}',
     ].join('\n');

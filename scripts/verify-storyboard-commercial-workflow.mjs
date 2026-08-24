@@ -50,8 +50,12 @@ const workspaceContracts = [
   ["sequential production shortcut", "순차 생성·재시도·자동 병합"],
   ["file management shortcut", "결과·파일 관리"],
   [
-    "responsive three-pane layout",
-    "grid-template-columns: 218px minmax(500px, 1fr) minmax(260px, 294px)",
+    "storyboard three-pane layout",
+    ': "218px minmax(500px, 1fr) minmax(260px, 294px)"',
+  ],
+  [
+    "compact video two-pane layout",
+    '? "218px minmax(0, 1fr)"',
   ],
   ["deep-link dashboard sync", 'url.searchParams.delete("storyboard")'],
 ];
@@ -71,12 +75,39 @@ assert.ok(
 assert.ok(
   workspace.includes("<StoryboardProjectDashboard") &&
     dashboard.includes("handleProjectFilter") &&
-    !workspace.includes("const [projectSearch"),
-  "Project search, filter, and pagination state must remain isolated from the storyboard editor.",
+    !workspace.includes("const [projectSearch") &&
+    workspace.includes('$dashboardMode={workspaceSurface === "dashboard"}') &&
+    workspace.includes('{workspaceSurface === "editor" ? (\n              <ProjectSidebar'),
+  "Project search, filter, and pagination state must remain isolated from the storyboard editor, and the dashboard must not duplicate the project sidebar.",
 );
 assert.ok(
   fileManager.includes('id="storyboard-project-files"'),
   "The file-management shortcut must target the project file manager.",
+);
+assert.ok(
+  dashboard.includes('type StoryboardOpenIntent = "edit" | "result" | "recovery"') &&
+    dashboard.includes('isCompleted\n                            ? "result"') &&
+    dashboard.includes('? "recovery"') &&
+    workspace.includes("revealStoryboardOpenIntent(intent)") &&
+    workspace.includes('"#storyboard-final-delivery"') &&
+    workspace.includes('"#storyboard-production-subscription-retry:not([disabled])"') &&
+    workspace.includes('"#storyboard-production-recovery-action:not([disabled])"') &&
+    workspace.includes("new MutationObserver") &&
+    workspace.includes("recoveryDetails.open = true") &&
+    production.includes('id="storyboard-production-recovery-details"') &&
+    automationConsole.includes('id="storyboard-production-recovery-notice"') &&
+    automationConsole.includes('id="storyboard-production-recovery-action"') &&
+    automationConsole.includes('id="storyboard-production-subscription-retry"'),
+  "Dashboard recovery must open the recovery details and focus the first available real error or recovery action after asynchronous rendering.",
+);
+assert.ok(
+  workspace.indexOf("01 · TOPIC & AI STORY PLAN") <
+      workspace.indexOf('title="02. 선택 시각 기준"') &&
+    workspace.indexOf('title="02. 선택 시각 기준"') <
+      workspace.indexOf("03 · SCENE PRODUCTION") &&
+    workspace.includes("사진이 없어도 장면 설계와 생성은 정상적으로 진행됩니다") &&
+    !workspace.includes('id: "references",\n        label: "시각 일관성"'),
+  "Visible step numbers must follow DOM order and optional references must not lower readiness.",
 );
 
 console.log("Storyboard commercial workflow contracts verified.");

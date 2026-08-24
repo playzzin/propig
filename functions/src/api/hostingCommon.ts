@@ -61,10 +61,9 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function allPermissions(): UserPermissions {
-    return USER_PERMISSION_KEYS.reduce<UserPermissions>(
-        (permissions, key) => ({ ...permissions, [key]: true }),
-        { ...DEFAULT_PERMISSIONS },
-    );
+    return USER_PERMISSION_KEYS.reduce<UserPermissions>((permissions, key) => ({ ...permissions, [key]: true }), {
+        ...DEFAULT_PERMISSIONS,
+    });
 }
 
 function parseBearerToken(req: Request): string {
@@ -77,25 +76,20 @@ function parseBearerToken(req: Request): string {
 }
 
 function normalizeRole(value: unknown, fallback: UserRole): UserRole {
-    return value === 'admin' || value === 'user' || value === 'partner' || value === 'guest'
-        ? value
-        : fallback;
+    return value === 'admin' || value === 'user' || value === 'partner' || value === 'guest' ? value : fallback;
 }
 
-function normalizePermissions(
-    role: UserRole,
-    value: unknown,
-    claims: Record<string, unknown>,
-): UserPermissions {
+function normalizePermissions(role: UserRole, value: unknown, claims: Record<string, unknown>): UserPermissions {
     if (role === 'admin') return allPermissions();
     const source = isRecord(value) ? value : {};
-    return USER_PERMISSION_KEYS.reduce<UserPermissions>((permissions, key) => {
-        permissions[key] =
-            source[key] === true ||
-            claims[key] === true ||
-            claims[PERMISSION_CLAIM_ALIASES[key]] === true;
-        return permissions;
-    }, { ...DEFAULT_PERMISSIONS });
+    return USER_PERMISSION_KEYS.reduce<UserPermissions>(
+        (permissions, key) => {
+            permissions[key] =
+                source[key] === true || claims[key] === true || claims[PERMISSION_CLAIM_ALIASES[key]] === true;
+            return permissions;
+        },
+        { ...DEFAULT_PERMISSIONS },
+    );
 }
 
 export async function requireUser(req: Request): Promise<UserAuth> {
@@ -115,8 +109,27 @@ export async function requireAccess(
     req: Request,
     permission?: UserPermissionKey,
 ): Promise<AccessAuth> {
+    const access = await requireUserAccess(req);
+    if (!access.isAdmin && (!permission || access.permissions[permission] !== true)) {
+        throw new ApiError(
+            403,
+            permission
+                ? 'You do not have the requested management permission.'
+                : 'Administrator access is required.',
+        );
+    }
+    return access;
+}
+/**
+ * Resolves a signed-in user's access context without requiring a management
+ * permission. Use it when a response contains administrator-only fields.
+ */
+export async function requireUserAccess(req: Request): Promise<AccessAuth> {
     const user = await requireUser(req);
-    const authUser = await admin.auth().getUser(user.uid).catch(() => null);
+    const authUser = await admin
+        .auth()
+        .getUser(user.uid)
+        .catch(() => null);
     const claims = (authUser?.customClaims || {}) as Record<string, unknown>;
     const allowList = (process.env.ADMIN_UIDS || '')
         .split(',')
@@ -127,31 +140,19 @@ export async function requireAccess(
     const [adminDoc, accessDoc] = claimedAdmin
         ? [null, null]
         : await Promise.all([
-            db.collection('admins').doc(user.uid).get(),
-            db.collection('userAccess').doc(user.uid).get(),
-        ]);
-
+              db.collection('admins').doc(user.uid).get(),
+              db.collection('userAccess').doc(user.uid).get(),
+          ]);
     const adminData = adminDoc?.exists ? adminDoc.data() || {} : {};
     const accessData = accessDoc?.exists ? accessDoc.data() || {} : {};
-    const isAdmin =
-        claimedAdmin ||
-        adminDoc?.exists === true ||
-        accessData.role === 'admin';
-    const storedRole = normalizeRole(
-        accessData.role ?? adminData.role ?? claims.role,
-        isAdmin ? 'admin' : 'user',
-    );
+    const isAdmin = claimedAdmin || adminDoc?.exists === true || accessData.role === 'admin';
+    const storedRole = normalizeRole(accessData.role ?? adminData.role ?? claims.role, isAdmin ? 'admin' : 'user');
     const role: UserRole = isAdmin ? 'admin' : storedRole;
     const permissions = normalizePermissions(
         role,
         accessData.permissions ?? adminData.permissions ?? claims.permissions,
         claims,
     );
-
-    if (!isAdmin && (!permission || permissions[permission] !== true)) {
-        throw new ApiError(403, permission ? '요청한 관리 권한이 없습니다.' : '관리자 권한이 필요합니다.');
-    }
-
     return { ...user, isAdmin, role, permissions };
 }
 
@@ -199,9 +200,7 @@ const MAX_LOG_OBJECT_KEYS = 60;
 const MAX_LOG_DEPTH = 4;
 
 function truncateLogString(value: string): string {
-    return value.length > MAX_LOG_STRING_LENGTH
-        ? `${value.slice(0, MAX_LOG_STRING_LENGTH)}...`
-        : value;
+    return value.length > MAX_LOG_STRING_LENGTH ? `${value.slice(0, MAX_LOG_STRING_LENGTH)}...` : value;
 }
 
 function sanitizeLogValue(value: unknown, depth = 0): unknown {
@@ -229,7 +228,12 @@ export async function writeActivityLog(input: {
     auth: UserAuth & Partial<Pick<AccessAuth, 'role' | 'isAdmin'>>;
     req: Request;
     action: string;
-    target: { type: string; id?: string | null; path?: string | null; label?: string | null };
+    target: {
+        type: string;
+        id?: string | null;
+        path?: string | null;
+        label?: string | null;
+    };
     summary?: string;
     metadata?: Record<string, unknown>;
     route?: string | null;
@@ -262,17 +266,13 @@ export async function writeActivityLog(input: {
         summary: input.summary ? truncateLogString(input.summary) : null,
         metadata: sanitizeLogValue(input.metadata || {}),
         route: route ? truncateLogString(route) : null,
-        userAgent: input.req.header('user-agent')
-            ? truncateLogString(input.req.header('user-agent') || '')
-            : null,
+        userAgent: input.req.header('user-agent') ? truncateLogString(input.req.header('user-agent') || '') : null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     return ref.id;
 }
 
-export async function writeActivityLogSafely(
-    input: Parameters<typeof writeActivityLog>[0],
-): Promise<void> {
+export async function writeActivityLogSafely(input: Parameters<typeof writeActivityLog>[0]): Promise<void> {
     await writeActivityLog(input).catch((error) => {
         console.warn('[hostingApi] Failed to write activity log:', error);
     });

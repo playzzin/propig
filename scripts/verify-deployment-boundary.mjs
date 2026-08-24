@@ -57,13 +57,13 @@ function comparePathSegments(routePattern, apiCall) {
 
 function normalizeApiCall(raw) {
   const trimmed = raw.trim();
-  if (/^(?:https?:)?\/\//i.test(trimmed)) return null;
-
-  const start = trimmed.indexOf('/api');
-  if (start < 0) return null;
+  // Only root-relative paths are guaranteed to be served by this app's Hosting
+  // rewrites. A composed URL such as `${bridgeUrl}/api/pair` may target an
+  // explicitly configured external runtime (for example, the local Codex
+  // Observatory bridge) and must not be treated as a Firebase API call.
+  if (!trimmed.startsWith('/api')) return null;
 
   const apiPath = trimmed
-    .slice(start)
     .replace(/\$\{[^}]+\}/g, '*')
     .split(/[?#]/)[0]
     .replace(/\/+$/, '');

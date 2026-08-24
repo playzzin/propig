@@ -36,7 +36,17 @@ const initializeBrowserAuth = () => {
 };
 
 export const auth = typeof window === 'undefined' ? getAuth(app) : initializeBrowserAuth();
-const dbId = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID || '(default)';
+export const EXPECTED_FIRESTORE_DATABASE_ID = 'pppp';
+const configuredDatabaseId = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID?.trim();
+
+if (configuredDatabaseId && configuredDatabaseId !== EXPECTED_FIRESTORE_DATABASE_ID) {
+  throw new Error(
+    `[Firebase] NEXT_PUBLIC_FIREBASE_DATABASE_ID must be "${EXPECTED_FIRESTORE_DATABASE_ID}", ` +
+      `but received "${configuredDatabaseId}".`,
+  );
+}
+
+const dbId = EXPECTED_FIRESTORE_DATABASE_ID;
 if (shouldDebugFirebase) {
   console.info(`[Firebase] Firestore DB ID: ${dbId}`);
 }

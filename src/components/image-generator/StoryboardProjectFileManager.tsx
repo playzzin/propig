@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { withFirebaseAuthRetry } from '@/lib/firebase-auth-retry';
 import type {
     ImageStoryboard,
     StoryboardStorageCleanupAsset,
@@ -28,6 +29,7 @@ type StoryboardProjectFileManagerProps = {
 const LOCAL_KIND_LABEL: Record<StoryboardStorageCleanupAsset['kind'], string> = {
     reference: '참조 사진',
     'background-music': '배경음악',
+    'scene-image': '교체된 장면 이미지',
 };
 
 const VIDEO_KIND_LABEL = {
@@ -49,6 +51,21 @@ function fileNameFromPath(path: string): string {
     return segments[segments.length - 1] || path;
 }
 
+function storagePathFromFirebaseDownloadUrl(value: string | null | undefined): string | null {
+    if (!value) return null;
+    try {
+        const url = new URL(value);
+        const marker = '/o/';
+        const markerIndex = url.pathname.indexOf(marker);
+        if (markerIndex < 0 || (url.hostname !== 'firebasestorage.googleapis.com' && url.hostname !== 'storage.googleapis.com')) {
+            return null;
+        }
+        return decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+    } catch {
+        return null;
+    }
+}
+
 export default function StoryboardProjectFileManager({
     storyboardId,
     storyboard,
@@ -65,7 +82,21 @@ export default function StoryboardProjectFileManager({
     const [isInspectingVideo, setIsInspectingVideo] = useState(false);
     const [isDeletingVideo, setIsDeletingVideo] = useState(false);
 
-    const reclaimableAssets = storyboard.reclaimableStorageAssets;
+    const protectedLocalPaths = useMemo(() => new Set([
+        ...storyboard.referenceAssets.flatMap((asset) => asset.storagePath ? [asset.storagePath] : []),
+        ...(storyboard.videoProduction.backgroundMusicStoragePath
+            ? [storyboard.videoProduction.backgroundMusicStoragePath]
+            : []),
+        ...storyboard.scenes.flatMap((scene) => {
+            const path = scene.generatedImage?.storagePath
+                || storagePathFromFirebaseDownloadUrl(scene.generatedImage?.url);
+            return path ? [path] : [];
+        }),
+    ]), [storyboard.referenceAssets, storyboard.scenes, storyboard.videoProduction.backgroundMusicStoragePath]);
+    const reclaimableAssets = useMemo(
+        () => storyboard.reclaimableStorageAssets.filter((asset) => !protectedLocalPaths.has(asset.storagePath)),
+        [protectedLocalPaths, storyboard.reclaimableStorageAssets],
+    );
     const reclaimableAssetKey = useMemo(
         () => reclaimableAssets.map((asset) => `${asset.id}:${asset.storagePath}`).join('|'),
         [reclaimableAssets],
@@ -118,11 +149,12 @@ export default function StoryboardProjectFileManager({
 
         setIsInspectingVideo(true);
         try {
-            const authToken = await currentUser.getIdToken();
-            const overview = await videoStudioService.getProjectStorageOverview({
-                authToken,
-                projectId,
-            });
+            const overview = await withFirebaseAuthRetry(currentUser, (authToken) =>
+                videoStudioService.getProjectStorageOverview({
+                    authToken,
+                    projectId,
+                }),
+            );
             setVideoOverview(overview);
             setVideoStorageError(null);
         } catch (error) {
@@ -196,12 +228,13 @@ export default function StoryboardProjectFileManager({
 
         setIsDeletingVideo(true);
         try {
-            const authToken = await currentUser.getIdToken();
-            const result = await videoStudioService.deleteProjectStorageResiduals({
-                authToken,
-                projectId,
-                storagePaths: videoOverview.cleanupCandidates.map((file) => file.path),
-            });
+            const result = await withFirebaseAuthRetry(currentUser, (authToken) =>
+                videoStudioService.deleteProjectStorageResiduals({
+                    authToken,
+                    projectId,
+                    storagePaths: videoOverview.cleanupCandidates.map((file) => file.path),
+                }),
+            );
             if (result.failed.length) {
                 toast.error(`${result.failed.length}개 렌더 파일을 삭제하지 못했습니다.`);
             } else {

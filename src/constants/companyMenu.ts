@@ -4,7 +4,6 @@ import { MENU_PAGE_OPTIONS } from '@/constants/menuPages';
 const COMPANY_MENU_ID_BY_PATH = {
   '/corp/company/introduction': 'introduction',
   '/corp/company/ceo-intro': 'ceo',
-  '/corp/company/history': 'history',
   '/corp/company/staff-intro': 'staff',
   '/corp/company/product-introduction': 'product',
 } as const;
@@ -29,7 +28,6 @@ export interface CompanyMenuItem {
 const COMPANY_MENU_EYEBROW_BY_ID: Record<CompanyMenuId, string> = {
   introduction: 'Overview',
   ceo: 'Greeting',
-  history: 'History',
   staff: 'People',
   product: 'Products',
 };
@@ -37,7 +35,6 @@ const COMPANY_MENU_EYEBROW_BY_ID: Record<CompanyMenuId, string> = {
 const COMPANY_MENU_METRIC_BY_ID: Record<CompanyMenuId, string> = {
   introduction: 'core',
   ceo: 'greeting',
-  history: 'timeline',
   staff: 'org',
   product: '4 services',
 };

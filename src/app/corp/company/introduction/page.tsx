@@ -5,9 +5,10 @@ export default function CompanyIntroductionPage() {
     <Dashboard2Experience
       key="company-introduction"
       variant="introduction"
-      enableBrandStory
       includeProductIntroduction
       includeCompanyHistory
+      showIntroductionHero={false}
+      showTechnologyOverview={false}
     />
   );
 }

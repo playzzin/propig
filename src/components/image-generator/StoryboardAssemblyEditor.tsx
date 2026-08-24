@@ -4,6 +4,7 @@ import { useRef } from "react";
 import type {
   StoryboardAudioMixPreset,
   StoryboardVideoProduction,
+  StoryboardVoiceProfile,
 } from "@/schemas/imageStoryboard";
 import { BufferedTextInput } from "@/components/image-generator/BufferedTextField";
 import {
@@ -31,6 +32,7 @@ export type StoryboardAssemblyEditorModel = {
   sceneAudioVolume: number;
   storyboardIdAvailable: boolean;
   voiceDirection: string;
+  voiceProfiles: StoryboardVoiceProfile[];
 };
 
 type StoryboardAssemblyEditorProps = {
@@ -41,6 +43,12 @@ type StoryboardAssemblyEditorProps = {
   ) => void;
   onBackgroundMusicFile: (file: File) => void;
   onRemoveBackgroundMusic: () => void;
+  onVoiceProfileAdd: () => void;
+  onVoiceProfileChange: (
+    profileId: string,
+    patch: Partial<StoryboardVoiceProfile>,
+  ) => void;
+  onVoiceProfileRemove: (profileId: string) => void;
   onVoiceDirectionCommit: (voiceDirection: string) => void;
 };
 
@@ -50,6 +58,9 @@ export default function StoryboardAssemblyEditorView({
   onAudioMixPreset,
   onBackgroundMusicFile,
   onRemoveBackgroundMusic,
+  onVoiceProfileAdd,
+  onVoiceProfileChange,
+  onVoiceProfileRemove,
   onVoiceDirectionCommit,
 }: StoryboardAssemblyEditorProps) {
   const backgroundMusicInputRef = useRef<HTMLInputElement>(null);
@@ -72,8 +83,100 @@ export default function StoryboardAssemblyEditorView({
       </AssemblyEditorHeader>
 
       <AssemblyEditorGrid>
+        <section className="voice-profiles wide" aria-labelledby="voice-profiles-title">
+          <header>
+            <div>
+              <strong id="voice-profiles-title">캐릭터 목소리 프로필</strong>
+              <small>
+                캐릭터별 음색을 저장하고 대사 장면에 같은 프로필을 연결합니다.
+              </small>
+            </div>
+            <button
+              type="button"
+              onClick={onVoiceProfileAdd}
+              disabled={editor.projectBusy || editor.voiceProfiles.length >= 12}
+            >
+              <i className="fas fa-plus" aria-hidden="true" /> 프로필 추가
+            </button>
+          </header>
+
+          {editor.voiceProfiles.length ? (
+            <div className="voice-profile-list">
+              {editor.voiceProfiles.map((profile, index) => (
+                <article className="voice-profile-card" key={profile.id}>
+                  <div className="voice-profile-heading">
+                    <span className="voice-profile-number" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <label>
+                      <span>캐릭터 이름</span>
+                      <BufferedTextInput
+                        name={`storyboardVoiceCharacter-${profile.id}`}
+                        autoComplete="off"
+                        value={profile.characterName}
+                        onCommit={(characterName) =>
+                          onVoiceProfileChange(profile.id, { characterName })
+                        }
+                        disabled={editor.projectBusy}
+                        maxLength={80}
+                        placeholder="예: 아빠"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="voice-profile-remove"
+                      onClick={() => onVoiceProfileRemove(profile.id)}
+                      disabled={editor.projectBusy}
+                      aria-label={`${profile.characterName} 목소리 프로필 삭제`}
+                      title="프로필 삭제"
+                    >
+                      <i className="fas fa-trash-can" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div className="voice-profile-fields">
+                    <label>
+                      <span>고정할 음색</span>
+                      <BufferedTextInput
+                        name={`storyboardVoiceDescription-${profile.id}`}
+                        autoComplete="off"
+                        value={profile.voiceDescription}
+                        onCommit={(voiceDescription) =>
+                          onVoiceProfileChange(profile.id, { voiceDescription })
+                        }
+                        disabled={editor.projectBusy}
+                        maxLength={240}
+                        placeholder="예: 부드럽고 낮은 40대 한국어 남성 목소리"
+                      />
+                    </label>
+                    <label>
+                      <span>말투·호흡</span>
+                      <BufferedTextInput
+                        name={`storyboardVoiceStyle-${profile.id}`}
+                        autoComplete="off"
+                        value={profile.speakingStyle}
+                        onCommit={(speakingStyle) =>
+                          onVoiceProfileChange(profile.id, { speakingStyle })
+                        }
+                        disabled={editor.projectBusy}
+                        maxLength={180}
+                        placeholder="예: 차분한 속도, 문장 끝을 또렷하게"
+                      />
+                    </label>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="voice-profile-empty">
+              <i className="fas fa-fingerprint" aria-hidden="true" />
+              아직 프로필이 없습니다. 하나를 추가하면 모든 대사 장면에 자동으로
+              적용되고, 두 개부터는 장면별 화자를 선택할 수 있습니다.
+            </p>
+          )}
+        </section>
+
         <label className="wide">
-          <span>목소리 일관성</span>
+          <span>프로필 미선택 장면의 기본 목소리</span>
           <BufferedTextInput
             name="storyboardVoiceDirection"
             autoComplete="off"
@@ -84,8 +187,8 @@ export default function StoryboardAssemblyEditorView({
             placeholder="예: 따뜻하고 자신감 있는 30대 한국어 여성, 차분한 속도"
           />
           <small>
-            대화 장면을 새로 만들거나 다시 만들 때 적용됩니다. 기존 영상의
-            목소리는 바뀌지 않습니다.
+            기존 방식도 그대로 유지됩니다. 캐릭터 프로필이 없는 대화 장면을
+            새로 만들거나 다시 만들 때 적용됩니다.
           </small>
         </label>
 

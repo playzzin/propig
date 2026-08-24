@@ -175,7 +175,7 @@ export function CompanyHistoryExperience({
 }: CompanyHistoryExperienceProps = {}) {
   const items = HISTORY_ITEMS;
   const surfaceRef = useRef<HTMLElement | null>(null);
-  const scrollRootRef = useRef<HTMLElement | null>(null);
+  const scrollRootRef = useRef<HTMLElement | Window | null>(null);
   const activeIndexRef = useRef(0);
   const pinnedIndexRef = useRef<number | null>(null);
   const releasePinTimerRef = useRef<number | null>(null);
@@ -189,20 +189,35 @@ export function CompanyHistoryExperience({
     activeIndexRef.current = activeIndex;
   }, [activeIndex]);
 
-  const scheduleMotionUpdate = useCallback((root: HTMLElement, surface: HTMLElement) => {
+  const scheduleMotionUpdate = useCallback((root: HTMLElement | Window, surface: HTMLElement) => {
     if (frameRef.current !== null) return;
 
     frameRef.current = window.requestAnimationFrame(() => {
       frameRef.current = null;
-      if (!root.isConnected || !surface.isConnected) return;
+      if ((root instanceof HTMLElement && !root.isConnected) || !surface.isConnected) return;
 
       const milestones = Array.from(surface.querySelectorAll<HTMLElement>('[data-history-item]'));
       const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-      const rootRect = root.getBoundingClientRect();
-      const viewportHeight = Math.max(1, root.clientHeight || rootRect.height);
-      const scrollableHeight = Math.max(1, root.scrollHeight - root.clientHeight);
-      const pageProgress = Math.min(1, Math.max(0, root.scrollTop / scrollableHeight));
-      const timelineProgress = motionQuery.matches ? 1 : pageProgress;
+      const isWindowRoot = root === window;
+      const rootRect = isWindowRoot
+        ? { top: 0, height: window.innerHeight }
+        : (root as HTMLElement).getBoundingClientRect();
+      const viewportHeight = Math.max(1, isWindowRoot ? window.innerHeight : (root as HTMLElement).clientHeight || rootRect.height);
+      const scrollableHeight = Math.max(
+        1,
+        isWindowRoot
+          ? document.documentElement.scrollHeight - window.innerHeight
+          : (root as HTMLElement).scrollHeight - (root as HTMLElement).clientHeight,
+      );
+      const scrollTop = isWindowRoot ? window.scrollY : (root as HTMLElement).scrollTop;
+      const pageProgress = Math.min(1, Math.max(0, scrollTop / scrollableHeight));
+      const timeline = surface.querySelector<HTMLElement>('.history-timeline');
+      const timelineRect = timeline?.getBoundingClientRect();
+      const timelineTop = timelineRect ? timelineRect.top - rootRect.top : 0;
+      const timelineHeight = Math.max(1, timelineRect?.height ?? 1);
+      const timelineProgress = motionQuery.matches
+        ? 1
+        : Math.min(1, Math.max(0, (viewportHeight * 0.5 - timelineTop) / timelineHeight));
       let nearestIndex = -1;
       let nearestDistance = Number.POSITIVE_INFINITY;
       const nextMotionStates: MilestoneMotionState[] = [];
@@ -244,7 +259,11 @@ export function CompanyHistoryExperience({
     (event: Event) => {
       const root = event.currentTarget;
       const surface = surfaceRef.current;
-      if (root instanceof HTMLElement && surface) scheduleMotionUpdate(root, surface);
+      if (root instanceof HTMLElement && surface) {
+        scheduleMotionUpdate(root, surface);
+      } else if (root === window && surface) {
+        scheduleMotionUpdate(window, surface);
+      }
     },
     [scheduleMotionUpdate],
   );
@@ -252,7 +271,20 @@ export function CompanyHistoryExperience({
   const setSurfaceRef = useCallback(
     (node: HTMLElement | null) => {
       const previousRoot = scrollRootRef.current;
-      const nextRoot = node ? (embedded ? node.closest<HTMLElement>('main') ?? node : node) : null;
+      const embeddedMain = node && embedded ? node.closest<HTMLElement>('main') : null;
+      const mainOverflowY = embeddedMain ? window.getComputedStyle(embeddedMain).overflowY : '';
+      const mainIsScrollRoot = Boolean(
+        embeddedMain &&
+          /(auto|scroll|overlay)/.test(mainOverflowY) &&
+          embeddedMain.scrollHeight > embeddedMain.clientHeight + 1,
+      );
+      const nextRoot: HTMLElement | Window | null = node
+        ? embedded
+          ? mainIsScrollRoot
+            ? embeddedMain
+            : window
+          : node
+        : null;
       if (previousRoot === nextRoot && surfaceRef.current === node) return;
 
       if (previousRoot !== nextRoot) previousRoot?.removeEventListener('scroll', handleRootScroll);
@@ -278,7 +310,7 @@ export function CompanyHistoryExperience({
     motionQuery.addEventListener('change', schedule);
 
     const resizeObserver = new ResizeObserver(schedule);
-    resizeObserver.observe(root);
+    if (root instanceof HTMLElement) resizeObserver.observe(root);
     if (surface !== root) resizeObserver.observe(surface);
     if (timeline) resizeObserver.observe(timeline);
 
@@ -783,7 +815,6 @@ const HistoryPage = styled.main<{ $embedded: boolean }>`
       0 0 58px rgba(167, 139, 250, 0.32);
     transform: translateX(-50%) scaleY(var(--history-scroll-progress));
     transform-origin: top;
-    transition: transform 0.18s linear;
     will-change: transform;
   }
 
@@ -801,7 +832,6 @@ const HistoryPage = styled.main<{ $embedded: boolean }>`
       0 0 30px 8px color-mix(in srgb, var(--active-history-accent) 78%, transparent),
       0 0 82px 18px color-mix(in srgb, var(--active-history-accent) 32%, transparent);
     opacity: min(1, calc(var(--history-scroll-progress) * 7));
-    transition: top 0.18s linear, opacity 0.18s ease;
     will-change: top, opacity;
   }
 

@@ -20,7 +20,9 @@ const nextConfig: NextConfig = {
   ...(distDir ? { distDir } : {}),
   allowedDevOrigins: ['127.0.0.1'],
   images: {
-    unoptimized: true,
+    // Static export cannot use the Next image optimizer. Keep optimization
+    // enabled for the server runtime and disable it only for hosting export.
+    unoptimized: isStaticExport,
   },
   turbopack: shouldSkipSentry
     ? { resolveAlias: { '@sentry/nextjs': disabledSentryModule } }
@@ -48,7 +50,7 @@ const nextConfig: NextConfig = {
   compiler: {
     styledComponents: true,
   },
-  serverExternalPackages: ['@remotion/renderer', 'ffmpeg-static'],
+  serverExternalPackages: ['@remotion/renderer', 'ffmpeg-static', 'firebase-admin'],
 };
 
 export default shouldSkipSentry ? nextConfig : withSentryConfig(nextConfig, {

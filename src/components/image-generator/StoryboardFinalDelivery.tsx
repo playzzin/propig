@@ -40,7 +40,11 @@ export default function StoryboardFinalDelivery({
   onRemerge,
 }: StoryboardFinalDeliveryProps) {
   return (
-    <FinalDeliveryCard aria-labelledby="storyboard-final-delivery-title">
+    <FinalDeliveryCard
+      id="storyboard-final-delivery"
+      tabIndex={-1}
+      aria-labelledby="storyboard-final-delivery-title"
+    >
       <FinalDeliveryHeader>
         <div>
           <span>DELIVERY REVIEW</span>

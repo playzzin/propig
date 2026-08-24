@@ -1,6 +1,7 @@
 "use client";
 
 import styled from "styled-components";
+import { BufferedTextInput } from "@/components/image-generator/BufferedTextField";
 import type { ImageStoryboardScene } from "@/schemas/imageStoryboard";
 
 const Overlay = styled.div<{ $pageView: boolean }>`
@@ -57,8 +58,13 @@ const WorkspaceHeader = styled.header`
   background: color-mix(in srgb, var(--bg-elevated, #161b22) 92%, #0f766e 8%);
 
   @media (max-width: 560px) {
+    min-height: 56px;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 8px 12px;
+
+    &[data-page-view='true'][data-signed-out='true'] {
+      display: none;
+    }
   }
 `;
 
@@ -75,6 +81,10 @@ const TitleGroup = styled.div`
     font-size: 1.08rem;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  @media (max-width: 560px) {
+    &[data-page-view='true'] { display: none; }
   }
 `;
 
@@ -108,6 +118,7 @@ const HeaderActions = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-left: auto;
   @media (max-width: 560px) {
     gap: 4px;
   }
@@ -119,7 +130,12 @@ const HeaderToolGroup = styled.div`
   gap: 3px;
 
   @media (max-width: 560px) {
-    display: none;
+    gap: 1px;
+
+    button {
+      width: 34px;
+      height: 34px;
+    }
   }
 `;
 
@@ -183,21 +199,39 @@ const CloseButton = styled.button`
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
-  @media (max-width: 560px) {
-    width: 38px;
-    height: 38px;
-  }
 `;
 
-const WorkspaceBody = styled.div`
+const WorkspaceBody = styled.div<{
+  $compactVideoMode: boolean;
+  $dashboardMode: boolean;
+}>`
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: 218px minmax(500px, 1fr) minmax(260px, 294px);
+  grid-template-columns: ${({ $compactVideoMode, $dashboardMode }) =>
+    $dashboardMode
+      ? "minmax(0, 1fr)"
+      : $compactVideoMode
+        ? "218px minmax(0, 1fr)"
+        : "218px minmax(500px, 1fr) minmax(260px, 294px)"};
 
   @media (max-width: 1360px) {
-    grid-template-columns: 200px minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: ${({ $compactVideoMode, $dashboardMode }) =>
+      $dashboardMode
+        ? "minmax(0, 1fr)"
+        : $compactVideoMode
+          ? "180px minmax(0, 1fr)"
+          : "180px minmax(0, 1fr) minmax(230px, 260px)"};
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  @media (max-width: 1100px) {
+    grid-template-columns: ${({ $dashboardMode }) =>
+      $dashboardMode ? "minmax(0, 1fr)" : "180px minmax(0, 1fr)"};
+    grid-template-rows: ${({ $compactVideoMode, $dashboardMode }) =>
+      $dashboardMode || $compactVideoMode
+        ? "minmax(0, 1fr)"
+        : "minmax(0, 1fr) minmax(180px, 220px)"};
   }
 
   @media (max-width: 840px) {
@@ -300,9 +334,9 @@ const SidebarDashboardButton = styled.button<{ $active: boolean }>`
   }
 
   @media (max-width: 560px) {
-    width: 38px;
-    min-width: 38px;
-    min-height: 38px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
     margin: 0 7px 0 0;
     padding: 0;
     grid-template-columns: 1fr;
@@ -310,8 +344,8 @@ const SidebarDashboardButton = styled.button<{ $active: boolean }>`
       display: none;
     }
     > i {
-      width: 30px;
-      height: 30px;
+      width: 34px;
+      height: 34px;
     }
   }
 `;
@@ -380,8 +414,9 @@ const ProjectRow = styled.div`
   gap: 2px;
 
   @media (max-width: 840px) {
-    width: 206px;
-    flex: 0 0 206px;
+    width: 180px;
+    flex: 0 0 180px;
+    grid-template-columns: minmax(0, 1fr);
   }
 `;
 
@@ -505,6 +540,10 @@ const ProjectRowMenu = styled.details`
     opacity: 0.5;
     cursor: wait;
   }
+
+  @media (max-width: 840px) {
+    display: none;
+  }
 `;
 
 const ProjectStatusBadge = styled.span`
@@ -547,10 +586,12 @@ const WorkspaceAnchor = styled.div`
 `;
 
 const ProjectDashboard = styled.main`
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   min-width: 0;
   overflow-y: auto;
   padding: 32px clamp(20px, 3vw, 42px) 56px;
+  container-name: storyboard-dashboard;
+  container-type: inline-size;
 
   @media (max-width: 840px) {
     grid-column: 1;
@@ -622,7 +663,12 @@ const DashboardKpiGrid = styled.div`
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   @media (max-width: 480px) {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  @container storyboard-dashboard (max-width: 980px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 `;
 
@@ -675,6 +721,15 @@ const DashboardKpi = styled.article<{ $tone?: "success" | "warning" }>`
     color: var(--text-muted);
     font-size: 0.6rem;
   }
+
+  @container storyboard-dashboard (max-width: 460px) {
+    padding: 12px;
+
+    strong {
+      margin-top: 8px;
+      font-size: 1.3rem;
+    }
+  }
 `;
 
 const ProjectControlBar = styled.div`
@@ -685,6 +740,11 @@ const ProjectControlBar = styled.div`
   margin-bottom: 10px;
 
   @media (max-width: 760px) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  @container storyboard-dashboard (max-width: 760px) {
     align-items: stretch;
     flex-direction: column;
   }
@@ -721,6 +781,10 @@ const ProjectSearchField = styled.label`
   &:focus-within {
     border-color: var(--primary);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
+  }
+
+  @container storyboard-dashboard (max-width: 760px) {
+    width: 100%;
   }
 `;
 
@@ -823,6 +887,10 @@ const ProjectTableHeader = styled.div`
   @media (max-width: 1080px) {
     display: none;
   }
+
+  @container storyboard-dashboard (max-width: 1080px) {
+    display: none;
+  }
 `;
 
 const ProjectTableRow = styled.article`
@@ -847,6 +915,16 @@ const ProjectTableRow = styled.article`
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px 14px;
     padding: 14px;
+  }
+
+  @container storyboard-dashboard (max-width: 1080px) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    padding: 14px;
+  }
+
+  @container storyboard-dashboard (max-width: 420px) {
+    grid-template-columns: minmax(0, 1fr);
   }
 `;
 
@@ -922,6 +1000,10 @@ const ProjectMetric = styled.div`
   @media (max-width: 1080px) {
     display: none;
   }
+
+  @container storyboard-dashboard (max-width: 1080px) {
+    display: none;
+  }
 `;
 
 const ProjectStatus = styled.span<{
@@ -964,6 +1046,10 @@ const ProjectStatus = styled.span<{
   @media (max-width: 1080px) {
     grid-column: 1;
   }
+
+  @container storyboard-dashboard (max-width: 1080px) {
+    grid-column: 1;
+  }
 `;
 
 const ProjectUpdated = styled.span`
@@ -973,12 +1059,26 @@ const ProjectUpdated = styled.span`
   @media (max-width: 1080px) {
     display: none;
   }
+
+  @container storyboard-dashboard (max-width: 1080px) {
+    display: none;
+  }
 `;
 
 const ProjectActionCell = styled.div`
   @media (max-width: 1080px) {
     grid-column: 2;
     grid-row: 1 / span 2;
+  }
+
+  @container storyboard-dashboard (max-width: 1080px) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  @container storyboard-dashboard (max-width: 420px) {
+    grid-column: 1;
+    grid-row: auto;
   }
 `;
 
@@ -1005,6 +1105,10 @@ const ProjectOpenButton = styled.button`
   &:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
+  }
+
+  @container storyboard-dashboard (max-width: 420px) {
+    width: 100%;
   }
 `;
 
@@ -1057,8 +1161,16 @@ const ProductionAssistantRail = styled.aside`
   background: color-mix(in srgb, var(--bg-overlay, #10131a) 95%, #10b981 5%);
 
   @media (max-width: 1360px) {
+    grid-column: auto;
+    max-height: none;
+    padding: 18px 14px 26px;
+    border-top: 0;
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  @media (max-width: 1100px) {
     grid-column: 1 / -1;
-    max-height: 300px;
+    max-height: 220px;
     padding: 14px 16px 20px;
     border-top: 1px solid var(--border-subtle);
     border-left: 0;
@@ -1616,7 +1728,7 @@ const BoardKicker = styled.div`
   letter-spacing: 0.12em;
 `;
 
-const TitleInput = styled.input`
+const TitleInput = styled(BufferedTextInput)`
   width: min(650px, 100%);
   padding: 0;
   border: 0;
@@ -1883,6 +1995,32 @@ const ReadinessItem = styled.div<{ $ready: boolean }>`
   }
 `;
 
+const QualityRepairButton = styled.button`
+  min-height: 30px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  border: 1px solid rgba(125, 211, 252, 0.38);
+  border-radius: 7px;
+  color: #bae6fd;
+  background: rgba(14, 116, 144, 0.13);
+  font-size: 0.66rem;
+  font-weight: 750;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: rgba(125, 211, 252, 0.75);
+    background: rgba(14, 116, 144, 0.24);
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  &:focus-visible {
+    outline: 2px solid #7dd3fc;
+    outline-offset: 2px;
+  }
+`;
+
 const QuickPlannerHeading = styled.div`
   display: flex;
   align-items: flex-start;
@@ -2104,6 +2242,99 @@ const PlanButton = styled.button`
   }
   @media (max-width: 420px) {
     grid-column: auto;
+  }
+`;
+
+const PlanDisclosure = styled.p`
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: rgba(14, 116, 144, 0.08);
+  font-size: 0.67rem;
+  line-height: 1.5;
+
+  i {
+    flex: 0 0 auto;
+    margin-top: 3px;
+    color: #7dd3fc;
+  }
+  strong { color: #bae6fd; }
+`;
+
+const PaidActionApproval = styled.section`
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgba(251, 191, 36, 0.38);
+  border-radius: 12px;
+  background: rgba(120, 53, 15, 0.12);
+
+  .approval-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .approval-heading > i {
+    margin-top: 3px;
+    color: #fbbf24;
+  }
+  h4 { margin: 0; color: var(--text-main); font-size: 0.86rem; }
+  p { margin: 4px 0 0; color: var(--text-muted); font-size: 0.72rem; line-height: 1.55; }
+  ul {
+    display: grid;
+    gap: 5px;
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    line-height: 1.45;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+  input { width: 18px; height: 18px; accent-color: #6ee7b7; }
+  .approval-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  button {
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 9px;
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.04);
+    font-weight: 800;
+    cursor: pointer;
+  }
+  button:last-child {
+    border-color: transparent;
+    color: #052e16;
+    background: #6ee7b7;
+  }
+  button:disabled { cursor: not-allowed; opacity: 0.48; }
+  button:focus-visible,
+  input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  @media (max-width: 520px) {
+    .approval-actions { display: grid; grid-template-columns: 1fr 1fr; }
+    button { width: 100%; }
   }
 `;
 
@@ -3020,6 +3251,8 @@ const SceneList = styled.div`
 const SceneCard = styled.article<{ $active: boolean; $missingImage: boolean }>`
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 460px;
   overflow: hidden;
   border: 1px solid
     ${({ $active, $missingImage }) =>
@@ -3290,25 +3523,170 @@ const SignInState = styled.div`
   display: grid;
   flex: 1;
   place-content: center;
-  padding: 30px;
-  text-align: center;
+  padding: clamp(20px, 4vw, 48px);
 
-  > i {
-    margin-bottom: 14px;
+  .signin-card {
+    display: grid;
+    width: min(780px, calc(100vw - 40px));
+    gap: 18px;
+    padding: clamp(22px, 4vw, 38px);
+    border: 1px solid rgba(110, 231, 183, 0.2);
+    border-radius: 24px;
+    background: linear-gradient(145deg, rgba(15, 118, 110, 0.16), rgba(22, 27, 34, 0.96) 44%);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+  }
+  .signin-loading {
+    width: min(520px, calc(100vw - 40px));
+    justify-items: center;
+    text-align: center;
+  }
+  .signin-intro {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+  }
+  .signin-icon {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    margin-bottom: 12px;
+    place-items: center;
+    border: 1px solid rgba(110, 231, 183, 0.28);
+    border-radius: 15px;
     color: #6ee7b7;
-    font-size: 1.8rem;
+    background: rgba(16, 185, 129, 0.12);
+    font-size: 1.25rem;
+  }
+  .signin-eyebrow {
+    margin-bottom: 7px;
+    color: #6ee7b7;
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.12em;
   }
   h3 {
     margin: 0;
     color: var(--text-main);
-    font-size: 1.1rem;
+    font-size: clamp(1.25rem, 2.4vw, 1.72rem);
+    letter-spacing: -0.025em;
   }
   p {
-    max-width: 390px;
-    margin: 10px 0 0;
+    max-width: 580px;
+    margin: 9px 0 0;
     color: var(--text-muted);
     font-size: 0.84rem;
-    line-height: 1.6;
+    line-height: 1.65;
+  }
+  .signin-journey {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    text-align: left;
+  }
+  .signin-journey li {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 9px;
+    align-items: center;
+    min-width: 0;
+    padding: 11px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.42);
+  }
+  .signin-journey li > span {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border-radius: 9px;
+    color: #052e24;
+    background: #6ee7b7;
+    font-size: 0.72rem;
+    font-weight: 900;
+  }
+  .signin-journey strong,
+  .signin-journey small {
+    display: block;
+  }
+  .signin-journey strong {
+    color: var(--text-main);
+    font-size: 0.76rem;
+  }
+  .signin-journey small {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 0.67rem;
+    line-height: 1.4;
+  }
+  .signin-trust {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .signin-trust li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    line-height: 1.5;
+  }
+  .signin-trust i {
+    margin-top: 3px;
+    color: #6ee7b7;
+  }
+  button {
+    min-height: 48px;
+    margin: 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 0 22px;
+    border: 1px solid rgba(16, 185, 129, 0.48);
+    border-radius: 12px;
+    color: #052e24;
+    background: #6ee7b7;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 850;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #a7f3d0; }
+  button:focus-visible { outline: 3px solid rgba(110, 231, 183, 0.3); outline-offset: 3px; }
+  button:disabled { cursor: not-allowed; opacity: 0.55; }
+  .signin-footnote {
+    margin: -7px auto 0;
+    color: var(--text-muted);
+    font-size: 0.67rem;
+    text-align: center;
+  }
+  .signin-warning {
+    max-width: none;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: 10px;
+    color: #fecaca;
+    background: rgba(127, 29, 29, 0.2);
+    text-align: center;
+  }
+
+  @media (max-width: 640px) {
+    align-content: start;
+    padding: 18px 12px 28px;
+    .signin-card { width: 100%; gap: 15px; padding: 20px 15px; border-radius: 18px; }
+    .signin-journey { grid-template-columns: 1fr; }
+    .signin-journey li { min-height: 58px; }
+    .signin-trust { grid-template-columns: 1fr; }
+    button { width: 100%; }
   }
 `;
 
@@ -3483,6 +3861,7 @@ export {
   BulkStatus,
   ReadinessGrid,
   ReadinessItem,
+  QualityRepairButton,
   QuickPlannerHeading,
   PlannerState,
   QuickPlannerFields,
@@ -3492,6 +3871,8 @@ export {
   TopicHint,
   QuickSelectField,
   PlanButton,
+  PlanDisclosure,
+  PaidActionApproval,
   AdvancedDetails,
   AdvancedDetailsBody,
   BriefGrid,

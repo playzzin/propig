@@ -14,6 +14,9 @@
   },
   "main": "lib/index.js",
   "dependencies": {
+    "@expo-google-fonts/nanum-gothic": "^0.4.0",
+    "@expo-google-fonts/nanum-myeongjo": "^0.4.1",
+    "@expo-google-fonts/nanum-pen-script": "^0.4.0",
     "ffmpeg-static": "^5.3.0",
     "firebase-admin": "^13.10.0",
     "firebase-functions": "^7.2.5",

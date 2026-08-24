@@ -266,9 +266,15 @@ function parseStoryboardData(
     }
     const seenSceneIds = new Set<string>();
     const scenes = parsed.data.scenes.map((scene, index) => {
+        const order = index + 1;
         if (!seenSceneIds.has(scene.id)) {
             seenSceneIds.add(scene.id);
-            return scene;
+            return scene.order === order ? scene : {
+                ...scene,
+                order,
+                assetFreshness: 'review' as const,
+                staleReason: '장면 순서를 자동으로 복구했습니다. 최종 영상 조립 전에 순서를 확인해 주세요.',
+            };
         }
         let duplicateIndex = index + 1;
         let replacementId = `${scene.id}-duplicate-${duplicateIndex}`;
@@ -280,7 +286,7 @@ function parseStoryboardData(
         return {
             ...scene,
             id: replacementId,
-            order: index + 1,
+            order,
             assetFreshness: 'review' as const,
             staleReason: '중복 장면 식별자를 자동으로 복구했습니다. 결과를 확인해 주세요.',
         };
@@ -894,8 +900,12 @@ class ImageStoryboardService {
 
     async deleteGeneratedImage(
         userId: string,
-        image: { id: string; url: string },
+        storyboardId: string,
+        image: { id: string; storagePath: string },
     ): Promise<void> {
+        if (!isOwnedStoryboardStoragePath(userId, storyboardId, image.storagePath)) {
+            throw new Error('현재 스토리보드 전용 파일만 즉시 정리할 수 있습니다.');
+        }
         const historyReference = doc(db, 'ai_generations', image.id);
         const historySnapshot = await getDoc(historyReference);
         if (
@@ -904,7 +914,7 @@ class ImageStoryboardService {
         ) {
             throw new Error('다른 사용자의 이미지 파일은 정리할 수 없습니다.');
         }
-        await deleteObject(storageRef(storage, image.url)).catch((error) => {
+        await deleteObject(storageRef(storage, image.storagePath)).catch((error) => {
             if (!isStorageObjectMissing(error)) throw error;
         });
         if (historySnapshot.exists()) await deleteDoc(historyReference);

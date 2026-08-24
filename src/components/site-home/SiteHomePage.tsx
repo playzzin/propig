@@ -68,7 +68,7 @@ export function SiteHomePage({
   metrics,
   primaryLinks,
   sections,
-  prefetchLinks = true,
+  prefetchLinks = false,
 }: SiteHomePageProps) {
   return (
     <main id="content-area" style={pageShellStyle}>

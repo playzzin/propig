@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KOREAN_DATE_TIME_FORMAT } from "@/lib/date-formatters";
 import type { SavedImageStoryboard } from "@/schemas/imageStoryboard";
 import {
@@ -36,13 +36,28 @@ const PROJECT_PAGE_SIZE = 12;
 
 type ProjectFilter = "active" | "completed" | "attention" | "archived";
 
+type StoryboardOpenIntent = "edit" | "result" | "recovery";
+
 type StoryboardProjectDashboardProps = {
   isLoading: boolean;
   loadError: string | null;
   onCreate: () => void;
-  onOpen: (storyboard: SavedImageStoryboard) => void;
+  onOpen: (
+    storyboard: SavedImageStoryboard,
+    intent: StoryboardOpenIntent,
+  ) => void;
+  onRetry: () => void;
   storyboards: SavedImageStoryboard[];
 };
+
+function projectFilterFromSearch(search: string): ProjectFilter {
+  const requestedFilter = new URLSearchParams(search).get("projectStatus");
+  return requestedFilter === "completed" ||
+    requestedFilter === "attention" ||
+    requestedFilter === "archived"
+    ? requestedFilter
+    : "active";
+}
 
 function needsProjectAttention(storyboard: SavedImageStoryboard): boolean {
   const status = getStoryboardProjectStatus(storyboard);
@@ -58,36 +73,41 @@ export default function StoryboardProjectDashboard({
   loadError,
   onCreate,
   onOpen,
+  onRetry,
   storyboards,
 }: StoryboardProjectDashboardProps) {
   const [projectSearch, setProjectSearch] = useState("");
   const [projectPage, setProjectPage] = useState(1);
-  const [projectFilter, setProjectFilter] = useState<ProjectFilter>(() => {
-    if (typeof window === "undefined") return "active";
-    const requestedFilter = new URLSearchParams(window.location.search).get(
-      "projectStatus",
-    );
-    return requestedFilter === "completed" ||
-      requestedFilter === "attention" ||
-      requestedFilter === "archived"
-      ? requestedFilter
-      : "active";
-  });
+  const [projectFilter, setProjectFilter] =
+    useState<ProjectFilter>("active");
+
+  useEffect(() => {
+    const restoreFilterFromUrl = () => {
+      setProjectFilter(projectFilterFromSearch(window.location.search));
+      setProjectPage(1);
+    };
+
+    restoreFilterFromUrl();
+    window.addEventListener("popstate", restoreFilterFromUrl);
+    return () => window.removeEventListener("popstate", restoreFilterFromUrl);
+  }, []);
 
   const dashboardStats = useMemo(() => {
-    const activeProjects = storyboards.filter(
+    const availableProjects = storyboards.filter(
       (storyboard) => !storyboard.archivedAt,
     );
     return {
-      active: activeProjects.length,
-      scenes: activeProjects.reduce(
+      active: availableProjects.filter(
+        (storyboard) => !isStoryboardFinalCurrent(storyboard),
+      ).length,
+      scenes: availableProjects.reduce(
         (sum, storyboard) => sum + storyboard.scenes.length,
         0,
       ),
-      completed: activeProjects.filter(
+      completed: availableProjects.filter(
         (storyboard) => isStoryboardFinalCurrent(storyboard),
       ).length,
-      attention: activeProjects.filter(needsProjectAttention).length,
+      attention: availableProjects.filter(needsProjectAttention).length,
     };
   }, [storyboards]);
 
@@ -135,6 +155,15 @@ export default function StoryboardProjectDashboard({
     window.history.replaceState(window.history.state, "", url);
   };
 
+  const resetProjectFilters = () => {
+    setProjectSearch("");
+    setProjectFilter("active");
+    setProjectPage(1);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("projectStatus");
+    window.history.replaceState(window.history.state, "", url);
+  };
+
   return (
     <ProjectDashboard aria-labelledby="storyboard-dashboard-title">
       <DashboardHero>
@@ -153,17 +182,20 @@ export default function StoryboardProjectDashboard({
       {loadError ? (
         <ErrorNotice role="alert">
           <span>{loadError}</span>
+          <button type="button" onClick={onRetry}>
+            다시 불러오기
+          </button>
         </ErrorNotice>
       ) : null}
 
-      <DashboardKpiGrid aria-label="프로젝트 핵심 지표">
+      <DashboardKpiGrid role="group" aria-label="프로젝트 핵심 지표">
         <DashboardKpi>
           <span>
             <i className="fas fa-folder-open" aria-hidden="true" /> 진행
             프로젝트
           </span>
           <strong>{dashboardStats.active}</strong>
-          <small>보관 프로젝트 제외</small>
+          <small>완료·보관 프로젝트 제외</small>
         </DashboardKpi>
         <DashboardKpi>
           <span>
@@ -204,12 +236,12 @@ export default function StoryboardProjectDashboard({
               setProjectSearch(event.target.value);
               setProjectPage(1);
             }}
-            placeholder="프로젝트 제목 또는 주제 검색"
+            placeholder="프로젝트 제목 또는 주제 검색…"
             aria-label="프로젝트 검색"
             autoComplete="off"
           />
         </ProjectSearchField>
-        <ProjectFilterGroup aria-label="프로젝트 상태 필터">
+        <ProjectFilterGroup role="group" aria-label="프로젝트 상태 필터">
           {(
             [
               ["active", "진행 중"],
@@ -234,7 +266,7 @@ export default function StoryboardProjectDashboard({
       {isLoading ? (
         <DashboardEmpty role="status">
           <i className="fas fa-spinner fa-spin" aria-hidden="true" />
-          <strong>프로젝트를 불러오는 중입니다</strong>
+          <strong>프로젝트를 불러오는 중입니다…</strong>
         </DashboardEmpty>
       ) : filteredStoryboards.length ? (
         <>
@@ -320,7 +352,16 @@ export default function StoryboardProjectDashboard({
                   <ProjectActionCell role="cell">
                     <ProjectOpenButton
                       type="button"
-                      onClick={() => onOpen(storyboard)}
+                      onClick={() =>
+                        onOpen(
+                          storyboard,
+                          isCompleted
+                            ? "result"
+                            : needsAttention
+                              ? "recovery"
+                              : "edit",
+                        )
+                      }
                     >
                       {isCompleted
                         ? "결과 보기"
@@ -377,11 +418,15 @@ export default function StoryboardProjectDashboard({
               ? "검색어나 상태 필터를 바꾸면 다른 프로젝트를 확인할 수 있습니다."
               : "주제 한 줄과 참조 사진만으로 장면 설계를 시작할 수 있습니다."}
           </p>
-          {!storyboards.length ? (
+          {storyboards.length ? (
+            <button type="button" onClick={resetProjectFilters}>
+              검색·필터 초기화
+            </button>
+          ) : (
             <button type="button" onClick={onCreate}>
               새 프로젝트 만들기
             </button>
-          ) : null}
+          )}
         </DashboardEmpty>
       )}
     </ProjectDashboard>

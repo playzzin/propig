@@ -6,6 +6,12 @@ export type StoryboardVideoAudioMode = (typeof STORYBOARD_VIDEO_AUDIO_MODES)[num
 const AUDIO_DIRECTION_HEADER = 'Audio direction:';
 const DIALOGUE_LEAD_SECONDS = 0.8;
 const DIALOGUE_UNITS_PER_SECOND = 4.1;
+const DIALOGUE_QUOTE_PAIRS = [
+    ['“', '”'],
+    ['「', '」'],
+    ['『', '』'],
+    ['"', '"'],
+] as const;
 
 export type StoryboardDialogueTiming = {
     speechUnits: number;
@@ -26,11 +32,48 @@ function countDialogueSpeechUnits(dialogue: string): number {
     return hangulAndNumbers + latinUnits;
 }
 
+/**
+ * Storyboard planners sometimes return a direction plus a quoted line in the
+ * legacy dialogueOrCaption field. Video providers must receive only the words
+ * the visible speaker should say; action remains in narrativeBeat.
+ */
+export function normalizeStoryboardSpokenDialogue(
+    dialogue: string | null | undefined,
+): string {
+    const normalized = dialogue?.replace(/\s+/g, ' ').trim() || '';
+    if (!normalized) return '';
+
+    for (const [openQuote, closeQuote] of DIALOGUE_QUOTE_PAIRS) {
+        const start = normalized.indexOf(openQuote);
+        if (start < 0) continue;
+        const end = normalized.indexOf(closeQuote, start + openQuote.length);
+        if (end <= start) continue;
+        const quoted = normalized
+            .slice(start + openQuote.length, end)
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (quoted) return quoted;
+    }
+
+    const speakerLabel = normalized.match(
+        /^(?:대사|나레이션|내레이션|딸|아빠|엄마|아이|남자|여자|화자|인물)\s*[:：]\s*(.+)$/u,
+    );
+    return (speakerLabel?.[1] || normalized)
+        .replace(/^["“”「」『』]+|["“”「」『』]+$/gu, '')
+        .trim();
+}
+
+function removePreparedAudioDirection(prompt: string): string {
+    const marker = `\n\n${AUDIO_DIRECTION_HEADER}\n`;
+    const markerIndex = prompt.indexOf(marker);
+    return (markerIndex >= 0 ? prompt.slice(0, markerIndex) : prompt).trim();
+}
+
 export function analyzeStoryboardDialogueTiming(
     dialogue: string | null | undefined,
     durationSeconds: number,
 ): StoryboardDialogueTiming {
-    const normalized = dialogue?.trim() || '';
+    const normalized = normalizeStoryboardSpokenDialogue(dialogue);
     const safeDuration = Math.max(1, Math.min(15, Math.round(durationSeconds)));
     const speechUnits = countDialogueSpeechUnits(normalized);
     const capacityUnits = Math.max(
@@ -82,11 +125,10 @@ export function appendStoryboardVideoAudioDirection(
     audioMode: StoryboardVideoAudioMode,
     dialogue?: string | null,
     durationSeconds?: number | null,
+    voiceLock?: string | null,
 ): string {
-    const normalizedPrompt = prompt.trim();
-    if (audioMode === 'silent' || normalizedPrompt.includes(`\n\n${AUDIO_DIRECTION_HEADER}\n`)) {
-        return normalizedPrompt;
-    }
+    const normalizedPrompt = removePreparedAudioDirection(prompt.trim());
+    if (audioMode === 'silent') return normalizedPrompt;
 
     if (audioMode === 'ambient') {
         return [
@@ -96,14 +138,17 @@ export function appendStoryboardVideoAudioDirection(
         ].join('\n\n');
     }
 
-    const exactDialogue = dialogue?.trim() || '';
+    const exactDialogue = normalizeStoryboardSpokenDialogue(dialogue);
     const timing = analyzeStoryboardDialogueTiming(exactDialogue, durationSeconds || 6);
     return [
         normalizedPrompt,
         AUDIO_DIRECTION_HEADER,
         `Generate native synchronized dialogue audio. The visible on-screen speaker must say exactly this Korean dialogue without translating, paraphrasing, or adding words: ${JSON.stringify(exactDialogue)}.`,
         `Deliver the complete line naturally within ${durationSeconds || 6} seconds, including a short visual lead-in and a clean reaction beat after speaking. The estimated spoken length is about ${timing.estimatedSeconds.toFixed(1)} seconds.`,
+        voiceLock?.trim()
+            ? `Character voice continuity lock:\n${voiceLock.trim()}`
+            : 'Use one stable Korean speaker voice identity for this character and keep it consistent across every storyboard scene.',
         'Keep the speaking face clearly visible in a stable front or three-quarter medium close-up whenever the storyboard allows it. The lips, jaw, and cheeks must remain unobstructed; avoid extreme profile angles, fast head turns, hand-over-mouth gestures, cuts, and camera shake while speaking.',
-        'Match every visible mouth movement to the spoken phonemes with natural timing, breathing, expression, and room acoustics. Use one stable Korean speaker voice identity for this character and keep it consistent across every storyboard scene. Keep dialogue clean and centered over subtle room tone. Do not add narration, extra speakers, background music, subtitles, captions, or readable text.',
+        'Match every visible mouth movement to the spoken phonemes with natural timing, breathing, expression, and room acoustics. Keep dialogue clean and centered over subtle room tone. Do not add narration, extra speakers, background music, subtitles, captions, or readable text.',
     ].join('\n\n');
 }

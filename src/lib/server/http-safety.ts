@@ -12,6 +12,8 @@ type ResolvedAddress = {
 type HostResolver = (hostname: string) => Promise<ResolvedAddress[]>;
 
 const EXTERNAL_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_EXTERNAL_REDIRECTS = 3;
+const SENSITIVE_REDIRECT_HEADERS = ['authorization', 'proxy-authorization', 'cookie'] as const;
 
 function isBlockedIpv4Address(address: string): boolean {
   const match = address.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -170,6 +172,23 @@ export function normalizeExternalHttpUrl(rawUrl: string): string {
   return parsed.toString();
 }
 
+export function normalizeExternalHttpsUrl(rawUrl: string): string {
+  const safeUrl = normalizeExternalHttpUrl(rawUrl);
+  if (new URL(safeUrl).protocol !== 'https:') {
+    throw new Error('Only HTTPS URLs are allowed for media assets.');
+  }
+  return safeUrl;
+}
+
+export async function assertExternalHttpsUrl(
+  rawUrl: string,
+  resolveHost: HostResolver = resolveHostAddresses,
+): Promise<string> {
+  const safeUrl = normalizeExternalHttpsUrl(rawUrl);
+  await resolvePublicHostAddresses(new URL(safeUrl).hostname, resolveHost);
+  return safeUrl;
+}
+
 function toResponse(response: IncomingMessage): Response {
   const headers = new Headers();
   for (const [name, value] of Object.entries(response.headers)) {
@@ -190,6 +209,7 @@ async function requestPinnedExternalUrl(
   parsedUrl: URL,
   address: ResolvedAddress,
   init: RequestInit,
+  requestTimeoutMs: number,
 ): Promise<Response> {
   if (init.body != null) {
     throw new Error('External URL requests with a body are not supported.');
@@ -221,19 +241,35 @@ async function requestPinnedExternalUrl(
 
     const abortRequest = () => requestHandle.destroy();
     init.signal?.addEventListener('abort', abortRequest, { once: true });
-    requestHandle.setTimeout(EXTERNAL_REQUEST_TIMEOUT_MS, abortRequest);
+    requestHandle.setTimeout(requestTimeoutMs, abortRequest);
     requestHandle.on('close', () => init.signal?.removeEventListener('abort', abortRequest));
     requestHandle.on('error', () => reject(new Error('Failed to fetch external URL.')));
     requestHandle.end();
   });
 }
 
-export async function fetchExternalHttpUrl(
+export function stripSensitiveHeadersForCrossOriginRedirect(
+  init: RequestInit,
+  currentUrl: URL,
+  nextUrl: URL,
+): RequestInit {
+  if (currentUrl.origin === nextUrl.origin) return init;
+
+  const headers = new Headers(init.headers);
+  for (const name of SENSITIVE_REDIRECT_HEADERS) headers.delete(name);
+  return { ...init, headers };
+}
+
+async function fetchExternalUrl(
   rawUrl: string,
-  init: RequestInit = {},
+  init: RequestInit,
+  requireHttps: boolean,
+  requestTimeoutMs: number,
   redirects = 0,
 ): Promise<Response> {
-  const safeUrl = normalizeExternalHttpUrl(rawUrl);
+  const safeUrl = requireHttps
+    ? normalizeExternalHttpsUrl(rawUrl)
+    : normalizeExternalHttpUrl(rawUrl);
   const parsedUrl = new URL(safeUrl);
   const addresses = await resolvePublicHostAddresses(parsedUrl.hostname);
   let response: Response | null = null;
@@ -241,7 +277,7 @@ export async function fetchExternalHttpUrl(
 
   for (const address of addresses) {
     try {
-      response = await requestPinnedExternalUrl(parsedUrl, address, init);
+      response = await requestPinnedExternalUrl(parsedUrl, address, init, requestTimeoutMs);
       break;
     } catch (error) {
       lastError = error;
@@ -253,7 +289,7 @@ export async function fetchExternalHttpUrl(
   }
 
   if ([301, 302, 303, 307, 308].includes(response.status)) {
-    if (redirects >= 3) {
+    if (redirects >= MAX_EXTERNAL_REDIRECTS) {
       throw new Error('Too many redirects.');
     }
 
@@ -263,9 +299,72 @@ export async function fetchExternalHttpUrl(
     }
 
     await response.body?.cancel();
-    const nextUrl = new URL(location, safeUrl).toString();
-    return fetchExternalHttpUrl(nextUrl, init, redirects + 1);
+    const nextUrl = new URL(location, safeUrl);
+    return fetchExternalUrl(
+      nextUrl.toString(),
+      stripSensitiveHeadersForCrossOriginRedirect(init, parsedUrl, nextUrl),
+      requireHttps,
+      requestTimeoutMs,
+      redirects + 1,
+    );
   }
 
   return response;
+}
+
+export async function fetchExternalHttpUrl(
+  rawUrl: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  return fetchExternalUrl(rawUrl, init, false, EXTERNAL_REQUEST_TIMEOUT_MS);
+}
+
+export async function fetchExternalHttpsUrl(
+  rawUrl: string,
+  init: RequestInit = {},
+  requestTimeoutMs = EXTERNAL_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  return fetchExternalUrl(rawUrl, init, true, requestTimeoutMs);
+}
+
+export async function readCappedBinaryResponse(response: Response, maxBytes: number): Promise<Buffer> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error('A positive response size limit is required.');
+  }
+
+  const declaredLength = Number(response.headers.get('content-length') ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel();
+    throw new Error('External response exceeds the allowed size.');
+  }
+
+  if (!response.body) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength > maxBytes) {
+      throw new Error('External response exceeds the allowed size.');
+    }
+    return buffer;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error('External response exceeds the allowed size.');
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks, total);
 }

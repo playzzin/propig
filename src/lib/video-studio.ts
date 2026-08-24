@@ -81,12 +81,16 @@ export interface VideoStudioJob {
     resultFrameUrl?: string | null;
     errorMessage?: string | null;
     attemptCount?: number | null;
+    stagingCleanupPending?: boolean;
+    stagingCleanupPaths?: string[];
     metadata?: Record<string, unknown> | null;
     createdAt?: unknown;
     updatedAt?: unknown;
     claimedAt?: unknown;
     startedAt?: unknown;
     finishedAt?: unknown;
+    cancelRequestedAt?: unknown;
+    canceledAt?: unknown;
 }
 
 export const VIDEO_STUDIO_DEFAULT_ASPECT_RATIO: VideoStudioAspectRatio = '16:9';

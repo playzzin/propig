@@ -1,5 +1,5 @@
-import CompanyBusinessAreaExperience from '@/components/corp/CompanyBusinessAreaExperience';
+import ProductCatalogExperience from '@/components/corp/ProductCatalogExperience';
 
 export default function CompanyProductIntroductionPage() {
-  return <CompanyBusinessAreaExperience pageLabel="제품소개" />;
+  return <ProductCatalogExperience />;
 }

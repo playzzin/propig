@@ -1,10 +1,5 @@
-import { notFound } from 'next/navigation';
-import { SponsorshipExperience } from '@/components/corp/SponsorshipExperience';
-import { getCorpPageByPath } from '@/constants/corpPages';
+import { PartnershipHubExperience } from '@/components/corp/PartnershipHubExperience';
 
 export default function SponsorshipPage() {
-  const page = getCorpPageByPath('/corp/partnership/sponsorship');
-  if (!page) notFound();
-
-  return <SponsorshipExperience page={page} />;
+  return <PartnershipHubExperience initialChapter="sponsorship" />;
 }

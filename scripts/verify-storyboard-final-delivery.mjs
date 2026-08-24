@@ -135,7 +135,7 @@ assert.ok(
 );
 assert.ok(
   panel.includes("const readySceneCount = reusableSceneIds.size") &&
-    !panel.includes("approvedSceneCount"),
+    panel.includes("approvedSceneCount: readySceneCount"),
   "Progress and merge controls must count only approved scenes with a playable clip and URL.",
 );
 assert.ok(
@@ -150,21 +150,48 @@ assert.ok(
   "Automation must surface unavailable job tracking and cap provider recovery retries instead of spinning forever.",
 );
 assert.ok(
+  panel.includes("if (jobSubscriptionError) {") &&
+    !panel.includes("failAutomation(runId, jobSubscriptionError)"),
+  "A transient Firestore listener failure must pause observation without falsely failing the durable render.",
+);
+assert.ok(
   panel.includes("useStoryboardVideoJobs(relevantJobIds") &&
-    videoJobsHook.includes("doc(db, VIDEO_STUDIO_JOBS_COLLECTION, jobId)") &&
+    videoJobsHook.includes("where(documentId(), 'in', batchJobIds)") &&
+    videoJobsHook.includes("JOB_QUERY_BATCH_SIZE = 30") &&
+    videoJobsHook.includes("let reconnectRequested = false") &&
     !videoJobsHook.includes("where('userId'"),
-  "The production panel must observe only jobs referenced by the active storyboard, not the entire user job history.",
+  "The production panel must batch-observe only jobs referenced by the active storyboard and deduplicate reconnect triggers.",
 );
 assert.ok(
   journeyComponent.includes('data-testid="storyboard-production-journey"') &&
     journeyModel.includes("buildStoryboardProductionJourney") &&
-    journeyModel.includes("검수·다운로드") &&
+    journeyModel.includes("이미지 장면 설계") &&
+    journeyModel.includes("이미지 생성") &&
+    journeyModel.includes("동영상 장면 설계") &&
+    journeyModel.includes("동영상 생성") &&
+    journeyModel.includes("최종 완성본") &&
     panel.includes("handleJourneyPrimaryAction"),
-  "The first viewport must expose one guided path from preparation through final download.",
+  "The first viewport must expose one guided path from image production through final download.",
 );
 assert.ok(
-  /품질·비용·세부\s*준비/.test(panel) && !panel.includes("<AutomationFlow"),
+  /고급\s*설정·비용·기술 정보/.test(panel) &&
+    !panel.includes("<AutomationFlow"),
   "Advanced setup must use progressive disclosure without duplicating the production-step UI.",
+);
+assert.ok(
+  journeyComponent.includes("model.completionChecks.map") &&
+    journeyComponent.includes("onSelectStep") &&
+    panel.includes("focusVideoScene") &&
+    finalDelivery.includes('id="storyboard-final-delivery"'),
+  "Incomplete completion conditions and stages must navigate directly to the relevant scene or final delivery.",
+);
+assert.ok(
+  sceneEditor.includes("showApprovalAsPrimary") &&
+    sceneEditor.includes("!scene.video.errorMessage") &&
+    sceneEditor.includes("!showApprovalAsPrimary") &&
+    sceneEditor.includes("새 영상으로") &&
+    sceneEditor.includes("다시 제작 · 새 비용"),
+  "Each scene must expose one context-aware primary action while paid regeneration stays in additional actions.",
 );
 assert.ok(
   panel.includes("<StoryboardProductionJourney") &&

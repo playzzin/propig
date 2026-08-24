@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { IMAGE_STYLE_PRESET_INSTRUCTIONS } from '@/constants/imageStylePresets';
 import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
 import { recordOpenRouterUsage } from '@/lib/server/openrouter-usage';
+import { enforceUserRateLimit } from '@/lib/server/rate-limit';
 import { requireUserAuth } from '@/lib/server/user-auth';
 import { fetchExternalHttpUrl, normalizeExternalHttpUrl } from '@/lib/server/http-safety';
 import {
@@ -27,6 +28,7 @@ const GenerateImageRequestSchema = z.object({
         image: z.string().min(1),
     })).max(MAX_IMAGE_REFERENCE_REQUESTS).optional(),
     numberOfImages: z.number().int().min(1).max(4).optional(),
+    resourceMode: z.enum(['efficient', 'balanced', 'premium']).optional().default('premium'),
     provider: z.literal('openrouter').optional().default('openrouter'),
 });
 
@@ -57,7 +59,7 @@ type OpenRouterImageModel = {
 type SelectedOpenRouterImageModel = {
     id: string;
     supportedParameters: Set<string> | null;
-    selectionSource: 'discovered' | 'fallback';
+    selectionSource: 'configured' | 'efficient' | 'discovered' | 'fallback';
 };
 type ImageInfraHint = {
     reasonCode: 'api_key_expired' | 'billing_disabled' | 'permission_denied' | 'missing_api_key' | 'rate_limited' | 'request_timeout' | 'input_image_privacy' | 'invalid_request' | 'unknown';
@@ -68,6 +70,7 @@ const MAX_REFERENCE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_REFERENCE_IMAGE_BYTES = 16 * 1024 * 1024;
 const REFERENCE_IMAGE_TYPES = new Set(['image/avif', 'image/gif', 'image/jpeg', 'image/png', 'image/webp']);
 const AUTO_IMAGE_MODEL_FALLBACK = 'openai/gpt-image-1';
+const EFFICIENT_STORYBOARD_IMAGE_MODEL = 'openai/gpt-image-1-mini';
 const PREFERRED_AUTO_IMAGE_MODELS = [
     'openai/gpt-5-image',
     'openai/gpt-image-2',
@@ -159,19 +162,16 @@ function getReferenceImageInputs(payload: z.infer<typeof GenerateImageRequestSch
 }
 
 async function parseReferenceImages(payload: z.infer<typeof GenerateImageRequestSchema>): Promise<ParsedReferenceImageWithRole[]> {
-    const parsedImages: ParsedReferenceImageWithRole[] = [];
-    let totalBytes = 0;
-
-    for (const reference of getReferenceImageInputs(payload)) {
-        const image = await parseReferenceImage(reference.image);
-        if (!image) continue;
-        totalBytes += image.byteLength;
-        if (totalBytes > MAX_TOTAL_REFERENCE_IMAGE_BYTES) {
-            throw new Error('Combined reference images exceed the 16 MB limit.');
-        }
-        parsedImages.push({ ...image, role: reference.role });
+    const parsedImages = (await Promise.all(
+        getReferenceImageInputs(payload).map(async (reference) => {
+            const image = await parseReferenceImage(reference.image);
+            return image ? { ...image, role: reference.role } : null;
+        }),
+    )).filter((image): image is ParsedReferenceImageWithRole => image !== null);
+    const totalBytes = parsedImages.reduce((total, image) => total + image.byteLength, 0);
+    if (totalBytes > MAX_TOTAL_REFERENCE_IMAGE_BYTES) {
+        throw new Error('Combined reference images exceed the 16 MB limit.');
     }
-
     return parsedImages;
 }
 
@@ -262,11 +262,32 @@ async function selectOpenRouterImageModel(params: {
     apiKey: string;
     payload: z.infer<typeof GenerateImageRequestSchema>;
     referenceImages: ParsedReferenceImageWithRole[];
+    configuredModel: string;
 }): Promise<SelectedOpenRouterImageModel> {
     try {
         const models = await discoverOpenRouterImageModels(params.apiKey);
-        const selected = models
-            .filter((model) => supportsRequestedImageInput(model, params.payload, params.referenceImages))
+        const compatibleModels = models.filter(
+            (model) => supportsRequestedImageInput(model, params.payload, params.referenceImages),
+        );
+        const efficientModel = params.payload.resourceMode === 'efficient'
+            ? compatibleModels.find((model) => model.id === EFFICIENT_STORYBOARD_IMAGE_MODEL)
+            : null;
+        if (efficientModel) {
+            return {
+                id: efficientModel.id,
+                supportedParameters: new Set(Object.keys(efficientModel.supported_parameters || {})),
+                selectionSource: 'efficient',
+            };
+        }
+        const configuredModel = compatibleModels.find((model) => model.id === params.configuredModel);
+        if (configuredModel) {
+            return {
+                id: configuredModel.id,
+                supportedParameters: new Set(Object.keys(configuredModel.supported_parameters || {})),
+                selectionSource: 'configured',
+            };
+        }
+        const selected = compatibleModels
             .sort((left, right) => scoreImageModel(right, params.payload) - scoreImageModel(left, params.payload))[0];
         if (selected) {
             return {
@@ -280,7 +301,9 @@ async function selectOpenRouterImageModel(params: {
     }
 
     return {
-        id: AUTO_IMAGE_MODEL_FALLBACK,
+        id: params.payload.resourceMode === 'efficient'
+            ? EFFICIENT_STORYBOARD_IMAGE_MODEL
+            : params.configuredModel || AUTO_IMAGE_MODEL_FALLBACK,
         supportedParameters: null,
         selectionSource: 'fallback',
     };
@@ -334,7 +357,18 @@ function buildOpenRouterImageBody(params: {
     if (includePresentationOptions) {
         if (supports('output_format')) body.output_format = 'png';
         const resolution = inferResolution(params.payload.width, params.payload.height);
-        const aspectRatio = normalizeAspectRatio(params.payload);
+        const requestedAspectRatio = normalizeAspectRatio(params.payload);
+        const requestedRatioValue = requestedAspectRatio
+            ? requestedAspectRatio.split(':').map(Number)
+            : [];
+        const aspectRatio =
+            params.model === EFFICIENT_STORYBOARD_IMAGE_MODEL &&
+            requestedAspectRatio &&
+            !new Set(['1:1', '3:2', '2:3', 'auto']).has(requestedAspectRatio)
+                ? requestedRatioValue[0] >= requestedRatioValue[1]
+                    ? '3:2'
+                    : '2:3'
+                : requestedAspectRatio;
         if (aspectRatio && supports('aspect_ratio')) {
             body.aspect_ratio = aspectRatio;
         } else if (params.payload.width && params.payload.height && supports('size')) {
@@ -383,7 +417,7 @@ function canRetryWithoutPresentationOptions(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
     const status = (error as Partial<OpenRouterImageRequestError>).status;
     if (status !== 400 && status !== 422) return false;
-    return /(?:unsupported|unknown|invalid).{0,80}(?:parameter|size|aspect|format|resolution)|(?:size|aspect_ratio|output_format|resolution).{0,80}(?:unsupported|invalid|not allowed)/i.test(error.message);
+    return /(?:unsupported|not supported|unknown|invalid).{0,80}(?:parameter|size|aspect|format|resolution)|(?:size|aspect_ratio|output_format|resolution).{0,80}(?:unsupported|not supported|invalid|not allowed)/i.test(error.message);
 }
 
 async function generateImagesWithOpenRouter(params: {
@@ -424,6 +458,19 @@ export async function POST(req: NextRequest) {
         const parsed = GenerateImageRequestSchema.safeParse(await req.json());
         if (!parsed.success) return NextResponse.json({ success: false, error: 'Invalid request payload', issues: parsed.error.issues }, { status: 400 });
 
+        const rateLimit = await enforceUserRateLimit({
+            namespace: 'generate-image',
+            uid: auth.uid,
+            maxRequests: 12,
+            windowMs: 60_000,
+        });
+        if (!rateLimit.allowed) {
+            return NextResponse.json(
+                { success: false, reasonCode: 'rate_limited', error: `${rateLimit.retryAfterSeconds}초 후 다시 시도해 주세요.` },
+                { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+            );
+        }
+
         const runtime = await getAIRuntimeConfig();
         if (!runtime.openRouterApiKey) {
             return NextResponse.json({
@@ -441,6 +488,7 @@ export async function POST(req: NextRequest) {
             apiKey: runtime.openRouterApiKey,
             payload,
             referenceImages,
+            configuredModel: runtime.imageModel,
         });
         const generated = await generateImagesWithOpenRouter({
             apiKey: runtime.openRouterApiKey,

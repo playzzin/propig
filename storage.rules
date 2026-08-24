@@ -18,13 +18,40 @@ service firebase.storage {
       );
     }
 
+    function isStoryboardReferencePath(fileName) {
+      return fileName.matches('storyboards/[^/]+/references/.*');
+    }
+
+    function isValidStoryboardReferenceUpload() {
+      return request.resource.size <= 8 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(avif|gif|jpeg|png|webp)');
+    }
+
+    function isEmoticonStudioPath(fileName) {
+      return fileName.matches('emoticon-studio/.*');
+    }
+
     match /images/albums/{albumId}/{fileName=**} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
+    match /users/{userId}/emoticon-studio/sources/{fileName} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
+    match /users/{userId}/emoticon-studio/jobs/{fileName=**} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
     match /users/{userId}/{fileName=**} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if (isOwner(userId) || isAdmin()) &&
+        !isEmoticonStudioPath(fileName) &&
+        (!isStoryboardReferencePath(fileName) || isValidStoryboardReferenceUpload());
+      allow delete: if (isOwner(userId) || isAdmin()) && !isEmoticonStudioPath(fileName);
     }
 
     match /drive/{userId}/{fileName=**} {
@@ -40,9 +67,15 @@ service firebase.storage {
       allow read, write: if isOwner(userId) || isAdmin();
     }
 
+    match /video_studio/{userId}/{projectId}/{fileName=**} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
     match /{fileName=**} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read: if !fileName.matches('(users|drive|ai_generations|video_studio)/.*');
+      allow write: if isAdmin() &&
+        !fileName.matches('(users/[^/]+/emoticon-studio|video_studio)/.*');
     }
   }
 }

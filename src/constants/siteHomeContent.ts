@@ -80,7 +80,10 @@ export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
   ],
 };
 
-const corpProjectLinks = CORP_PAGE_DEFINITIONS.filter((page) => page.category !== '회사소개').slice(0, 6);
+const corpProjectLinks = CORP_PAGE_DEFINITIONS
+  .filter((page) => page.category !== '회사소개')
+  .filter((page) => page.category !== '제휴하기' || page.path === '/corp/partnership/business')
+  .slice(0, 6);
 
 export const CORP_HOME_CONTENT: SiteHomePageProps = {
   eyebrow: 'CORPORATE SITE',

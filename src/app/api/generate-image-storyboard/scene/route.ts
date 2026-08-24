@@ -6,23 +6,10 @@ import {
     ImageStoryboardSceneRedesignRequestSchema,
 } from '@/schemas/imageStoryboard';
 import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
+import { parseStoryboardJsonObject } from '@/lib/server/storyboard-json';
 import { runManagedTextChat, runManagedVisionChat, type ManagedVisionMessage } from '@/lib/server/managed-text-provider';
 import { enforceUserRateLimit } from '@/lib/server/rate-limit';
 import { requireUserAuth } from '@/lib/server/user-auth';
-
-function extractJsonObjectText(text: string): string {
-    const cleaned = text
-        .trim()
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-    const objectStart = cleaned.indexOf('{');
-    const objectEnd = cleaned.lastIndexOf('}');
-    if (objectStart < 0 || objectEnd <= objectStart) {
-        throw new Error('AI response does not contain a complete JSON object.');
-    }
-    return cleaned.slice(objectStart, objectEnd + 1);
-}
 
 function sceneContext(scene: z.infer<typeof ImageStoryboardSceneRedesignRequestSchema>['scene'] | undefined) {
     if (!scene) return null;
@@ -73,6 +60,7 @@ function buildMessages(
         'Write user-facing fields in Korean. imagePrompt and negativePrompt must be English.',
         'imagePrompt must be a detailed single image-generation prompt with subject, action, foreground/midground/background, composition or lens, lighting, material cues, and finish.',
         'negativePrompt must be compact English comma-separated exclusions.',
+        'dialogueOrCaption must contain only the exact spoken words, without speaker labels, action descriptions, quotation marks, narration, subtitles, or camera directions. Use an empty string when nobody speaks.',
         'Return exactly one valid JSON object without markdown or commentary using this shape:',
         '{"title":"string","duration":"string","narrativeBeat":"string","shotSize":"string","cameraDirection":"string","dialogueOrCaption":"string","visualPrompt":"string","imagePrompt":"string","continuityAnchor":"string","transition":"string","negativePrompt":"string"}',
     ].join('\n');
@@ -97,7 +85,7 @@ function buildMessages(
 
 function parseScene(content: string) {
     try {
-        const raw = JSON.parse(extractJsonObjectText(content)) as unknown;
+        const raw = parseStoryboardJsonObject(content);
         const parsed = ImageStoryboardPlanSceneSchema.safeParse(raw);
         return parsed.success ? parsed.data : null;
     } catch {

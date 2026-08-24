@@ -15,6 +15,7 @@ export interface GenerateImageParams {
     width?: number;
     height?: number;
     stylePreset?: string;
+    resourceMode?: 'efficient' | 'premium';
     image?: string; // Base64 encoded image for Image-to-Image
     referenceImages?: ImageReferenceInput[];
     provider?: 'openrouter';
@@ -247,6 +248,11 @@ export interface SaveHistoryParams {
     prompt: string;
     negativePrompt?: string;
     provider: 'openrouter';
+    artifactProvenance?: {
+        kind: 'storyboard-scene';
+        storyboardId: string;
+        sceneId: string | null;
+    } | null;
 }
 
 export const saveGenerationHistory = async (params: SaveHistoryParams) => {
@@ -268,10 +274,12 @@ export const saveGenerationHistory = async (params: SaveHistoryParams) => {
             negativePrompt: params.type === 'image' ? (params.negativePrompt ?? null) : null,
             type: params.type,
             provider: params.provider,
+            storagePath: fileName,
+            artifactProvenance: params.artifactProvenance ?? null,
             createdAt: serverTimestamp(),
         });
 
-        return { downloadUrl, historyId: docRef.id };
+        return { downloadUrl, historyId: docRef.id, storagePath: fileName };
     } catch (error) {
         console.error('Failed to save generation history:', error);
         throw error;

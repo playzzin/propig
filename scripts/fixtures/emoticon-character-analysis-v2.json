@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "analysisRevision": 2,
+  "summary": "둥근 얼굴과 짧은 갈색 묶음머리, 크림색 블라우스와 남색 주름치마가 핵심인 2.5등신 캐릭터",
+  "attributes": {
+    "face": "둥근 턱선과 작은 코, 옅은 볼 홍조",
+    "eyes": "크고 둥근 짙은 갈색 눈과 짧은 속눈썹",
+    "hair": "짙은 갈색 옆가르마와 낮게 묶은 짧은 포니테일",
+    "bodyShape": "머리가 크고 몸통과 팔다리가 짧은 2.5등신 체형",
+    "outfit": "크림색 긴팔 블라우스와 남색 체크 주름치마, 검은 단화",
+    "accessories": [],
+    "distinctiveFeatures": ["왼쪽으로 흐르는 옆머리", "낮은 포니테일", "남색 주름치마"],
+    "palette": ["#3B241B", "#FFF1D6", "#17395F", "#F6B38B"],
+    "lineArt": "짙은 갈색의 매끄럽고 일정한 외곽선",
+    "shading": "부드러운 셀 채색과 최소한의 2단계 명암",
+    "proportions": "머리 40%, 몸통 25%, 다리 35%의 2.5등신 비율",
+    "limbStructure": "둥근 관절과 짧고 단순화된 팔·다리"
+  },
+  "immutableLock": ["둥근 얼굴", "짧은 갈색 포니테일", "크림색 블라우스", "남색 주름치마"],
+  "styleLock": ["2.5등신", "짙은 갈색 외곽선", "부드러운 셀 채색"],
+  "negativeLock": ["머리색 변경", "의상 교체", "사실적 신체 비율", "추가 팔다리", "배경 잔여물"],
+  "motionTraits": {
+    "hair": "달릴 때 포니테일과 옆머리 끝이 진행 방향 반대로 흔들림",
+    "clothing": "치마 주름과 블라우스 소매 끝이 가볍게 후행",
+    "groundAnchor": "각 프레임의 지지발 밑창이 동일한 바닥선에 닿음",
+    "centerAnchor": "골반과 가슴 사이 몸통 중심이 이동 궤적의 기준",
+    "articulatedParts": ["포니테일", "앞머리", "팔꿈치", "무릎", "치마 주름"]
+  },
+  "imageQuality": {
+    "score": 92,
+    "resolution": "512×512로 분석과 생성 참조에 충분함",
+    "backgroundIsolation": "흰 배경과 캐릭터 경계가 선명함",
+    "cropping": "머리부터 발끝까지 잘림 없이 포함됨",
+    "issues": [],
+    "usableForGeneration": true
+  },
+  "confidenceNotes": ["치마의 정확한 체크 간격은 추가 참조가 있으면 더 안정적임"],
+  "confirmationRequired": ["치마 체크무늬를 모든 프레임에서 유지할지 확인"],
+  "referenceCount": 1
+}

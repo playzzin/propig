@@ -3,9 +3,13 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {
+  EMOTICON_PREMIUM_MOTION_TARGET,
+  getEmoticonPremiumMotionDeficits,
   getEmoticonActionTemplate,
   meetsEmoticonMotionAcceptance,
+  meetsEmoticonPremiumMotionTarget,
   meetsEmoticonPoseAcceptance,
+  scoreEmoticonMotionQuality,
 } = require('../functions/lib/emoticonStudio/qualityStandards.js');
 const { scoreImageModelForEmoticons } = require('../functions/lib/emoticonStudio/imageGeneration.js');
 
@@ -30,6 +34,7 @@ assert.equal(getEmoticonActionTemplate(planFor('윙크')).id, 'expression');
 const cleanPose = {
   overall: 90,
   identity: 90,
+  allReferencesConsistent: true,
   actionClarity: 90,
   styleConsistency: 90,
   backgroundClean: 95,
@@ -39,7 +44,18 @@ const cleanPose = {
   correction: '',
 };
 assert.equal(meetsEmoticonPoseAcceptance(cleanPose), true);
+assert.equal(meetsEmoticonPoseAcceptance({ ...cleanPose, allReferencesConsistent: false }), true);
+assert.equal(meetsEmoticonPoseAcceptance({
+  ...cleanPose,
+  allReferencesConsistent: false,
+  identity: 79,
+}), false);
 assert.equal(meetsEmoticonPoseAcceptance({ ...cleanPose, backgroundClean: 60 }), false);
+assert.equal(
+  meetsEmoticonPoseAcceptance({ ...cleanPose, actionClarity: 40 }),
+  false,
+  'A clean static pose that misses the requested action or emotion must fail subject-fidelity acceptance.',
+);
 assert.equal(meetsEmoticonPoseAcceptance({ ...cleanPose, singleCharacter: false }), false);
 assert.equal(meetsEmoticonPoseAcceptance({ ...cleanPose, occlusionFree: 60 }), false);
 
@@ -53,9 +69,36 @@ const cleanMotion = {
   problemFrameIndices: [],
 };
 assert.equal(meetsEmoticonMotionAcceptance(cleanMotion), true);
+assert.equal(meetsEmoticonMotionAcceptance({ ...cleanMotion, allReferencesConsistent: false }), true);
+assert.equal(meetsEmoticonMotionAcceptance({
+  ...cleanMotion,
+  allReferencesConsistent: false,
+  identity: 79,
+}), false);
 assert.equal(meetsEmoticonMotionAcceptance({ ...cleanMotion, cameraOnly: true }), false);
 assert.equal(meetsEmoticonMotionAcceptance({ ...cleanMotion, backgroundClean: 70 }), false);
 assert.equal(meetsEmoticonMotionAcceptance({ ...cleanMotion, occlusionFree: 70 }), false);
+
+const premiumMotion = {
+  ...cleanMotion,
+  overall: 98,
+  identity: 98,
+  actionClarity: 98,
+  styleConsistency: 98,
+  limbPoseChange: 96,
+  facialExpressionChange: 96,
+  frameConsistency: 98,
+  loopContinuity: 96,
+  backgroundClean: 100,
+  occlusionFree: 100,
+};
+assert.equal(EMOTICON_PREMIUM_MOTION_TARGET, 95);
+assert.ok(scoreEmoticonMotionQuality(premiumMotion) >= EMOTICON_PREMIUM_MOTION_TARGET);
+assert.equal(meetsEmoticonPremiumMotionTarget(premiumMotion), true);
+assert.equal(meetsEmoticonPremiumMotionTarget(cleanMotion), false);
+assert.ok(getEmoticonPremiumMotionDeficits(cleanMotion).includes('frame-to-frame eye, eyebrow, and mouth changes'));
+assert.ok(scoreEmoticonMotionQuality({ ...premiumMotion, singleCharacter: false }) <= 49);
+assert.ok(scoreEmoticonMotionQuality({ ...premiumMotion, cameraOnly: true }) <= 59);
 
 const fullCapabilityModel = {
   id: 'openai/gpt-image-1',

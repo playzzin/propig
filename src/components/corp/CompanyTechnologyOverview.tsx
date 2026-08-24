@@ -233,27 +233,27 @@ const technologyTabs: readonly TechnologyTab[] = [
 
 const technologyVisuals: Record<string, TechnologyVisual> = {
   web: {
-    src: '/images/corp/technology/web-app-stack.png',
+    src: '/images/corp/technology/web-app-stack.webp',
     alt: 'AI 웹 애플리케이션 기술 구조를 표현한 추상 일러스트',
     stack: ['Next.js', 'React 19', 'TypeScript', 'Firebase'],
   },
   automation: {
-    src: '/images/corp/technology/automation-stack.png',
+    src: '/images/corp/technology/automation-stack.webp',
     alt: 'AI 업무 자동화 흐름을 표현한 추상 일러스트',
     stack: ['OpenRouter', 'Firebase Functions', 'React Query', 'Zod'],
   },
   video: {
-    src: '/images/corp/technology/video-stack.png',
+    src: '/images/corp/technology/video-stack.webp',
     alt: 'AI 영상 제작과 렌더링 파이프라인을 표현한 추상 일러스트',
     stack: ['Remotion', 'FFmpeg', 'React', 'Firebase Storage'],
   },
   reseller: {
-    src: '/images/corp/technology/reseller-partner-stack.png',
+    src: '/images/corp/technology/reseller-partner-stack.webp',
     alt: '리셀러 파트너 네트워크와 공동 영업 흐름을 표현한 추상 일러스트',
     stack: ['Partner Portal', 'CRM', 'Quote', 'Analytics'],
   },
   secure: {
-    src: '/images/corp/technology/secure-stack.png',
+    src: '/images/corp/technology/secure-stack.webp',
     alt: '보안 AI 기술의 권한과 감사 흐름을 표현한 추상 일러스트',
     stack: ['Firebase Auth', 'Firestore Rules', 'Firebase Admin', 'Sentry'],
   },

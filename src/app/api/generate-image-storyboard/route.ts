@@ -6,6 +6,7 @@ import {
     ImageStoryboardPlanSchema,
 } from '@/schemas/imageStoryboard';
 import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
+import { parseStoryboardJsonObject } from '@/lib/server/storyboard-json';
 import { runManagedTextChat, runManagedVisionChat, type ManagedVisionMessage } from '@/lib/server/managed-text-provider';
 import { enforceUserRateLimit } from '@/lib/server/rate-limit';
 import { requireUserAuth } from '@/lib/server/user-auth';
@@ -16,22 +17,6 @@ const FORMAT_DIRECTION = {
     'social-short': '숏폼: 첫 장면에서 즉시 시선을 붙잡고, 장면마다 시각적 변화가 분명하며 세로 화면에서도 주제가 잘 읽히게 설계하세요.',
     editorial: '에디토리얼: 정보의 우선순위가 보이는 정제된 비주얼 스토리와 균형 잡힌 구도를 설계하세요.',
 } as const;
-
-function extractJsonObjectText(text: string): string {
-    const cleaned = text
-        .trim()
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-    const objectStart = cleaned.indexOf('{');
-    const objectEnd = cleaned.lastIndexOf('}');
-
-    if (objectStart < 0 || objectEnd <= objectStart) {
-        throw new Error('AI response does not contain a complete JSON object.');
-    }
-
-    return cleaned.slice(objectStart, objectEnd + 1);
-}
 
 function buildSystemPrompt(input: z.infer<typeof ImageStoryboardPlanRequestSchema>): string {
     return [
@@ -53,7 +38,7 @@ function buildSystemPrompt(input: z.infer<typeof ImageStoryboardPlanRequestSchem
         'negativePrompt is a compact English comma-separated exclusion list. Exclude artifacts, unwanted people/objects, and readable text unless the topic explicitly needs it.',
         'Keep the plan concise enough for the requested JSON contract: imagePrompt must be 120-900 English characters, visualPrompt under 700 Korean characters, and negativePrompt under 300 English characters.',
         'Write every user-facing value in Korean except imagePrompt and negativePrompt, which must be English.',
-        'For dialogueOrCaption, provide only off-image context. Never ask the image model to render Korean text, UI, logos, or subtitles unless the topic explicitly requires it.',
+        'dialogueOrCaption must contain only the exact words a visible character will speak. Do not include speaker labels, action descriptions, quotation marks, narration, subtitles, or camera directions. Use an empty string when nobody speaks.',
         'Return exactly one valid JSON object with no markdown, code fence, or explanation.',
         'Use this exact shape:',
         '{"title":"string","logline":"string","audience":"string","artDirection":"string","characterContinuity":"string","settingContinuity":"string","colorAndLighting":"string","scenes":[{"title":"string","duration":"string","narrativeBeat":"string","shotSize":"string","cameraDirection":"string","dialogueOrCaption":"string","visualPrompt":"string","imagePrompt":"string","continuityAnchor":"string","transition":"string","negativePrompt":"string"}]}',
@@ -102,7 +87,7 @@ function buildPlannerMessages(
 
 function parseStoryboardPlan(content: string) {
     try {
-        const raw = JSON.parse(extractJsonObjectText(content)) as unknown;
+        const raw = parseStoryboardJsonObject(content);
         const parsed = ImageStoryboardPlanSchema.safeParse(raw);
         return parsed.success ? parsed.data : null;
     } catch {

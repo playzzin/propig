@@ -120,9 +120,10 @@ export default function PropigMemosPage() {
               onClick={() => setIsManageOpen((prev) => !prev)}
               aria-expanded={isManageOpen}
               aria-controls="memo-default-management"
+              aria-label="메모 보기 설정"
             >
               <i className="fa-solid fa-sliders" aria-hidden="true" />
-              <span>관리</span>
+              <span>보기 설정</span>
             </ManageButton>
           </MemoToolbar>
 
@@ -254,6 +255,11 @@ const ModeButton = styled.button<{ $active?: boolean }>`
   &:hover {
     color: var(--text-main);
     background: rgba(255, 255, 255, 0.055);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-light);
+    outline-offset: 2px;
   }
 
   body[data-propig-design='codeit'] & {

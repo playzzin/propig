@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { STORYBOARD_VIDEO_AUDIO_MODES } from '@/lib/storyboard-video-audio';
+
+const VIDEO_STUDIO_AUDIO_MODES = ['silent', 'ambient', 'dialogue'] as const;
+export const VIDEO_STUDIO_MAX_REPEAT_COUNT = 12;
+export const VIDEO_STUDIO_MAX_MERGE_CLIPS = 48;
+
+const VideoStudioIdSchema = z.string().trim().min(1).max(240);
+const VideoStudioPromptSchema = z.string().trim().max(12_000);
+const VideoStudioNotesSchema = z.string().trim().max(4_000);
 
 export const VideoStudioJobOperationSchema = z.enum([
     'generate',
@@ -22,7 +29,7 @@ const MergeClipEditSchema = z.preprocess((value) => {
         ? { ...edit, transitionStyle: 'crossfade' }
         : value;
 }, z.object({
-    clipId: z.string().min(1),
+    clipId: VideoStudioIdSchema,
     trimStartSeconds: z.number().min(0).max(60).optional(),
     trimEndSeconds: z.number().min(0).max(60).optional(),
     playbackRate: z.number().min(0.5).max(2).optional(),
@@ -33,23 +40,24 @@ const MergeClipEditSchema = z.preprocess((value) => {
 
 export const VideoStudioJobRequestSchema = z.object({
     operation: VideoStudioJobOperationSchema,
-    projectId: z.string().min(1),
-    clipTitle: z.string().optional(),
-    prompt: z.string().optional(),
+    projectId: VideoStudioIdSchema,
+    clipTitle: z.string().trim().max(240).optional(),
+    prompt: VideoStudioPromptSchema.optional(),
     duration: z.number().int().min(1).max(15).optional(),
-    repeatCount: z.number().int().min(1).max(12).optional(),
+    authorizedCostUsd: z.number().positive().max(100).optional(),
+    repeatCount: z.number().int().min(1).max(VIDEO_STUDIO_MAX_REPEAT_COUNT).optional(),
     autoMergeAfterLoop: z.boolean().optional(),
-    referenceImage: z.string().optional(),
-    endReferenceImage: z.string().optional(),
+    referenceImage: VideoReferenceImageSchema.optional(),
+    endReferenceImage: VideoReferenceImageSchema.optional(),
     visualReferenceImages: z.array(VideoReferenceImageSchema).max(2).optional(),
     visualInputMode: z.enum(['standard', 'text-only']).optional(),
-    continuityNotes: z.string().optional(),
-    cameraNotes: z.string().optional(),
-    subjectLock: z.string().optional(),
-    sourceClipId: z.string().optional(),
-    mergeClipIds: z.array(z.string()).optional(),
-    mergeClipEdits: z.array(MergeClipEditSchema).max(12).optional(),
-    backgroundMusicUrl: z.string().url().refine((value) => {
+    continuityNotes: VideoStudioNotesSchema.optional(),
+    cameraNotes: VideoStudioNotesSchema.optional(),
+    subjectLock: VideoStudioNotesSchema.optional(),
+    sourceClipId: VideoStudioIdSchema.optional(),
+    mergeClipIds: z.array(VideoStudioIdSchema).max(VIDEO_STUDIO_MAX_MERGE_CLIPS).optional(),
+    mergeClipEdits: z.array(MergeClipEditSchema).max(VIDEO_STUDIO_MAX_MERGE_CLIPS).optional(),
+    backgroundMusicUrl: z.string().trim().max(2_048).url().refine((value) => {
         try {
             const hostname = new URL(value).hostname.toLowerCase();
             return value.startsWith('https://')
@@ -64,9 +72,76 @@ export const VideoStudioJobRequestSchema = z.object({
     audioCrossfadeSeconds: z.number().min(0).max(2).optional(),
     qualityMode: z.enum(['proof', 'final']).optional(),
     generateAudio: z.boolean().optional(),
-    audioMode: z.enum(STORYBOARD_VIDEO_AUDIO_MODES).optional(),
+    audioMode: z.enum(VIDEO_STUDIO_AUDIO_MODES).optional(),
     dialogue: z.string().trim().max(240).optional(),
 }).superRefine((value, context) => {
+    if (['generate', 'extend', 'continue', 'edit'].includes(value.operation) && !value.prompt?.trim()) {
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['prompt'],
+            message: `A prompt is required for "${value.operation}".`,
+        });
+    }
+
+    if (['extend', 'continue', 'edit', 'extract-frame'].includes(value.operation) && !value.sourceClipId) {
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['sourceClipId'],
+            message: `sourceClipId is required for "${value.operation}".`,
+        });
+    }
+
+    if (value.operation === 'merge' && !value.mergeClipIds?.length) {
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['mergeClipIds'],
+            message: 'At least one merge clip is required for "merge".',
+        });
+    }
+
+    if (value.mergeClipIds) {
+        const seenClipIds = new Set<string>();
+        value.mergeClipIds.forEach((clipId, index) => {
+            if (seenClipIds.has(clipId)) {
+                context.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['mergeClipIds', index],
+                    message: 'Merge clip ids must be unique.',
+                });
+            }
+            seenClipIds.add(clipId);
+        });
+    }
+
+    if (value.mergeClipEdits?.length) {
+        if (value.operation !== 'merge') {
+            context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['mergeClipEdits'],
+                message: 'Merge clip edits are only valid for "merge".',
+            });
+        }
+        const mergeClipIds = new Set(value.mergeClipIds || []);
+        const editedClipIds = new Set<string>();
+        value.mergeClipEdits.forEach((edit, index) => {
+            if (!mergeClipIds.has(edit.clipId)) {
+                context.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['mergeClipEdits', index, 'clipId'],
+                    message: 'Every merge clip edit must reference a selected merge clip.',
+                });
+            }
+            if (editedClipIds.has(edit.clipId)) {
+                context.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['mergeClipEdits', index, 'clipId'],
+                    message: 'Each merge clip can have only one edit.',
+                });
+            }
+            editedClipIds.add(edit.clipId);
+        });
+    }
+
     if (value.audioMode === 'dialogue' && !value.dialogue?.trim()) {
         context.addIssue({
             code: z.ZodIssueCode.custom,
