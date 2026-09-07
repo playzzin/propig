@@ -1,6 +1,5 @@
 import * as admin from 'firebase-admin';
 import { db, isRecord } from './hostingCommon';
-import { resolveEmoticonStudioImageProviderName } from '../emoticonStudio/imageGenerationProvider';
 
 export type ManagedApiPage = {
     id: string;
@@ -17,11 +16,11 @@ export type ManagedApiPage = {
 
 export const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4.1-mini';
 export const DEFAULT_OPENROUTER_IMAGE_MODEL = 'openai/gpt-image-1';
-const EMOTICON_STUDIO_MOCK_RUNTIME_API_KEY = 'emoticon-studio-mock-provider';
 const RETIRED_MANAGED_PAGE_TARGETS = new Set([
     'mandalart-generate',
     '/mandalart',
     '/api/generate-mandalart',
+    '/admin/image-generator',
 ]);
 
 export const BUILT_IN_MANAGED_PAGES: ManagedApiPage[] = [
@@ -62,8 +61,8 @@ export const BUILT_IN_MANAGED_PAGES: ManagedApiPage[] = [
     },
     {
         id: 'image-generate',
-        name: 'AI 이미지 생성기',
-        pagePath: '/admin/image-generator',
+        name: '스토리보드 이미지 생성',
+        pagePath: '/admin/storyboard',
         apiPath: '/api/generate-image',
         method: 'POST',
         enabled: true,
@@ -171,17 +170,9 @@ export async function getHostingAiRuntime(): Promise<HostingAiRuntime> {
         ? stored.updatedAt.toDate().toISOString()
         : null;
     const configuredApiKey = (process.env.OPENROUTER_API_KEY || '').trim();
-    // The job trigger still carries one runtime credential field. A local
-    // sentinel lets it enter the server-only mock provider without requiring a
-    // paid credential; runOpenRouterText rejects the sentinel before fetch.
-    const runtimeApiKey = configuredApiKey || (
-        resolveEmoticonStudioImageProviderName() === 'mock'
-            ? EMOTICON_STUDIO_MOCK_RUNTIME_API_KEY
-            : ''
-    );
     return {
         source: snapshot.exists ? 'firebase-functions-secret+firestore' : 'firebase-functions-secret',
-        openRouterApiKey: runtimeApiKey,
+        openRouterApiKey: configuredApiKey,
         model,
         imageModel,
         fallbackModels,
@@ -208,10 +199,7 @@ export async function runOpenRouterText(input: {
     responseFormat?: 'json_object';
 }) {
     const runtime = await getHostingAiRuntime();
-    if (
-        !runtime.openRouterApiKey
-        || runtime.openRouterApiKey === EMOTICON_STUDIO_MOCK_RUNTIME_API_KEY
-    ) {
+    if (!runtime.openRouterApiKey) {
         throw new Error('OPENROUTER_API_KEY is not configured.');
     }
     const model = input.model || runtime.model;

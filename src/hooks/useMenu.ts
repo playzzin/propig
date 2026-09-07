@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { MenuItem, Role, Position, SiteDataType } from '@/types/menu';
 import { menuService } from '@/services/menuService';
@@ -33,22 +33,22 @@ export function useMenu({ siteId, userRole, position, permissions, menuAccess }:
   const [error, setError] = useState<Error | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
+  // Live snapshots received during bootstrap are newer than its one-shot response.
+  const liveSites = useRef(new Set<string>());
   useEffect(() => {
     let disposed = false;
-    const cachedSites = menuService.getCachedSites();
-
-    if (cachedSites) {
-      setSiteData(cachedSites);
-    } else {
-      setSiteData(menuService.getDefaultSites());
-    }
-    setIsLoading(false);
     
     const loadData = async () => {
       try {
         const data = await menuService.loadAllSites();
         if (disposed) return;
-        setSiteData(data);
+        setSiteData((prev) => {
+          const merged = { ...data };
+          liveSites.current.forEach((id) => {
+            if (prev[id]) merged[id] = prev[id];
+          });
+          return merged;
+        });
         setError(null);
       } catch (err) {
         if (disposed) return;
@@ -60,9 +60,15 @@ export function useMenu({ siteId, userRole, position, permissions, menuAccess }:
     };
 
     void loadData();
+    return () => { disposed = true; };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
 
     const unsubscribe = menuService.subscribeToMenuChanges(siteId, (data) => {
       if (disposed) return;
+      liveSites.current.add(siteId);
       setSiteData((prev) => ({
         ...prev,
         [siteId]: data,

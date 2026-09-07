@@ -50,7 +50,7 @@ const nextConfig: NextConfig = {
   compiler: {
     styledComponents: true,
   },
-  serverExternalPackages: ['@remotion/renderer', 'ffmpeg-static', 'firebase-admin'],
+  serverExternalPackages: ['ffmpeg-static', 'firebase-admin'],
 };
 
 export default shouldSkipSentry ? nextConfig : withSentryConfig(nextConfig, {

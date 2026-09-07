@@ -240,21 +240,21 @@ const coreModules: ModuleItem[] = [
     icon: Sparkles,
   },
   {
-    title: 'AI 이미지 생성',
-    summary: '업무와 홍보에 필요한 이미지를 생성하고 자산화합니다.',
-    href: '/admin/image-generator',
-    status: 'AI',
-    domain: 'ai',
-    tone: 'amber',
-    icon: WandSparkles,
-  },
-  {
     title: 'AI 비디오 스튜디오',
     summary: '영상 생성 작업, 클립, 프로젝트 타임라인을 운영 단위로 관리합니다.',
     href: '/admin/video-studio',
     status: 'AI 영상',
     domain: 'ai',
     tone: 'teal',
+    icon: WandSparkles,
+  },
+  {
+    title: 'AI 스토리보드',
+    summary: '장면 구상부터 이미지·영상 제작 흐름까지 하나의 보드에서 관리합니다.',
+    href: '/admin/storyboard',
+    status: 'AI 제작',
+    domain: 'ai',
+    tone: 'blue',
     icon: WandSparkles,
   },
 ];
@@ -1380,6 +1380,11 @@ export default function ErpHomePage() {
               />
             ))}
           </ModuleGrid>
+          {filteredFocusModules.length === 0 ? (
+            <ActivityState role="status" data-erp-empty-domain="true">
+              이 도메인에서 현재 열 수 있는 모듈이 없습니다. 위 필터에서 항목이 있는 도메인을 선택해 주세요.
+            </ActivityState>
+          ) : null}
         </Section>
 
         <SideStack>

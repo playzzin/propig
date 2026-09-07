@@ -27,8 +27,14 @@ service firebase.storage {
         request.resource.contentType.matches('image/(avif|gif|jpeg|png|webp)');
     }
 
-    function isEmoticonStudioPath(fileName) {
+    // Retired app assets remain inaccessible to browser clients until their
+    // legacy objects are removed with the Admin SDK.
+    function isRetiredUserProgramPath(fileName) {
       return fileName.matches('emoticon-studio/.*');
+    }
+
+    function isRetiredStoragePath(fileName) {
+      return fileName.matches('users/[^/]+/emoticon-studio/.*');
     }
 
     match /images/albums/{albumId}/{fileName=**} {
@@ -36,22 +42,18 @@ service firebase.storage {
       allow write: if isAdmin();
     }
 
-    match /users/{userId}/emoticon-studio/sources/{fileName} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if false;
-    }
-
-    match /users/{userId}/emoticon-studio/jobs/{fileName=**} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if false;
+    // Public corporate assets can be refreshed through the browser SDK.
+    match /corp/{fileName=**} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /users/{userId}/{fileName=**} {
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if (isOwner(userId) || isAdmin()) && !isRetiredUserProgramPath(fileName);
       allow create, update: if (isOwner(userId) || isAdmin()) &&
-        !isEmoticonStudioPath(fileName) &&
+        !isRetiredUserProgramPath(fileName) &&
         (!isStoryboardReferencePath(fileName) || isValidStoryboardReferenceUpload());
-      allow delete: if (isOwner(userId) || isAdmin()) && !isEmoticonStudioPath(fileName);
+      allow delete: if (isOwner(userId) || isAdmin()) && !isRetiredUserProgramPath(fileName);
     }
 
     match /drive/{userId}/{fileName=**} {
@@ -73,9 +75,13 @@ service firebase.storage {
     }
 
     match /{fileName=**} {
-      allow read: if !fileName.matches('(users|drive|ai_generations|video_studio)/.*');
-      allow write: if isAdmin() &&
-        !fileName.matches('(users/[^/]+/emoticon-studio|video_studio)/.*');
+      // Undeclared namespaces never become public by omission. The
+      // authenticated admin storage browser keeps bounded legacy management.
+      allow read: if false;
+      allow create, update: if isAdmin() &&
+        !isRetiredStoragePath(fileName) &&
+        request.resource.size <= 100 * 1024 * 1024;
+      allow delete: if isAdmin() && !isRetiredStoragePath(fileName);
     }
   }
 }

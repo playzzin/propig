@@ -10,8 +10,7 @@ import {
     type PropigStoreAppId,
 } from '@/constants/propigStore';
 import { isCompanyMenuRoute } from '@/constants/companyMenu';
-import { DEFAULT_SITE_HOME_MENU_ITEMS } from '@/constants/siteHome';
-import { MENU_PAGE_OPTIONS } from '@/constants/menuPages';
+import { DEFAULT_SITE_HOME_MENU_ITEMS, getSiteHomePath } from '@/constants/siteHome';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { useSystem } from '@/contexts/SystemContext';
 import { useBrandImageFallback } from '@/hooks/useBrandImageFallback';
@@ -165,13 +164,6 @@ function ensureDefaultPropigMenuItems(items: MenuItem[]): MenuItem[] {
     );
 }
 
-const CORP_MENU_GROUPS = [
-    { key: 'company', label: '회사소개', icon: 'building', group: '기업' },
-    { key: 'project', label: '프로젝트', icon: 'diagram-project', group: '프로젝트' },
-    { key: 'partnership', label: '제휴하기', icon: 'handshake', group: '제휴' },
-    { key: 'careers', label: '인재채용', icon: 'briefcase', group: '채용' },
-] as const;
-
 function collectMenuPaths(items: MenuItem[]): Set<string> {
     const paths = new Set<string>();
     const visit = (menuItems: MenuItem[]) => {
@@ -185,64 +177,40 @@ function collectMenuPaths(items: MenuItem[]): Set<string> {
     return paths;
 }
 
-function ensureCorpMenuItems(items: MenuItem[]): MenuItem[] {
-    const knownPaths = collectMenuPaths(items);
-    const nextItems = [...items];
-
-    CORP_MENU_GROUPS.forEach((group) => {
-        const missingItems: MenuItem[] = MENU_PAGE_OPTIONS
-            .filter((page) => page.group === group.group && page.path.startsWith('/corp/') && !knownPaths.has(page.path))
-            .map((page) => ({
-                id: `corp-required-${page.path.replace(/[^a-z0-9]+/gi, '-')}`,
-                text: page.label,
-                path: page.path,
-                icon: page.icon || 'link',
-                type: 'link',
-            }));
-
-        if (missingItems.length === 0) return;
-
-        const groupIndex = nextItems.findIndex((item) => {
-            if (item.text === group.label) return true;
-            const children = (item.sub || []).filter((sub): sub is MenuItem => typeof sub !== 'string');
-            return children.some((child) => child.path?.startsWith(`/corp/${group.key}/`));
-        });
-
-        if (groupIndex >= 0) {
-            const existing = nextItems[groupIndex];
-            const existingChildren = (existing.sub || []).filter((sub): sub is MenuItem => typeof sub !== 'string');
-            const parentPage = existing.path
-                ? MENU_PAGE_OPTIONS.find((page) => page.path === existing.path)
-                : undefined;
-            const parentPathItem = parentPage && !existingChildren.some((child) => child.path === parentPage.path)
-                ? [{
-                    id: `corp-required-${parentPage.path.replace(/[^a-z0-9]+/gi, '-')}`,
-                    text: parentPage.label,
-                    path: parentPage.path,
-                    icon: parentPage.icon || existing.icon || 'link',
-                    type: 'link' as const,
-                }]
-                : [];
-            nextItems[groupIndex] = {
-                ...existing,
-                sub: [...parentPathItem, ...(existing.sub || []), ...missingItems],
-            };
-        } else {
-            nextItems.push({
-                id: `corp-required-${group.key}`,
-                text: group.label,
-                icon: group.icon,
-                type: 'folder',
-                sub: missingItems,
-            });
-        }
-
-        missingItems.forEach((item) => {
-            if (item.path) knownPaths.add(item.path);
-        });
+function consolidateStandaloneCompanyItems(items: MenuItem[]): MenuItem[] {
+    const companyGroupIndex = items.findIndex((item) => {
+        if (item.text === '회사소개') return true;
+        const children = (item.sub || []).filter((sub): sub is MenuItem => typeof sub !== 'string');
+        return children.some((child) => child.path?.startsWith('/corp/company/'));
     });
 
-    return nextItems;
+    if (companyGroupIndex < 0) return items;
+
+    const standaloneIndexes = new Set<number>();
+    const standaloneCompanyItems: MenuItem[] = [];
+    items.forEach((item, index) => {
+        if (index === companyGroupIndex || !item.path || !isCompanyMenuRoute(item.path)) return;
+        standaloneIndexes.add(index);
+        standaloneCompanyItems.push(item);
+    });
+
+    if (standaloneCompanyItems.length === 0) return items;
+
+    const companyGroup = items[companyGroupIndex];
+    const existingSub = companyGroup.sub || [];
+    const existingPaths = collectMenuPaths(
+        existingSub.filter((sub): sub is MenuItem => typeof sub !== 'string'),
+    );
+    const missingStandaloneItems = standaloneCompanyItems.filter(
+        (item) => !item.path || !existingPaths.has(item.path),
+    );
+    const nextCompanyGroup = missingStandaloneItems.length > 0
+        ? { ...companyGroup, sub: [...existingSub, ...missingStandaloneItems] }
+        : companyGroup;
+
+    return items
+        .map((item, index) => (index === companyGroupIndex ? nextCompanyGroup : item))
+        .filter((_, index) => !standaloneIndexes.has(index));
 }
 
 function organizePropigSidebarMenu(
@@ -315,16 +283,15 @@ export default function Sidebar({
 }: SidebarProps) {
     const router = useRouter();
     const pathname = usePathname();
-    const { filteredMenu, siteData } = useMenuContext();
+    const { currentSite, filteredMenu, siteData } = useMenuContext();
     const appRegistry = usePropigAppRegistry();
     const [openItems, setOpenItems] = useState<string[]>([]);
-    const [popover, setPopover] = useState<PopoverState | null>(null);
+    const [storedPopover, setPopover] = useState<PopoverState | null>(null);
     const usesCollapsedBehavior = isCollapsed && !isMobileOpen;
     const shouldFilterPropigStoreApps = currentEnv === 'shop';
-    const menuSource = useMemo(
-        () => (pathname?.startsWith('/corp') ? ensureCorpMenuItems(filteredMenu) : filteredMenu),
-        [filteredMenu, pathname],
-    );
+    // Menu management and the shared access filter are the source of truth.
+    // Never reinsert hidden/deleted pages after permission filtering.
+    const menuSource = filteredMenu;
     const visibleMenu = useMemo(
         () =>
             shouldFilterPropigStoreApps
@@ -332,9 +299,15 @@ export default function Sidebar({
                 : menuSource,
         [appRegistry.installedAppIds, appRegistry.isInstalled, menuSource, shouldFilterPropigStoreApps],
     );
+    const renderedMenu = useMemo(
+        () => (currentEnv === 'corp' ? consolidateStandaloneCompanyItems(visibleMenu) : visibleMenu),
+        [currentEnv, visibleMenu],
+    );
+    // A popover must never retain links from a previous mode/access snapshot.
+    const popover = storedPopover && renderedMenu.includes(storedPopover.parent) ? storedPopover : null;
     const idlePrefetchTargets = useMemo(
-        () => collectIdlePrefetchTargets(visibleMenu, pathname),
-        [pathname, visibleMenu],
+        () => collectIdlePrefetchTargets(renderedMenu, pathname),
+        [pathname, renderedMenu],
     );
 
     const getSubMenuItems = useCallback(
@@ -425,7 +398,7 @@ export default function Sidebar({
     useEffect(() => {
         if (usesCollapsedBehavior) return;
 
-        const activeParent = visibleMenu.find((item) =>
+        const activeParent = renderedMenu.find((item) =>
             getSubMenuItems(item).length > 0 && isMenuItemActive(item),
         );
 
@@ -440,7 +413,7 @@ export default function Sidebar({
         return () => {
             cancelled = true;
         };
-    }, [getSubMenuItems, isMenuItemActive, usesCollapsedBehavior, visibleMenu]);
+    }, [getSubMenuItems, isMenuItemActive, renderedMenu, usesCollapsedBehavior]);
 
     const toggleMenuItem = (item: MenuItem) => {
         setOpenItems((prev) => (prev.includes(item.id) ? [] : [item.id]));
@@ -484,6 +457,8 @@ export default function Sidebar({
     };
 
     const handleAnchorMenuClick = (item: MenuItem, event: React.MouseEvent<HTMLAnchorElement>) => {
+        // Leave new-tab/window gestures to the browser without mutating this shell.
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
         if (!item.path) {
             event.preventDefault();
             return;
@@ -519,7 +494,9 @@ export default function Sidebar({
     const { settings } = useSystem();
     const rawLogoUrl = settings.envLogos?.[currentEnv] || settings.logoUrl;
     const logoImage = useBrandImageFallback(rawLogoUrl);
-    const currentSiteName = siteData[currentEnv]?.name || currentEnv.toUpperCase();
+    const currentSiteName = siteData[currentSite]?.name || currentSite.toUpperCase();
+    const homePath = getSiteHomePath(currentSite, siteData);
+    const sidebarToggleLabel = isMobileViewport ? '메뉴 닫기' : isCollapsed ? '메뉴 펼치기' : '메뉴 접기';
 
     return (
         <aside
@@ -532,13 +509,24 @@ export default function Sidebar({
             inert={isMobileViewport && !isMobileOpen ? true : undefined}
             tabIndex={isMobileViewport ? -1 : undefined}
         >
+            <div className="sidebar-brand-row">
             <button
                 type="button"
+                className="sidebar-collapse-toggle"
+                onClick={isMobileViewport ? closeMobileSidebar : toggleSidebar}
+                aria-label={sidebarToggleLabel}
+                title={sidebarToggleLabel}
+                aria-controls="sidebar"
+                aria-expanded={isMobileViewport ? isMobileOpen : !isCollapsed}
+            >
+                <i className={`fa-solid fa-${isMobileViewport ? 'xmark' : isCollapsed ? 'chevron-right' : 'chevron-left'}`} aria-hidden="true" />
+            </button>
+            <Link
+                href={homePath}
                 className="sidebar-brand"
-                onClick={toggleSidebar}
-                style={{ cursor: 'pointer' }}
-                aria-label={isMobileViewport ? '메뉴 닫기' : '메뉴 접기'}
-                title={isMobileViewport ? '메뉴 닫기' : '메뉴 접기'}
+                aria-label={`${currentSiteName} 홈`}
+                title={`${currentSiteName} 홈`}
+                onClick={(event) => handleAnchorMenuClick({ id: 'site-home', text: currentSiteName, path: homePath }, event)}
             >
                 <div className="brand-icon flex-center">
                     {logoImage.canRenderImage ? (
@@ -562,11 +550,12 @@ export default function Sidebar({
                         {currentSiteName}
                     </span>
                 )}
-            </button>
+            </Link>
+            </div>
 
             <div className="menu-container">
                 <ul className="nav-list">
-                    {visibleMenu.map((item) => {
+                    {renderedMenu.map((item) => {
                         if (item.type === 'divider') {
                             return (
                                 <li
@@ -645,7 +634,7 @@ export default function Sidebar({
                                     </Link>
                                 )}
 
-                                {hasSub && (
+                                {hasSub && !usesCollapsedBehavior && isOpen && (
                                     <ul className="sub-nav">
                                         {subItems.map((sub) => (
                                             <li key={sub.id} className={`sub-nav-item ${isMenuItemActive(sub) ? 'active' : ''}`}>

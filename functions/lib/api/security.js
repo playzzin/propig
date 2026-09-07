@@ -367,7 +367,7 @@ async function enforceUserRateLimit(input) {
         throw new Error('Invalid rate limit configuration.');
     }
     const key = Buffer.from(`${namespace}:${uid}`).toString('base64url');
-    const reference = firestore_1.db.collection('rateLimits').doc(key);
+    const reference = firestore_1.db.collection('serverRateLimits').doc(key);
     const now = Date.now();
     return firestore_1.db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(reference);

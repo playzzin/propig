@@ -21,8 +21,6 @@
     ".hermes-next-qa-webpack/**",
     ".hermes-partner-live-3002-v1/**",
     ".hermes-partner-live-3002-v2/**",
-    "functions/**",
-    "src/remotion",
-    "src/remotion.bak"
+    "functions/**"
   ]
 }

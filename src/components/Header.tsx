@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { getSiteHomePath } from '@/constants/siteHome';
 import { useAuth } from '../contexts/AuthContext';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { useSystem } from '@/contexts/SystemContext';
@@ -36,7 +39,10 @@ export default function Header({
     description,
 }: HeaderProps) {
     const { currentUser, isConfigured, error } = useAuth();
-    const { currentSite } = useMenuContext();
+    const { currentSite, siteData } = useMenuContext();
+    const pathname = usePathname();
+    const homePath = getSiteHomePath(currentSite, siteData);
+    const siteName = siteData[currentSite]?.name || currentSite.toUpperCase();
     const { settings } = useSystem();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
 
@@ -70,6 +76,25 @@ export default function Header({
                         aria-expanded={isMobileSidebarOpen}
                         title={menuLabel}
                     >
+                        <i className="fa-solid fa-bars-staggered" aria-hidden="true" />
+                    </button>
+                    <Link
+                        href={homePath}
+                        className="mobile-brand-link"
+                        aria-label={`${siteName} 홈`}
+                        title={`${siteName} 홈`}
+                        onClick={(event) => {
+                            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+                            if (homePath !== pathname && !window.dispatchEvent(new CustomEvent('propig:before-navigation', {
+                                cancelable: true,
+                                detail: { href: homePath },
+                            }))) {
+                                event.preventDefault();
+                                return;
+                            }
+                            if (isMobileSidebarOpen) toggleMobileSidebar();
+                        }}
+                    >
                         {logoImage.canRenderImage ? (
                             <img
                                 src={logoImage.displaySrc}
@@ -78,14 +103,9 @@ export default function Header({
                                 onError={logoImage.markBroken}
                             />
                         ) : (
-                            <i className="fa-solid fa-bars-staggered"></i>
+                            <i className="fa-solid fa-layer-group" aria-hidden="true" />
                         )}
-                        {logoImage.canRenderImage && (
-                            <span className="mobile-menu-mark" aria-hidden="true">
-                                <i className="fa-solid fa-bars-staggered" />
-                            </span>
-                        )}
-                    </button>
+                    </Link>
 
                     {title && (
                         <div className="header-title-block">

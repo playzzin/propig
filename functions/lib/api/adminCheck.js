@@ -8,7 +8,6 @@ const firestore_1 = require("../firestore");
 if (!admin.apps.length) {
     admin.initializeApp();
 }
-const USER_ROLE_OPTIONS = ['admin', 'user', 'partner', 'guest'];
 const USER_POSITION_OPTIONS = ['ceo', 'manager', 'staff', 'intern'];
 const USER_PERMISSION_KEYS = [
     'menuManagement',
@@ -46,9 +45,6 @@ function parseAdminUidAllowList() {
 function allPermissions() {
     return USER_PERMISSION_KEYS.reduce((acc, key) => (Object.assign(Object.assign({}, acc), { [key]: true })), Object.assign({}, DEFAULT_USER_PERMISSIONS));
 }
-function normalizeRole(value, fallback) {
-    return USER_ROLE_OPTIONS.includes(value) ? value : fallback;
-}
 function normalizePosition(value) {
     return USER_POSITION_OPTIONS.includes(value)
         ? value
@@ -73,18 +69,6 @@ function normalizeMenuAccess(value) {
         }
         return acc;
     }, {});
-}
-function normalizePermissions(role, value) {
-    if (role === 'admin')
-        return allPermissions();
-    const source = isRecord(value) ? value : {};
-    return {
-        menuManagement: source.menuManagement === true,
-        userManagement: source.userManagement === true,
-        projectBoardManagement: source.projectBoardManagement === true,
-        photoManagement: source.photoManagement === true,
-        storageManagement: source.storageManagement === true,
-    };
 }
 async function loadAdminCheckContext(req) {
     var _a, _b, _c, _d;
@@ -120,7 +104,6 @@ async function loadAdminCheckContext(req) {
             claims: (_d = authUser === null || authUser === void 0 ? void 0 : authUser.customClaims) !== null && _d !== void 0 ? _d : {},
             adminData,
             accessData,
-            hasAdminDoc,
         };
     }
     catch (error) {
@@ -132,12 +115,11 @@ async function loadAdminCheckContext(req) {
                 message: 'Firebase Admin service account is required.',
             };
         }
-        const detail = error instanceof Error ? error.message : String(error);
-        return { ok: false, status: 401, message: `Invalid auth token. Detail: ${detail}` };
+        return { ok: false, status: 401, message: 'Invalid auth token.' };
     }
 }
 exports.adminCheck = (0, https_1.onRequest)({ cors: true, timeoutSeconds: 30, memory: '256MiB' }, async (req, res) => {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b;
     if (req.method !== 'GET') {
         res.status(405).json({ ok: false, message: 'Method not allowed.' });
         return;
@@ -147,11 +129,11 @@ exports.adminCheck = (0, https_1.onRequest)({ cors: true, timeoutSeconds: 30, me
         res.status(context.status).json({ ok: false, message: context.message });
         return;
     }
-    const role = normalizeRole((_b = (_a = context.accessData.role) !== null && _a !== void 0 ? _a : context.adminData.role) !== null && _b !== void 0 ? _b : context.claims.role, 'admin');
-    const position = normalizePosition((_d = (_c = context.accessData.position) !== null && _c !== void 0 ? _c : context.adminData.position) !== null && _d !== void 0 ? _d : context.claims.position);
+    const role = 'admin';
+    const position = normalizePosition((_b = (_a = context.accessData.position) !== null && _a !== void 0 ? _a : context.adminData.position) !== null && _b !== void 0 ? _b : context.claims.position);
     const siteAccess = Object.assign(Object.assign(Object.assign({}, normalizeSiteAccess(context.claims.siteAccess)), normalizeSiteAccess(context.adminData.siteAccess)), normalizeSiteAccess(context.accessData.siteAccess));
     const menuAccess = Object.assign(Object.assign(Object.assign({}, normalizeMenuAccess(context.claims.menuAccess)), normalizeMenuAccess(context.adminData.menuAccess)), normalizeMenuAccess(context.accessData.menuAccess));
-    const permissions = normalizePermissions(role, (_f = (_e = context.accessData.permissions) !== null && _e !== void 0 ? _e : context.adminData.permissions) !== null && _f !== void 0 ? _f : context.claims.permissions);
+    const permissions = allPermissions();
     res.status(200).json({
         ok: true,
         uid: context.uid,
@@ -161,9 +143,7 @@ exports.adminCheck = (0, https_1.onRequest)({ cors: true, timeoutSeconds: 30, me
         siteAccess,
         menuAccess,
         permissions,
-        canWriteFirestore: Boolean(context.hasAdminDoc ||
-            context.claims.admin === true ||
-            context.claims.role === 'admin'),
+        canWriteFirestore: true,
     });
 });
 //# sourceMappingURL=adminCheck.js.map

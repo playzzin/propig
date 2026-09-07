@@ -214,15 +214,15 @@ function getRouteViewState(pathname: string | null, menuTitle: string | null): V
         title: '습관 트래커 설명서',
         description: '기록, 통계, 관리, 카테고리와 고급 목표 설정 사용법을 안내합니다.',
       };
-    case '/admin/image-generator':
-      return {
-        title: 'AI 이미지 생성기',
-        description: 'AI를 활용하여 이미지를 생성합니다.',
-      };
     case '/admin/storyboard':
       return {
         title: '스토리보드 영상 제작',
         description: '장면 설계부터 이미지·영상 생성, 완성본 편집과 파일 관리까지 한 곳에서 진행합니다.',
+      };
+    case '/admin/emoticon-studio':
+      return {
+        title: '반자동 이모티콘 스튜디오',
+        description: 'ChatGPT용 프롬프트를 준비하고 생성 결과를 가져와 편집·검수·내보내기까지 진행합니다.',
       };
     case '/admin/openrouter-settings':
       return {
@@ -274,6 +274,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const viewState = React.useMemo(() => getRouteViewState(pathname, menuTitle), [menuTitle, pathname]);
   const isCorpRoute = Boolean(pathname?.startsWith('/corp'));
   const shouldUseCorpChrome = isCorpRoute && !isDashboardStyleCorpPath(pathname);
+  const isImmersiveStudio = pathname === '/admin/emoticon-studio';
 
   useEffect(() => {
     const root = document.documentElement;
@@ -290,9 +291,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     const mediaQuery = window.matchMedia('(max-width: 820px)');
     const syncMobileSidebar = () => {
       setIsMobileViewport(mediaQuery.matches);
-      if (!mediaQuery.matches) {
-        setIsMobileSidebarOpen(false);
-      }
+      setIsMobileSidebarOpen(false);
     };
 
     syncMobileSidebar();
@@ -369,7 +368,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <div className="app-wrapper" style={{ display: 'flex', width: '100vw', height: '100vh' }}>
       <DynamicFavicon />
 
-      {isMobileSidebarOpen ? (
+      {!isImmersiveStudio && isMobileSidebarOpen ? (
         <button
           type="button"
           className="mobile-sidebar-backdrop active"
@@ -378,7 +377,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         />
       ) : null}
 
-      <Sidebar
+      {!isImmersiveStudio ? <Sidebar
         currentEnv={currentSite}
         isCollapsed={isSidebarCollapsed}
         isMobileOpen={isMobileSidebarOpen}
@@ -386,7 +385,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         closeMobileSidebar={closeMobileSidebar}
         setViewTitle={() => undefined}
         toggleSidebar={toggleSidebar}
-      />
+      /> : null}
 
       <div
         className="main-view"
@@ -404,12 +403,12 @@ export function AppLayout({ children }: AppLayoutProps) {
           position: 'relative',
         }}
       >
-        <Header
+        {!isImmersiveStudio ? <Header
           isMobileSidebarOpen={isMobileSidebarOpen}
           toggleMobileSidebar={toggleMobileSidebar}
           title={viewState.title}
           description={viewState.description}
-        />
+        /> : null}
 
         {children}
       </div>

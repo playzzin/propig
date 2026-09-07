@@ -31,7 +31,6 @@ const AVAILABLE_PAGES = [
   { path: '/todo-list', label: '할일 일정표' },
   { path: '/habit-tracker/stats', label: '습관 통계' },
   { path: '/habit-tracker/manual', label: '습관 설명서' },
-  { path: '/admin/image-generator', label: 'AI 이미지 생성기' },
   { path: '/admin/openrouter-settings', label: 'OpenRouter 운영 센터' },
   { path: '/admin/openrouter-usage', label: 'OpenRouter 사용량' },
   { path: '/admin/menu', label: '통합 메뉴 관리' },

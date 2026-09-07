@@ -60,9 +60,14 @@ export function SiteModeSwitcher() {
       return;
     }
 
+    const href = getSiteHomePath(siteId, siteData);
+    if (!window.dispatchEvent(new CustomEvent('propig:before-navigation', {
+      cancelable: true,
+      detail: { href },
+    }))) return;
     setCurrentSite(siteId);
     detailsRef.current?.removeAttribute('open');
-    router.push(getSiteHomePath(siteId, siteData));
+    router.push(href);
   };
 
   return (
@@ -100,6 +105,8 @@ export function SiteModeSwitcher() {
                   className={active ? 'active' : undefined}
                   aria-current={active ? 'page' : undefined}
                   onClick={() => selectSite(siteId)}
+                  onMouseEnter={() => router.prefetch(getSiteHomePath(siteId, siteData))}
+                  onFocus={() => router.prefetch(getSiteHomePath(siteId, siteData))}
                 >
                   <span
                     className="site-mode-switcher-icon"

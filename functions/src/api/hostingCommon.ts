@@ -126,22 +126,26 @@ export async function requireAccess(
  */
 export async function requireUserAccess(req: Request): Promise<AccessAuth> {
     const user = await requireUser(req);
+    return resolveUserAccessByUid(user.uid, user.email);
+}
+
+export async function resolveUserAccessByUid(uid: string, email?: string): Promise<AccessAuth> {
     const authUser = await admin
         .auth()
-        .getUser(user.uid)
+        .getUser(uid)
         .catch(() => null);
     const claims = (authUser?.customClaims || {}) as Record<string, unknown>;
     const allowList = (process.env.ADMIN_UIDS || '')
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean);
-    const claimedAdmin = claims.admin === true || claims.role === 'admin' || allowList.includes(user.uid);
+    const claimedAdmin = claims.admin === true || claims.role === 'admin' || allowList.includes(uid);
 
     const [adminDoc, accessDoc] = claimedAdmin
         ? [null, null]
         : await Promise.all([
-              db.collection('admins').doc(user.uid).get(),
-              db.collection('userAccess').doc(user.uid).get(),
+              db.collection('admins').doc(uid).get(),
+              db.collection('userAccess').doc(uid).get(),
           ]);
     const adminData = adminDoc?.exists ? adminDoc.data() || {} : {};
     const accessData = accessDoc?.exists ? accessDoc.data() || {} : {};
@@ -153,7 +157,7 @@ export async function requireUserAccess(req: Request): Promise<AccessAuth> {
         accessData.permissions ?? adminData.permissions ?? claims.permissions,
         claims,
     );
-    return { ...user, isAdmin, role, permissions };
+    return { uid, email, isAdmin, role, permissions };
 }
 
 export async function requireAdmin(req: Request): Promise<AccessAuth> {
@@ -189,9 +193,8 @@ export function sendError(res: Response, error: unknown): void {
         return;
     }
 
-    const message = error instanceof Error ? error.message : 'Unexpected server error.';
     console.error('[hostingApi] Unhandled route error:', error);
-    res.status(500).json({ success: false, error: message });
+    res.status(500).json({ success: false, error: 'Unexpected server error.' });
 }
 
 const MAX_LOG_STRING_LENGTH = 700;

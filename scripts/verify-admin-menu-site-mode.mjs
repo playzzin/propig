@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const serviceSource = read('src/services/menuService.ts');
 const apiSource = read('src/app/api/admin/menu-sites/route.ts');
 const hostingApiSource = read('functions/src/api/hostingCoreRoutes.ts');
+const menuContractSource = read('src/constants/menuSettingsContract.ts');
 const sidebarSource = read('src/components/Sidebar.tsx');
 const menuContextSource = read('src/contexts/MenuContext.tsx');
 const profileButtonSource = read('src/components/ProfileButton.tsx');
@@ -15,11 +16,18 @@ const erpHomeSource = read('src/components/erp/ErpHomePage.tsx');
 const menuPagesSource = read('src/constants/menuPages.ts');
 const siteHomeSource = read('src/constants/siteHome.ts');
 
-const serviceVersion = serviceSource.match(/CURRENT_DATA_VERSION\s*=\s*(\d+)/)?.[1];
-const apiVersion = apiSource.match(/MENU_SETTINGS_VERSION\s*=\s*(\d+)/)?.[1];
-assert.ok(serviceVersion, 'menuService CURRENT_DATA_VERSION was not found');
-assert.ok(apiVersion, 'menu-sites API MENU_SETTINGS_VERSION was not found');
-assert.equal(apiVersion, serviceVersion, 'menuSettings API and client data versions must match');
+const serviceVersion = menuContractSource.match(/MENU_SETTINGS_VERSION\s*=\s*(\d+)/)?.[1];
+assert.ok(serviceVersion, 'shared MENU_SETTINGS_VERSION was not found');
+assert.match(
+  serviceSource,
+  /CURRENT_DATA_VERSION\s*=\s*MENU_SETTINGS_VERSION/,
+  'menuService must use the shared menu settings contract',
+);
+assert.match(
+  apiSource,
+  /import \{ MENU_SETTINGS_VERSION \} from '@\/constants\/menuSettingsContract'/,
+  'menu-sites API must use the shared menu settings contract',
+);
 assert.ok(
   hostingApiSource.includes(`version: ${serviceVersion}`),
   'Firebase Hosting menu API and client data versions must match',
@@ -56,7 +64,6 @@ assert.ok(
 );
 
 const requiredAdminPaths = [
-  '/admin/emoticon-studio',
   '/admin/menu',
   '/admin/photos',
   '/admin/storage',
@@ -67,15 +74,6 @@ const requiredAdminPaths = [
 for (const routePath of requiredAdminPaths) {
   assert.ok(menuPagesSource.includes(`path: '${routePath}'`), `${routePath} must be available in MENU_PAGE_OPTIONS`);
 }
-
-assert.ok(
-  serviceSource.includes('applyAdminEmoticonStudioMenu'),
-  'stored admin menus must be migrated with the AI emoticon studio route',
-);
-assert.ok(
-  serviceSource.includes("id: 'admin-20'") && serviceSource.includes("path: '/admin/emoticon-studio'"),
-  'the default admin sidebar must include the AI emoticon studio menu item',
-);
 
 assert.ok(
   !menuPagesSource.includes("path: '/admin/workspace-files'"),
@@ -96,5 +94,9 @@ assert.ok(menuPagesSource.includes("path: '/blog'"), 'The blog dashboard must be
 const menuPagePaths = [...menuPagesSource.matchAll(/path:\s*'([^']+)'/g)].map((match) => match[1]);
 const duplicatePaths = menuPagePaths.filter((routePath, index) => menuPagePaths.indexOf(routePath) !== index);
 assert.deepEqual([...new Set(duplicatePaths)], [], 'MENU_PAGE_OPTIONS must not contain duplicate paths');
+
+const legacyMenuPageSource = read('src/pages/admin/menu/AdvancedMenuManager.tsx');
+assert.ok(legacyMenuPageSource.includes("router.replace('/admin/menu')"), 'legacy editor must redirect to the canonical manager');
+assert.ok(!legacyMenuPageSource.includes('saveAllSites'), 'legacy editor must not write menu data');
 
 console.log(`admin menu site-mode invariants passed (${requiredAdminPaths.length} required admin routes, version ${serviceVersion})`);

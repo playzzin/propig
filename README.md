@@ -277,10 +277,7 @@ const stats = await metricsCollector.getRealtimeStats();
 # 타입 체크
 npm run type-check
 
-# 통합 예제 실행
-npm run example
-
-# 테스트 (Jest 설치 필요)
+# 테스트
 npm test
 ```
 

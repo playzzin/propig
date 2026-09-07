@@ -2,6 +2,7 @@ import { https, logger } from 'firebase-functions/v2';
 import { z } from 'zod';
 import { createOpenRouterModel, getOpenRouterRuntimeConfig } from './openrouter';
 import { openRouterApiKey } from './secrets';
+import { enforceUserRateLimit } from './api/security';
 
 type OpenRouterEnv = {
   apiKey: string;
@@ -17,12 +18,15 @@ const createOpenRouterTextModel = async () => {
 };
 
 const AnalyzeYoutubeVideoRequestSchema = z.object({
-  youtube_url: z.string().min(1),
-  video_title: z.string().optional(),
-  video_description: z.string().optional(),
-  transcript: z.string().optional(),
-  user_memo: z.string().optional(),
+  youtube_url: z.string().trim().min(1).max(2048).url(),
+  video_title: z.string().max(300).optional(),
+  video_description: z.string().max(12000).optional(),
+  transcript: z.string().max(90000).optional(),
+  user_memo: z.string().max(2000).optional(),
 });
+
+const YOUTUBE_ANALYSIS_MINUTE_LIMIT = { maxRequests: 6, windowMs: 60_000 } as const;
+const YOUTUBE_ANALYSIS_DAILY_LIMIT = { maxRequests: 30, windowMs: 24 * 60 * 60 * 1000 } as const;
 
 type AnalyzeYoutubeVideoRequest = z.infer<typeof AnalyzeYoutubeVideoRequestSchema>;
 
@@ -403,6 +407,22 @@ export const analyzeYoutubeVideo = https.onCall({ timeoutSeconds: 300, memory: '
   }
 
   const input: AnalyzeYoutubeVideoRequest = parsedRequest.data;
+  const minuteLimit = await enforceUserRateLimit({
+    namespace: 'youtube-analysis-minute',
+    uid: request.auth.uid,
+    ...YOUTUBE_ANALYSIS_MINUTE_LIMIT,
+  });
+  if (!minuteLimit.allowed) {
+    throw new https.HttpsError('resource-exhausted', '분당 분석 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.');
+  }
+  const dailyLimit = await enforceUserRateLimit({
+    namespace: 'youtube-analysis-day',
+    uid: request.auth.uid,
+    ...YOUTUBE_ANALYSIS_DAILY_LIMIT,
+  });
+  if (!dailyLimit.allowed) {
+    throw new https.HttpsError('resource-exhausted', '오늘 사용할 수 있는 분석 횟수를 모두 사용했습니다.');
+  }
 
   const youtubeId = extractYoutubeIdFromUrl(input.youtube_url);
   if (!youtubeId) {

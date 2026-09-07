@@ -6,6 +6,7 @@ exports.allPermissions = allPermissions;
 exports.requireUser = requireUser;
 exports.requireAccess = requireAccess;
 exports.requireUserAccess = requireUserAccess;
+exports.resolveUserAccessByUid = resolveUserAccessByUid;
 exports.requireAdmin = requireAdmin;
 exports.requireMethod = requireMethod;
 exports.parseJson = parseJson;
@@ -101,23 +102,26 @@ async function requireAccess(req, permission) {
  * permission. Use it when a response contains administrator-only fields.
  */
 async function requireUserAccess(req) {
-    var _a, _b, _c, _d;
     const user = await requireUser(req);
+    return resolveUserAccessByUid(user.uid, user.email);
+}
+async function resolveUserAccessByUid(uid, email) {
+    var _a, _b, _c, _d;
     const authUser = await admin
         .auth()
-        .getUser(user.uid)
+        .getUser(uid)
         .catch(() => null);
     const claims = ((authUser === null || authUser === void 0 ? void 0 : authUser.customClaims) || {});
     const allowList = (process.env.ADMIN_UIDS || '')
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean);
-    const claimedAdmin = claims.admin === true || claims.role === 'admin' || allowList.includes(user.uid);
+    const claimedAdmin = claims.admin === true || claims.role === 'admin' || allowList.includes(uid);
     const [adminDoc, accessDoc] = claimedAdmin
         ? [null, null]
         : await Promise.all([
-            firestore_1.db.collection('admins').doc(user.uid).get(),
-            firestore_1.db.collection('userAccess').doc(user.uid).get(),
+            firestore_1.db.collection('admins').doc(uid).get(),
+            firestore_1.db.collection('userAccess').doc(uid).get(),
         ]);
     const adminData = (adminDoc === null || adminDoc === void 0 ? void 0 : adminDoc.exists) ? adminDoc.data() || {} : {};
     const accessData = (accessDoc === null || accessDoc === void 0 ? void 0 : accessDoc.exists) ? accessDoc.data() || {} : {};
@@ -125,7 +129,7 @@ async function requireUserAccess(req) {
     const storedRole = normalizeRole((_b = (_a = accessData.role) !== null && _a !== void 0 ? _a : adminData.role) !== null && _b !== void 0 ? _b : claims.role, isAdmin ? 'admin' : 'user');
     const role = isAdmin ? 'admin' : storedRole;
     const permissions = normalizePermissions(role, (_d = (_c = accessData.permissions) !== null && _c !== void 0 ? _c : adminData.permissions) !== null && _d !== void 0 ? _d : claims.permissions, claims);
-    return Object.assign(Object.assign({}, user), { isAdmin, role, permissions });
+    return { uid, email, isAdmin, role, permissions };
 }
 async function requireAdmin(req) {
     return requireAccess(req);
@@ -148,9 +152,8 @@ function sendError(res, error) {
         res.status(error.status).json(Object.assign({ success: false, error: error.message }, (error.details ? { issues: error.details } : {})));
         return;
     }
-    const message = error instanceof Error ? error.message : 'Unexpected server error.';
     console.error('[hostingApi] Unhandled route error:', error);
-    res.status(500).json({ success: false, error: message });
+    res.status(500).json({ success: false, error: 'Unexpected server error.' });
 }
 const MAX_LOG_STRING_LENGTH = 700;
 const MAX_LOG_ARRAY_LENGTH = 40;

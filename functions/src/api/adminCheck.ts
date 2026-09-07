@@ -32,7 +32,6 @@ type AdminCheckContext =
         claims: Record<string, unknown>;
         adminData: Record<string, unknown>;
         accessData: Record<string, unknown>;
-        hasAdminDoc: boolean;
     }
     | {
         ok: false;
@@ -40,7 +39,6 @@ type AdminCheckContext =
         message: string;
     };
 
-const USER_ROLE_OPTIONS: readonly ManagedUserRole[] = ['admin', 'user', 'partner', 'guest'];
 const USER_POSITION_OPTIONS: readonly ManagedUserPosition[] = ['ceo', 'manager', 'staff', 'intern'];
 const USER_PERMISSION_KEYS: readonly ManagedUserPermissionKey[] = [
     'menuManagement',
@@ -87,9 +85,6 @@ function allPermissions(): ManagedUserPermissions {
     );
 }
 
-function normalizeRole(value: unknown, fallback: ManagedUserRole): ManagedUserRole {
-    return USER_ROLE_OPTIONS.includes(value as ManagedUserRole) ? (value as ManagedUserRole) : fallback;
-}
 
 function normalizePosition(value: unknown): ManagedUserPosition {
     return USER_POSITION_OPTIONS.includes(value as ManagedUserPosition)
@@ -119,18 +114,6 @@ function normalizeMenuAccess(value: unknown): ManagedUserMenuAccess {
     }, {});
 }
 
-function normalizePermissions(role: ManagedUserRole, value: unknown): ManagedUserPermissions {
-    if (role === 'admin') return allPermissions();
-
-    const source = isRecord(value) ? value : {};
-    return {
-        menuManagement: source.menuManagement === true,
-        userManagement: source.userManagement === true,
-        projectBoardManagement: source.projectBoardManagement === true,
-        photoManagement: source.photoManagement === true,
-        storageManagement: source.storageManagement === true,
-    };
-}
 
 async function loadAdminCheckContext(req: HeaderReadableRequest): Promise<AdminCheckContext> {
     const token = parseBearerToken(req);
@@ -170,7 +153,6 @@ async function loadAdminCheckContext(req: HeaderReadableRequest): Promise<AdminC
             claims: authUser?.customClaims ?? {},
             adminData,
             accessData,
-            hasAdminDoc,
         };
     } catch (error) {
         logger.error('[Admin Check] verifyIdToken failed.', error);
@@ -183,8 +165,7 @@ async function loadAdminCheckContext(req: HeaderReadableRequest): Promise<AdminC
             };
         }
 
-        const detail = error instanceof Error ? error.message : String(error);
-        return { ok: false, status: 401, message: `Invalid auth token. Detail: ${detail}` };
+        return { ok: false, status: 401, message: 'Invalid auth token.' };
     }
 }
 
@@ -200,7 +181,7 @@ export const adminCheck = onRequest({ cors: true, timeoutSeconds: 30, memory: '2
         return;
     }
 
-    const role = normalizeRole(context.accessData.role ?? context.adminData.role ?? context.claims.role, 'admin');
+    const role: ManagedUserRole = 'admin';
     const position = normalizePosition(context.accessData.position ?? context.adminData.position ?? context.claims.position);
     const siteAccess = {
         ...normalizeSiteAccess(context.claims.siteAccess),
@@ -212,10 +193,7 @@ export const adminCheck = onRequest({ cors: true, timeoutSeconds: 30, memory: '2
         ...normalizeMenuAccess(context.adminData.menuAccess),
         ...normalizeMenuAccess(context.accessData.menuAccess),
     };
-    const permissions = normalizePermissions(
-        role,
-        context.accessData.permissions ?? context.adminData.permissions ?? context.claims.permissions,
-    );
+    const permissions = allPermissions();
 
     res.status(200).json({
         ok: true,
@@ -226,10 +204,6 @@ export const adminCheck = onRequest({ cors: true, timeoutSeconds: 30, memory: '2
         siteAccess,
         menuAccess,
         permissions,
-        canWriteFirestore: Boolean(
-            context.hasAdminDoc ||
-            context.claims.admin === true ||
-            context.claims.role === 'admin',
-        ),
+        canWriteFirestore: true,
     });
 });

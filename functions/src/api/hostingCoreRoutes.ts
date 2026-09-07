@@ -15,7 +15,7 @@ import {
     writeActivityLog,
     writeActivityLogSafely,
 } from './hostingCommon';
-import { fetchExternalHttpUrl, normalizeExternalHttpUrl } from './security';
+import { enforceUserRateLimit, fetchExternalHttpUrl, normalizeExternalHttpUrl } from './security';
 
 type ActivityLogRecord = {
     id: string;
@@ -241,11 +241,13 @@ export async function handleAdminMenuSites(req: Request, res: Response): Promise
     const current = await ref.get();
     const previousSites = current.exists && validateSites(current.data()?.sites) ? current.data()?.sites : null;
     await ref.set({
-        version: 45,
+        // Keep synchronized with src/constants/menuSettingsContract.ts. The
+        // admin-menu contract verifier crosses the independent deploy boundary.
+        version: 46,
         sites: req.body.sites,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: auth.uid,
-    }, { merge: true });
+    }, { mergeFields: ['version', 'sites', 'updatedAt', 'updatedBy'] });
     await writeActivityLogSafely({
         auth,
         req,
@@ -300,7 +302,7 @@ const FetchImageSchema = z.object({
     url: z.string().url().max(4096),
     fileName: z.string().max(240).optional(),
 });
-const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const MIME_BY_EXTENSION: Record<string, string> = {
     avif: 'image/avif',
     gif: 'image/gif',
@@ -316,12 +318,12 @@ async function readCappedImage(response: globalThis.Response): Promise<Buffer> {
     const declared = Number(response.headers.get('content-length') || 0);
     if (declared > MAX_IMAGE_BYTES) {
         await response.body?.cancel();
-        throw new ApiError(413, '이미지 크기가 100MB를 초과합니다.');
+        throw new ApiError(413, '이미지 크기가 25MB를 초과합니다.');
     }
     const reader = response.body?.getReader();
     if (!reader) {
         const buffer = Buffer.from(await response.arrayBuffer());
-        if (buffer.length > MAX_IMAGE_BYTES) throw new ApiError(413, '이미지 크기가 100MB를 초과합니다.');
+        if (buffer.length > MAX_IMAGE_BYTES) throw new ApiError(413, '이미지 크기가 25MB를 초과합니다.');
         return buffer;
     }
     const chunks: Buffer[] = [];
@@ -332,7 +334,7 @@ async function readCappedImage(response: globalThis.Response): Promise<Buffer> {
         total += value.byteLength;
         if (total > MAX_IMAGE_BYTES) {
             await reader.cancel();
-            throw new ApiError(413, '이미지 크기가 100MB를 초과합니다.');
+            throw new ApiError(413, '이미지 크기가 25MB를 초과합니다.');
         }
         chunks.push(Buffer.from(value));
     }
@@ -341,7 +343,17 @@ async function readCappedImage(response: globalThis.Response): Promise<Buffer> {
 
 export async function handleFetchImage(req: Request, res: Response): Promise<void> {
     requireMethod(req, 'POST');
-    await requireUser(req);
+    const auth = await requireUser(req);
+    const rateLimit = await enforceUserRateLimit({
+        namespace: 'fetch-image',
+        uid: auth.uid,
+        maxRequests: 30,
+        windowMs: 60_000,
+    });
+    if ('retryAfterSeconds' in rateLimit) {
+        res.set('Retry-After', String(rateLimit.retryAfterSeconds));
+        throw new ApiError(429, `${rateLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+    }
     const payload = parseJson(req, FetchImageSchema, '이미지 원본 요청 형식이 올바르지 않습니다.');
     let safeUrl: string;
     try {

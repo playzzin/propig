@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 
@@ -9,7 +9,6 @@ const assertContains = (source, value, label) => {
 };
 
 const [
-  imageGeneratorPage,
   storyboardPage,
   workspace,
   menuService,
@@ -17,7 +16,6 @@ const [
   appLayout,
   menuContext,
 ] = await Promise.all([
-  read("src/app/admin/image-generator/page.tsx"),
   read("src/app/admin/storyboard/page.tsx"),
   read("src/components/image-generator/StoryboardWorkspace.tsx"),
   read("src/services/menuService.ts"),
@@ -26,9 +24,10 @@ const [
   read("src/contexts/MenuContext.tsx"),
 ]);
 
-assert.ok(
-  !imageGeneratorPage.includes("StoryboardWorkspace"),
-  "Image generator must not embed the storyboard workspace",
+await assert.rejects(
+  access(resolve(root, "src/app/admin/image-generator/page.tsx")),
+  { code: "ENOENT" },
+  "Retired image-generator route must stay removed",
 );
 assertContains(
   storyboardPage,

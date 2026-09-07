@@ -5,52 +5,13 @@ const rules = await readFile(new URL("../storage.rules", import.meta.url), "utf8
 
 assert.match(
   rules,
-  /match \/users\/\{userId\}\/emoticon-studio\/sources\/\{fileName\}[\s\S]*allow read: if isOwner\(userId\) \|\| isAdmin\(\);[\s\S]*allow write: if false;/,
-  "Emoticon source uploads must be server-owned and read-only to browser clients.",
+  /match \/\{fileName=\*\*\}[\s\S]*allow read: if false;/,
+  "The global Storage fallback must fail closed for reads so undeclared namespaces are never public.",
 );
 assert.match(
   rules,
-  /match \/users\/\{userId\}\/emoticon-studio\/jobs\/\{fileName=\*\*\}[\s\S]*allow read:[\s\S]*allow write: if false;/,
-  "Rendered emoticon frames and outputs must be client read-only.",
-);
-
-const sourceUpload = await readFile(
-  new URL('../functions/src/emoticonStudio/uploadSource.ts', import.meta.url),
-  'utf8',
-);
-const sourceService = await readFile(
-  new URL('../src/services/emoticonStudioService.ts', import.meta.url),
-  'utf8',
-);
-assert.match(sourceUpload, /requireStudioAdmin\(uid/);
-assert.match(sourceUpload, /detectContentType\(source\)/);
-assert.match(sourceUpload, /normalizeEmoticonSourceImage\(source\)/);
-assert.match(
-  sourceUpload,
-  /return db\.runTransaction\(async \(transaction\) => \{[\s\S]*transaction\.get\(assetRef\)[\s\S]*transaction\.get\(quotaRef\)[\s\S]*count \+ 1 > countLimit \|\| bytes \+ params\.byteLength > byteLimit[\s\S]*transaction\.set\(quotaRef,[\s\S]*transaction\.set\(assetRef,/,
-  "Source asset reservation and daily quota accounting must stay in one transaction.",
-);
-assert.match(
-  sourceUpload,
-  /const sha256 = createHash\('sha256'\)\.update\(normalized\)\.digest\('hex'\);[\s\S]*const assetId = sha256;[\s\S]*reserveSourceAsset\(\{[\s\S]*byteLength: source\.byteLength,/,
-  "Normalized source uploads must use a content-addressed, quota-accounted reservation.",
-);
-assert.match(
-  sourceUpload,
-  /users\/\$\{params\.uid\}\/emoticon-studio\/sources\/source-\$\{params\.assetId\}\.png/,
-);
-assert.match(sourceUpload, /preconditionOpts: \{ ifGenerationMatch: 0 \}/);
-assert.doesNotMatch(sourceService, /uploadBytes\(/);
-assert.match(sourceService, /httpsCallable<[\s\S]*'uploadEmoticonSource'/);
-assert.match(
-  rules,
-  /match \/users\/\{userId\}\/\{fileName=\*\*\}[\s\S]*!isEmoticonStudioPath\(fileName\)/,
-  "The broad user Storage rule must exclude the protected emoticon studio namespace.",
-);
-assert.match(
-  rules,
-  /match \/\{fileName=\*\*\}[\s\S]*allow read: if !fileName\.matches\('\(users\|drive\|ai_generations\|video_studio\)\/\.\*'\);[\s\S]*!fileName\.matches\('\(users\/\[\^\/\]\+\/emoticon-studio\|video_studio\)\/\.\*'\);/,
-  "The global Storage fallback must not reopen private user files or protected emoticon-studio writes.",
+  /match \/\{fileName=\*\*\}[\s\S]*allow create, update: if isAdmin\(\) &&[\s\S]*!isRetiredStoragePath\(fileName\) &&[\s\S]*request\.resource\.size <= 100 \* 1024 \* 1024;[\s\S]*allow delete: if isAdmin\(\) && !isRetiredStoragePath\(fileName\);/,
+  "Legacy admin Storage management must stay authenticated and size-capped without opening reads.",
 );
 assert.match(
   rules,
@@ -59,8 +20,18 @@ assert.match(
 );
 assert.doesNotMatch(
   rules,
-  /allow read: if !fileName\.matches\('\(users\|drive\|ai_generations\)\/\.\*'\);/,
-  "The public fallback must never reopen the Video Studio namespace.",
+  /match \/\{fileName=\*\*\}[\s\S]*allow read: if !fileName\.matches/,
+  "The global fallback must never grant reads by excluding a growing blocklist.",
+);
+assert.match(
+  rules,
+  /match \/images\/albums\/\{albumId\}\/\{fileName=\*\*\}[\s\S]*allow read: if true;[\s\S]*allow write: if isAdmin\(\);/,
+  "The intentionally public album namespace must remain explicitly declared.",
+);
+assert.match(
+  rules,
+  /match \/corp\/\{fileName=\*\*\}[\s\S]*allow read: if true;[\s\S]*allow write: if isAdmin\(\);/,
+  "Legacy corporate assets must remain explicitly public and admin-managed.",
 );
 
 assert.ok(rules.includes("isStoryboardReferencePath(fileName)"));
@@ -71,8 +42,18 @@ assert.ok(
   "Storyboard reference write validation must apply to both owners and admins.",
 );
 assert.ok(
-  rules.includes("allow delete: if (isOwner(userId) || isAdmin()) && !isEmoticonStudioPath(fileName);"),
+  rules.includes("allow delete: if (isOwner(userId) || isAdmin()) && !isRetiredUserProgramPath(fileName);"),
   "Failed or replaced reference files must still be removable by their owner.",
+);
+assert.match(
+  rules,
+  /function isRetiredUserProgramPath\(fileName\)[\s\S]*!isRetiredUserProgramPath\(fileName\)/,
+  "Retired user program assets must not fall through to broad owner access.",
+);
+assert.match(
+  rules,
+  /function isRetiredStoragePath\(fileName\)[\s\S]*!isRetiredStoragePath\(fileName\)/,
+  "Retired program assets must not fall through to broad admin writes.",
 );
 
 console.log("Storyboard Storage rules verified.");

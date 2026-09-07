@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { CORP_PAGE_DEFINITIONS } from '@/constants/corpPages';
+import { PartnershipInquiryComposer } from './PartnershipInquiryComposer';
 import {
   AdvertisingScene,
   BriefCta,
@@ -117,6 +118,7 @@ import {
   SpendCard,
   SpendGrid,
   SponsorshipScene,
+  SkipLink,
   StageCaption,
   StageCenter,
   StageNode,
@@ -547,6 +549,16 @@ export function PartnershipHubExperience({ initialChapter = 'business' }: Partne
     setActiveChapter(chapterId);
   }, []);
 
+  const scrollToInquiry = useCallback(() => {
+    const target = document.getElementById('partnership-inquiry');
+    if (!target) return;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    window.requestAnimationFrame(() => {
+      document.getElementById('partnership-organization')?.focus({ preventScroll: true });
+    });
+  }, []);
+
   useEffect(() => {
     const root = pageRef.current;
     if (!root) return;
@@ -616,20 +628,6 @@ export function PartnershipHubExperience({ initialChapter = 'business' }: Partne
     return () => window.cancelAnimationFrame(frame);
   }, [initialChapter, scrollToChapter]);
 
-  const handleChapterKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    let nextIndex = index;
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % CHAPTERS.length;
-    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + CHAPTERS.length) % CHAPTERS.length;
-    else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = CHAPTERS.length - 1;
-    else return;
-
-    event.preventDefault();
-    const nextChapter = CHAPTERS[nextIndex] ?? CHAPTERS[0];
-    document.getElementById(`partnership-nav-${nextChapter.id}`)?.focus();
-    scrollToChapter(nextChapter.id);
-  };
-
   const handleBusinessTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let nextIndex = index;
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % BUSINESS_MODELS.length;
@@ -655,6 +653,7 @@ export function PartnershipHubExperience({ initialChapter = 'business' }: Partne
 
   return (
     <Page ref={pageRef} id="content-area" aria-labelledby="partnership-hub-title" data-partnership-hub>
+      <SkipLink href="#partnership-inquiry">제휴 문의 작성으로 건너뛰기</SkipLink>
       <PageInner>
         <Hero data-reveal>
           <HeroCopy>
@@ -668,8 +667,8 @@ export function PartnershipHubExperience({ initialChapter = 'business' }: Partne
               사업·광고·투자·후원을 한 공간에 모아, 지금 우리에게 필요한 관계부터 편하게 골라보세요.
             </HeroLead>
             <HeroActions>
-              <PrimaryAction type="button" onClick={() => scrollToChapter('business')}>
-                네 가지 인연 만나기 <ArrowDownRight size={18} aria-hidden="true" />
+              <PrimaryAction type="button" onClick={scrollToInquiry}>
+                제휴 브리프 5분 작성 <ArrowDownRight size={18} aria-hidden="true" />
               </PrimaryAction>
               <TextAction href={getGeneralPartnershipMailto()}>
                 일단 이야기부터 <Mail size={17} aria-hidden="true" />
@@ -699,21 +698,21 @@ export function PartnershipHubExperience({ initialChapter = 'business' }: Partne
           <span>후원은 같이 계속할 방법</span>
         </HeroMarquee>
 
+        <PartnershipInquiryComposer initialChapter={initialChapter} />
+
         <ChapterNav aria-label="제휴 유형 바로가기">
           <ChapterNavInner>
-            {CHAPTERS.map((chapter, index) => {
+            {CHAPTERS.map((chapter) => {
               const Icon = chapter.icon;
               const isActive = activeChapter === chapter.id;
               return (
                 <ChapterNavButton
                   key={chapter.id}
                   id={`partnership-nav-${chapter.id}`}
-                  type="button"
+                  href={chapter.route}
                   $accent={chapter.accent}
                   $active={isActive}
-                  aria-current={isActive ? 'location' : undefined}
-                  onClick={() => scrollToChapter(chapter.id)}
-                  onKeyDown={(event) => handleChapterKeyDown(event, index)}
+                  aria-current={initialChapter === chapter.id ? 'page' : undefined}
                 >
                   <span>{chapter.number}</span><Icon size={18} aria-hidden="true" /><strong>{chapter.label}</strong>
                 </ChapterNavButton>

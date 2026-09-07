@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { fetchExternalHttpUrl, normalizeExternalHttpUrl } from '@/lib/server/http-safety';
+import { requireUserAccessAuth } from '@/lib/server/admin-auth';
+import { enforceUserRateLimit } from '@/lib/server/rate-limit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const EXTERNAL_URL_ERROR_MESSAGES = new Map([
   ['Invalid URL', '올바른 외부 이미지 URL이 아닙니다.'],
   ['Only http and https URLs are allowed.', 'HTTP(S) 이미지 URL만 불러올 수 있습니다.'],
@@ -24,7 +26,7 @@ const IMAGE_ACCEPT_HEADER =
 
 class ImageTooLargeError extends Error {
   constructor() {
-    super('이미지 크기가 100MB를 초과합니다.');
+    super('이미지 크기가 25MB를 초과합니다.');
     this.name = 'ImageTooLargeError';
   }
 }
@@ -95,6 +97,26 @@ function externalUrlError(error: unknown): string | null {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireUserAccessAuth(req);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.message }, { status: auth.status });
+    }
+    const rateLimit = await enforceUserRateLimit({
+      namespace: 'fetch-image',
+      uid: auth.uid,
+      maxRequests: 30,
+      windowMs: 60_000,
+    });
+    if ('retryAfterSeconds' in rateLimit) {
+      return NextResponse.json(
+        { error: `${rateLimit.retryAfterSeconds}초 후 다시 시도해 주세요.` },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+        },
+      );
+    }
+
     const body = await req.json().catch(() => null);
     const parsed = FetchImageSchema.safeParse(body);
     if (!parsed.success) {
@@ -125,7 +147,7 @@ export async function POST(req: NextRequest) {
     const contentLength = Number(sourceResponse.headers.get('content-length') ?? 0);
     if (contentLength > MAX_IMAGE_BYTES) {
       await sourceResponse.body?.cancel();
-      return NextResponse.json({ error: '이미지 크기가 100MB를 초과합니다.' }, { status: 413 });
+      return NextResponse.json({ error: '이미지 크기가 25MB를 초과합니다.' }, { status: 413 });
     }
 
     const sourceContentType =

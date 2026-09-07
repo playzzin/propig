@@ -26,7 +26,6 @@ const eslintConfig = defineConfig([
     "android/app/build/**",
     "android/app/src/main/assets/**",
     "ios/App/App/public/**",
-    "src/remotion.bak/**",
     "scripts/**",
     "patch_lint.js",
     "test-*.ts",

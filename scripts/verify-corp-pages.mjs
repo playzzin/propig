@@ -22,7 +22,7 @@ const pageSpecs = [
     targets: [
       { label: 'hero heading', selector: 'h1,h2', text: '기업 사이트 홈', minWidth: 140, minHeight: 18 },
       { label: 'operations menu', selector: 'h2,section,div', text: '기업 운영 메뉴', minWidth: 180, minHeight: 28 },
-      { label: 'project entry', selector: 'a,article,button', text: '프로젝트', minWidth: 90, minHeight: 38 },
+      { label: 'project entry', selector: '#content-area a,#content-area article,#content-area button', text: '프로젝트', minWidth: 90, minHeight: 38 },
     ],
   },
   {
@@ -38,9 +38,9 @@ const pageSpecs = [
   {
     slug: 'product-introduction',
     path: '/corp/company/product-introduction',
-    requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹·앱 제품', '구매 상담 신청'],
+    requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹제품 스타터', '리셀러 파트너', 'CY 모바일 현장일보 웹앱', 'CY 실제 구동', 'CY 상품 견적 요청'],
     targets: [
-      { label: 'product heading', selector: 'h1,h2', text: '제품소개', minWidth: 90, minHeight: 18 },
+      { label: 'product heading', selector: 'h1', text: '제품소개', minWidth: 90, minHeight: 18 },
       { label: 'product catalog', selector: 'h1,h2,section,div,span,strong', text: 'PRODUCT CATALOG', minWidth: 120, minHeight: 18 },
       { label: 'purchase consultation', selector: 'a', text: '구매 상담 신청', minWidth: 110, minHeight: 36 },
     ],

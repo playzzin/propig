@@ -19,6 +19,7 @@ import {
     handleRedesignImageStoryboardScene,
 } from './hostingGenerationRoutes';
 import { handleConvertImage } from './hostingImageConversion';
+import { handleEmoticonAnimationPlan } from './hostingEmoticonStudioRoutes';
 import {
     handleVideoStudioClipById,
     handleVideoStudioClips,
@@ -43,6 +44,7 @@ export const HOSTING_API_ROUTE_PATTERNS = [
     '/api/ai-config',
     '/api/ai-config/test',
     '/api/convert-image',
+    '/api/emoticon-studio/plan',
     '/api/fetch-image',
     '/api/generate-image',
     '/api/generate-image-storyboard',
@@ -75,6 +77,7 @@ const exactRoutes = new Map<string, RouteHandler>([
     ['/api/ai-config', handleAiConfig],
     ['/api/ai-config/test', handleAiConfigTest],
     ['/api/convert-image', handleConvertImage],
+    ['/api/emoticon-studio/plan', handleEmoticonAnimationPlan],
     ['/api/fetch-image', handleFetchImage],
     ['/api/generate-image', handleGenerateImage],
     ['/api/generate-image-storyboard', handleGenerateImageStoryboard],

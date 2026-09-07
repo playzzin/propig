@@ -476,7 +476,7 @@ export async function enforceUserRateLimit(input: {
   }
 
   const key = Buffer.from(`${namespace}:${uid}`).toString('base64url');
-  const reference = db.collection('rateLimits').doc(key);
+  const reference = db.collection('serverRateLimits').doc(key);
   const now = Date.now();
 
   return db.runTransaction(async (transaction) => {

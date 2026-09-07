@@ -64,15 +64,16 @@ async function readFormData(req) {
     return webRequest.formData();
 }
 async function handleConvertImage(req, res) {
+    var _a;
     (0, hostingCommon_1.requireMethod)(req, 'POST');
-    const auth = await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireAccess)(req, 'photoManagement');
     const rateLimit = await (0, security_1.enforceUserRateLimit)({
         namespace: 'image-conversion',
         uid: auth.uid,
         maxRequests: 12,
         windowMs: 60000,
     });
-    if (!rateLimit.allowed) {
+    if ('retryAfterSeconds' in rateLimit) {
         res.set('Retry-After', String(rateLimit.retryAfterSeconds));
         throw new hostingCommon_1.ApiError(429, 'Too many image conversion requests. Please try again shortly.');
     }
@@ -158,20 +159,27 @@ async function handleConvertImage(req, res) {
     else {
         pipeline = pipeline.webp({ quality, alphaQuality: Math.max(quality, 80), effort: 6, smartSubsample: true, preset: 'photo' });
     }
-    const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
+    const data = await pipeline.toBuffer();
     if (data.length > MAX_OUTPUT_BYTES)
         throw new hostingCommon_1.ApiError(413, 'The converted image exceeds the allowed output size.');
-    const pageHeight = typeof info.pageHeight === 'number'
-        ? info.pageHeight
-        : undefined;
+    const decoded = await (0, sharp_1.default)(data, { animated: animated, pages: animated ? -1 : 1, limitInputPixels: MAX_INPUT_PIXELS }).metadata();
+    const decodedPages = decoded.pages || 1;
+    const inputPages = metadata.pages || 1;
+    if (decoded.format !== outputFormat || (animated && decodedPages !== inputPages) || !decoded.width || !decoded.height) {
+        throw new hostingCommon_1.ApiError(422, '완성된 이미지의 디코딩 검증에 실패했습니다.');
+    }
+    const pageHeight = decoded.pageHeight || Math.floor(decoded.height / decodedPages);
     res.set({
         'Content-Type': mimeType(outputFormat),
         'Content-Length': String(data.length),
         'Cache-Control': 'no-store',
-        'X-Image-Width': String(info.width || metadata.width || 0),
-        'X-Image-Height': String(pageHeight || info.height || metadata.height || 0),
-        'X-Image-Pages': String(info.pages || metadata.pages || 1),
-        'X-Image-Animated': String(Boolean(info.pages && info.pages > 1)),
+        'X-Image-Width': String(decoded.width),
+        'X-Image-Height': String(pageHeight),
+        'X-Image-Pages': String(decodedPages),
+        'X-Image-Animated': String(decodedPages > 1),
+        'X-Image-Loop': String((_a = decoded.loop) !== null && _a !== void 0 ? _a : 0),
+        'X-Image-Alpha': String(Boolean(decoded.hasAlpha)),
+        'X-Image-Delays': (decoded.delay || []).join(','),
     });
     res.status(200).send(data);
 }

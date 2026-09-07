@@ -4,14 +4,14 @@ import { readFile } from 'node:fs/promises';
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 const [
   historyService,
-  imageGeneratorHook,
+  storyboardImageHook,
   nextDeleteRoute,
   functionsDeleteRoute,
   rules,
   storyboardSchema,
 ] = await Promise.all([
   read('src/services/imageGenerationService.ts'),
-  read('src/app/admin/image-generator/hooks.ts'),
+  read('src/hooks/useStoryboardImageGeneration.ts'),
   read('src/app/api/storyboards/[storyboardId]/route.ts'),
   read('functions/src/api/hostingStoryboardRoutes.ts'),
   read('firestore.rules'),
@@ -20,8 +20,8 @@ const [
 
 assert.match(historyService, /storagePath:\s*fileName/);
 assert.match(historyService, /artifactProvenance:\s*params\.artifactProvenance \?\? null/);
-assert.match(imageGeneratorHook, /window\.location\.pathname !== '\/admin\/storyboard'/);
-assert.match(imageGeneratorHook, /artifactProvenance:\s*readStoryboardGenerationProvenance\(\)/);
+assert.match(storyboardImageHook, /window\.location\.pathname !== '\/admin\/storyboard'/);
+assert.match(storyboardImageHook, /artifactProvenance:\s*readStoryboardGenerationProvenance\(\)/);
 
 for (const source of [nextDeleteRoute, functionsDeleteRoute]) {
   assert.match(source, /provenance\.kind !== ["']storyboard-scene["']/);

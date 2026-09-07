@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MenuItem, SiteDataType, SiteId } from '@/types/menu';
 import { menuService } from '@/services/menuService';
 import { MenuToolbox } from '@/components/admin/menu/MenuToolbox';
@@ -19,9 +19,10 @@ import { ACCOUNT_MENU_SITE_ID, getSwitchableSiteIds, isAccountMenuSite } from '@
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentUserAccess } from '@/hooks/useCurrentUserAccess';
 import { recordActivityLog } from '@/services/activityLogService';
+import { useMenuSaveLifecycle, type MenuSaveMode } from './useMenuSaveLifecycle';
 
 type WorkspacePanel = 'tools' | 'menu' | 'details';
-type SaveMode = 'manual' | 'auto';
+
 
 interface SiteModeIconOption {
   icon: string;
@@ -173,13 +174,8 @@ export default function AdvancedMenuManagerPage() {
   const {
     currentSite: sidebarSite,
   } = useMenuContext();
-  const [sitesData, setSitesData] = useState<SiteDataType>({});
   const [currentSite, setCurrentSite] = useState<SiteId>(sidebarSite);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
-  const [saveMessage, setSaveMessage] = useState('');
-  const [saveError, setSaveError] = useState('');
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
   const [workspacePanel, setWorkspacePanel] = useState<WorkspacePanel>('menu');
   const [isSiteModeManagerOpen, setIsSiteModeManagerOpen] = useState(false);
@@ -194,31 +190,38 @@ export default function AdvancedMenuManagerPage() {
     refetchOnWindowFocus: false,
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (nextSitesData: SiteDataType) => {
-      await menuService.saveAllSites(nextSitesData);
-    },
-    onSuccess: (_, nextSitesData) => {
-      queryClient.setQueryData(MENU_SITES_QUERY_KEY, nextSitesData);
-    },
-    onError: (error) => {
-      console.error('Save failed:', error);
-    },
+  const canSave = Boolean(currentUser) && !isAccessLoading &&
+    (access.role === 'admin' || Boolean(access.permissions.menuManagement));
+  const persistSitesData = useCallback(async (nextSitesData: SiteDataType, mode: MenuSaveMode) => {
+    await menuService.saveAllSites(nextSitesData);
+    queryClient.setQueryData(MENU_SITES_QUERY_KEY, nextSitesData);
+    // Audit logging failure must not turn an acknowledged menu save into a failed save.
+    void recordActivityLog(currentUser, {
+      action: 'menu.save',
+      target: { type: 'menuSettings', id: 'sites', label: '통합 메뉴' },
+      summary: mode === 'auto' ? '통합 메뉴 자동 저장' : '통합 메뉴 수동 저장',
+      metadata: {
+        mode,
+        siteCount: Object.keys(nextSitesData).length,
+        menuItemCount: Object.values(nextSitesData).reduce(
+          (total, site) => total + countMenuItems(site.menu || []), 0,
+        ),
+      },
+    }).catch((error) => console.error('Menu activity log failed:', error));
+  }, [currentUser, queryClient]);
+  const {
+    sitesData, setSitesData, hasUnsavedChanges, isSaving, saveError, setSaveError,
+    saveMessage, setSaveMessage, lastSavedAt, retryRequired, markDirty, runSave,
+  } = useMenuSaveLifecycle({
+    remoteData: menuSitesQuery.data, canSave, identity: currentUser?.uid,
+    persist: persistSitesData, autoSave,
   });
-
-  const persistSitesData = useCallback(
-    async (nextSitesData: SiteDataType) => {
-      await saveMutation.mutateAsync(nextSitesData);
-    },
-    [saveMutation],
-  );
 
   const currentMenu = useMemo(() => sitesData[currentSite]?.menu || [], [currentSite, sitesData]);
   const currentSiteData = sitesData[currentSite];
   const currentSiteColor = currentSiteData?.color || '#3b82f6';
   const isAccountMenuTarget = isAccountMenuSite(currentSite);
   const registeredPaths = useMemo(() => collectRegisteredPaths(currentMenu), [currentMenu]);
-  const isSaving = saveMutation.isPending;
   const isLoading = menuSitesQuery.isLoading && Object.keys(sitesData).length === 0;
   const menuParentOptions = useMemo(() => collectMenuParentOptions(currentMenu), [currentMenu]);
 
@@ -230,58 +233,6 @@ export default function AdvancedMenuManagerPage() {
     if (lastSavedAt) return `저장됨 ${formatSavedAt(lastSavedAt)}`;
     return '변경 없음';
   }, [autoSave, hasUnsavedChanges, isSaving, lastSavedAt, saveError, saveMessage]);
-
-  const markDirty = useCallback(() => {
-    setHasUnsavedChanges(true);
-    setSaveError('');
-    setSaveMessage('');
-  }, []);
-
-  const runSave = useCallback(
-    async (nextSitesData: SiteDataType, mode: SaveMode) => {
-      setSaveError('');
-      setSaveMessage(mode === 'auto' ? '자동 저장 중…' : '저장 중…');
-
-      try {
-        await persistSitesData(nextSitesData);
-        void recordActivityLog(currentUser, {
-          action: 'menu.save',
-          target: {
-            type: 'menuSettings',
-            id: 'sites',
-            label: '통합 메뉴',
-          },
-          summary: mode === 'auto' ? '통합 메뉴 자동 저장' : '통합 메뉴 수동 저장',
-          metadata: {
-            mode,
-            siteCount: Object.keys(nextSitesData).length,
-            menuItemCount: Object.values(nextSitesData).reduce(
-              (total, site) => total + countMenuItems(site.menu || []),
-              0,
-            ),
-          },
-        });
-        setLastSavedAt(new Date());
-        setHasUnsavedChanges(false);
-        setSaveMessage(mode === 'auto' ? '자동 저장됨' : '저장됨');
-        window.setTimeout(() => setSaveMessage(''), 1800);
-      } catch (error) {
-        setSaveError('저장 실패. 다시 시도해 주세요.');
-        console.error('Save failed:', error);
-      }
-    },
-    [currentUser, persistSitesData],
-  );
-
-  useEffect(() => {
-    if (!menuSitesQuery.data) return;
-    queueMicrotask(() => {
-      setSitesData(menuSitesQuery.data);
-      setHasUnsavedChanges(false);
-      setSaveError('');
-      setSaveMessage('');
-    });
-  }, [menuSitesQuery.data]);
 
   useEffect(() => {
     if (!sitesData[currentSite]) {
@@ -352,29 +303,6 @@ export default function AdvancedMenuManagerPage() {
   }, [sitesData]);
 
   useEffect(() => {
-    if (!autoSave || !hasUnsavedChanges) return;
-    if (Object.keys(sitesData).length === 0) return;
-
-    const timeoutId = window.setTimeout(() => {
-      void runSave(sitesData, 'auto');
-    }, 1200);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [autoSave, hasUnsavedChanges, runSave, sitesData]);
-
-  useEffect(() => {
-    if (!hasUnsavedChanges) return;
-
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
-
-  useEffect(() => {
     if (!selectedItem) return;
 
     const selectedItemId = selectedItem.id;
@@ -411,7 +339,7 @@ export default function AdvancedMenuManagerPage() {
       });
       markDirty();
     },
-    [currentSite, markDirty],
+    [currentSite, markDirty, setSitesData],
   );
 
   const handleToggle = useCallback(
@@ -447,7 +375,7 @@ export default function AdvancedMenuManagerPage() {
       });
       markDirty();
     },
-    [currentSite, markDirty],
+    [currentSite, markDirty, setSitesData],
   );
 
   const handleAddItem = useCallback(
@@ -467,7 +395,7 @@ export default function AdvancedMenuManagerPage() {
       markDirty();
       setWorkspacePanel(isCompactViewport() && !item.path ? 'details' : 'menu');
     },
-    [currentSite, markDirty],
+    [currentSite, markDirty, setSitesData],
   );
 
   const handleMoveItem = useCallback(
@@ -489,7 +417,7 @@ export default function AdvancedMenuManagerPage() {
       });
       markDirty();
     },
-    [currentSite, markDirty],
+    [currentSite, markDirty, setSitesData],
   );
 
   const handleAddChild = useCallback(
@@ -547,7 +475,7 @@ export default function AdvancedMenuManagerPage() {
       setSelectedItem(updatedItem);
       markDirty();
     },
-    [currentSite, markDirty],
+    [currentSite, markDirty, setSitesData],
   );
 
   const handleDeleteById = useCallback(
@@ -578,7 +506,7 @@ export default function AdvancedMenuManagerPage() {
       }
       markDirty();
     },
-    [currentMenu, currentSite, markDirty, selectedItem],
+    [currentMenu, currentSite, markDirty, selectedItem, setSitesData],
   );
 
   const handleDeleteItem = useCallback(() => {
@@ -587,7 +515,7 @@ export default function AdvancedMenuManagerPage() {
   }, [selectedItem, handleDeleteById]);
 
   const handleSave = async () => {
-    await runSave(sitesData, 'manual');
+    await runSave('manual');
   };
 
   const handleUpdateCurrentSite = useCallback(() => {
@@ -613,7 +541,7 @@ export default function AdvancedMenuManagerPage() {
 
     markDirty();
     setSaveMessage('사이트 모드 정보가 반영됨');
-  }, [currentSite, markDirty, siteDraft.color, siteDraft.icon, siteDraft.name]);
+  }, [currentSite, markDirty, siteDraft.color, siteDraft.icon, siteDraft.name, setSitesData, setSaveError, setSaveMessage]);
 
   const handleCreateSite = useCallback(() => {
     const normalizedId = normalizeSiteId(siteCreateDraft.id || siteCreateDraft.name);
@@ -655,7 +583,7 @@ export default function AdvancedMenuManagerPage() {
     setSiteCreateDraft({ id: '', name: '', icon: 'globe', color: '#3b82f6' });
     markDirty();
     setSaveMessage('사이트 모드가 추가됨');
-  }, [markDirty, siteCreateDraft.color, siteCreateDraft.icon, siteCreateDraft.id, siteCreateDraft.name, sitesData]);
+  }, [markDirty, siteCreateDraft.color, siteCreateDraft.icon, siteCreateDraft.id, siteCreateDraft.name, sitesData, setSitesData, setSaveError, setSaveMessage]);
 
   const handleDeleteCurrentSite = useCallback(() => {
     if (isAccountMenuSite(currentSite)) {
@@ -687,7 +615,7 @@ export default function AdvancedMenuManagerPage() {
     setCurrentSite(nextSiteId);
     markDirty();
     setSaveMessage('사이트 모드가 삭제됨');
-  }, [currentSite, markDirty, sitesData]);
+  }, [currentSite, markDirty, sitesData, setSitesData, setSaveError, setSaveMessage]);
 
   if (!currentUser && !isAccessLoading) {
     return (
@@ -714,7 +642,7 @@ export default function AdvancedMenuManagerPage() {
     return (
       <div className="admin-menu-loading" role="status" aria-live="polite">
         <i className="fa fa-lock" aria-hidden="true" />
-        <span>통합 메뉴 관리 권한이 없습니다.</span>
+        <span>통합 메뉴 관리 권한이 없습니다.{hasUnsavedChanges ? ' 저장하지 못한 변경 내용은 이 탭에 유지됩니다. 권한 복구 전 새로고침하지 마세요.' : ''}</span>
       </div>
     );
   }
@@ -748,6 +676,16 @@ export default function AdvancedMenuManagerPage() {
 
   return (
     <div className="admin-menu-page content-section">
+      <details style={{ flexShrink: 0, padding: '12px 16px', borderBottom: '1px solid var(--border-medium)' }}>
+        <summary style={{ cursor: 'pointer', minHeight: 28 }}>
+          모드별 메뉴 관리 안내 · 현재 편집: {currentSiteData.name}
+        </summary>
+        <p style={{ marginTop: 8, lineHeight: 1.7 }}>
+          아래 사이트 탭은 편집할 메뉴를 선택합니다. 실제 사이트 화면으로 이동하는 상단의 사이트 전환과는 별개예요.
+          모드를 선택한 뒤 메뉴 순서·폴더·접근 권한을 수정하고 저장하세요.
+          계정 메뉴는 사이트별 업무 메뉴와 구분해 관리하며, 다른 모드의 메뉴를 복제할 때는 경로와 권한을 함께 확인하세요.
+        </p>
+      </details>
       <div className="admin-menu-topbar">
         <div className="admin-menu-sites" role="tablist" aria-label="사이트 모드">
           {Object.entries(sitesData).map(([siteId, site]) => {
@@ -803,11 +741,11 @@ export default function AdvancedMenuManagerPage() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || !canSave || !hasUnsavedChanges}
             className="admin-menu-save-btn"
           >
             <i className={`fa ${isSaving ? 'fa-spinner fa-spin' : 'fa-save'}`} aria-hidden="true" />
-            <span>{isSaving ? '저장 중…' : '저장'}</span>
+            <span>{isSaving ? '저장 중…' : retryRequired ? '다시 저장' : '저장'}</span>
           </button>
 
           <span className={`admin-menu-save-status ${saveError ? 'is-error' : hasUnsavedChanges ? 'is-dirty' : ''}`} aria-live="polite">

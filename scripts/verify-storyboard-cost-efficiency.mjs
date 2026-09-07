@@ -15,7 +15,7 @@ const [workspace, schema, hooks, service, nextRoute, hostingRoute] =
       "utf8",
     ),
     readFile(
-      new URL("../src/app/admin/image-generator/hooks.ts", import.meta.url),
+      new URL("../src/hooks/useStoryboardImageGeneration.ts", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -41,10 +41,9 @@ assert.ok(
 );
 assert.ok(
   service.includes("resourceMode?: 'efficient' | 'premium'") &&
-    hooks.includes("resourceMode: request.resourceMode") &&
-    hooks.includes("resourceMode: 'premium'") &&
+    hooks.includes("resourceMode: payload.resourceMode") &&
     workspace.includes('resourceMode: "efficient"'),
-  "The storyboard resource mode must reach the image provider without changing the generic image-generator default.",
+  "The storyboard resource mode must reach the image provider.",
 );
 
 for (const [name, source] of [

@@ -1,4 +1,4 @@
-import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { SiteDataType, SiteData, MenuItem, MenuServiceInterface } from '@/types/menu';
 import { validateAllSites, validateSiteData } from '@/schemas/menuSchema';
 import { ACCOUNT_MENU_SITE_ID, createDefaultAccountMenuSite } from '@/constants/accountMenu';
@@ -7,6 +7,7 @@ import { COMPANY_MENU_ITEMS } from '@/constants/companyMenu';
 import { PROPIG_STORE_MENU_ITEMS, PROPIG_STORE_PAGE_MENU_ITEM } from '@/constants/propigStore';
 import { auth, db } from '@/firebase/config';
 import { USER_PERMISSION_KEYS, USER_POSITION_OPTIONS, USER_ROLE_OPTIONS } from '@/types/userAccess';
+import { MENU_SETTINGS_VERSION } from '@/constants/menuSettingsContract';
 
 class MenuService implements MenuServiceInterface {
   private readonly STORAGE_KEY = 'advanced_menu_manager_data';
@@ -14,15 +15,17 @@ class MenuService implements MenuServiceInterface {
   private readonly REMOTE_COLLECTION = 'menuSettings';
   private readonly REMOTE_DOC_ID = 'sites';
   private readonly REMOTE_LOAD_TIMEOUT_MS = 1200;
-  private readonly CURRENT_DATA_VERSION = 46;
+  private readonly CURRENT_DATA_VERSION = MENU_SETTINGS_VERSION;
   private readonly RETIRED_MENU_PATHS = new Set([
     '/mandalart',
     '/admin/ai-workforce',
+    '/admin/image-generator',
     '/corp/company/history',
   ]);
   private readonly RETIRED_MENU_ITEM_IDS = new Set([
     'admin-5',
-    'admin-22',
+    'admin-6',
+    'admin-20',
     'corp-company-intro-history',
   ]);
   private readonly DEPRECATED_CORP_COMPANY_MENU_PATHS = new Set([
@@ -60,6 +63,7 @@ class MenuService implements MenuServiceInterface {
   private loadAllSitesPromise: Promise<SiteDataType> | null = null;
   private remoteMenuUnsubscribe: (() => void) | null = null;
   private remoteMenuSubscriberCount = 0;
+  private liveSnapshotRevision = 0;
 
   async loadAllSites(): Promise<SiteDataType> {
     if (this.allSitesCache) {
@@ -88,6 +92,8 @@ class MenuService implements MenuServiceInterface {
   private async loadAllSitesUncached(): Promise<SiteDataType> {
     try {
       const remote = await this.loadRemoteSitesWithTimeout();
+      // A live snapshot may have arrived while the bootstrap read was pending.
+      if (this.allSitesCache) return this.serializeSites(this.allSitesCache);
       if (remote) {
         this.persistLocal(remote);
         return this.rememberSites(remote);
@@ -138,9 +144,10 @@ class MenuService implements MenuServiceInterface {
       const allSites = await this.loadAllSites();
       allSites[siteId] = cleanedSite;
 
+      await this.saveRemoteSites(allSites);
+      this.liveSnapshotRevision++;
       this.persistLocal(allSites);
       this.rememberSites(allSites);
-      await this.saveRemoteSites(allSites);
 
       this.notifySubscribers(siteId, cleanedSite);
     } catch (error) {
@@ -186,13 +193,21 @@ class MenuService implements MenuServiceInterface {
 
   private readLocalStorage(key: string): string | null {
     if (typeof window === 'undefined') return null;
-    return window.localStorage.getItem(key);
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
   }
 
   private persistLocal(data: SiteDataType): void {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
-    window.localStorage.setItem(this.STORAGE_VERSION_KEY, String(this.CURRENT_DATA_VERSION));
+    try {
+      window.localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
+      window.localStorage.setItem(this.STORAGE_VERSION_KEY, String(this.CURRENT_DATA_VERSION));
+    } catch {
+      // Browser storage is an optional cache, never a prerequisite for live menus.
+    }
   }
 
   private getSavedLocalVersion(): number {
@@ -213,6 +228,7 @@ class MenuService implements MenuServiceInterface {
           if (!snapshot.exists()) return;
           const remote = this.parseRemoteSnapshot(snapshot.data());
           if (!remote) return;
+          this.liveSnapshotRevision += 1;
           this.persistLocal(remote);
           this.rememberSites(remote);
           this.notifyAllSubscribers(remote);
@@ -272,6 +288,7 @@ class MenuService implements MenuServiceInterface {
 
   private async loadRemoteSitesWithTimeout(): Promise<SiteDataType | null> {
     const timedOut = { timedOut: true } as const;
+    const revisionAtStart = this.liveSnapshotRevision;
     const remotePromise = this.loadRemoteSites();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<typeof timedOut>((resolve) => {
@@ -283,7 +300,7 @@ class MenuService implements MenuServiceInterface {
 
     if (result && 'timedOut' in result) {
       void remotePromise.then((remote) => {
-        if (!remote) return;
+        if (!remote || this.liveSnapshotRevision !== revisionAtStart) return;
         this.persistLocal(remote);
         this.rememberSites(remote);
         this.notifyAllSubscribers(remote);
@@ -296,45 +313,42 @@ class MenuService implements MenuServiceInterface {
   }
 
   private async saveRemoteSites(data: SiteDataType): Promise<void> {
-    let clientWriteSucceeded = false;
-    try {
-      await setDoc(
-        this.getRemoteDocRef(),
-        {
-          version: this.CURRENT_DATA_VERSION,
-          sites: this.serializeSites(data),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-      clientWriteSucceeded = true;
-    } catch (error) {
-      console.warn('Failed to save remote menu data:', error);
-    }
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error('로그인이 필요합니다. 편집 내용은 아직 저장되지 않았습니다.');
 
-    if (clientWriteSucceeded) return;
-
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) return;
+    // Both Next runtime and Firebase Hosting implement this authenticated API.
+    // A direct Firestore write first would publish an unacknowledged local
+    // snapshot and may remain queued offline after the UI reports failure.
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        reject(new Error('저장 응답을 확인하지 못했습니다. 변경 내용은 유지되며 다시 저장할 수 있습니다.'));
+      }, 15000);
+    });
+    const requestSave = async () => {
       const token = await currentUser.getIdToken();
+      if (controller.signal.aborted) throw new Error('메뉴 저장 시간이 초과되었습니다.');
+      if (auth.currentUser !== currentUser) throw new Error('로그인 상태가 변경되었습니다. 다시 시도해 주세요.');
       const response = await fetch('/api/admin/menu-sites', {
         method: 'PUT',
+        signal: controller.signal,
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          sites: this.serializeSites(data),
-        }),
+        body: JSON.stringify({ sites: this.serializeSites(data) }),
       });
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { error?: string };
-        console.warn('Failed to save remote menu data through API:', payload.error || response.statusText);
+      const payload = await response.json().catch(() => null) as { ok?: boolean; error?: string } | null;
+      if (!response.ok || payload?.ok !== true) {
+        throw new Error(payload?.error || '서버에서 메뉴 저장을 확인하지 못했습니다. 다시 시도해 주세요.');
       }
-    } catch (error) {
-      console.warn('Failed to save remote menu data through API:', error);
+    };
+    try {
+      await Promise.race([requestSave(), deadline]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
@@ -520,13 +534,13 @@ class MenuService implements MenuServiceInterface {
       nextData = adminMigration.data;
       changed = changed || adminMigration.changed;
 
-      const emoticonStudioMigration = this.applyAdminEmoticonStudioMenu(nextData);
-      nextData = emoticonStudioMigration.data;
-      changed = changed || emoticonStudioMigration.changed;
-
       const storyboardStudioMigration = this.applyAdminStoryboardStudioMenu(nextData);
       nextData = storyboardStudioMigration.data;
       changed = changed || storyboardStudioMigration.changed;
+
+      const emoticonStudioMigration = this.applyAdminEmoticonStudioMenu(nextData);
+      nextData = emoticonStudioMigration.data;
+      changed = changed || emoticonStudioMigration.changed;
 
       const openRouterUsageMigration = this.applyAdminOpenRouterUsageMenu(nextData);
       nextData = openRouterUsageMigration.data;
@@ -632,6 +646,10 @@ class MenuService implements MenuServiceInterface {
     const storyboardStudioSync = this.applyAdminStoryboardStudioMenu(nextData);
     nextData = storyboardStudioSync.data;
     changed = changed || storyboardStudioSync.changed;
+
+    const emoticonStudioSync = this.applyAdminEmoticonStudioMenu(nextData);
+    nextData = emoticonStudioSync.data;
+    changed = changed || emoticonStudioSync.changed;
 
     const corpBusinessTemplateSync = this.applyCorpBusinessTemplate(nextData);
     nextData = corpBusinessTemplateSync.data;
@@ -1590,57 +1608,6 @@ class MenuService implements MenuServiceInterface {
     };
   }
 
-  private applyAdminEmoticonStudioMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
-    const adminSite = data.admin;
-    if (!adminSite) {
-      return { data, changed: false };
-    }
-
-    const exists = this.siteHasMenuTarget(adminSite, 'admin-20', '/admin/emoticon-studio');
-    if (exists) {
-      return { data, changed: false };
-    }
-
-    const emoticonStudioMenu: MenuItem = {
-      id: 'admin-20',
-      text: 'AI 이모티콘 스튜디오',
-      path: '/admin/emoticon-studio',
-      icon: 'face-smile',
-      type: 'link',
-      roles: ['admin'],
-      position: ['ceo', 'manager'],
-      badge: 'AI',
-    };
-
-    const imageGeneratorIndex = adminSite.menu.findIndex(
-      (item) => item.id === 'admin-6' || item.path === '/admin/image-generator',
-    );
-    const openRouterIndex = adminSite.menu.findIndex(
-      (item) => item.id === 'admin-8' || item.path === '/admin/openrouter-settings',
-    );
-    const dividerIndex = adminSite.menu.findIndex((item) => item.id === 'admin-divider-1');
-    const insertIndex = imageGeneratorIndex >= 0
-      ? imageGeneratorIndex + 1
-      : openRouterIndex >= 0
-        ? openRouterIndex
-        : dividerIndex >= 0
-          ? dividerIndex
-          : adminSite.menu.length;
-    const nextMenu = [...adminSite.menu];
-    nextMenu.splice(insertIndex, 0, emoticonStudioMenu);
-
-    return {
-      data: {
-        ...data,
-        admin: {
-          ...adminSite,
-          menu: nextMenu,
-        },
-      },
-      changed: true,
-    };
-  }
-
   private applyAdminStoryboardStudioMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
     const adminSite = data.admin;
     if (!adminSite) {
@@ -1663,22 +1630,56 @@ class MenuService implements MenuServiceInterface {
       badge: 'VIDEO',
     };
 
-    const imageGeneratorIndex = adminSite.menu.findIndex(
-      (item) => item.id === 'admin-6' || item.path === '/admin/image-generator',
-    );
-    const emoticonStudioIndex = adminSite.menu.findIndex(
-      (item) => item.id === 'admin-20' || item.path === '/admin/emoticon-studio',
-    );
     const dividerIndex = adminSite.menu.findIndex((item) => item.id === 'admin-divider-1');
-    const insertIndex = imageGeneratorIndex >= 0
-      ? imageGeneratorIndex + 1
-      : emoticonStudioIndex >= 0
-        ? emoticonStudioIndex
-        : dividerIndex >= 0
-          ? dividerIndex
-          : adminSite.menu.length;
+    const insertIndex = dividerIndex >= 0 ? dividerIndex : adminSite.menu.length;
     const nextMenu = [...adminSite.menu];
     nextMenu.splice(insertIndex, 0, storyboardStudioMenu);
+
+    return {
+      data: {
+        ...data,
+        admin: {
+          ...adminSite,
+          menu: nextMenu,
+        },
+      },
+      changed: true,
+    };
+  }
+
+  private applyAdminEmoticonStudioMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const adminSite = data.admin;
+    if (!adminSite) {
+      return { data, changed: false };
+    }
+
+    const exists = this.siteHasMenuTarget(adminSite, 'admin-22', '/admin/emoticon-studio');
+    if (exists) {
+      return { data, changed: false };
+    }
+
+    const emoticonStudioMenu: MenuItem = {
+      id: 'admin-22',
+      text: '반자동 이모티콘 스튜디오',
+      path: '/admin/emoticon-studio',
+      icon: 'wand-magic-sparkles',
+      type: 'link',
+      roles: ['admin'],
+      position: ['ceo', 'manager'],
+      badge: 'CHATGPT',
+    };
+
+    const storyboardIndex = adminSite.menu.findIndex(
+      (item) => item.id === 'admin-21' || item.path === '/admin/storyboard',
+    );
+    const dividerIndex = adminSite.menu.findIndex((item) => item.id === 'admin-divider-1');
+    const insertIndex = storyboardIndex >= 0
+      ? storyboardIndex + 1
+      : dividerIndex >= 0
+        ? dividerIndex
+        : adminSite.menu.length;
+    const nextMenu = [...adminSite.menu];
+    nextMenu.splice(insertIndex, 0, emoticonStudioMenu);
 
     return {
       data: {
@@ -2300,15 +2301,6 @@ class MenuService implements MenuServiceInterface {
             badge: 'PLAN',
           },
           {
-            id: 'admin-6',
-            text: 'AI 이미지 생성기',
-            path: '/admin/image-generator',
-            icon: 'wand-magic-sparkles',
-            type: 'link',
-            roles: ['admin'],
-            position: ['ceo', 'manager'],
-          },
-          {
             id: 'admin-21',
             text: '스토리보드 영상 제작',
             path: '/admin/storyboard',
@@ -2319,14 +2311,14 @@ class MenuService implements MenuServiceInterface {
             badge: 'VIDEO',
           },
           {
-            id: 'admin-20',
-            text: 'AI 이모티콘 스튜디오',
+            id: 'admin-22',
+            text: '반자동 이모티콘 스튜디오',
             path: '/admin/emoticon-studio',
-            icon: 'face-smile',
+            icon: 'wand-magic-sparkles',
             type: 'link',
             roles: ['admin'],
             position: ['ceo', 'manager'],
-            badge: 'AI',
+            badge: 'CHATGPT',
           },
           {
             id: 'admin-8',
@@ -2453,9 +2445,10 @@ class MenuService implements MenuServiceInterface {
         throw new Error('Invalid data structure');
       }
 
+      await this.saveRemoteSites(cleanedData);
+      this.liveSnapshotRevision++;
       this.persistLocal(cleanedData);
       this.rememberSites(cleanedData);
-      await this.saveRemoteSites(cleanedData);
       this.notifyAllSubscribers(cleanedData);
     } catch (error) {
       console.error('Failed to save all sites:', error);

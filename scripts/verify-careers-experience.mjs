@@ -48,7 +48,7 @@ async function inspectJobs(browser, viewport) {
   await page.locator('#career-track-operations-tab[aria-selected="true"]').waitFor();
 
   const evidence = await page.evaluate(() => {
-    const tooSmall = Array.from(document.querySelectorAll('a[href],button,summary,input,select,textarea'))
+    const tooSmall = Array.from(document.querySelector('#content-area').querySelectorAll('a[href],button,summary,input,select,textarea'))
       .filter((element) => element instanceof HTMLElement && element.offsetParent !== null)
       .map((element) => {
         const rect = element.getBoundingClientRect();

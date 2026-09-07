@@ -240,15 +240,6 @@ export const requireAdminOrPermissionAuth = async (
     } catch (error) {
         console.error('[Admin Permission Auth Error] verifyIdToken failed:', error);
 
-        if (error instanceof Error && error.message.includes('Could not load the default credentials')) {
-            return {
-                ok: false,
-                status: 500,
-                message: 'Firebase Admin service account is required.',
-            };
-        }
-
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return { ok: false, status: 401, message: `Invalid auth token. Detail: ${errorMessage}` };
+        return { ok: false, ...classifyFirebaseAuthVerificationError(error) };
     }
 };

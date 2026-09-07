@@ -2,11 +2,11 @@
 
 import { useRouter } from 'next/navigation';
 import StoryboardWorkspace from '@/components/image-generator/StoryboardWorkspace';
-import { useImageGeneratorControls } from '@/app/admin/image-generator/hooks';
+import { useStoryboardImageGeneration } from '@/hooks/useStoryboardImageGeneration';
 
 export default function StoryboardPage() {
     const router = useRouter();
-    const { generateMutation, generateStoryboardScene } = useImageGeneratorControls();
+    const { generateMutation, generateStoryboardScene } = useStoryboardImageGeneration();
 
     return (
         <StoryboardWorkspace

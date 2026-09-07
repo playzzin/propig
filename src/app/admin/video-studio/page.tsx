@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { db } from '@/firebase/config';
-import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentUserAccess } from '@/hooks/useCurrentUserAccess';
 import { videoStudioService } from '@/services/videoStudioService';
 import type { VideoStudioEstimate, VideoStudioRuntimeStatus } from '@/services/videoStudioService';
 import {
@@ -17,7 +17,10 @@ import {
     type VideoStudioProject,
 } from '@/lib/video-studio';
 
-import { TestPanel } from './components/TestPanel';
+const TestPanel = dynamic(
+    () => import('./components/TestPanel').then((module) => module.TestPanel),
+    { ssr: false },
+);
 
 const TimelineEditor = dynamic(
     () => import('./components/TimelineEditor').then((module) => module.TimelineEditor),
@@ -87,7 +90,7 @@ function VideoCostApprovalDialog({ request, onDecision }: { request: CostApprova
 }
 
 export default function VideoStudioPage() {
-    const { currentUser } = useAuth();
+    const { currentUser, isLoading: isAccessLoading, access } = useCurrentUserAccess();
 
     // States
     const [projects, setProjects] = useState<VideoStudioProject[]>([]);
@@ -445,6 +448,35 @@ export default function VideoStudioPage() {
         }
     };
 
+    if (isAccessLoading) {
+        return (
+            <div role="status" aria-live="polite" style={{ maxWidth: 720, margin: '80px auto', padding: 32 }}>
+                영상 스튜디오 접근 권한을 확인하고 있습니다.
+            </div>
+        );
+    }
+
+    if (!currentUser) {
+        return (
+            <div style={{ maxWidth: 720, margin: '80px auto', padding: 32, border: '1px solid #d8e2e0', borderRadius: 20 }}>
+                <h1 style={{ marginTop: 0 }}>영상 스튜디오</h1>
+                <p>유료 영상 생성과 프로젝트 관리는 로그인한 관리자만 사용할 수 있습니다.</p>
+                <a href="/login" style={{ display: 'inline-flex', minHeight: 44, alignItems: 'center', padding: '0 18px', borderRadius: 12, color: '#fff', background: '#176b5b', fontWeight: 800 }}>
+                    로그인하기
+                </a>
+            </div>
+        );
+    }
+
+    if (access.role !== 'admin') {
+        return (
+            <div role="alert" style={{ maxWidth: 720, margin: '80px auto', padding: 32, border: '1px solid #e4d9c5', borderRadius: 20 }}>
+                <h1 style={{ marginTop: 0 }}>접근 권한이 없습니다</h1>
+                <p>영상 스튜디오는 공유 AI 비용과 운영 데이터를 다루므로 관리자 권한이 필요합니다.</p>
+            </div>
+        );
+    }
+
     return (
         <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -491,6 +523,7 @@ export default function VideoStudioPage() {
 
                 <div style={{ marginTop: '15px' }}>
                     <select
+                        aria-label="영상 프로젝트 선택"
                         value={selectedProjectId || ''}
                         onChange={(e) => handleSelectProject(e.target.value || null)}
                         style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}

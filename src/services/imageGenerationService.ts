@@ -1,14 +1,15 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
+
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db } from '@/firebase/config';
-import { functions } from '@/firebase/functions';
+
 import { storage } from '@/firebase/storage';
 import type { ImageReferenceInput } from '@/types/imageReference';
 
 const shouldLogGenerationDebug = process.env.NODE_ENV !== 'production';
 
 export interface GenerateImageParams {
+    operationId?: string;
     prompt: string;
     negativePrompt?: string;
     aspectRatio?: string;
@@ -44,9 +45,12 @@ async function callNextApi(params: GenerateImageParams): Promise<GenerateImageRe
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            ...(authToken ? { Authorization: 'Bearer ' + authToken } : {}),
         },
-        body: JSON.stringify(bodyParams),
+        body: JSON.stringify({
+            ...bodyParams,
+            operationId: bodyParams.operationId || crypto.randomUUID(),
+        }),
     });
 
     const data = await response.json() as GenerateImageResult;
@@ -87,99 +91,26 @@ function buildGuidedErrorMessage(params: {
     ].filter(Boolean).join(' | ') || 'Unknown error occurred during image generation';
 }
 
-function isFinalInfraError(reasonCode?: string, message?: string): boolean {
-    if (!reasonCode && !message) return false;
-
-    if (
-        reasonCode === 'api_key_expired'
-        || reasonCode === 'billing_disabled'
-        || reasonCode === 'permission_denied'
-        || reasonCode === 'input_image_privacy'
-    ) {
-        return true;
-    }
-
-    const text = (message || '').toLowerCase();
-    return (
-        text.includes('api key expired') ||
-        text.includes('billing account') ||
-        text.includes('accountdisabled') ||
-        text.includes('permission denied') ||
-        text.includes('forbidden')
-    );
-}
-
-function shouldFallbackToCallable(params: {
-    provider?: 'openrouter';
-    reasonCode?: string;
-    message?: string;
-}): boolean {
-    if (params.provider) {
-        return false;
-    }
-
-    return !isFinalInfraError(params.reasonCode, params.message);
-}
-
 export const generateImage = async (params: GenerateImageParams): Promise<GenerateImageResult> => {
-    let apiErrorMessage = '';
-    let apiReasonCode: string | undefined;
-
-    // 1) Prefer the Next.js API route so provider keys stay server-side.
     try {
         const apiResult = await callNextApi(params);
-        if (apiResult.success) {
-            return apiResult;
-        }
-
-        apiErrorMessage = apiResult.error || apiResult.details || '';
-        apiReasonCode = apiResult.reasonCode;
-
-        // Do not attempt callable fallback for definitive infra/config failures.
-        if (!shouldFallbackToCallable({
-            provider: params.provider,
-            reasonCode: apiReasonCode,
-            message: apiErrorMessage,
-        })) {
-            return {
-                success: false,
-                reasonCode: apiReasonCode,
-                error: buildGuidedErrorMessage({
-                    apiError: apiErrorMessage,
-                    callableError: '',
-                    reasonCode: apiReasonCode,
-                }),
-            };
-        }
-
-        console.warn('[imageGenerationService] /api/generate-image failed, trying callable fallback:', apiResult.error);
+        if (apiResult.success) return apiResult;
+        return {
+            ...apiResult,
+            error: buildGuidedErrorMessage({
+                apiError: apiResult.error || apiResult.details || '',
+                callableError: '',
+                reasonCode: apiResult.reasonCode,
+            }),
+        };
     } catch (error) {
-        apiErrorMessage = error instanceof Error ? error.message : String(error);
-        console.warn('[imageGenerationService] /api/generate-image request error, trying callable fallback:', error);
-    }
-
-    // 2) Fallback: Firebase callable function (for environments already using deployed functions).
-    try {
-        const callableParams = { ...params };
-        delete callableParams.authToken;
-        const generateImageFn = httpsCallable<GenerateImageParams, GenerateImageResult>(functions, 'generateImage');
-        const { data } = await generateImageFn(callableParams);
-        return data;
-    } catch (error: unknown) {
         console.error('Error generating image:', error);
-
-        const callableMessage =
-            error instanceof Error
-                ? error.message
-                : String(error);
-
+        const apiError = error instanceof Error ? error.message : String(error);
         return {
             success: false,
-            reasonCode: apiReasonCode,
             error: buildGuidedErrorMessage({
-                apiError: apiErrorMessage,
-                callableError: callableMessage,
-                reasonCode: apiReasonCode,
+                apiError,
+                callableError: '',
             }),
         };
     }

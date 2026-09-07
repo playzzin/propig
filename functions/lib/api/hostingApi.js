@@ -8,6 +8,7 @@ const hostingAiConfigRoutes_1 = require("./hostingAiConfigRoutes");
 const hostingCoreRoutes_1 = require("./hostingCoreRoutes");
 const hostingGenerationRoutes_1 = require("./hostingGenerationRoutes");
 const hostingImageConversion_1 = require("./hostingImageConversion");
+const hostingEmoticonStudioRoutes_1 = require("./hostingEmoticonStudioRoutes");
 const hostingVideoStudioRoutes_1 = require("./hostingVideoStudioRoutes");
 const hostingStoryboardRoutes_1 = require("./hostingStoryboardRoutes");
 const hostingCommon_1 = require("./hostingCommon");
@@ -19,6 +20,7 @@ exports.HOSTING_API_ROUTE_PATTERNS = [
     '/api/ai-config',
     '/api/ai-config/test',
     '/api/convert-image',
+    '/api/emoticon-studio/plan',
     '/api/fetch-image',
     '/api/generate-image',
     '/api/generate-image-storyboard',
@@ -48,6 +50,7 @@ const exactRoutes = new Map([
     ['/api/ai-config', hostingAiConfigRoutes_1.handleAiConfig],
     ['/api/ai-config/test', hostingAiConfigRoutes_1.handleAiConfigTest],
     ['/api/convert-image', hostingImageConversion_1.handleConvertImage],
+    ['/api/emoticon-studio/plan', hostingEmoticonStudioRoutes_1.handleEmoticonAnimationPlan],
     ['/api/fetch-image', hostingCoreRoutes_1.handleFetchImage],
     ['/api/generate-image', hostingGenerationRoutes_1.handleGenerateImage],
     ['/api/generate-image-storyboard', hostingGenerationRoutes_1.handleGenerateImageStoryboard],

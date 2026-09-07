@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, error: auth.message }, { status: auth.status });
         }
 
-        const body = await req.json();
+        const body = await req.json().catch(() => null);
         const parsed = GenerateVideoRequestSchema.safeParse(body);
 
         if (!parsed.success) {
@@ -50,7 +50,6 @@ export async function POST(req: NextRequest) {
                 success: false,
                 reasonCode: hint.reasonCode,
                 error: hint.message,
-                details: rawMessage,
             },
             { status: 500 },
         );

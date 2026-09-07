@@ -131,8 +131,6 @@
     ".hermes-content-restore-build-v3/**",
     ".hermes-content-restore-build-v4/**",
     ".hermes-content-restore-build-v5/**",
-    "functions",
-    "src/remotion",
-    "src/remotion.bak"
+    "functions"
   ]
 }

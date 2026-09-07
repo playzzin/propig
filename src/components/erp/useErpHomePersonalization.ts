@@ -109,7 +109,7 @@ export function useErpHomePersonalization<TModule>({
   currentUser,
   modulesByHref,
 }: UseErpHomePersonalizationOptions<TModule>) {
-  const [activeModuleDomain, setActiveModuleDomain] = useState<ModuleDomain>('admin');
+  const [activeModuleDomain, setActiveModuleDomain] = useState<ModuleDomain>('workflow');
   const [pinnedModuleHrefs, setPinnedModuleHrefs] = useState<string[]>([]);
   const [recentModuleHrefs, setRecentModuleHrefs] = useState<string[]>([]);
   const [preferenceSyncStatus, setPreferenceSyncStatus] = useState<PreferenceSyncStatus>(LOCAL_SYNC_STATUS);

@@ -18,7 +18,6 @@ const corpWorkspacePaths = [
 const otherWorkspacePaths = [
   '/',
   '/admin',
-  '/admin/emoticon-studio',
   '/propig',
   '/blog',
 ];

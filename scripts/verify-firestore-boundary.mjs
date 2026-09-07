@@ -80,8 +80,21 @@ const rules = await readFile(path.join(root, 'firestore.rules'), 'utf8');
 
 assert.match(
   rules,
-  /match \/ai_generations\/\{imageId\}\s*\{\s*allow read, update, delete: if isAdmin\(\) \|\| ownsExistingUserId\(\);\s*allow create: if isAdmin\(\) \|\| ownsIncomingUserId\(\);/s,
-  'ai_generations reads must stay limited to owner/admin access.',
+  /match \/ai_generations\/\{imageId\}\s*\{\s*allow read, delete: if isAdmin\(\) \|\| ownsExistingUserId\(\);\s*allow update: if isAdmin\(\) \|\| \(ownsExistingUserId\(\) && ownsIncomingUserId\(\)\);\s*allow create: if isAdmin\(\) \|\| ownsIncomingUserId\(\);/s,
+  'ai_generations reads and deletes must stay owner-scoped and updates must preserve ownership.',
+);
+
+for (const collectionName of ['video_studio_projects', 'video_studio_clips', 'ai_generations', 'bookmarks', 'categories']) {
+  assert.match(
+    rules,
+    new RegExp(`match \\/${collectionName}\\/\\{[^}]+\\}\\s*\\{[\\s\\S]*?allow update: if isAdmin\\(\\) \\|\\| \\(ownsExistingUserId\\(\\) && ownsIncomingUserId\\(\\)\\);`),
+    `${collectionName} updates must not transfer documents into another user's namespace.`,
+  );
+}
+assert.match(
+  rules,
+  /match \/driveItems\/\{itemId\}[\s\S]*request\.resource\.data\.ownerId == resource\.data\.ownerId/,
+  'driveItems updates must preserve ownerId.',
 );
 
 assert.doesNotMatch(
@@ -114,17 +127,7 @@ for (const collectionName of ['managedArtifacts', 'managedArtifactContents', 'ma
   );
 }
 
-for (const collectionName of [
-  'users',
-  'openrouter_usage',
-  'openrouter_daily_costs',
-  'emoticonStudioRateLimits',
-  'emoticonStudioOpenRouterRouteCache',
-  'emoticonStudioUploadLimits',
-  'emoticonStudioContinuations',
-  'emoticonStudioDeferredJobs',
-  'emoticonStudioCharacterProfiles',
-]) {
+for (const collectionName of ['users', 'openrouter_usage']) {
   assert.equal(
     rules.includes(`collection != '${collectionName}'`),
     true,
@@ -132,56 +135,10 @@ for (const collectionName of [
   );
 }
 
-for (const collectionName of [
-  'openrouter_daily_costs',
-  'emoticonStudioRateLimits',
-  'emoticonStudioOpenRouterRouteCache',
-  'emoticonStudioUploadLimits',
-  'emoticonStudioContinuations',
-  'emoticonStudioDeferredJobs',
-  'emoticonStudioCharacterProfiles',
-]) {
-  assert.match(
-    rules,
-    new RegExp(`match \/${collectionName}\/\\{[^}]+\\}[\\s\\S]*allow write: if false;`),
-    `${collectionName} must remain server-owned even for an admin browser client.`,
-  );
-}
-
 assert.doesNotMatch(
   rules,
   /match \/\{document=\*\*\}\s*\{\s*allow read: if isAdmin\(\);\s*allow write: if isAdmin\(\);/s,
   'An unconditional recursive admin write fallback would bypass managed artifact validation.',
-);
-
-assert.match(
-  rules,
-  /function validEmoticonJobCreate\(userId, jobId\)[\s\S]*request\.resource\.data\.status == 'queued'[\s\S]*request\.resource\.data\.progress == 0/,
-  'Emoticon job creation must be limited to a fresh queued request.',
-);
-
-assert.match(
-  rules,
-  /function validEmoticonJobCancellation\(userId\)[\s\S]*affectedKeys\(\)\.hasOnly\(\[[\s\S]*'cancelRequestedAt', 'updatedAt'/,
-  'Emoticon job updates must be limited to a cancellation request.',
-);
-
-assert.match(
-  rules,
-  /match \/emoticonJobs\/\{jobId\}[\s\S]*allow create: if isAdmin\(\) && validEmoticonJobCreate\(userId, jobId\);[\s\S]*allow update: if validEmoticonJobCancellation\(userId\);[\s\S]*allow delete: if false;/,
-  'Emoticon job server-owned result fields must not be writable by the client.',
-);
-
-assert.match(
-  rules,
-  /function validEmoticonBatchJobLink\(userId\)[\s\S]*emoticonBatches[\s\S]*itemIds\.hasAny\(\[request\.resource\.data\.projectItemId\]\)[\s\S]*!get\(batchPath\)\.data\.keys\(\)\.hasAny\(\['cancelRequestedAt'\]\)/,
-  'A batch-linked job must belong to a live server-owned batch and one of its items.',
-);
-
-assert.match(
-  rules,
-  /match \/emoticonBatches\/\{batchId\}[\s\S]*allow read: if isOwner\(userId\) \|\| isAdmin\(\);[\s\S]*allow create, update, delete: if false;/,
-  'Emoticon batch aggregation must remain server-owned.',
 );
 
 const broadUserSubcollectionRule = rules.match(
@@ -192,44 +149,20 @@ assert.ok(
   broadUserSubcollectionRule,
   'The broad user subcollection rule must remain explicit and auditable.',
 );
-
-for (const collectionName of [
-  'emoticonJobs',
-  'emoticonBatches',
-  'emoticonStudioSourceAssetLocks',
-  'emoticonStudioSourceAssets',
-  'storyboardArtifactCleanupCandidates',
-  'emoticonProjects',
-]) {
-  assert.match(
-    broadUserSubcollectionRule,
-    new RegExp(`collectionId\\s*!=\\s*'${collectionName}'`),
-    `The broad user subcollection rule must exclude server-owned ${collectionName}.`,
-  );
-}
-
+assert.match(
+  broadUserSubcollectionRule,
+  /collectionId\s*!=\s*'storyboardArtifactCleanupCandidates'/,
+  'The broad user subcollection rule must exclude server-owned storyboard cleanup candidates.',
+);
 assert.match(
   rules,
-  /match \/emoticonProjects\/\{projectId\}[\s\S]*match \/items\/\{itemId\}[\s\S]*validEmoticonProjectItemLease\(userId, projectId, itemId\)[\s\S]*validEmoticonProjectItemHistoryLink\(userId, projectId, itemId\)[\s\S]*validEmoticonProjectItemReset\(\)/,
-  'Emoticon project item server fields need explicit transition rules.',
+  /function isRetiredUserProgramCollection\(collectionId\)[\s\S]*!isRetiredUserProgramCollection\(collectionId\)/,
+  'Retired user program collections must not fall through to broad owner writes.',
 );
-
 assert.match(
   rules,
-  /function validEmoticonProjectItemLease\(userId, projectId, itemId\)[\s\S]*existsAfter\(jobPath\)[\s\S]*getAfter\(jobPath\)\.data\.projectItemId == itemId/,
-  'A queued item lease must be tied to its atomically-created job.',
+  /function isRetiredServerProgramCollection\(collection\)[\s\S]*!isRetiredServerProgramCollection\(collection\)/,
+  'Retired server program collections must not fall through to broad admin writes.',
 );
 
-assert.match(
-  rules,
-  /function validEmoticonProjectItemHistoryLink\(userId, projectId, itemId\)[\s\S]*specReport\.technicalPass == true[\s\S]*motion\.frameCount == get\(jobPath\)\.data\.specReport\.frameCount/,
-  'Selecting a completed history result must synchronize its inspected animation timing.',
-);
-
-assert.match(
-  rules,
-  /function validEmoticonProjectItemEditorUpdate\(\)[\s\S]*!\(resource\.data\.generationStatus in \['queued', 'generating'\]\)[\s\S]*hasNone\(\[[\s\S]*'jobId', 'generationStatus', 'validationErrors', 'activeJobCreatedAtMs'/,
-  'Ordinary item edits must preserve server-owned generation state.',
-);
-
-console.log(`Firestore boundary verification passed (${requiredIndexes.length} composite indexes, managed artifact rules, and emoticon job ownership checked)`);
+console.log(`Firestore boundary verification passed (${requiredIndexes.length} composite indexes and managed artifact rules checked)`);

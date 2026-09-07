@@ -12,11 +12,7 @@ import {
     query,
     serverTimestamp,
     setDoc,
-    writeBatch,
-    FirestoreDataConverter,
-    QueryDocumentSnapshot,
-    SnapshotOptions,
-    DocumentData
+    writeBatch
 } from 'firebase/firestore';
 import {
     StickyNote,
@@ -76,40 +72,29 @@ const FirestoreStickyNoteSchema = z.object({
     updatedAt: FirestoreMillisSchema,
 }).passthrough();
 
-// Firestore Data Converter
-const stickyNoteConverter: FirestoreDataConverter<StickyNote> = {
-    toFirestore(note: StickyNote): DocumentData {
-        return {
-            content: note.content,
-            x: note.x,
-            y: note.y,
-            w: note.w,
-            h: note.h,
-            zIndex: note.zIndex,
-            color: note.color,
-            tags: note.tags,
-            isPinned: note.isPinned,
-            isArchived: note.isArchived,
-            createdAt: note.createdAt,
-            updatedAt: note.updatedAt
-        };
-    },
-    fromFirestore(
-        snapshot: QueryDocumentSnapshot,
-        options: SnapshotOptions
-    ): StickyNote {
-        const data = snapshot.data(options);
-        const parsed = FirestoreStickyNoteSchema.safeParse(data);
-        if (!parsed.success) {
-            console.error('StickyNote Parse Error', parsed.error);
-            // Return a safe fallback to prevent app crash, or rethrow if strict
-            throw new Error("Invalid Note Data");
-        }
-        return {
-            id: snapshot.id,
-            ...parsed.data
-        } as StickyNote;
+const toFirestoreStickyNote = (note: StickyNote): Omit<StickyNote, 'id'> => ({
+    content: note.content,
+    x: note.x,
+    y: note.y,
+    w: note.w,
+    h: note.h,
+    zIndex: note.zIndex,
+    color: note.color,
+    tags: note.tags,
+    isPinned: note.isPinned,
+    isArchived: note.isArchived,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+});
+
+const parseFirestoreStickyNote = (id: string, data: unknown): StickyNote | null => {
+    const parsed = FirestoreStickyNoteSchema.safeParse(data);
+    if (!parsed.success) {
+        console.warn('[StickyNotes] Ignored invalid Firestore document.', { documentId: id });
+        return null;
     }
+
+    return { id, ...parsed.data } as StickyNote;
 };
 
 export function useStickyNotes() {
@@ -336,34 +321,33 @@ export function useStickyNotes() {
                 if (didCancel) return;
                 setStorageError(null);
 
-                const col = collection(db, 'users', currentUser.uid, 'stickyNotes').withConverter(stickyNoteConverter);
+                const col = collection(db, 'users', currentUser.uid, 'stickyNotes');
                 const q = query(col);
 
                 unsubscribeNotes = onSnapshot(q, (snapshot) => {
                     // Auto Import Logic
                     if (snapshot.empty && !didAutoImportRef.current[currentUser.uid]) {
                         didAutoImportRef.current[currentUser.uid] = true;
-                        // ... Auto import logic (omitted for brevity in replacement, but needs to be kept? 
-                        // The tool replaces chunk. I must include the auto import logic if I want to keep it.
-                        // Wait, I can just keep the auto import logic inside the if block.
-                        // Re-implementing auto-import briefly for safety:
                         const rawLocal = window.localStorage.getItem(getStorageKey(currentUser.uid));
                         if (rawLocal) {
-                            const parsedJson = JSON.parse(rawLocal);
-                            const parsedLocal = StickyNotesLocalStateV1Schema.safeParse(parsedJson);
-                            if (parsedLocal.success && parsedLocal.data.notes.length > 0) {
-                                Promise.all(parsedLocal.data.notes.map(async (n) => {
-                                    const ref = doc(db, 'users', currentUser.uid, 'stickyNotes', n.id).withConverter(stickyNoteConverter);
-                                    await setDoc(ref, n); // Converter handles it!
-                                })).catch(() => setStorageError('Import failed'));
+                            try {
+                                const parsedLocal = StickyNotesLocalStateV1Schema.safeParse(JSON.parse(rawLocal));
+                                if (parsedLocal.success && parsedLocal.data.notes.length > 0) {
+                                    Promise.all(parsedLocal.data.notes.map(async (note) => {
+                                        const ref = doc(db, 'users', currentUser.uid, 'stickyNotes', note.id);
+                                        await setDoc(ref, toFirestoreStickyNote(note));
+                                    })).catch(() => setStorageError('메모 가져오기에 실패했습니다.'));
+                                }
+                            } catch {
+                                setStorageError('저장된 메모 데이터가 손상되어 가져오지 못했습니다.');
                             }
                         }
                     }
 
                     const next: StickyNote[] = [];
-                    snapshot.forEach(d => {
-                        // withConverter handles parsing!
-                        next.push(d.data());
+                    snapshot.forEach((documentSnapshot) => {
+                        const note = parseFirestoreStickyNote(documentSnapshot.id, documentSnapshot.data());
+                        if (note) next.push(note);
                     });
                     setNotes((currentNotes) => mergeSyncedNotes(currentNotes, next));
                 }, (err) => {

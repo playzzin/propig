@@ -231,7 +231,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: auth.message }, { status: auth.status });
     }
 
-    const parsedPayload = GenerateProjectBoardContentRequestSchema.safeParse(await req.json());
+    const body = await req.json().catch(() => null);
+    const parsedPayload = GenerateProjectBoardContentRequestSchema.safeParse(body);
     if (!parsedPayload.success) {
       return NextResponse.json({ error: '요청 형식이 올바르지 않습니다.' }, { status: 400 });
     }
@@ -292,7 +293,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'AI HTML 디자인 생성 중 오류가 발생했습니다.',
+        error: 'AI HTML 디자인 생성 중 오류가 발생했습니다.',
       },
       { status: 500 },
     );

@@ -52,10 +52,16 @@ export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
       description: '콘텐츠 생성과 모델 설정을 빠르게 열 수 있습니다.',
       links: [
         {
-          label: 'AI 이미지 생성기',
-          path: '/admin/image-generator',
+          label: 'AI 스토리보드',
+          path: '/admin/storyboard',
+          icon: 'clapperboard',
+          description: '장면 구성과 이미지·영상 제작 작업을 관리합니다.',
+        },
+        {
+          label: '반자동 이모티콘 스튜디오',
+          path: '/admin/emoticon-studio',
           icon: 'wand-magic-sparkles',
-          description: '브랜드 이미지와 콘텐츠용 이미지를 생성합니다.',
+          description: 'ChatGPT 구독으로 만든 결과를 가져와 편집하고 내보냅니다.',
         },
         {
           label: 'OpenRouter 설정',
@@ -184,12 +190,6 @@ export const BLOG_HOME_CONTENT: SiteHomePageProps = {
       path: '/bookmarks',
       icon: 'bookmark',
       description: '참고할 링크와 자료를 저장해 다음 글의 소재로 정리합니다.',
-    },
-    {
-      label: '대표 이미지 준비',
-      path: '/admin/image-generator',
-      icon: 'wand-magic-sparkles',
-      description: '콘텐츠 주제에 맞는 AI 이미지를 만들어 시각 자료를 준비합니다.',
     },
   ],
   sections: [

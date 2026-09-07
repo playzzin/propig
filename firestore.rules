@@ -156,746 +156,20 @@ service cloud.firestore {
       return signedIn() && resource.data.userId == request.auth.uid;
     }
 
-    function validEmoticonImageEditRecipe(recipe) {
-      return recipe is map &&
-        recipe.keys().hasAll([
-          'schemaVersion', 'revision', 'crop', 'scale', 'offsetX', 'offsetY',
-          'flipHorizontal', 'rotationDeg', 'transparentPadding'
-        ]) &&
-        recipe.keys().hasOnly([
-          'schemaVersion', 'revision', 'crop', 'scale', 'offsetX', 'offsetY',
-          'flipHorizontal', 'rotationDeg', 'transparentPadding',
-          'brightness', 'contrast', 'saturation'
-        ]) &&
-        recipe.schemaVersion == 1 &&
-        recipe.revision is int && recipe.revision >= 0 && recipe.revision <= 10000 &&
-        recipe.crop is map &&
-        recipe.crop.keys().hasOnly(['left', 'right', 'top', 'bottom']) &&
-        recipe.crop.left is number && recipe.crop.left >= 0 && recipe.crop.left <= 0.45 &&
-        recipe.crop.right is number && recipe.crop.right >= 0 && recipe.crop.right <= 0.45 &&
-        recipe.crop.top is number && recipe.crop.top >= 0 && recipe.crop.top <= 0.45 &&
-        recipe.crop.bottom is number && recipe.crop.bottom >= 0 && recipe.crop.bottom <= 0.45 &&
-        recipe.crop.left + recipe.crop.right <= 0.8 &&
-        recipe.crop.top + recipe.crop.bottom <= 0.8 &&
-        recipe.scale is number && recipe.scale >= 0.5 && recipe.scale <= 1.6 &&
-        recipe.offsetX is number && recipe.offsetX >= -0.45 && recipe.offsetX <= 0.45 &&
-        recipe.offsetY is number && recipe.offsetY >= -0.45 && recipe.offsetY <= 0.45 &&
-        recipe.flipHorizontal is bool &&
-        recipe.rotationDeg is number && recipe.rotationDeg >= -45 && recipe.rotationDeg <= 45 &&
-        recipe.transparentPadding is number &&
-          recipe.transparentPadding >= 0 && recipe.transparentPadding <= 0.3 &&
-        (
-          !recipe.keys().hasAny(['brightness']) ||
-          (recipe.brightness is number && recipe.brightness >= -0.5 && recipe.brightness <= 0.5)
-        ) &&
-        (
-          !recipe.keys().hasAny(['contrast']) ||
-          (recipe.contrast is number && recipe.contrast >= -0.5 && recipe.contrast <= 0.5)
-        ) &&
-        (
-          !recipe.keys().hasAny(['saturation']) ||
-          (recipe.saturation is number && recipe.saturation >= -0.5 && recipe.saturation <= 0.5)
-        );
+    // Keep retired program namespaces outside permissive fallback rules until
+    // their legacy data is removed with the Admin SDK.
+    function isRetiredUserProgramCollection(collectionId) {
+      return collectionId == 'emoticonJobs' ||
+        collectionId == 'emoticonBatches' ||
+        collectionId == 'emoticonStudioSourceAssetLocks' ||
+        collectionId == 'emoticonStudioSourceAssets' ||
+        collectionId == 'emoticonProjects';
     }
 
-    function validEmoticonPolicyVerification(value) {
-      return value in ['reference', 'verified'];
-    }
-
-    function validEmoticonPlatformPolicyLimit(limit) {
-      return limit is map &&
-        limit.keys().hasAll(['value', 'verification']) &&
-        limit.keys().hasOnly(['value', 'verification']) &&
-        (
-          limit.value == null ||
-          (limit.value is int && limit.value >= 0 && limit.value <= 1073741824)
-        ) &&
-        validEmoticonPolicyVerification(limit.verification);
-    }
-
-    function validEmoticonPlatformFormatPolicy(policy) {
-      return policy is map &&
-        policy.keys().hasAll(['format', 'verification', 'role', 'submissionCandidate']) &&
-        policy.keys().hasOnly(['format', 'verification', 'role', 'submissionCandidate']) &&
-        policy.format in ['png', 'apng', 'webp', 'gif', 'mp4', 'webm', 'png_zip'] &&
-        validEmoticonPolicyVerification(policy.verification) &&
-        policy.role in ['platform-reference', 'working-output', 'distribution-output'] &&
-        policy.submissionCandidate == false;
-    }
-
-    function validEmoticonPlatformFormatAt(formats, policies, index) {
-      return formats.size() <= index || (
-        formats[index] in ['png', 'apng', 'webp', 'gif', 'mp4', 'webm', 'png_zip'] &&
-        validEmoticonPlatformFormatPolicy(policies[index]) &&
-        policies[index].format == formats[index]
-      );
-    }
-
-    function validEmoticonPlatformConstraintVerification(verification) {
-      return verification is map &&
-        verification.keys().hasAll([
-          'canvas', 'minFrameCount', 'maxFrameCount', 'recommendedItemCount'
-        ]) &&
-        verification.keys().hasOnly([
-          'canvas', 'minFrameCount', 'maxFrameCount', 'recommendedItemCount'
-        ]) &&
-        validEmoticonPolicyVerification(verification.canvas) &&
-        validEmoticonPolicyVerification(verification.minFrameCount) &&
-        validEmoticonPolicyVerification(verification.maxFrameCount) &&
-        validEmoticonPolicyVerification(verification.recommendedItemCount);
-    }
-
-    function validEmoticonPlatformLimits(limits) {
-      return limits is map &&
-        limits.keys().hasAll(['maxFileSizeBytes', 'maxDurationMs', 'maxLoopCount']) &&
-        limits.keys().hasOnly(['maxFileSizeBytes', 'maxDurationMs', 'maxLoopCount']) &&
-        validEmoticonPlatformPolicyLimit(limits.maxFileSizeBytes) &&
-        validEmoticonPlatformPolicyLimit(limits.maxDurationMs) &&
-        validEmoticonPlatformPolicyLimit(limits.maxLoopCount);
-    }
-
-    function validEmoticonPlatformPolicyProfile(profile, platform, outputType) {
-      return profile is map &&
-        profile.keys().hasAll([
-          'platform', 'type', 'width', 'height', 'profileVersion', 'verification',
-          'sourceUrl', 'checkedAt', 'recommendedItemCount', 'allowedFormats',
-          'formatPolicies', 'preferredFormat', 'minFrameCount', 'maxFrameCount',
-          'transparencyRequired', 'transparentBackground', 'constraintVerification',
-          'platformLimits', 'defaultLoopCount', 'policyNotice', 'submissionCandidate'
-        ]) &&
-        profile.keys().hasOnly([
-          'platform', 'type', 'width', 'height', 'profileVersion', 'verification',
-          'sourceUrl', 'checkedAt', 'recommendedItemCount', 'allowedFormats',
-          'formatPolicies', 'preferredFormat', 'minFrameCount', 'maxFrameCount',
-          'transparencyRequired', 'transparentBackground', 'constraintVerification',
-          'platformLimits', 'defaultLoopCount', 'policyNotice', 'submissionCandidate'
-        ]) &&
-        profile.platform == platform && profile.type == outputType &&
-        profile.width is int && profile.width >= 64 && profile.width <= 2048 &&
-        profile.height is int && profile.height >= 64 && profile.height <= 2048 &&
-        profile.profileVersion is string && profile.profileVersion.size() >= 1 && profile.profileVersion.size() <= 80 &&
-        validEmoticonPolicyVerification(profile.verification) &&
-        (profile.sourceUrl == null || (profile.sourceUrl is string && profile.sourceUrl.size() <= 1000)) &&
-        (profile.checkedAt == null || (profile.checkedAt is string && profile.checkedAt.size() <= 40)) &&
-        profile.recommendedItemCount is int && profile.recommendedItemCount >= 1 && profile.recommendedItemCount <= 64 &&
-        profile.allowedFormats is list && profile.allowedFormats.size() >= 1 && profile.allowedFormats.size() <= 7 &&
-        profile.formatPolicies is list && profile.formatPolicies.size() == profile.allowedFormats.size() &&
-        profile.preferredFormat in profile.allowedFormats &&
-        profile.minFrameCount is int && profile.minFrameCount >= 1 && profile.minFrameCount <= 24 &&
-        profile.maxFrameCount is int && profile.maxFrameCount >= profile.minFrameCount && profile.maxFrameCount <= 24 &&
-        profile.transparencyRequired is bool && profile.transparentBackground == true &&
-        validEmoticonPlatformConstraintVerification(profile.constraintVerification) &&
-        validEmoticonPlatformLimits(profile.platformLimits) &&
-        (
-          profile.defaultLoopCount == null ||
-          (profile.defaultLoopCount is int && profile.defaultLoopCount >= 0 && profile.defaultLoopCount <= 10000)
-        ) &&
-        profile.policyNotice is string && profile.policyNotice.size() >= 1 && profile.policyNotice.size() <= 2000 &&
-        profile.submissionCandidate == false &&
-        validEmoticonPlatformFormatAt(profile.allowedFormats, profile.formatPolicies, 0) &&
-        validEmoticonPlatformFormatAt(profile.allowedFormats, profile.formatPolicies, 1) &&
-        validEmoticonPlatformFormatAt(profile.allowedFormats, profile.formatPolicies, 2) &&
-        validEmoticonPlatformFormatAt(profile.allowedFormats, profile.formatPolicies, 3) &&
-        validEmoticonPlatformFormatAt(profile.allowedFormats, profile.formatPolicies, 4) &&
-        validEmoticonPlatformFormatAt(profile.allowedFormats, profile.formatPolicies, 5) &&
-        validEmoticonPlatformFormatAt(profile.allowedFormats, profile.formatPolicies, 6) &&
-        (
-          outputType != 'static' ||
-          (
-            profile.minFrameCount == 1 && profile.maxFrameCount == 1 &&
-            profile.allowedFormats.size() == 1 && profile.allowedFormats[0] == 'png'
-          )
-        ) &&
-        (outputType != 'animated' || profile.minFrameCount >= 2);
-    }
-
-    function validEmoticonPlatformPolicyPreset(policyId) {
-      let policy = request.resource.data;
-      return policy.keys().hasAll([
-          'schemaVersion', 'id', 'platform', 'type', 'revision', 'enabled',
-          'profile', 'updatedBy', 'createdAt', 'updatedAt'
-        ]) &&
-        policy.keys().hasOnly([
-          'schemaVersion', 'id', 'platform', 'type', 'revision', 'enabled',
-          'profile', 'updatedBy', 'createdAt', 'updatedAt'
-        ]) &&
-        policy.schemaVersion == 1 && policy.id == policyId &&
-        policy.platform in ['kakao', 'line', 'custom'] &&
-        policy.type in ['static', 'animated'] &&
-        policyId == policy.platform + '-' + policy.type &&
-        policy.revision is int && policy.revision >= 1 && policy.revision <= 1000000 &&
-        policy.enabled is bool &&
-        validEmoticonPlatformPolicyProfile(policy.profile, policy.platform, policy.type) &&
-        policy.updatedBy == request.auth.uid &&
-        policy.createdAt is timestamp && policy.updatedAt is timestamp;
-    }
-
-    function validEmoticonBubbleTimeline(timeline) {
-      return timeline is map &&
-        timeline.keys().hasAll(['mode', 'startFrame', 'endFrame', 'cues']) &&
-        timeline.keys().hasOnly(['mode', 'startFrame', 'endFrame', 'cues']) &&
-        timeline.mode in ['full', 'intro', 'outro', 'range', 'cues'] &&
-        timeline.startFrame is int && timeline.startFrame >= 0 && timeline.startFrame <= 23 &&
-        (timeline.endFrame == null || (
-          timeline.endFrame is int &&
-          timeline.endFrame >= timeline.startFrame && timeline.endFrame <= 23
-        )) &&
-        timeline.cues is list && timeline.cues.size() <= 6;
-    }
-
-    function validEmoticonBubbleAppearance(bubble) {
-      return bubble.size is number && bubble.size >= 0.75 && bubble.size <= 1.2 &&
-        bubble.fillColor is string && bubble.fillColor.matches('^#[0-9A-Fa-f]{6}$') &&
-        bubble.textColor is string && bubble.textColor.matches('^#[0-9A-Fa-f]{6}$') &&
-        bubble.outlineColor is string && bubble.outlineColor.matches('^#[0-9A-Fa-f]{6}$') &&
-        bubble.outlineWidth is number && bubble.outlineWidth >= 0 && bubble.outlineWidth <= 10 &&
-        bubble.shadowOpacity is number && bubble.shadowOpacity >= 0 && bubble.shadowOpacity <= 0.75 &&
-        bubble.offsetX is int && bubble.offsetX >= -48 && bubble.offsetX <= 48 &&
-        bubble.offsetY is int && bubble.offsetY >= -48 && bubble.offsetY <= 48;
-    }
-
-    function validEmoticonRenderBubble(bubble) {
-      return bubble is map &&
-        bubble.keys().hasAll([
-          'text', 'style', 'position', 'entrance', 'font', 'timeline',
-          'size', 'fillColor', 'textColor', 'outlineColor', 'outlineWidth',
-          'shadowOpacity', 'offsetX', 'offsetY'
-        ]) &&
-        bubble.keys().hasOnly([
-          'text', 'style', 'position', 'entrance', 'font', 'timeline',
-          'size', 'fillColor', 'textColor', 'outlineColor', 'outlineWidth',
-          'shadowOpacity', 'offsetX', 'offsetY'
-        ]) &&
-        bubble.text is string && bubble.text.size() <= 36 &&
-        bubble.style in ['rounded', 'shout', 'thought', 'whisper', 'none'] &&
-        bubble.position in ['top', 'bottom', 'left', 'right'] &&
-        bubble.entrance in ['pop', 'fade', 'shake', 'none'] &&
-        bubble.font in ['clean', 'round', 'handwriting', 'bold', 'serif'] &&
-        validEmoticonBubbleTimeline(bubble.timeline) &&
-        validEmoticonBubbleAppearance(bubble);
-    }
-
-    function validEmoticonProjectBubble(bubble) {
-      return bubble is map &&
-        bubble.keys().hasAll([
-          'enabled', 'text', 'style', 'position', 'entrance', 'font', 'timeline',
-          'size', 'fillColor', 'textColor', 'outlineColor', 'outlineWidth',
-          'shadowOpacity', 'offsetX', 'offsetY'
-        ]) &&
-        bubble.keys().hasOnly([
-          'enabled', 'text', 'style', 'position', 'entrance', 'font', 'timeline',
-          'size', 'fillColor', 'textColor', 'outlineColor', 'outlineWidth',
-          'shadowOpacity', 'offsetX', 'offsetY'
-        ]) &&
-        bubble.enabled is bool &&
-        bubble.text is string && bubble.text.size() <= 36 &&
-        bubble.style in ['rounded', 'shout', 'thought', 'whisper'] &&
-        bubble.position in ['top', 'bottom', 'left', 'right'] &&
-        bubble.entrance in ['pop', 'fade', 'shake', 'none'] &&
-        bubble.font in ['clean', 'round', 'handwriting', 'bold', 'serif'] &&
-        validEmoticonBubbleTimeline(bubble.timeline) &&
-        validEmoticonBubbleAppearance(bubble);
-    }
-
-    function validEmoticonManualFrameImport(userId) {
-      let isManual = request.resource.data.mode == 'import_frames';
-      let hasManual = request.resource.data.keys().hasAny(['manualImport']);
-      let manual = request.resource.data.get('manualImport', {});
-      let frames = manual.get('frames', []);
-      let timing = manual.get('timing', {});
-      return (!isManual && !hasManual) || (
-        isManual && hasManual &&
-        request.resource.data.keys().hasAll(['projectId', 'projectItemId', 'outputProfile']) &&
-        manual is map &&
-        manual.keys().hasAll(['schemaVersion', 'requestId', 'frames', 'timing']) &&
-        manual.keys().hasOnly(['schemaVersion', 'requestId', 'frames', 'timing']) &&
-        manual.schemaVersion == 1 &&
-        manual.requestId is string &&
-        manual.requestId.matches('^[A-Za-z0-9_-]{16,100}$') &&
-        frames is list && frames.size() >= 1 && frames.size() <= 24 &&
-        frames[0] is map &&
-        frames[0].keys().hasAll([
-          'uploadRequestId', 'sourceImageUrl', 'sourceStoragePath',
-          'fileName', 'contentType', 'sizeBytes', 'sha256'
-        ]) &&
-        frames[0].uploadRequestId is string &&
-        frames[0].uploadRequestId.matches('^[A-Za-z0-9_-]{16,100}$') &&
-        frames[0].sourceStoragePath == request.resource.data.sourceStoragePath &&
-        frames[0].sourceStoragePath.matches(
-          '^users/' + userId + '/emoticon-studio/sources/manual-[A-Za-z0-9_-]{16,100}\\.png$'
-        ) &&
-        frames[0].sourceImageUrl == request.resource.data.sourceImageUrl &&
-        frames[0].sourceImageUrl is string &&
-        frames[0].sourceImageUrl.matches('^https://.+') &&
-        frames[0].contentType == 'image/png' &&
-        frames[0].sizeBytes is int &&
-        frames[0].sizeBytes > 0 && frames[0].sizeBytes <= 10485760 &&
-        frames[0].sha256 is string && frames[0].sha256.matches('^[a-f0-9]{64}$') &&
-        timing is map && timing.keys().hasAny(['mode']) &&
-        (
-          (
-            timing.mode == 'fps' &&
-            timing.keys().hasAll(['mode', 'fps']) &&
-            timing.keys().hasOnly(['mode', 'fps']) &&
-            timing.fps is int && timing.fps >= 1 && timing.fps <= 30
-          ) ||
-          (
-            timing.mode == 'per_frame' &&
-            timing.keys().hasAll(['mode', 'frameDurationsMs']) &&
-            timing.keys().hasOnly(['mode', 'frameDurationsMs']) &&
-            timing.frameDurationsMs is list &&
-            timing.frameDurationsMs.size() == frames.size()
-          )
-        ) &&
-        request.resource.data.outputProfile is map &&
-        request.resource.data.outputProfile.type in ['static', 'animated'] &&
-        (
-          (request.resource.data.outputProfile.type == 'static' && frames.size() == 1 && timing.mode == 'fps' && timing.fps == 1) ||
-          (request.resource.data.outputProfile.type == 'animated' && frames.size() >= 2)
-        )
-      );
-    }
-
-    function validEmoticonJobCreate(userId, jobId) {
-      return isOwner(userId) &&
-        request.resource.data.keys().hasAll([
-          'id', 'userId', 'sourceImageUrl', 'sourceStoragePath', 'instruction',
-          'mode', 'motionPreference', 'resourceMode', 'formats', 'status', 'progress',
-          'statusMessage', 'error', 'motionFallbackReason', 'createdAt', 'updatedAt'
-        ]) &&
-        request.resource.data.keys().hasOnly([
-          'id', 'userId', 'sourceImageUrl', 'sourceStoragePath', 'referenceImages',
-          'instruction', 'mode', 'templateRequest', 'templateItemCount',
-          'profileJobId', 'sheetRequest', 'sheetItemCount', 'manualImport',
-          'bubbleOverride', 'motionOverride', 'outputProfile', 'parentJobId',
-          'repairFrameIndex', 'projectId', 'projectItemId', 'projectRevision',
-          'projectItemRevision', 'batchId', 'batchEnqueueRoundId', 'batchRetryRound',
-          'batchItemAttemptCount', 'renderOverrides', 'motionPreference', 'resourceMode',
-          'aiGenerationProfile', 'formats',
-          'status', 'progress', 'statusMessage', 'error', 'motionFallbackReason',
-          'createdAt', 'updatedAt'
-        ]) &&
-        request.resource.data.id == jobId &&
-        request.resource.data.userId == userId &&
-        request.resource.data.sourceImageUrl is string &&
-        request.resource.data.sourceImageUrl.matches('^https://.+') &&
-        request.resource.data.sourceStoragePath is string &&
-        request.resource.data.sourceStoragePath.matches(
-          '^users/' + userId + '/emoticon-studio/sources/[^/]+$'
-        ) &&
-        request.resource.data.instruction is string &&
-        request.resource.data.instruction.size() >= 2 &&
-        request.resource.data.instruction.size() <= 800 &&
-        request.resource.data.mode in [
-          'generate', 'rerender', 'plan', 'profile', 'sheet_plan', 'import_frames', 'repair_frame'
-        ] &&
-        validEmoticonManualFrameImport(userId) &&
-        (
-          request.resource.data.mode != 'sheet_plan' ||
-          (
-            request.resource.data.keys().hasAll([
-              'profileJobId', 'sheetRequest', 'sheetItemCount', 'projectId'
-            ]) &&
-            request.resource.data.profileJobId is string &&
-            request.resource.data.profileJobId.matches('^[A-Za-z0-9_-]{1,160}$') &&
-            request.resource.data.sheetRequest is string &&
-            request.resource.data.sheetRequest.size() >= 8 &&
-            request.resource.data.sheetRequest.size() <= 800 &&
-            request.resource.data.sheetItemCount is int &&
-            request.resource.data.sheetItemCount >= 1 &&
-            request.resource.data.sheetItemCount <= 64
-          )
-        ) &&
-        validEmoticonProjectGenerationTarget(userId) &&
-        validEmoticonCharacterPlanningLink(userId, jobId) &&
-        validEmoticonBatchJobLink(userId) &&
-        validEmoticonParentJobLink(userId, jobId) &&
-        (
-          !request.resource.data.keys().hasAny(['bubbleOverride']) ||
-          validEmoticonRenderBubble(request.resource.data.bubbleOverride)
-        ) &&
-        (
-          !request.resource.data.keys().hasAny(['renderOverrides']) ||
-          (
-            request.resource.data.renderOverrides is map &&
-            (
-              !request.resource.data.renderOverrides.keys().hasAny(['bubble']) ||
-              validEmoticonRenderBubble(request.resource.data.renderOverrides.bubble)
-            )
-          )
-        ) &&
-        (
-          !request.resource.data.keys().hasAny(['renderOverrides']) ||
-          !request.resource.data.renderOverrides.keys().hasAny(['editRecipe']) ||
-          validEmoticonImageEditRecipe(request.resource.data.renderOverrides.editRecipe)
-        ) &&
-        request.resource.data.motionPreference in ['auto', 'stable', 'dynamic'] &&
-        request.resource.data.resourceMode in ['efficient', 'balanced', 'premium'] &&
-        (
-          !request.resource.data.keys().hasAny(['aiGenerationProfile']) ||
-          request.resource.data.aiGenerationProfile == 'gpt-light-v1'
-        ) &&
-        request.resource.data.formats is list &&
-        request.resource.data.formats.size() >= 1 &&
-        request.resource.data.formats.size() <= 6 &&
-        request.resource.data.status == 'queued' &&
-        request.resource.data.progress == 0 &&
-        request.resource.data.statusMessage is string &&
-        request.resource.data.statusMessage.size() > 0 &&
-        request.resource.data.statusMessage.size() <= 240 &&
-        request.resource.data.error == null &&
-        request.resource.data.motionFallbackReason == null &&
-        request.resource.data.createdAt == request.time &&
-        request.resource.data.updatedAt == request.time;
-    }
-
-    function validEmoticonProjectGenerationTarget(userId) {
-      let hasProject = request.resource.data.keys().hasAny(['projectId']);
-      let projectPath = /databases/$(database)/documents/users/$(userId)/emoticonProjects/$(request.resource.data.get('projectId', '__missing__'));
-      return !hasProject || (
-        request.resource.data.projectId is string &&
-        request.resource.data.projectId.matches('^[A-Za-z0-9_-]{1,160}$') &&
-        (
-          request.resource.data.mode in ['plan', 'profile', 'sheet_plan'] ||
-          request.resource.data.projectItemId is string
-        ) &&
-        exists(projectPath) &&
-        get(projectPath).data.userId == userId &&
-        get(projectPath).data.get('deletionLocked', false) == false &&
-        (
-          !request.resource.data.keys().hasAny(['projectItemId']) ||
-          (
-            request.resource.data.keys().hasAll(['projectRevision']) &&
-            request.resource.data.projectRevision is int &&
-            get(projectPath).data.revision is int &&
-            request.resource.data.projectRevision == get(projectPath).data.revision
-          )
-        )
-      );
-    }
-
-    function validEmoticonCharacterPlanningLink(userId, jobId) {
-      let isProjectPlanning = request.resource.data.mode in ['plan', 'profile', 'sheet_plan'];
-      let profileJobId = request.resource.data.get('profileJobId', '__missing__');
-      let profilePath = /databases/$(database)/documents/users/$(userId)/emoticonJobs/$(profileJobId);
-      return !isProjectPlanning || (
-        request.resource.data.keys().hasAll(['projectId']) &&
-        !request.resource.data.keys().hasAny(['projectItemId', 'batchId']) &&
-        (
-          request.resource.data.mode != 'sheet_plan' ||
-          (
-            profileJobId != jobId &&
-            exists(profilePath) &&
-            get(profilePath).data.userId == userId &&
-            get(profilePath).data.mode == 'profile' &&
-            get(profilePath).data.status == 'completed' &&
-            get(profilePath).data.projectId == request.resource.data.projectId
-          )
-        )
-      );
-    }
-
-    function validEmoticonBatchJobLink(userId) {
-      let hasBatch = request.resource.data.keys().hasAny(['batchId']);
-      let hasBatchFence = request.resource.data.keys().hasAny([
-        'batchEnqueueRoundId', 'batchRetryRound', 'batchItemAttemptCount'
-      ]);
-      let batchPath = /databases/$(database)/documents/users/$(userId)/emoticonBatches/$(request.resource.data.get('batchId', '__missing__'));
-      return (!hasBatch && !hasBatchFence) || (
-        hasBatch &&
-        request.resource.data.batchId is string &&
-        request.resource.data.batchId.matches('^[A-Za-z0-9_-]{1,160}$') &&
-        request.resource.data.keys().hasAll([
-          'projectId', 'projectItemId', 'projectItemRevision',
-          'batchEnqueueRoundId', 'batchRetryRound', 'batchItemAttemptCount'
-        ]) &&
-        request.resource.data.batchEnqueueRoundId is string &&
-        request.resource.data.batchEnqueueRoundId.matches('^[A-Za-z0-9_-]{1,160}$') &&
-        request.resource.data.batchRetryRound is int &&
-        request.resource.data.batchRetryRound >= 0 &&
-        request.resource.data.batchRetryRound <= 99 &&
-        request.resource.data.batchItemAttemptCount is int &&
-        request.resource.data.batchItemAttemptCount >= 1 &&
-        request.resource.data.batchItemAttemptCount <= 8 &&
-        exists(batchPath) &&
-        get(batchPath).data.userId == userId &&
-        get(batchPath).data.projectId == request.resource.data.projectId &&
-        get(batchPath).data.projectRevision is int &&
-        request.resource.data.projectRevision is int &&
-        get(batchPath).data.projectRevision == request.resource.data.projectRevision &&
-        get(batchPath).data.itemIds is list &&
-        get(batchPath).data.itemIds.hasAny([request.resource.data.projectItemId]) &&
-        get(batchPath).data.enqueueRoundId == request.resource.data.batchEnqueueRoundId &&
-        get(batchPath).data.retryRound == request.resource.data.batchRetryRound &&
-        get(batchPath).data.enqueueRoundLeaseExpiresAtMs is int &&
-        get(batchPath).data.enqueueRoundLeaseExpiresAtMs > request.time.toMillis() &&
-        get(batchPath).data.enqueueItemAttempts is map &&
-        get(batchPath).data.enqueueItemAttempts.get(request.resource.data.projectItemId, -1) ==
-          request.resource.data.batchItemAttemptCount &&
-        get(batchPath).data.enqueueItemRevisions is map &&
-        get(batchPath).data.enqueueItemRevisions.get(request.resource.data.projectItemId, -1) ==
-          request.resource.data.projectItemRevision &&
-        get(batchPath).data.status in ['preparing', 'running', 'deferred'] &&
-        !get(batchPath).data.keys().hasAny(['cancelRequestedAt'])
-      );
-    }
-
-    function validEmoticonParentJobLink(userId, jobId) {
-      let hasParent = request.resource.data.keys().hasAny(['parentJobId']);
-      let parentJobId = request.resource.data.get('parentJobId', '__missing__');
-      let parentPath = /databases/$(database)/documents/users/$(userId)/emoticonJobs/$(parentJobId);
-      return !hasParent || (
-        parentJobId is string &&
-        parentJobId.matches('^[A-Za-z0-9_-]{1,160}$') &&
-        parentJobId != jobId &&
-        exists(parentPath) &&
-        get(parentPath).data.userId == userId &&
-        get(parentPath).data.get('deletionLocked', false) == false
-      );
-    }
-
-    function validEmoticonJobCancellation(userId) {
-      return isOwner(userId) &&
-        resource.data.userId == userId &&
-        resource.data.status in [
-          'queued', 'analyzing', 'generating', 'validating', 'animating', 'rendering'
-        ] &&
-        !resource.data.keys().hasAny(['cancelRequestedAt']) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'cancelRequestedAt', 'updatedAt'
-        ]) &&
-        request.resource.data.cancelRequestedAt == request.time &&
-        request.resource.data.updatedAt == request.time;
-    }
-
-    function validEmoticonProjectCreate(userId, projectId) {
-      return isOwner(userId) &&
-        request.resource.data.id == projectId &&
-        request.resource.data.userId == userId &&
-        request.resource.data.revision == 0 &&
-        request.resource.data.createdAt == request.time &&
-        request.resource.data.updatedAt == request.time &&
-        !request.resource.data.keys().hasAny([
-          'lastItemJobId', 'lastItemStatus', 'deletionLocked',
-          'deletionOperationId', 'deletionMode', 'deletionRequestedAt',
-          'deletionRequestedBy'
-        ]);
-    }
-
-    function validEmoticonProjectUpdate(userId) {
-      return isOwner(userId) &&
-        resource.data.status != 'generating' &&
-        resource.data.get('deletionLocked', false) == false &&
-        request.resource.data.diff(resource.data).affectedKeys().hasNone([
-          'id', 'userId', 'createdAt', 'lastItemJobId', 'lastItemStatus',
-          'deletionLocked', 'deletionOperationId', 'deletionMode',
-          'deletionRequestedAt', 'deletionRequestedBy'
-        ]) &&
-        request.resource.data.revision == resource.data.get('revision', 0) + 1 &&
-        request.resource.data.updatedAt == request.time;
-    }
-
-    function writableEmoticonProject(userId, projectId) {
-      let projectPath = /databases/$(database)/documents/users/$(userId)/emoticonProjects/$(projectId);
-      return existsAfter(projectPath) &&
-        getAfter(projectPath).data.userId == userId &&
-        getAfter(projectPath).data.get('deletionLocked', false) == false;
-    }
-
-    function validEmoticonProjectStructureRevision(userId, projectId) {
-      let projectPath = /databases/$(database)/documents/users/$(userId)/emoticonProjects/$(projectId);
-      return (
-        !exists(projectPath) &&
-        getAfter(projectPath).data.revision == 0
-      ) || (
-        exists(projectPath) &&
-        getAfter(projectPath).data.revision == get(projectPath).data.get('revision', 0) + 1
-      );
-    }
-
-    function validEmoticonProjectItemCreate(itemId) {
-      return request.resource.data.id == itemId &&
-        request.resource.data.revision == 0 &&
-        request.resource.data.jobId == null &&
-        request.resource.data.generationStatus == 'planned' &&
-        request.resource.data.validationErrors is list &&
-        request.resource.data.validationErrors.size() == 0 &&
-        validEmoticonProjectBubble(request.resource.data.bubble) &&
-        request.resource.data.editRecipe.schemaVersion == 1 &&
-        request.resource.data.editRecipe.revision == 0 &&
-        request.resource.data.editRecipe.crop.left == 0 &&
-        request.resource.data.editRecipe.crop.right == 0 &&
-        request.resource.data.editRecipe.crop.top == 0 &&
-        request.resource.data.editRecipe.crop.bottom == 0 &&
-        request.resource.data.editRecipe.scale == 1 &&
-        request.resource.data.editRecipe.offsetX == 0 &&
-        request.resource.data.editRecipe.offsetY == 0 &&
-        request.resource.data.editRecipe.flipHorizontal == false &&
-        request.resource.data.editRecipe.rotationDeg == 0 &&
-        request.resource.data.editRecipe.transparentPadding == 0 &&
-        request.resource.data.editHistory is list &&
-        request.resource.data.editHistory.size() == 0 &&
-        request.resource.data.createdAt == request.time &&
-        request.resource.data.updatedAt == request.time &&
-        !request.resource.data.keys().hasAny([
-          'activeJobCreatedAtMs', 'serverRevision', 'clientRevision', 'sourceProjectRevision'
-        ]);
-    }
-
-    function validEmoticonProjectItemRevision() {
-      return request.resource.data.id == resource.data.id &&
-        request.resource.data.revision == resource.data.get('revision', 0) + 1 &&
-        request.resource.data.diff(resource.data).affectedKeys().hasNone(['id', 'createdAt']) &&
-        request.resource.data.updatedAt == request.time;
-    }
-
-    function validEmoticonProjectItemEditorUpdate() {
-      return validEmoticonProjectItemRevision() &&
-        !(resource.data.generationStatus in ['queued', 'generating']) &&
-        validEmoticonProjectBubble(request.resource.data.bubble) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasNone([
-          'jobId', 'generationStatus', 'validationErrors', 'activeJobCreatedAtMs',
-          'serverRevision', 'clientRevision', 'sourceProjectRevision',
-          'editRecipe', 'editHistory'
-        ]);
-    }
-
-    function validEmoticonProjectItemLease(userId, projectId, itemId) {
-      let jobId = request.resource.data.jobId;
-      let jobPath = /databases/$(database)/documents/users/$(userId)/emoticonJobs/$(jobId);
-      return validEmoticonProjectItemRevision() &&
-        resource.data.generationStatus in ['planned', 'completed', 'failed'] &&
-        jobId is string &&
-        request.resource.data.generationStatus == 'queued' &&
-        request.resource.data.validationErrors is list &&
-        request.resource.data.validationErrors.size() == 0 &&
-        request.resource.data.activeJobCreatedAtMs is int &&
-        request.resource.data.activeJobCreatedAtMs > 0 &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'jobId', 'generationStatus', 'validationErrors', 'activeJobCreatedAtMs',
-          'revision', 'updatedAt'
-        ]) &&
-        existsAfter(jobPath) &&
-        getAfter(jobPath).data.id == jobId &&
-        getAfter(jobPath).data.userId == userId &&
-        getAfter(jobPath).data.projectId == projectId &&
-        getAfter(jobPath).data.projectItemId == itemId &&
-        getAfter(jobPath).data.status == 'queued';
-    }
-
-    function validEmoticonProjectItemHistoryLink(userId, projectId, itemId) {
-      let jobId = request.resource.data.jobId;
-      let jobPath = /databases/$(database)/documents/users/$(userId)/emoticonJobs/$(jobId);
-      return validEmoticonProjectItemRevision() &&
-        resource.data.generationStatus in ['planned', 'completed', 'failed'] &&
-        jobId is string &&
-        request.resource.data.generationStatus == 'completed' &&
-        request.resource.data.validationErrors is list &&
-        request.resource.data.validationErrors.size() == 0 &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'jobId', 'generationStatus', 'validationErrors', 'motion', 'editRecipe',
-          'editHistory', 'revision', 'updatedAt'
-        ]) &&
-        exists(jobPath) &&
-        get(jobPath).data.userId == userId &&
-        get(jobPath).data.projectId == projectId &&
-        get(jobPath).data.projectItemId == itemId &&
-        get(jobPath).data.status == 'completed' &&
-        get(jobPath).data.specReport.technicalPass == true &&
-        get(jobPath).data.specReport.allOutputsPass == true &&
-        request.resource.data.editHistory is list &&
-        request.resource.data.editHistory.size() <= 20 &&
-        (
-          (
-            get(jobPath).data.keys().hasAny(['editRecipe']) &&
-            request.resource.data.editRecipe == get(jobPath).data.editRecipe
-          ) ||
-          (
-            !get(jobPath).data.keys().hasAny(['editRecipe']) &&
-            validEmoticonImageEditRecipe(request.resource.data.editRecipe) &&
-            request.resource.data.editRecipe.schemaVersion == 1 &&
-            request.resource.data.editRecipe.revision == 0 &&
-            request.resource.data.editRecipe.crop.left == 0 &&
-            request.resource.data.editRecipe.crop.right == 0 &&
-            request.resource.data.editRecipe.crop.top == 0 &&
-            request.resource.data.editRecipe.crop.bottom == 0 &&
-            request.resource.data.editRecipe.scale == 1 &&
-            request.resource.data.editRecipe.offsetX == 0 &&
-            request.resource.data.editRecipe.offsetY == 0 &&
-            request.resource.data.editRecipe.flipHorizontal == false &&
-            request.resource.data.editRecipe.rotationDeg == 0 &&
-            request.resource.data.editRecipe.transparentPadding == 0 &&
-            (
-              !request.resource.data.editRecipe.keys().hasAny(['brightness']) ||
-              request.resource.data.editRecipe.brightness == 0
-            ) &&
-            (
-              !request.resource.data.editRecipe.keys().hasAny(['contrast']) ||
-              request.resource.data.editRecipe.contrast == 0
-            ) &&
-            (
-              !request.resource.data.editRecipe.keys().hasAny(['saturation']) ||
-              request.resource.data.editRecipe.saturation == 0
-            )
-          )
-        ) &&
-        request.resource.data.motion.control == resource.data.motion.control &&
-        (
-          (
-            get(jobPath).data.outputProfile.type == 'static' &&
-            request.resource.data.motion.fps == 1 &&
-            request.resource.data.motion.frameCount == 1 &&
-            request.resource.data.motion.durationMs == 0
-          ) ||
-          (
-            get(jobPath).data.outputProfile.type == 'animated' &&
-            (
-              (
-                get(jobPath).data.keys().hasAll(['manualImportReport', 'plan']) &&
-                get(jobPath).data.manualImportReport.technicalOnly == true &&
-                get(jobPath).data.manualImportReport.aiCalls == 0 &&
-                request.resource.data.motion.fps == get(jobPath).data.plan.action.fps &&
-                request.resource.data.motion.frameCount == get(jobPath).data.plan.action.frameCount &&
-                request.resource.data.motion.durationMs == get(jobPath).data.plan.action.durationMs
-              ) ||
-              (
-                !get(jobPath).data.keys().hasAny(['manualImportReport']) &&
-                request.resource.data.motion.fps == get(jobPath).data.specReport.fps &&
-                request.resource.data.motion.frameCount == get(jobPath).data.specReport.frameCount &&
-                request.resource.data.motion.durationMs == get(jobPath).data.specReport.durationMs
-              )
-            )
-          )
-        );
-    }
-
-    function validEmoticonProjectItemReset() {
-      return validEmoticonProjectItemRevision() &&
-        resource.data.generationStatus in ['planned', 'completed', 'failed'] &&
-        request.resource.data.jobId == null &&
-        request.resource.data.generationStatus == 'planned' &&
-        request.resource.data.validationErrors is list &&
-        request.resource.data.validationErrors.size() == 0 &&
-        validEmoticonProjectBubble(request.resource.data.bubble) &&
-        request.resource.data.editRecipe.schemaVersion == 1 &&
-        request.resource.data.editRecipe.revision == 0 &&
-        request.resource.data.editRecipe.crop.left == 0 &&
-        request.resource.data.editRecipe.crop.right == 0 &&
-        request.resource.data.editRecipe.crop.top == 0 &&
-        request.resource.data.editRecipe.crop.bottom == 0 &&
-        request.resource.data.editRecipe.scale == 1 &&
-        request.resource.data.editRecipe.offsetX == 0 &&
-        request.resource.data.editRecipe.offsetY == 0 &&
-        request.resource.data.editRecipe.flipHorizontal == false &&
-        request.resource.data.editRecipe.rotationDeg == 0 &&
-        request.resource.data.editRecipe.transparentPadding == 0 &&
-        request.resource.data.editHistory is list &&
-        request.resource.data.editHistory.size() == 0 &&
-        !request.resource.data.keys().hasAny(['activeJobCreatedAtMs']) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'motion', 'bubble', 'jobId', 'generationStatus', 'validationErrors',
-          'activeJobCreatedAtMs', 'editRecipe', 'editHistory', 'revision', 'updatedAt'
-        ]);
+    function isRetiredServerProgramCollection(collection) {
+      return collection == 'openrouter_daily_costs' ||
+        collection == 'emoticonStudioRateLimits' ||
+        collection == 'emoticonStudioOpenRouterRouteCache';
     }
 
     match /corpProjectBoards/{boardId} {
@@ -972,33 +246,6 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    match /emoticonStudioPlatformPolicies/{policyId} {
-      allow read: if signedIn();
-      allow create: if isAdmin() &&
-        validEmoticonPlatformPolicyPreset(policyId) &&
-        request.resource.data.revision == 1 &&
-        request.resource.data.createdAt == request.time &&
-        request.resource.data.updatedAt == request.time;
-      allow update: if isAdmin() &&
-        validEmoticonPlatformPolicyPreset(policyId) &&
-        request.resource.data.revision == resource.data.revision + 1 &&
-        request.resource.data.createdAt == resource.data.createdAt &&
-        request.resource.data.updatedAt == request.time;
-      // Disable an override to return to the immutable code fallback. Policy
-      // documents are retained for auditability and optimistic revision checks.
-      allow delete: if false;
-    }
-
-    match /emoticonStudioRateLimits/{userId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
-    match /openrouter_daily_costs/{aggregateId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
     match /serverRateLimits/{limitId} {
       allow read: if isAdmin();
       allow write: if false;
@@ -1009,121 +256,38 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /emoticonStudioOpenRouterRouteCache/{cacheId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
-    match /emoticonStudioUploadLimits/{limitId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
-    match /emoticonStudioContinuations/{continuationId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
-    match /emoticonStudioDeferredJobs/{deferredJobId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
-    match /emoticonStudioCharacterProfiles/{profileId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
-    match /emoticonStudioProjectDeletions/{operationId} {
-      allow read, write: if false;
-
-      match /{document=**} {
-        allow read, write: if false;
-      }
-    }
-
     match /users/{userId} {
       allow read, write: if isOwner(userId) || isAdmin();
 
-      match /emoticonJobs/{jobId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow create: if isAdmin() && validEmoticonJobCreate(userId, jobId);
-        allow update: if validEmoticonJobCancellation(userId);
-        allow delete: if false;
-      }
-
-      match /emoticonBatches/{batchId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow create, update, delete: if false;
-      }
-
-      match /emoticonStudioSourceAssetLocks/{sourceAssetId} {
-        allow read, write: if false;
-      }
-
-      // 업로드 원본의 서버 전용 상태/만료 레지스트리입니다. 클라이언트가
-      // pending/attached 상태나 정리 시점을 조작할 수 없어야 합니다.
-      match /emoticonStudioSourceAssets/{sourceAssetId} {
-        allow read, write: if false;
-      }
-
-      // Storyboard-generated files live in the shared AI library and may also
-      // back albums or branding. Only trusted server code may create/update
-      // deferred deletion candidates after matching generation provenance.
       match /storyboardArtifactCleanupCandidates/{candidateId} {
         allow read: if isOwner(userId) || isAdmin();
         allow create, update, delete: if false;
       }
 
-      match /emoticonProjects/{projectId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow create: if validEmoticonProjectCreate(userId, projectId);
-        allow update: if validEmoticonProjectUpdate(userId);
-        allow delete: if false;
-
-        match /items/{itemId} {
-          allow read: if isOwner(userId) || isAdmin();
-          allow create: if isOwner(userId) &&
-            writableEmoticonProject(userId, projectId) &&
-            validEmoticonProjectStructureRevision(userId, projectId) &&
-            validEmoticonProjectItemCreate(itemId);
-          allow update: if isOwner(userId) &&
-            writableEmoticonProject(userId, projectId) && (
-            validEmoticonProjectItemEditorUpdate() ||
-            validEmoticonProjectItemLease(userId, projectId, itemId) ||
-            validEmoticonProjectItemHistoryLink(userId, projectId, itemId) ||
-            validEmoticonProjectItemReset()
-          );
-          allow delete: if isOwner(userId) &&
-            writableEmoticonProject(userId, projectId) &&
-            validEmoticonProjectStructureRevision(userId, projectId) &&
-            !(resource.data.generationStatus in ['queued', 'generating']);
-        }
-      }
-
       match /{collectionId}/{document=**} {
         allow read, write: if (isOwner(userId) || isAdmin()) &&
-          collectionId != 'emoticonJobs' &&
-          collectionId != 'emoticonBatches' &&
-          collectionId != 'emoticonStudioSourceAssetLocks' &&
-          collectionId != 'emoticonStudioSourceAssets' &&
-          collectionId != 'storyboardArtifactCleanupCandidates' &&
-          collectionId != 'emoticonProjects';
+          !isRetiredUserProgramCollection(collectionId) &&
+          collectionId != 'storyboardArtifactCleanupCandidates';
       }
     }
 
     match /driveItems/{itemId} {
-      allow read, update, delete: if isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+      allow read, delete: if isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+      allow update: if isAdmin() || (signedIn() &&
+        resource.data.ownerId == request.auth.uid &&
+        request.resource.data.ownerId == resource.data.ownerId);
       allow create: if isAdmin() || (signedIn() && request.resource.data.ownerId == request.auth.uid);
     }
 
     match /video_studio_projects/{projectId} {
-      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow read, delete: if isAdmin() || ownsExistingUserId();
+      allow update: if isAdmin() || (ownsExistingUserId() && ownsIncomingUserId());
       allow create: if isAdmin() || ownsIncomingUserId();
     }
 
     match /video_studio_clips/{clipId} {
-      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow read, delete: if isAdmin() || ownsExistingUserId();
+      allow update: if isAdmin() || (ownsExistingUserId() && ownsIncomingUserId());
       allow create: if isAdmin() || ownsIncomingUserId();
     }
 
@@ -1136,17 +300,20 @@ service cloud.firestore {
     }
 
     match /ai_generations/{imageId} {
-      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow read, delete: if isAdmin() || ownsExistingUserId();
+      allow update: if isAdmin() || (ownsExistingUserId() && ownsIncomingUserId());
       allow create: if isAdmin() || ownsIncomingUserId();
     }
 
     match /bookmarks/{bookmarkId} {
-      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow read, delete: if isAdmin() || ownsExistingUserId();
+      allow update: if isAdmin() || (ownsExistingUserId() && ownsIncomingUserId());
       allow create: if isAdmin() || ownsIncomingUserId();
     }
 
     match /categories/{categoryId} {
-      allow read, update, delete: if isAdmin() || ownsExistingUserId();
+      allow read, delete: if isAdmin() || ownsExistingUserId();
+      allow update: if isAdmin() || (ownsExistingUserId() && ownsIncomingUserId());
       allow create: if isAdmin() || ownsIncomingUserId();
     }
 
@@ -1155,16 +322,9 @@ service cloud.firestore {
       allow write: if isAdmin() &&
         collection != 'users' &&
         collection != 'openrouter_usage' &&
-        collection != 'openrouter_daily_costs' &&
+        !isRetiredServerProgramCollection(collection) &&
         collection != 'serverRateLimits' &&
         collection != 'rateLimits' &&
-        collection != 'emoticonStudioRateLimits' &&
-        collection != 'emoticonStudioOpenRouterRouteCache' &&
-        collection != 'emoticonStudioUploadLimits' &&
-        collection != 'emoticonStudioContinuations' &&
-        collection != 'emoticonStudioDeferredJobs' &&
-        collection != 'emoticonStudioCharacterProfiles' &&
-        collection != 'emoticonStudioPlatformPolicies' &&
         collection != 'managedArtifacts' &&
         collection != 'managedArtifactContents' &&
         collection != 'managedArtifactPaths';

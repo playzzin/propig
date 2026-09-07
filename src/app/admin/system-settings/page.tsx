@@ -9,16 +9,51 @@ import Swal from 'sweetalert2';
 import { getSwitchableSiteEntries } from '@/constants/accountMenu';
 import { useSystem } from '@/contexts/SystemContext';
 import { useMenuSitesQuery } from '@/hooks/useMenuSitesQuery';
+import { useCurrentUserAccess } from '@/hooks/useCurrentUserAccess';
 import {
   systemSettingsFormSchema,
   type SystemSettingsFormValues,
 } from '@/schemas/systemSettingsSchema';
 
-const Container = styled.div`
+const Container = styled.main`
   padding: 24px;
   max-width: 800px;
   margin: 0 auto;
   color: var(--text-main);
+`;
+
+const AccessCard = styled.section`
+  max-width: 640px;
+  margin: 64px auto;
+  padding: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-main);
+
+  h1 {
+    margin: 0 0 12px;
+    color: var(--text-bright);
+    font-size: 1.5rem;
+  }
+
+  p {
+    margin: 0 0 20px;
+    color: var(--text-dim);
+    line-height: 1.65;
+  }
+
+  a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    padding: 0 18px;
+    border-radius: 10px;
+    background: var(--accent-primary, #3b82f6);
+    color: white;
+    font-weight: 700;
+    text-decoration: none;
+  }
 `;
 
 const Card = styled.div`
@@ -139,7 +174,8 @@ const SectionDescription = styled.p`
 `;
 
 export default function SystemSettingsPage() {
-  const { settings, updateSettings, loading } = useSystem();
+  const { currentUser, isLoading: isAccessLoading, access } = useCurrentUserAccess();
+  const { settings, updateSettings, loading, error: settingsError, retry } = useSystem();
   const { data: sites = {}, isLoading: isLoadingSites } = useMenuSitesQuery();
 
   const siteEntries = useMemo(() => getSwitchableSiteEntries(sites), [sites]);
@@ -215,8 +251,47 @@ export default function SystemSettingsPage() {
     await saveMutation.mutateAsync(values);
   });
 
+  if (isAccessLoading) {
+    return (
+      <Container>
+        <AccessCard role="status" aria-live="polite">
+          시스템 설정 접근 권한을 확인하고 있습니다.
+        </AccessCard>
+      </Container>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <Container>
+        <AccessCard>
+          <h1>시스템 설정</h1>
+          <p>브랜드와 사이트 설정은 로그인한 관리자만 확인하고 변경할 수 있습니다.</p>
+          <a href="/login">로그인하기</a>
+        </AccessCard>
+      </Container>
+    );
+  }
+
+  if (access.role !== 'admin') {
+    return (
+      <Container>
+        <AccessCard role="alert">
+          <h1>관리자 권한이 필요합니다</h1>
+          <p>이 계정에는 시스템 설정을 확인하거나 변경할 권한이 없습니다.</p>
+        </AccessCard>
+      </Container>
+    );
+  }
+
   if (loading || isLoadingSites) {
-    return <Container>로딩 중...</Container>;
+    return (
+      <Container>
+        <AccessCard role="status" aria-live="polite">
+          시스템 설정을 불러오고 있습니다.
+        </AccessCard>
+      </Container>
+    );
   }
 
   return (
@@ -224,6 +299,13 @@ export default function SystemSettingsPage() {
       <Title>
         <i className="fa-solid fa-gears" /> 시스템 설정
       </Title>
+
+      {settingsError ? (
+        <Card role="alert">
+          <SectionDescription>{settingsError}</SectionDescription>
+          <SaveButton type="button" onClick={retry}>다시 불러오기</SaveButton>
+        </Card>
+      ) : null}
 
       <Card>
         <Title style={{ fontSize: '1.1rem' }}>

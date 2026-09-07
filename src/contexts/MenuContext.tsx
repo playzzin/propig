@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { SiteId, Position, Role, MenuContextType } from '@/types/menu';
 import { useMenu } from '@/hooks/useMenu';
@@ -67,10 +67,15 @@ export function MenuProvider({
     menuAccess: currentAccess.access.menuAccess,
   });
 
+  const syncedPath = useRef<string | null | undefined>(undefined);
+  const selectionRevision = useRef(0);
   const handleSetCurrentSite = useCallback((siteId: SiteId) => {
+    // A manual selection owns the current URL until navigation commits.
+    syncedPath.current = pathname;
+    selectionRevision.current += 1;
     setCurrentSite(siteId);
     writeStoredSite(siteId);
-  }, []);
+  }, [pathname]);
 
   const handleSetCurrentPosition = useCallback((position: Position) => {
     setCurrentPosition(position);
@@ -84,36 +89,9 @@ export function MenuProvider({
   }, [currentAccess.access.position, currentPosition]);
 
   useEffect(() => {
-    const routeSite = getRouteSite(pathname);
-    if (!routeSite || routeSite === currentSite) return;
-
-    const accessibleRouteSite = getFirstAccessibleSiteId(
-      menuData.siteData,
-      {
-        role: userRole,
-        siteAccess: currentAccess.access.siteAccess,
-        permissions: currentAccess.access.permissions,
-      },
-      [routeSite],
-    );
-    if (accessibleRouteSite !== routeSite) return;
-
-    queueMicrotask(() => handleSetCurrentSite(routeSite));
-  }, [
-    currentAccess.access.permissions,
-    currentAccess.access.siteAccess,
-    currentSite,
-    handleSetCurrentSite,
-    menuData.siteData,
-    pathname,
-    userRole,
-  ]);
-
-  useEffect(() => {
     if (currentAccess.isLoading || menuData.isLoading || Object.keys(menuData.siteData).length === 0) return;
-
-    const routeSite = getRouteSite(pathname);
-    const storedSite = readStoredSite();
+    const routeChanged = syncedPath.current !== pathname;
+    const firstSync = syncedPath.current === undefined;
     const targetSite = getFirstAccessibleSiteId(
       menuData.siteData,
       {
@@ -121,18 +99,25 @@ export function MenuProvider({
         siteAccess: currentAccess.access.siteAccess,
         permissions: currentAccess.access.permissions,
       },
-      [routeSite, storedSite, currentSite, initialSite],
+      routeChanged
+        ? [getRouteSite(pathname), firstSync ? readStoredSite() : currentSite, initialSite]
+        : [currentSite, readStoredSite(), initialSite],
     );
-
-    if (!targetSite || targetSite === currentSite) return;
-
-    queueMicrotask(() => handleSetCurrentSite(targetSite));
+    const revision = selectionRevision.current;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || revision !== selectionRevision.current) return;
+      syncedPath.current = pathname;
+      if (!targetSite || targetSite === currentSite) return;
+      setCurrentSite(targetSite);
+      writeStoredSite(targetSite);
+    });
+    return () => { cancelled = true; };
   }, [
     currentAccess.access.permissions,
     currentAccess.access.siteAccess,
     currentAccess.isLoading,
     currentSite,
-    handleSetCurrentSite,
     initialSite,
     menuData.isLoading,
     menuData.siteData,

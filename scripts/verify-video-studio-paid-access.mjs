@@ -9,18 +9,24 @@ const [
   processRoute,
   jobRoute,
   legacyVideoRoute,
+  readinessRoute,
+  statusRoute,
   adminStore,
   hostingVideoRoutes,
   hostingGenerationRoutes,
+  hostingCommon,
 ] = await Promise.all([
   read('../src/app/api/video-studio/jobs/route.ts'),
   read('../src/app/api/video-studio/jobs/run/route.ts'),
   read('../src/app/api/video-studio/jobs/process/route.ts'),
   read('../src/app/api/video-studio/jobs/[jobId]/route.ts'),
   read('../src/app/api/generate-video/route.ts'),
+  read('../src/app/api/video-studio/readiness/route.ts'),
+  read('../src/app/api/video-studio/status/route.ts'),
   read('../src/lib/server/video-studio-admin.ts'),
   read('../functions/src/api/hostingVideoStudioRoutes.ts'),
   read('../functions/src/api/hostingGenerationRoutes.ts'),
+  read('../functions/src/api/hostingCommon.ts'),
 ]);
 
 for (const [label, source] of [
@@ -62,6 +68,24 @@ assert.match(
   /requireAdmin\(req\)/,
   'The legacy Hosting generate-video route must not expose the shared API balance to ordinary users.',
 );
+
+assert.match(readinessRoute, /requireAdminAuth\(req\)/);
+assert.match(statusRoute, /requireAdminAuth\(req\)/);
+assert.match(readinessRoute, /auth\.isAdmin \? preflight : redactCreditBalance\(preflight\)/);
+assert.doesNotMatch(readinessRoute, /message: error instanceof Error \? error\.message/);
+
+const hostingReadinessStart = hostingVideoRoutes.indexOf('function handleVideoStudioReadiness');
+assert.ok(hostingReadinessStart >= 0, 'Missing Hosting readiness handler.');
+const hostingReadiness = hostingVideoRoutes.slice(hostingReadinessStart, hostingReadinessStart + 6_500);
+assert.match(hostingReadiness, /const auth = await requireAdmin\(req\)/);
+const hostingStatusStart = hostingVideoRoutes.indexOf('function handleVideoStudioStatus');
+assert.ok(hostingStatusStart >= 0, 'Missing Hosting status handler.');
+assert.match(hostingVideoRoutes.slice(hostingStatusStart, hostingStatusStart + 900), /await requireAdmin\(req\)/);
+assert.match(hostingReadiness, /auth\.isAdmin \? preflight : redactCreditBalance\(preflight\)/);
+assert.doesNotMatch(hostingReadiness, /credentialMode: 'application_default'/);
+assert.doesNotMatch(hostingReadiness, /message: error instanceof Error \? error\.message/);
+assert.doesNotMatch(hostingCommon, /const message = error instanceof Error \? error\.message/);
+assert.match(hostingCommon, /res\.status\(500\)\.json\(\{ success: false, error: 'Unexpected server error\.' \}\)/);
 
 assert.match(adminStore, /attemptCount:\s*0,[\s\S]{0,120}nextAttemptAt:\s*null,/);
 const createQueuedJobStart = hostingVideoRoutes.indexOf('async function createQueuedJob');

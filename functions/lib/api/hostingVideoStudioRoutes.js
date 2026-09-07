@@ -386,7 +386,7 @@ function hasResumableProviderVideo(job) {
 }
 async function handleVideoStudioStatus(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'GET');
-    await (0, hostingCommon_1.requireUser)(req);
+    await (0, hostingCommon_1.requireAdmin)(req);
     const availability = await inspectVideoStudioWorkerAvailability();
     res.status(200).json({
         success: true,
@@ -475,7 +475,7 @@ const VideoReadinessQuerySchema = zod_1.z.object({
 });
 async function handleVideoStudioReadiness(req, res) {
     (0, hostingCommon_1.requireMethod)(req, 'GET');
-    await (0, hostingCommon_1.requireUser)(req);
+    const auth = await (0, hostingCommon_1.requireAdmin)(req);
     const parsed = VideoReadinessQuerySchema.safeParse({
         duration: req.query.duration,
         resolution: req.query.resolution,
@@ -497,9 +497,9 @@ async function handleVideoStudioReadiness(req, res) {
             .then(() => ({
             ok: true,
             message: 'Firestore Admin read access is available.',
-        }), (error) => ({
+        }), () => ({
             ok: false,
-            message: error instanceof Error ? error.message : 'Firestore Admin read access failed.',
+            message: 'Firestore Admin read access failed.',
         })),
         admin
             .storage()
@@ -508,9 +508,9 @@ async function handleVideoStudioReadiness(req, res) {
             .then(() => ({
             ok: true,
             message: 'Firebase Storage Admin access is available.',
-        }), (error) => ({
+        }), () => ({
             ok: false,
-            message: error instanceof Error ? error.message : 'Firebase Storage Admin access failed.',
+            message: 'Firebase Storage Admin access failed.',
         })),
         admin
             .storage()
@@ -523,25 +523,21 @@ async function handleVideoStudioReadiness(req, res) {
             .then(() => ({
             ok: true,
             message: 'Firebase Storage URL signing is available.',
-        }), (error) => ({
+        }), () => ({
             ok: false,
-            message: error instanceof Error && /client[_ ]?email|cannot sign data/i.test(error.message)
-                ? 'Signed URLs are unavailable with local application-default credentials. Storyboard media continues to use Firebase download-token URLs.'
-                : error instanceof Error
-                    ? error.message
-                    : 'Firebase Storage URL signing is unavailable.',
+            message: 'Firebase Storage URL signing is unavailable.',
         })),
         (0, ffmpeg_1.inspectFfmpegRuntime)(),
     ]);
     const openRouter = runtime.openRouterApiKey
         ? await (0, openrouter_1.preflightOpenRouterVideo)(Object.assign({ apiKey: runtime.openRouterApiKey }, parsed.data)).then((preflight) => ({
             ok: true,
-            preflight,
+            preflight: auth.isAdmin ? preflight : redactCreditBalance(preflight),
             message: '호환되는 영상 모델을 확인했습니다.',
-        }), (error) => ({
+        }), () => ({
             ok: false,
             preflight: null,
-            message: error instanceof Error ? error.message : 'OpenRouter 영상 모델 점검에 실패했습니다.',
+            message: 'OpenRouter 영상 모델 점검에 실패했습니다.',
         }))
         : {
             ok: false,
@@ -559,21 +555,36 @@ async function handleVideoStudioReadiness(req, res) {
                     initialized: true,
                     canPersistToFirestore: firestore.ok,
                     canSignStorageUrls: storageSigning.ok,
-                    credentialMode: 'application_default',
+                    credentialMode: 'configured',
                     // Storyboard artifacts use Firebase download tokens. URL
                     // signing is diagnostic-only and must not downgrade a
                     // runtime that can read/write Firestore and Storage.
-                    message: !firestore.ok ? firestore.message : !storage.ok ? storage.message : null,
+                    message: !firestore.ok || !storage.ok ? 'Firebase Admin runtime is unavailable.' : null,
                 },
-                firestore,
-                storage,
-                storageSigning,
+                firestore: {
+                    ok: firestore.ok,
+                    message: firestore.ok
+                        ? 'Firestore Admin read access is available.'
+                        : 'Firestore Admin read access failed.',
+                },
+                storage: {
+                    ok: storage.ok,
+                    message: storage.ok
+                        ? 'Firebase Storage Admin access is available.'
+                        : 'Firebase Storage Admin access failed.',
+                },
+                storageSigning: {
+                    ok: storageSigning.ok,
+                    message: storageSigning.ok
+                        ? 'Firebase Storage URL signing is available.'
+                        : 'Firebase Storage URL signing is unavailable.',
+                },
                 storageDelivery: {
                     ok: storage.ok,
                     mode: 'firebase_download_token',
                     message: storage.ok
                         ? 'Storyboard media is delivered with Firebase download-token URLs and does not require service-account URL signing.'
-                        : storage.message,
+                        : 'Storyboard media delivery is unavailable.',
                 },
             },
             ffmpeg: {

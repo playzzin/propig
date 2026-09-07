@@ -21,6 +21,8 @@ interface SystemContextType {
     updateSettings: (newSettings: Partial<SystemSettings>) => Promise<void>;
     updateEnvLogo: (siteId: string, logoUrl: string) => Promise<void>;
     loading: boolean;
+    error: string | null;
+    retry: () => void;
 }
 
 const SETTINGS_DOC = doc(db, 'system_settings', 'general');
@@ -111,19 +113,50 @@ function isMissingDocumentError(error: unknown): boolean {
 export function SystemProvider({ children }: { children: React.ReactNode }) {
     const [settings, setSettings] = useState<SystemSettings>({});
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [subscriptionVersion, setSubscriptionVersion] = useState(0);
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(SETTINGS_DOC, (snapshot) => {
-            if (snapshot.exists()) {
-                setSettings(sanitizeSettingsSnapshot(snapshot.data() as Record<string, unknown>));
-            } else {
-                setSettings({});
-            }
-            setLoading(false);
-        });
+        let active = true;
+        let unsubscribe: () => void = () => undefined;
+        try {
+            unsubscribe = onSnapshot(
+                SETTINGS_DOC,
+                (snapshot) => {
+                    setSettings(
+                        snapshot.exists()
+                            ? sanitizeSettingsSnapshot(snapshot.data() as Record<string, unknown>)
+                            : {},
+                    );
+                    setError(null);
+                    setLoading(false);
+                },
+                (snapshotError) => {
+                    console.error('[System Settings] Subscription failed.', snapshotError);
+                    setError('시스템 설정을 불러오지 못했습니다. 기본 설정으로 계속합니다.');
+                    setLoading(false);
+                },
+            );
+        } catch (subscriptionError) {
+            console.error('[System Settings] Subscription setup failed.', subscriptionError);
+            queueMicrotask(() => {
+                if (!active) return;
+                setError('시스템 설정 연결을 시작하지 못했습니다.');
+                setLoading(false);
+            });
+        }
 
-        return () => unsubscribe();
-    }, []);
+        return () => {
+            active = false;
+            unsubscribe();
+        };
+    }, [subscriptionVersion]);
+
+    const retry = () => {
+        setLoading(true);
+        setError(null);
+        setSubscriptionVersion((version) => version + 1);
+    };
 
     const updateSettings = async (newSettings: Partial<SystemSettings>) => {
         const payload = buildSettingsUpdatePayload(newSettings);
@@ -148,7 +181,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
     };
 
     return (
-        <SystemContext.Provider value={{ settings, updateSettings, updateEnvLogo, loading }}>
+        <SystemContext.Provider value={{ settings, updateSettings, updateEnvLogo, loading, error, retry }}>
             {children}
         </SystemContext.Provider>
     );

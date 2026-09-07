@@ -6,6 +6,7 @@ import { db as adminDb } from '@/lib/firebase-admin';
 import { writeActivityLogSafely } from '@/lib/server/activity-log';
 import { validateAllSites } from '@/schemas/menuSchema';
 import type { MenuItem, SiteDataType } from '@/types/menu';
+import { MENU_SETTINGS_VERSION } from '@/constants/menuSettingsContract';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +16,6 @@ const MenuSitesUpdateSchema = z.object({
 
 const MENU_SETTINGS_COLLECTION = 'menuSettings';
 const MENU_SETTINGS_DOC_ID = 'sites';
-const MENU_SETTINGS_VERSION = 45;
-
 const countMenuItems = (items: MenuItem[] = []): number =>
   items.reduce((total, item) => {
     const childCount = (item.sub || []).reduce((childTotal, subItem) => {
@@ -58,7 +57,7 @@ export async function PUT(request: NextRequest) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authResult.uid,
       },
-      { merge: true },
+      { mergeFields: ['version', 'sites', 'updatedAt', 'updatedBy'] },
     );
 
   await writeActivityLogSafely({

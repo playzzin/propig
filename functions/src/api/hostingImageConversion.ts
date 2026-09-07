@@ -1,7 +1,7 @@
 import type { Request } from 'firebase-functions/v2/https';
 import type { Response } from 'express';
 import sharp from 'sharp';
-import { ApiError, requireMethod, requireUser } from './hostingCommon';
+import { ApiError, requireAccess, requireMethod } from './hostingCommon';
 import { enforceUserRateLimit } from './security';
 
 const SUPPORTED_FORMATS = ['avif', 'gif', 'jpeg', 'png', 'webp'] as const;
@@ -71,14 +71,14 @@ async function readFormData(req: Request): Promise<FormData> {
 
 export async function handleConvertImage(req: Request, res: Response): Promise<void> {
     requireMethod(req, 'POST');
-    const auth = await requireUser(req);
+    const auth = await requireAccess(req, 'photoManagement');
     const rateLimit = await enforceUserRateLimit({
         namespace: 'image-conversion',
         uid: auth.uid,
         maxRequests: 12,
         windowMs: 60_000,
     });
-    if (!rateLimit.allowed) {
+    if ('retryAfterSeconds' in rateLimit) {
         res.set('Retry-After', String(rateLimit.retryAfterSeconds));
         throw new ApiError(429, 'Too many image conversion requests. Please try again shortly.');
     }
@@ -156,19 +156,26 @@ export async function handleConvertImage(req: Request, res: Response): Promise<v
     } else {
         pipeline = pipeline.webp({ quality, alphaQuality: Math.max(quality, 80), effort: 6, smartSubsample: true, preset: 'photo' });
     }
-    const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
+    const data = await pipeline.toBuffer();
     if (data.length > MAX_OUTPUT_BYTES) throw new ApiError(413, 'The converted image exceeds the allowed output size.');
-    const pageHeight = typeof (info as { pageHeight?: number }).pageHeight === 'number'
-        ? (info as { pageHeight?: number }).pageHeight
-        : undefined;
+    const decoded = await sharp(data, { animated: animated, pages: animated ? -1 : 1, limitInputPixels: MAX_INPUT_PIXELS }).metadata();
+    const decodedPages = decoded.pages || 1;
+    const inputPages = metadata.pages || 1;
+    if (decoded.format !== outputFormat || (animated && decodedPages !== inputPages) || !decoded.width || !decoded.height) {
+        throw new ApiError(422, '완성된 이미지의 디코딩 검증에 실패했습니다.');
+    }
+    const pageHeight = decoded.pageHeight || Math.floor(decoded.height / decodedPages);
     res.set({
         'Content-Type': mimeType(outputFormat),
         'Content-Length': String(data.length),
         'Cache-Control': 'no-store',
-        'X-Image-Width': String(info.width || metadata.width || 0),
-        'X-Image-Height': String(pageHeight || info.height || metadata.height || 0),
-        'X-Image-Pages': String(info.pages || metadata.pages || 1),
-        'X-Image-Animated': String(Boolean(info.pages && info.pages > 1)),
+        'X-Image-Width': String(decoded.width),
+        'X-Image-Height': String(pageHeight),
+        'X-Image-Pages': String(decodedPages),
+        'X-Image-Animated': String(decodedPages > 1),
+        'X-Image-Loop': String(decoded.loop ?? 0),
+        'X-Image-Alpha': String(Boolean(decoded.hasAlpha)),
+        'X-Image-Delays': (decoded.delay || []).join(','),
     });
     res.status(200).send(data);
 }

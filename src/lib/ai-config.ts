@@ -71,13 +71,13 @@ export const BUILT_IN_MANAGED_PAGES: ManagedApiPage[] = [
     },
     {
         id: 'image-generate',
-        name: 'AI 이미지 생성기',
-        pagePath: '/admin/image-generator',
+        name: '스토리보드 이미지 생성',
+        pagePath: '/admin/storyboard',
         apiPath: '/api/generate-image',
         method: 'POST',
         enabled: true,
         type: 'image',
-        description: 'OpenRouter 기반 이미지 생성',
+        description: '스토리보드 장면용 OpenRouter 이미지 생성',
         testPayload: {
             prompt: 'Premium Korean corporate project board cover, modern planning workspace, no readable text',
             width: 1536,

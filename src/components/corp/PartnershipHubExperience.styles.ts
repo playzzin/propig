@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import styled, { css, keyframes } from 'styled-components';
 
 const ink = '#080b0a';
@@ -47,8 +48,9 @@ const progressPop = keyframes`
 
 const focusRing = css`
   &:focus-visible {
-    outline: 2px solid ${paper};
-    outline-offset: 4px;
+    outline: 3px solid ${ink};
+    outline-offset: 3px;
+    box-shadow: 0 0 0 6px ${paper};
   }
 `;
 
@@ -118,6 +120,31 @@ export const Page = styled.main`
       transform: none !important;
     }
   }
+`;
+
+export const SkipLink = styled.a`
+  position: fixed;
+  z-index: 40;
+  top: 12px;
+  left: 50%;
+  transform: translate(-50%, -180%);
+  border-radius: 9px;
+  background: ${paper};
+  padding: 11px 15px;
+  color: ${ink};
+  font-size: 13px;
+  font-weight: 950;
+  text-decoration: none;
+  transition: transform 160ms ease;
+
+  &:focus,
+  &:focus-visible {
+    transform: translate(-50%, 0);
+    outline: 3px solid ${mint};
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 export const PageInner = styled.div`
@@ -415,7 +442,7 @@ export const ChapterNavInner = styled.div`
   }
 `;
 
-export const ChapterNavButton = styled.button<{ $accent: string; $active: boolean }>`
+export const ChapterNavButton = styled(Link)<{ $accent: string; $active: boolean }>`
   min-width: 0;
   min-height: 54px;
   display: grid;
@@ -429,6 +456,7 @@ export const ChapterNavButton = styled.button<{ $accent: string; $active: boolea
   background-color: ${({ $active }) => $active ? 'rgba(255, 255, 255, .07)' : 'transparent'};
   cursor: pointer;
   text-align: left;
+  text-decoration: none;
   transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
   touch-action: manipulation;
 

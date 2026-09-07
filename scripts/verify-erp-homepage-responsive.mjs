@@ -327,6 +327,25 @@ async function verifyDomainFilterPersistence(page, viewportName) {
     domainFilterStorageKey,
     { timeout: 5_000 },
   );
+  await page.locator('[data-erp-empty-domain="true"]').waitFor({ state: 'visible', timeout: 5_000 });
+}
+
+async function verifyDefaultDomainFilter(page, viewportName) {
+  await page.evaluate((key) => window.localStorage.removeItem(key), domainFilterStorageKey);
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await waitForHomeReady(page);
+
+  const activeFilter = page.locator('[aria-label="운영 도메인 필터"] button[aria-pressed="true"]').first();
+  await activeFilter.waitFor({ state: 'visible', timeout: 5_000 });
+  assert.ok(
+    ((await activeFilter.textContent()) || '').includes('Personal Workflow'),
+    `${viewportName} fresh home did not start on the first useful workflow domain`,
+  );
+  assert.equal(
+    await page.locator('[data-erp-empty-domain="true"]').count(),
+    0,
+    `${viewportName} fresh home started with an empty module domain`,
+  );
 }
 
 async function verifyKeyboardFlow(page, viewportName) {
@@ -597,6 +616,7 @@ try {
 
     await verifyHomeLayoutEvidence(page, viewport.name);
     await verifyOperationalReadiness(page, viewport.name);
+    await verifyDefaultDomainFilter(page, viewport.name);
     await verifyDomainFilterPersistence(page, viewport.name);
     await verifyKeyboardFlow(page, viewport.name);
     await verifyPersonalWorkspaceFlow(page, viewport.name);
