@@ -1856,9 +1856,16 @@ export default function PhotosPage() {
                         </FaviconHeader>
 
                         <FaviconContent>
+                            <ApplyHint>
+                                파비콘은 현재 사이트 모드의 브라우저 탭 아이콘입니다. 모드마다 다른 아이콘을 원하면 서로 다른 이미지를 적용해주세요.
+                                작은 정사각형 PNG·ICO 또는 가벼운 SVG를 권장합니다. 설치된 앱·홈 화면 아이콘은 별도 설정입니다.
+                            </ApplyHint>
                             {siteEntries.map(([siteId, site]) => {
                                 const faviconUrl = normalizeBrandAssetUrl(settings.envFavicons?.[siteId]);
                                 const logoUrl = normalizeBrandAssetUrl(settings.envLogos?.[siteId]);
+                                const sameFaviconSites = faviconUrl
+                                    ? siteEntries.filter(([otherId]) => otherId !== siteId && normalizeBrandAssetUrl(settings.envFavicons?.[otherId]) === faviconUrl).map(([, otherSite]) => otherSite.name)
+                                    : [];
 
                                 return (
                                     <FaviconRow key={siteId} $active={siteId === currentSite}>
@@ -1868,6 +1875,11 @@ export default function PhotosPage() {
                                                 {site.name}
                                             </div>
                                             <div style={{ fontSize: '0.72rem', color: '#6b7280' }}>{siteId}</div>
+                                            {sameFaviconSites.length > 0 && (
+                                                <div style={{ fontSize: '0.72rem', color: '#92400e' }}>
+                                                    {sameFaviconSites.join(', ')} 모드와 같은 파비콘
+                                                </div>
+                                            )}
                                         </div>
 
                                         <FaviconPreview className="logo-preview">

@@ -94,7 +94,6 @@ const PREFERRED_AUTO_IMAGE_MODELS = [
 const IMAGE_MODEL_CACHE_TTL_MS = 15 * 60 * 1000;
 const OPENROUTER_DISCOVERY_TIMEOUT_MS = 15_000;
 const OPENROUTER_GENERATION_TIMEOUT_MS = 120_000;
-const IMAGE_OPERATION_TTL_MS = 5 * 60 * 1000;
 const IMAGE_RESULT_CACHE_TTL_MS = 2 * 60 * 1000;
 const IMAGE_RESULT_CACHE_MAX_ENTRIES = 5;
 const IMAGE_RESULT_CACHE_MAX_BYTES = 2 * 1024 * 1024;
@@ -127,18 +126,10 @@ function imageRequestFingerprint(payload: z.infer<typeof GenerateImageRequestSch
     return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
-function readTimestampMillis(value: unknown): number {
-    if (value instanceof Date) return value.getTime();
-    if (!value || typeof value !== 'object' || !('toMillis' in value)) return 0;
-    const toMillis = (value as { toMillis?: unknown }).toMillis;
-    return typeof toMillis === 'function' ? Number(toMillis.call(value)) || 0 : 0;
-}
-
 async function reserveImageOperation(uid: string, payload: z.infer<typeof GenerateImageRequestSchema>) {
     const key = imageOperationKey(uid, payload.operationId);
     const cached = completedImageResults.get(key);
-    if (cached && cached.expiresAt > Date.now()) return { key, cached: cached.response };
-    if (cached) completedImageResults.delete(key);
+    if (cached && cached.expiresAt <= Date.now()) completedImageResults.delete(key);
 
     const reference = adminDb.collection('aiOperationReservations').doc(key);
     const fingerprint = imageRequestFingerprint(payload);
@@ -151,14 +142,17 @@ async function reserveImageOperation(uid: string, payload: z.infer<typeof Genera
         if (data.requestFingerprint && data.requestFingerprint !== fingerprint) {
             throw new ImageOperationConflictError('같은 operationId를 다른 이미지 요청에 사용할 수 없습니다.');
         }
-        const ageMs = Date.now() - readTimestampMillis(data.updatedAt);
         if (data.status === 'completed') {
+            // Memory results are usable only after durable identity and completion checks.
+            if (cached && cached.expiresAt > Date.now()) return cached.response;
             if (data.result && typeof data.result === 'object') return data.result as ImageGenerationResponse;
             if (Number.isSafeInteger(data.resultChunkCount) && data.resultChunkCount > 0) return { chunkCount: data.resultChunkCount };
             if (typeof data.resultStoragePath === 'string' && typeof data.resultSha256 === 'string') return { storagePath: data.resultStoragePath, sha256: data.resultSha256 };
             throw new ImageOperationConflictError('같은 이미지 생성 요청이 이미 완료되었지만 보관된 결과가 없어 새 operationId가 필요합니다.');
         }
-        if ((data.status === 'pending' && ageMs < IMAGE_OPERATION_TTL_MS) || data.status === 'uncertain') {
+        // Elapsed time cannot prove that an earlier paid provider request did not run.
+        // Keep its reservation blocked until explicit reconciliation, including after crashes.
+        if (data.status === 'pending' || data.status === 'uncertain') {
             throw new ImageOperationConflictError('같은 이미지 생성 요청이 처리 중이거나 결과 확인이 필요합니다.');
         }
         const budgetSnapshot = await transaction.get(budgetReference);

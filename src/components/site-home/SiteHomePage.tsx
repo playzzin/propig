@@ -1,4 +1,5 @@
 import type React from 'react';
+import { SiteAppDownload } from './SiteAppDownload';
 import { IntentPrefetchLink } from '@/components/navigation/IntentPrefetchLink';
 
 export interface SiteHomeMetric {
@@ -31,6 +32,7 @@ export interface SiteHomePageProps {
   primaryLinks: SiteHomeLink[];
   sections: SiteHomeSection[];
   prefetchLinks?: boolean;
+  appSiteId?: 'corp' | 'blog' | 'shop' | 'admin';
 }
 
 const pageShellStyle: React.CSSProperties = {
@@ -69,9 +71,11 @@ export function SiteHomePage({
   primaryLinks,
   sections,
   prefetchLinks = false,
+  appSiteId,
 }: SiteHomePageProps) {
   return (
     <main id="content-area" style={pageShellStyle}>
+      {appSiteId && <SiteAppDownload siteId={appSiteId} />}
       <section
         style={{
           position: 'relative',
@@ -144,7 +148,7 @@ export function SiteHomePage({
                   justifyContent: 'space-between',
                 }}
               >
-                <span style={{ color: 'var(--text-dim)', fontSize: '0.72rem', fontWeight: 800 }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 800 }}>
                   {metric.label}
                 </span>
                 <strong style={{ color: 'var(--text-bright)', fontSize: '1.35rem', fontWeight: 900 }}>

@@ -561,8 +561,7 @@ export default function Sidebar({
                                 <li
                                     key={item.id}
                                     className="menu-divider"
-                                    role="separator"
-                                    aria-label={item.text || '구분선'}
+                                    aria-hidden="true"
                                 />
                             );
                         }

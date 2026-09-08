@@ -84,8 +84,12 @@ export default function PropigStore() {
     async (app: PropigStoreApp) => {
       if (app.status !== 'available') return;
       const nextInstalled = !appRegistry.isInstalled(app.id);
-      await appRegistry.toggleApp(app.id);
-      toast.success(nextInstalled ? `${app.title} 등록 완료` : `${app.title} 등록 해제`);
+      try {
+        await appRegistry.toggleApp(app.id);
+        toast.success(nextInstalled ? `${app.title} 등록 완료` : `${app.title} 등록 해제`);
+      } catch {
+        toast.error('앱 등록 변경을 저장하지 못했습니다. 다시 시도해주세요.');
+      }
     },
     [appRegistry],
   );
@@ -102,17 +106,25 @@ export default function PropigStore() {
         return;
       }
 
-      await appRegistry.installApp(app.id);
-      toast.success(`${app.title} 등록 완료`);
-      setPreviewAppId(null);
+      try {
+        await appRegistry.installApp(app.id);
+        toast.success(`${app.title} 등록 완료`);
+        setPreviewAppId(null);
+      } catch {
+        toast.error('앱을 등록하지 못했습니다. 다시 시도해주세요.');
+      }
     },
     [appRegistry],
   );
 
   const handleMoveApp = useCallback(
     async (app: PropigStoreApp, direction: -1 | 1) => {
-      await appRegistry.moveApp(app.id, direction);
-      toast.success('메뉴 순서를 변경했습니다.');
+      try {
+        await appRegistry.moveApp(app.id, direction);
+        toast.success('메뉴 순서를 변경했습니다.');
+      } catch {
+        toast.error('메뉴 순서를 저장하지 못했습니다. 다시 시도해주세요.');
+      }
     },
     [appRegistry],
   );

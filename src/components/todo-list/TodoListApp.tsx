@@ -222,10 +222,6 @@ function uniqueSortedDates(dates: string[]): string[] {
   return [...new Set(dates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)))].sort();
 }
 
-function uniqueSortedCompletionKeys(keys: string[]): string[] {
-  return [...new Set(keys.filter((key) => key === TODO_ANYTIME_COMPLETION_KEY || /^\d{4}-\d{2}-\d{2}$/.test(key)))].sort();
-}
-
 function createDraft(dateKey = getTodayKey(), categoryId = ''): TodoTaskDraft {
   const date = parseDateKey(dateKey);
   return {
@@ -336,6 +332,11 @@ function isCurrentMonth(dateKey: string, selectedDate: string): boolean {
 }
 
 export function TodoListApp() {
+  const { currentUser } = useAuth();
+  return <TodoListSession key={currentUser?.uid ?? 'anonymous'} />;
+}
+
+function TodoListSession() {
   const { currentUser, loading: authLoading, loginWithGoogle, isConfigured } = useAuth();
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [categories, setCategories] = useState<TodoCategoryOption[]>([]);
@@ -386,7 +387,9 @@ export function TodoListApp() {
       try {
         setIsLoading(true);
         await ensureFirestorePersistence();
+        if (didCancel) return;
         await todoListService.ensureDefaultCategories(currentUser.uid);
+        if (didCancel) return;
 
         unsubscribeTasks = todoListService.subscribeTasks(
           currentUser.uid,
@@ -588,12 +591,9 @@ export function TodoListApp() {
     if (!task) return;
 
     const exists = task.completedDates.includes(dateKey);
-    const nextDates = exists
-      ? task.completedDates.filter((item) => item !== dateKey)
-      : uniqueSortedCompletionKeys([...task.completedDates, dateKey]);
 
     try {
-      await todoListService.setCompletedDates(currentUser.uid, taskId, nextDates);
+      await todoListService.setOccurrenceCompleted(currentUser.uid, taskId, dateKey, !exists);
     } catch {
       toast.error('완료 상태 변경에 실패했습니다.');
     }

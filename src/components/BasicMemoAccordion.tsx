@@ -90,20 +90,12 @@ function MemoEditor({ note, textareaFocusRef, onFocusMemo, onChangeContent }: Me
     onChangeContent(note.id, nextContent);
   }, [note.content, note.id, onChangeContent]);
 
-  useEffect(() => {
-    if (!isEditing || draftContent === note.content || isComposingRef.current) return;
-
-    const timerId = window.setTimeout(() => {
-      commitDraft(draftContent);
-    }, 350);
-
-    return () => window.clearTimeout(timerId);
-  }, [commitDraft, draftContent, isEditing, note.content]);
-
   const activeContent = isEditing ? draftContent : note.content;
 
   const updateDraftContent = (nextContent: string) => {
-    setDraftContent(nextContent.slice(0, MAX_MEMO_LENGTH));
+    const next = nextContent.slice(0, MAX_MEMO_LENGTH);
+    setDraftContent(next);
+    if (!isComposingRef.current) commitDraft(next);
   };
 
   const openOnFocus = () => {

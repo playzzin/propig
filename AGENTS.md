@@ -1,5 +1,16 @@
 # ProPig AI 개발 도구 규칙
 
+## Hermes 전담 관리
+
+- 통합 책임자는 Hermes이며 전담 역할은 `ops/hermes/team.json`, 실행 절차는 `docs/hermes-project-operations.md`가 정본이다. 작업 시작 시 읽는다.
+- 기본 사이트 ID는 corp/blog/shop/admin이다. shop 홈은 /propig이며 account-menu는 사이트 모드가 아니다. 메뉴·로고·파비콘은 같은 현재 모드를 사용한다.
+- 최대 3개 leaf 작업을 병렬 실행하며 한 파일은 한 owner만 수정한다. `python3 scripts/hermes-project.py plan <plan.json>`으로 exact-file 범위를 검사한다.
+- 공유 package/lockfile·서버·전체 빌드·통합·배포는 lead 소유다. 자식의 PASS는 parent가 실제 재검증한다.
+- 저장소 기존 dirty 변경, 사용자 데이터·권한·유료 비용 경계·공개 스크롤을 보존한다. reset/clean/전체 formatter 금지.
+- commit/push/운영 배포·유료 호출·원본 삭제·인증 변경은 해당 작업의 명시 승인이 필요하다. 이전 승인 자동 재사용 금지.
+- 개발 포트 3002, CY 3000은 건드리지 않는다. Windows node_modules 전체 재설치 대신 Linux 격리 runtime을 사용한다.
+- 현재 작업 결과는 handoff에, 검증된 장기 결정은 Obsidian/skills에 남긴다. 비밀·개인정보·임시 진행 상태를 항구 지침에 넣지 않는다.
+
 ## Context7 사용 범위
 
 - 라이브러리 또는 API의 문법, 설정 방법, 버전별 동작을 확인할 때만 Context7을 사용한다.

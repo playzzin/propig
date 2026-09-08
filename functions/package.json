@@ -31,7 +31,8 @@
     "@grpc/grpc-js": "1.14.4",
     "retry-request": "8.0.2",
     "teeny-request": "10.1.2",
-    "http-proxy-agent": "7.0.2"
+    "http-proxy-agent": "7.0.2",
+    "qs": "6.16.0"
   },
   "private": true
 }

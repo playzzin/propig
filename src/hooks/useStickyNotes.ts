@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useAuth } from '@/contexts/AuthContext';
-import { db, ensureFirestorePersistence } from '@/firebase/config';
+import { auth, db, ensureFirestorePersistence } from '@/firebase/config';
 import {
     collection,
     deleteDoc,
@@ -97,10 +97,24 @@ const parseFirestoreStickyNote = (id: string, data: unknown): StickyNote | null 
     return { id, ...parsed.data } as StickyNote;
 };
 
+// Shared across view remounts: a delete must follow every already-started write.
+const noteWriteChains = new Map<string, Promise<void>>();
+const deletedNoteKeys = new Set<string>();
+const serializeNoteWrite = (uid: string, id: string, operation: () => Promise<void>) => {
+    const key = `${uid}/${id}`;
+    const next = (noteWriteChains.get(key) ?? Promise.resolve()).then(operation);
+    const settled = next.catch(() => {});
+    noteWriteChains.set(key, settled);
+    void settled.then(() => {
+        if (noteWriteChains.get(key) === settled) noteWriteChains.delete(key);
+    });
+    return next;
+};
+
 export function useStickyNotes() {
     const { currentUser } = useAuth();
 
-    const [notes, setNotes] = useState<StickyNote[]>([]);
+    const [notes, setNotesState] = useState<StickyNote[]>([]);
     const [tagColors, setTagColors] = useState<Record<string, StickyNoteColor>>({});
     const [storageError, setStorageError] = useState<string | null>(null);
 
@@ -127,13 +141,14 @@ export function useStickyNotes() {
             userDocWriteTimerRef.current = null;
         }
         pendingFirestoreWritesRef.current.clear();
-        inFlightFirestoreWritesRef.current.clear();
-        pendingDeletedNoteIdsRef.current.clear();
         pendingUserDocWritesRef.current = null;
     }, []);
 
     const deleteStickyNoteDocs = useCallback(async (uid: string) => {
+        await Promise.all(Array.from(noteWriteChains.entries())
+            .filter(([key]) => key.startsWith(`${uid}/`)).map(([, pending]) => pending));
         await ensureFirestorePersistence();
+        if (auth.currentUser?.uid !== uid) return;
         const snapshot = await getDocs(collection(db, 'users', uid, 'stickyNotes'));
 
         for (let index = 0; index < snapshot.docs.length; index += FIRESTORE_BATCH_LIMIT) {
@@ -145,35 +160,62 @@ export function useStickyNotes() {
         }
     }, []);
 
-    useEffect(() => {
-        notesRef.current = notes;
-    }, [notes]);
+    const flushFirestoreWrites = useCallback((uid: string) => {
+        const pending = pendingFirestoreWritesRef.current;
+        const deleted = pendingDeletedNoteIdsRef.current;
+        const inFlight = inFlightFirestoreWritesRef.current;
+        const entries = Array.from(pending.entries());
+        pending.clear();
+        for (const [id, patch] of entries) {
+            if (deleted.has(id)) continue;
+            inFlight.add(id);
+            void serializeNoteWrite(uid, id, async () => {
+                await ensureFirestorePersistence();
+                if (auth.currentUser?.uid !== uid || deleted.has(id) || deletedNoteKeys.has(`${uid}/${id}`)) return;
+                await setDoc(doc(db, 'users', uid, 'stickyNotes', id),
+                    { ...patch, updatedAt: serverTimestamp() }, { merge: true });
+            }).catch(() => setStorageError('Sync failed')).finally(() => inFlight.delete(id));
+        }
+    }, []);
 
-    // Clean up timers on unmount or user change
+    // Flush using the owning UID, never the next render's identity. Local edits
+    // are already durable; network completion during page exit is best effort.
     useEffect(() => {
-        const pendingFirestoreWrites = pendingFirestoreWritesRef.current;
-        const inFlightFirestoreWrites = inFlightFirestoreWritesRef.current;
-        const pendingDeletedNoteIds = pendingDeletedNoteIdsRef.current;
+        const uid = currentUser?.uid;
         return () => {
-            if (typeof window !== 'undefined' && firestoreWriteTimerRef.current !== null) {
-                window.clearTimeout(firestoreWriteTimerRef.current);
-                firestoreWriteTimerRef.current = null;
-            }
-            if (typeof window !== 'undefined' && userDocWriteTimerRef.current !== null) {
-                window.clearTimeout(userDocWriteTimerRef.current);
-                userDocWriteTimerRef.current = null;
-            }
-            pendingFirestoreWrites.clear();
-            inFlightFirestoreWrites.clear();
-            pendingDeletedNoteIds.clear();
-            pendingUserDocWritesRef.current = null;
+            if (uid && auth.currentUser?.uid === uid) flushFirestoreWrites(uid);
+            clearPendingWrites();
+            pendingFirestoreWritesRef.current = new Map();
+            inFlightFirestoreWritesRef.current = new Set();
+            pendingDeletedNoteIdsRef.current = new Set();
         };
-    }, [currentUser]);
+    }, [currentUser?.uid, clearPendingWrites, flushFirestoreWrites]);
+
+    const notesOwnerRef = useRef<string | null>(null);
+    const setNotes = useCallback((action: StickyNote[] | ((prev: StickyNote[]) => StickyNote[])) => {
+        if (getStorageKey(auth.currentUser?.uid ?? null) !== storageKey) return;
+        if (typeof action === 'function' && notesOwnerRef.current !== storageKey) return;
+        const next = typeof action === 'function' ? action(notesRef.current) : action;
+        notesRef.current = next;
+        notesOwnerRef.current = storageKey;
+        // Synchronous persistence also covers edit + unmount in the same batch.
+        if (typeof window !== 'undefined') {
+            try {
+                window.localStorage.setItem(storageKey, JSON.stringify({ version: 1, notes: next }));
+                setStorageError(null);
+            } catch {
+                setStorageError('저장 공간 부족으로 로컬 저장 실패');
+            }
+        }
+        setNotesState(next);
+    }, [storageKey]);
 
     // Load from Local Storage (Notes)
     useEffect(() => {
         if (typeof window === 'undefined') return;
+        let cancelled = false;
         queueMicrotask(() => {
+            if (cancelled) return;
             const raw = window.localStorage.getItem(storageKey);
             if (!raw) {
                 setNotes([]);
@@ -195,7 +237,8 @@ export function useStickyNotes() {
                 setNotes([]);
             }
         });
-    }, [storageKey]);
+        return () => { cancelled = true; };
+    }, [storageKey, setNotes]);
 
     // Load from Local Storage (Tag Colors)
     useEffect(() => {
@@ -225,21 +268,6 @@ export function useStickyNotes() {
             }
         });
     }, [tagColorsStorageKey]);
-
-    // Save to Local Storage (Notes)
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const handle = window.setTimeout(() => {
-            const payload = { version: 1, notes } as const;
-            try {
-                window.localStorage.setItem(storageKey, JSON.stringify(payload));
-                setStorageError(null);
-            } catch {
-                setStorageError('저장 공간 부족으로 로컬 저장 실패');
-            }
-        }, 250);
-        return () => window.clearTimeout(handle);
-    }, [notes, storageKey]);
 
     // Save to Local Storage (Tag Colors)
     useEffect(() => {
@@ -272,7 +300,8 @@ export function useStickyNotes() {
 
             const uid = currentUser.uid;
             ensureFirestorePersistence().then(() => {
-                setDoc(doc(db, 'users', uid), p, { merge: true }).catch(() => setStorageError('Firestore 동기화 실패'));
+                if (auth.currentUser?.uid !== uid) return;
+                return setDoc(doc(db, 'users', uid), p, { merge: true }).catch(() => setStorageError('Firestore 동기화 실패'));
             });
         }, 450);
     }, [currentUser]);
@@ -283,11 +312,14 @@ export function useStickyNotes() {
         const protectedIds = new Set<string>([
             ...pendingFirestoreWritesRef.current.keys(),
             ...inFlightFirestoreWritesRef.current,
+            ...Array.from(noteWriteChains.keys())
+                .filter((key) => key.startsWith(`${currentUser?.uid}/`))
+                .map((key) => key.slice(key.indexOf('/') + 1)),
         ]);
         const deletedIds = pendingDeletedNoteIdsRef.current;
 
         const merged = syncedNotes
-            .filter((note) => !deletedIds.has(note.id))
+            .filter((note) => !deletedIds.has(note.id) && !deletedNoteKeys.has(`${currentUser?.uid}/${note.id}`))
             .map((syncedNote) => {
                 const currentNote = currentById.get(syncedNote.id);
                 if (currentNote && protectedIds.has(syncedNote.id)) {
@@ -304,7 +336,7 @@ export function useStickyNotes() {
         }
 
         return merged;
-    }, []);
+    }, [currentUser?.uid]);
 
     // Firestore Sync Setup
     useEffect(() => {
@@ -325,6 +357,7 @@ export function useStickyNotes() {
                 const q = query(col);
 
                 unsubscribeNotes = onSnapshot(q, (snapshot) => {
+                    if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
                     // Auto Import Logic
                     if (snapshot.empty && !didAutoImportRef.current[currentUser.uid]) {
                         didAutoImportRef.current[currentUser.uid] = true;
@@ -335,7 +368,10 @@ export function useStickyNotes() {
                                 if (parsedLocal.success && parsedLocal.data.notes.length > 0) {
                                     Promise.all(parsedLocal.data.notes.map(async (note) => {
                                         const ref = doc(db, 'users', currentUser.uid, 'stickyNotes', note.id);
-                                        await setDoc(ref, toFirestoreStickyNote(note));
+                                        await serializeNoteWrite(currentUser.uid, note.id, async () => {
+                                            if (didCancel || auth.currentUser?.uid !== currentUser.uid || pendingDeletedNoteIdsRef.current.has(note.id)) return;
+                                            await setDoc(ref, toFirestoreStickyNote(note));
+                                        });
                                     })).catch(() => setStorageError('메모 가져오기에 실패했습니다.'));
                                 }
                             } catch {
@@ -404,10 +440,10 @@ export function useStickyNotes() {
             unsubscribeNotes?.();
             unsubscribeUserDoc?.();
         };
-    }, [currentUser, mergeSyncedNotes, queueUserDocWrite]);
+    }, [currentUser, mergeSyncedNotes, queueUserDocWrite, setNotes]);
 
     const queueFirestoreWrite = useCallback((noteId: string, patch: Record<string, unknown>) => {
-        if (!currentUser) return;
+        if (!currentUser || auth.currentUser?.uid !== currentUser.uid || pendingDeletedNoteIdsRef.current.has(noteId) || deletedNoteKeys.has(`${currentUser.uid}/${noteId}`)) return;
         if (typeof window === 'undefined') return;
 
         const prev = pendingFirestoreWritesRef.current.get(noteId) ?? {};
@@ -415,25 +451,12 @@ export function useStickyNotes() {
 
         if (firestoreWriteTimerRef.current !== null) return;
 
+        const uid = currentUser.uid;
         firestoreWriteTimerRef.current = window.setTimeout(() => {
-            const entries = Array.from(pendingFirestoreWritesRef.current.entries());
-            pendingFirestoreWritesRef.current.clear();
             firestoreWriteTimerRef.current = null;
-            const uid = currentUser.uid;
-            const writeIds = entries.map(([id]) => id);
-
-            writeIds.forEach((id) => inFlightFirestoreWritesRef.current.add(id));
-
-            void Promise.all(entries.map(async ([id, p]) => {
-                try {
-                    await ensureFirestorePersistence();
-                    await setDoc(doc(db, 'users', uid, 'stickyNotes', id), { ...p, updatedAt: serverTimestamp() }, { merge: true });
-                } catch { setStorageError('Sync failed'); }
-            })).finally(() => {
-                writeIds.forEach((id) => inFlightFirestoreWritesRef.current.delete(id));
-            });
+            flushFirestoreWrites(uid);
         }, 450);
-    }, [currentUser]);
+    }, [currentUser, flushFirestoreWrites]);
 
     // Actions
     const createNote = useCallback((viewport?: { scrollLeft: number, scrollTop: number, clientWidth?: number, clientHeight?: number }) => {
@@ -472,7 +495,7 @@ export function useStickyNotes() {
         });
 
         return nextId;
-    }, [currentUser, queueFirestoreWrite]);
+    }, [currentUser, queueFirestoreWrite, setNotes]);
 
     const updateNote = useCallback((noteId: string, patch: Partial<StickyNote>) => {
         setNotes(prev => prev.map(n => {
@@ -488,20 +511,32 @@ export function useStickyNotes() {
             }
             return next;
         }));
-    }, [currentUser, queueFirestoreWrite]);
+    }, [currentUser, queueFirestoreWrite, setNotes]);
 
     const deleteNote = useCallback((noteId: string) => {
+        if (getStorageKey(auth.currentUser?.uid ?? null) !== storageKey) return;
+        const removedNote = notesRef.current.find((note) => note.id === noteId);
+        const deletedIds = pendingDeletedNoteIdsRef.current;
+        pendingDeletedNoteIdsRef.current.add(noteId);
+        if (currentUser) deletedNoteKeys.add(`${currentUser.uid}/${noteId}`);
+        pendingFirestoreWritesRef.current.delete(noteId);
         setNotes(prev => prev.filter(n => n.id !== noteId));
         if (currentUser) {
-            pendingDeletedNoteIdsRef.current.add(noteId);
-            ensureFirestorePersistence()
-                .then(() => deleteDoc(doc(db, 'users', currentUser.uid, 'stickyNotes', noteId)))
-                .catch(() => setStorageError('Delete failed'))
-                .finally(() => {
-                    pendingDeletedNoteIdsRef.current.delete(noteId);
-                });
+            const uid = currentUser.uid;
+            void serializeNoteWrite(uid, noteId, async () => {
+                await ensureFirestorePersistence();
+                if (auth.currentUser?.uid !== uid) return;
+                await deleteDoc(doc(db, 'users', uid, 'stickyNotes', noteId));
+            }).catch(() => {
+                deletedIds.delete(noteId);
+                deletedNoteKeys.delete(`${uid}/${noteId}`);
+                if (auth.currentUser?.uid === uid && removedNote) {
+                    setNotes((prev) => prev.some((note) => note.id === noteId) ? prev : [...prev, removedNote]);
+                    setStorageError('메모를 삭제하지 못했습니다. 내용을 복원했으니 다시 시도해주세요.');
+                }
+            });
         }
-    }, [currentUser]);
+    }, [currentUser, setNotes, storageKey]);
 
     const clearNotes = useCallback(async () => {
         clearPendingWrites();
@@ -511,7 +546,7 @@ export function useStickyNotes() {
 
         didAutoImportRef.current[currentUser.uid] = true;
         await deleteStickyNoteDocs(currentUser.uid);
-    }, [clearPendingWrites, currentUser, deleteStickyNoteDocs]);
+    }, [clearPendingWrites, currentUser, deleteStickyNoteDocs, setNotes]);
 
     const clearAllNotesData = useCallback(async () => {
         clearPendingWrites();
@@ -524,7 +559,7 @@ export function useStickyNotes() {
         didAutoImportTagColorsRef.current[currentUser.uid] = true;
         await deleteStickyNoteDocs(currentUser.uid);
         await setDoc(doc(db, 'users', currentUser.uid), { stickyNotesTagColors: {} }, { merge: true });
-    }, [clearPendingWrites, currentUser, deleteStickyNoteDocs]);
+    }, [clearPendingWrites, currentUser, deleteStickyNoteDocs, setNotes]);
 
     const bringToFront = useCallback((noteId: string) => {
         setNotes(prev => {
@@ -533,7 +568,7 @@ export function useStickyNotes() {
             if (currentUser) queueFirestoreWrite(noteId, { zIndex: maxZ + 1 });
             return next;
         });
-    }, [currentUser, queueFirestoreWrite]);
+    }, [currentUser, queueFirestoreWrite, setNotes]);
 
     return {
         notes,

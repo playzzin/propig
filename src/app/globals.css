@@ -3209,7 +3209,7 @@ html[data-propig-design='codeit'] .admin-menu-divider-line {
 }
 
 .site-mode-switcher-current small {
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 0.64rem;
   font-weight: 750;
 }

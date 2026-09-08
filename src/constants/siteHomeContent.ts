@@ -1,4 +1,5 @@
 import { CORP_PAGE_DEFINITIONS } from '@/constants/corpPages';
+import { DEFAULT_SITE_HOME_PATHS } from '@/constants/siteHome';
 import { COMPANY_MENU_ITEMS } from '@/constants/companyMenu';
 import type { SiteHomePageProps } from '@/components/site-home/SiteHomePage';
 
@@ -10,7 +11,7 @@ export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
   accentAlt: '#38bdf8',
   icon: 'shield-halved',
   metrics: [
-    { label: '사이트 모드', value: '3', caption: '관리, 기업, propig' },
+    { label: '기본 사이트 모드', value: String(Object.keys(DEFAULT_SITE_HOME_PATHS).length), caption: '관리, 기업, 블로그, propig' },
     { label: '핵심 도구', value: '6', caption: '메뉴와 운영 기능' },
     { label: '진입 방식', value: '홈', caption: '모드 전환 시 이동' },
   ],

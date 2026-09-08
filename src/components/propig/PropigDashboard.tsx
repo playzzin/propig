@@ -1,5 +1,7 @@
 'use client';
 
+import { SiteAppDownload } from '@/components/site-home/SiteAppDownload';
+
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -53,7 +55,7 @@ import {
   type PropigWidgetId,
 } from '@/constants/propigStore';
 import { useAuth } from '@/contexts/AuthContext';
-import { db, ensureFirestorePersistence } from '@/firebase/config';
+import { auth, db, ensureFirestorePersistence } from '@/firebase/config';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 import { useStickyNotes } from '@/hooks/useStickyNotes';
 import {
@@ -376,10 +378,6 @@ function formatMemoUpdatedAt(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
-function uniqueSortedCompletionKeys(keys: string[]): string[] {
-  return [...new Set(keys.filter((key) => key === TODO_ANYTIME_COMPLETION_KEY || /^\d{4}-\d{2}-\d{2}$/.test(key)))].sort();
-}
-
 function shouldOccurOn(task: TodoTask, dateKey: string): boolean {
   const recurrence = task.recurrence;
 
@@ -594,6 +592,7 @@ function createHabitWorkspaceRef(uid: string) {
 async function saveHabitWorkspace(uid: string, workspace: HabitWorkspace): Promise<void> {
   const payload = removeUndefined(workspace) as Record<string, unknown>;
   await ensureFirestorePersistence();
+  if (auth.currentUser?.uid !== uid) throw new Error('계정이 변경되어 저장을 중단했습니다.');
   await setDoc(createHabitWorkspaceRef(uid), { ...payload, updatedAt: serverTimestamp() }, { merge: true });
 }
 
@@ -655,6 +654,7 @@ function getWidgetStatusText(state: WidgetState, currentUser: unknown): string {
 function useBucketWidget(uid: string | undefined) {
   const [items, setItems] = useState<BucketListItem[]>([]);
   const [categories, setCategories] = useState<BucketCategoryOption[]>([]);
+  const [ownerUid, setOwnerUid] = useState<string | undefined>();
   const [state, setState] = useState<WidgetState>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -670,19 +670,23 @@ function useBucketWidget(uid: string | undefined) {
     const connect = async () => {
       try {
         setState('loading');
+        setItems([]); setCategories([]);
         await ensureFirestorePersistence();
+        if (didCancel || auth.currentUser?.uid !== uid) return;
         await bucketListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribeItems = bucketListService.subscribe(
           uid,
           (nextItems) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setItems(nextItems);
+            setOwnerUid(uid);
             setState('ready');
             setError(null);
           },
           (nextError) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setError(nextError.message);
             setState('error');
           },
@@ -691,19 +695,20 @@ function useBucketWidget(uid: string | undefined) {
         unsubscribeCategories = bucketListService.subscribeCategories(
           uid,
           (nextCategories) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setCategories(nextCategories);
+            setOwnerUid(uid);
             setState('ready');
             setError(null);
           },
           (nextError) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setError(nextError.message);
             setState('error');
           },
         );
       } catch (nextError) {
-        if (didCancel) return;
+        if (didCancel || auth.currentUser?.uid !== uid) return;
         setError(nextError instanceof Error ? nextError.message : String(nextError));
         setState('error');
       }
@@ -720,7 +725,7 @@ function useBucketWidget(uid: string | undefined) {
 
   const createItem = useCallback(
     async (title: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       const category = categories[0]?.id;
       if (!category) {
         toast.error('버킷리스트 분류를 불러온 뒤 다시 시도해주세요.');
@@ -735,30 +740,30 @@ function useBucketWidget(uid: string | undefined) {
         targetDate: '',
       });
     },
-    [categories, uid],
+    [categories, uid, ownerUid, state],
   );
 
   const updateStatus = useCallback(
     async (item: BucketListItem) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       await bucketListService.update(uid, item.id, { status: cycleBucketStatus(item.status) });
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   const removeItem = useCallback(
     async (itemId: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       await bucketListService.remove(uid, itemId);
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   return {
-    items: uid ? items : [],
-    categories: uid ? categories : [],
-    state: uid ? state : 'idle',
-    error: uid ? error : null,
+    items: uid && ownerUid === uid ? items : [],
+    categories: uid && ownerUid === uid ? categories : [],
+    state: uid ? (ownerUid === uid ? state : state === 'error' ? 'error' : 'loading') : 'idle',
+    error: uid && ownerUid === uid ? error : null,
     createItem,
     updateStatus,
     removeItem,
@@ -768,6 +773,7 @@ function useBucketWidget(uid: string | undefined) {
 function useTodoWidget(uid: string | undefined, todayKey: string) {
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [categories, setCategories] = useState<TodoCategoryOption[]>([]);
+  const [ownerUid, setOwnerUid] = useState<string | undefined>();
   const [state, setState] = useState<WidgetState>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -783,19 +789,23 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
     const connect = async () => {
       try {
         setState('loading');
+        setTasks([]); setCategories([]);
         await ensureFirestorePersistence();
+        if (didCancel || auth.currentUser?.uid !== uid) return;
         await todoListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribeTasks = todoListService.subscribeTasks(
           uid,
           (nextTasks) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setTasks(nextTasks);
+            setOwnerUid(uid);
             setState('ready');
             setError(null);
           },
           (nextError) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setError(nextError.message);
             setState('error');
           },
@@ -804,19 +814,20 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
         unsubscribeCategories = todoListService.subscribeCategories(
           uid,
           (nextCategories) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setCategories(nextCategories);
+            setOwnerUid(uid);
             setState('ready');
             setError(null);
           },
           (nextError) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setError(nextError.message);
             setState('error');
           },
         );
       } catch (nextError) {
-        if (didCancel) return;
+        if (didCancel || auth.currentUser?.uid !== uid) return;
         setError(nextError instanceof Error ? nextError.message : String(nextError));
         setState('error');
       }
@@ -842,7 +853,7 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
   const createTask = useCallback(
     async (title: string, time: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       const categoryId = categories[0]?.id;
       if (!categoryId) {
         toast.error('할일 분류를 불러온 뒤 다시 시도해주세요.');
@@ -851,36 +862,33 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
       await todoListService.create(uid, createTodoDraft(title, categoryId, todayKey, time));
     },
-    [categories, todayKey, uid],
+    [categories, todayKey, uid, ownerUid, state],
   );
 
   const toggleTask = useCallback(
     async (task: TodoTask, completionKey: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       const exists = task.completedDates.includes(completionKey);
-      const nextDates = exists
-        ? task.completedDates.filter((dateKey) => dateKey !== completionKey)
-        : uniqueSortedCompletionKeys([...task.completedDates, completionKey]);
-      await todoListService.setCompletedDates(uid, task.id, nextDates);
+      await todoListService.setOccurrenceCompleted(uid, task.id, completionKey, !exists);
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   const removeTask = useCallback(
     async (taskId: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       await todoListService.remove(uid, taskId);
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   return {
-    tasks: uid ? tasks : [],
-    categories: uid ? categories : [],
-    state: uid ? state : 'idle',
-    error: uid ? error : null,
-    todayOccurrences: uid ? todayOccurrences : [],
-    anytimeTasks: uid ? anytimeTasks : [],
+    tasks: uid && ownerUid === uid ? tasks : [],
+    categories: uid && ownerUid === uid ? categories : [],
+    state: uid ? (ownerUid === uid ? state : state === 'error' ? 'error' : 'loading') : 'idle',
+    error: uid && ownerUid === uid ? error : null,
+    todayOccurrences: uid && ownerUid === uid ? todayOccurrences : [],
+    anytimeTasks: uid && ownerUid === uid ? anytimeTasks : [],
     createTask,
     toggleTask,
     removeTask,
@@ -889,6 +897,7 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
 function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
   const [workspace, setWorkspace] = useState<HabitWorkspace>(EMPTY_HABIT_WORKSPACE);
+  const [ownerUid, setOwnerUid] = useState<string | undefined>();
   const [state, setState] = useState<WidgetState>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -903,24 +912,27 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
     const connect = async () => {
       try {
         setState('loading');
+        setWorkspace(EMPTY_HABIT_WORKSPACE);
         await ensureFirestorePersistence();
+        if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribe = onSnapshot(
           createHabitWorkspaceRef(uid),
           (snapshot) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setWorkspace(normalizeHabitWorkspace(snapshot.data()));
+            setOwnerUid(uid);
             setState('ready');
             setError(null);
           },
           (nextError) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setError(nextError.message);
             setState('error');
           },
         );
       } catch (nextError) {
-        if (didCancel) return;
+        if (didCancel || auth.currentUser?.uid !== uid) return;
         setError(nextError instanceof Error ? nextError.message : String(nextError));
         setState('error');
       }
@@ -934,7 +946,7 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
     };
   }, [uid]);
 
-  const effectiveWorkspace = uid ? workspace : EMPTY_HABIT_WORKSPACE;
+  const effectiveWorkspace = uid && ownerUid === uid ? workspace : EMPTY_HABIT_WORKSPACE;
   const selectedRecords = useMemo(
     () => effectiveWorkspace.records[selectedDateKey] ?? {},
     [effectiveWorkspace.records, selectedDateKey],
@@ -954,7 +966,7 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
 
   const createHabit = useCallback(
     async (name: string, categoryId?: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       const fallbackCategoryId = makeQuickId('habit-category');
       const category = workspace.categories.find((item) => item.id === categoryId) ?? workspace.categories[0] ?? {
         id: fallbackCategoryId,
@@ -978,12 +990,12 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
       setWorkspace(nextWorkspace);
       await saveHabitWorkspace(uid, nextWorkspace);
     },
-    [uid, workspace],
+    [uid, workspace, ownerUid, state],
   );
 
   const saveHabitRecord = useCallback(
     async (habitId: string, patch: Partial<HabitRecord>) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       const currentDay = workspace.records[selectedDateKey] ?? {};
       const currentRecord = currentDay[habitId] ?? {};
       const nextRecord: HabitRecord = {
@@ -1004,7 +1016,7 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
       setWorkspace(nextWorkspace);
       await saveHabitWorkspace(uid, nextWorkspace);
     },
-    [selectedDateKey, uid, workspace],
+    [selectedDateKey, uid, workspace, ownerUid, state],
   );
 
   const toggleHabit = useCallback(
@@ -1018,8 +1030,8 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
 
   return {
     workspace: effectiveWorkspace,
-    state: uid ? state : 'idle',
-    error: uid ? error : null,
+    state: uid ? (ownerUid === uid ? state : state === 'error' ? 'error' : 'loading') : 'idle',
+    error: uid && ownerUid === uid ? error : null,
     selectedRecords,
     sortedHabits,
     createHabit,
@@ -1073,6 +1085,11 @@ function SortableWidget({
 }
 
 export default function PropigDashboard() {
+  const { currentUser } = useAuth();
+  return <PropigDashboardSession key={currentUser?.uid ?? 'anonymous'} />;
+}
+
+function PropigDashboardSession() {
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
   const appRegistry = usePropigAppRegistry();
   const router = useRouter();
@@ -2275,6 +2292,7 @@ export default function PropigDashboard() {
 
   return (
     <DashboardShell>
+      <SiteAppDownload siteId="shop" />
       <DashboardHeader>
         <HeaderCopy>
           <DateText>
@@ -2286,7 +2304,7 @@ export default function PropigDashboard() {
             <span>{heroStatus}</span>
             <em>{heroDetail}</em>
           </HeroSummary>
-          <ProgressTrack aria-label={`오늘 루틴 진행률 ${dailyProgress}%`}>
+          <ProgressTrack role="progressbar" aria-label="오늘 루틴 진행률" aria-valuemin={0} aria-valuemax={100} aria-valuenow={dailyProgress}>
             <ProgressFill $value={dailyProgress} />
           </ProgressTrack>
         </HeaderCopy>

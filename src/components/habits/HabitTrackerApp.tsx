@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled, { css } from 'styled-components';
 import Swal from 'sweetalert2';
 import { toast } from 'sonner';
@@ -58,7 +58,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useAuth } from '@/contexts/AuthContext';
-import { db, ensureFirestorePersistence } from '@/firebase/config';
+import { auth, db, ensureFirestorePersistence } from '@/firebase/config';
 import {
   getGoalScore,
   normalizeMetricGoalConfig,
@@ -6100,7 +6100,12 @@ const tooltipStyle = {
   color: '#eef5f0',
 } as const;
 
-export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps) {
+export function HabitTrackerApp(props: HabitTrackerAppProps) {
+  const { currentUser } = useAuth();
+  return <HabitTrackerAccount key={currentUser?.uid ?? 'guest'} {...props} />;
+}
+
+function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   const {
     currentUser,
     loading: authLoading,
@@ -6109,6 +6114,12 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
   } = useAuth();
   const [workspace, setWorkspace] = useState<HabitWorkspace>(() => createInitialWorkspace());
   const [hasLoaded, setHasLoaded] = useState(false);
+  const readyRef = useRef(false);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; readyRef.current = false; };
+  }, []);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
   const { dailyRecordLayout, setDailyRecordLayout } = useDailyRecordLayout('simple');
@@ -6138,16 +6149,19 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     }
 
     let didCancel = false;
+    readyRef.current = false;
     setHasLoaded(false);
 
     const bootstrap = async () => {
       try {
         await ensureFirestorePersistence();
-        if (didCancel) return;
+        if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
 
         return onSnapshot(
           createWorkspaceDocRef(currentUser.uid),
           (snapshot) => {
+            if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
+            readyRef.current = true;
             const nextWorkspace = snapshot.exists()
               ? normalizeWorkspace(snapshot.data())
               : createInitialWorkspace();
@@ -6155,15 +6169,18 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
             setHasLoaded(true);
           },
           (error) => {
+            if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
+            readyRef.current = false;
             console.error('Failed to subscribe habit tracker workspace:', error);
             toast.error('습관 데이터를 불러오지 못했습니다.');
-            setHasLoaded(true);
+            setHasLoaded(false);
           },
         );
       } catch (error) {
         console.error('Failed to initialize habit tracker workspace:', error);
+        readyRef.current = false;
         toast.error('습관 데이터베이스 연결에 실패했습니다.');
-        setHasLoaded(true);
+        setHasLoaded(false);
         return undefined;
       }
     };
@@ -6205,12 +6222,15 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
         return false;
       }
 
+      if (!hasLoaded || !readyRef.current || !mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
+
       const safeWorkspace = sanitizeWorkspaceForFirestore(nextWorkspace);
       setWorkspace(safeWorkspace);
       setIsSaving(true);
 
       try {
         await ensureFirestorePersistence();
+        if (!readyRef.current || !mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
         await setDoc(
           createWorkspaceDocRef(currentUser.uid),
           {
@@ -6221,6 +6241,7 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
           },
           { merge: true },
         );
+        if (!mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
         toast.success(message, { id: toastId });
         return true;
       } catch (error) {
@@ -6231,7 +6252,7 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
         setIsSaving(false);
       }
     },
-    [currentUser],
+    [currentUser, hasLoaded],
   );
 
   const habitCountByCategory = useMemo(() => {
