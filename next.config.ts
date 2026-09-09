@@ -16,7 +16,11 @@ const disabledSentryModule = './src/lib/sentry-disabled.ts';
 const disabledSentryModuleAbsolute = resolve(process.cwd(), disabledSentryModule);
 
 const nextConfig: NextConfig = {
-  ...(isStaticExport ? { output: "export" as const } : {}),
+  ...(isStaticExport ? {
+    output: "export" as const,
+    // Keep old server build route validators out of a client-only export.
+    typescript: { tsconfigPath: 'tsconfig.static-export.json' },
+  } : {}),
   ...(distDir ? { distDir } : {}),
   allowedDevOrigins: ['127.0.0.1'],
   images: {

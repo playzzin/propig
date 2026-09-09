@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -37,6 +37,7 @@ export default function PropigStore() {
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
   const appRegistry = usePropigAppRegistry();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const previewDialogRef = useRef<HTMLDialogElement>(null);
   const [previewAppId, setPreviewAppId] = useState<PropigStoreApp['id'] | null>(null);
 
   const installedCount = useMemo(
@@ -56,16 +57,15 @@ export default function PropigStore() {
   );
 
   useEffect(() => {
-    if (!previewAppId) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setPreviewAppId(null);
-      }
+    const dialog = previewDialogRef.current;
+    if (!previewAppId || !dialog) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Native modal owns initial focus, Tab containment and background inertness.
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
     };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [previewAppId]);
 
   const handleSignIn = async () => {
@@ -214,13 +214,28 @@ export default function PropigStore() {
       {appRegistry.error ? <ErrorText>{appRegistry.error}</ErrorText> : null}
 
       {previewApp ? (
-        <PreviewBackdrop role="presentation" onClick={() => setPreviewAppId(null)}>
-          <PreviewDialog
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="propig-store-preview-title"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <PreviewBackdrop
+          ref={previewDialogRef}
+          aria-labelledby="propig-store-preview-title"
+          onCancel={() => setPreviewAppId(null)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Tab') return;
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+            )).filter((element) => element.getClientRects().length > 0);
+            const first = controls[0];
+            const last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first?.focus();
+            }
+          }}
+          onClick={(event) => { if (event.target === event.currentTarget) setPreviewAppId(null); }}
+        >
+          <PreviewDialog>
             <PreviewHeader>
               <StoreAppIcon $color={previewApp.color}>
                 <i className={`fa-solid fa-${previewApp.icon}`} aria-hidden="true" />
@@ -855,7 +870,17 @@ const ErrorText = styled.p`
   max-width: 1240px;
 `;
 
-const PreviewBackdrop = styled.div`
+const PreviewBackdrop = styled.dialog`
+  border: 0;
+  color: inherit;
+  margin: 0;
+  max-height: none;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: contain;
+  &:not([open]) { display: none; }
+  &::backdrop { background: transparent; }
   align-items: center;
   background: rgba(3, 8, 7, 0.74);
   backdrop-filter: blur(14px);

@@ -65,19 +65,20 @@ jobs:
       - name: Build static web app
         run: npm run build
 
-      - name: Browser release gate
+      - name: Browser release gate on built static artifact
         run: |
           npx playwright install --with-deps chromium
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "const { chromium } = require('playwright-core'); process.stdout.write(chromium.executablePath())")"
           export CHROME_PATH="$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
-          npm run dev -- --hostname 127.0.0.1 > "$RUNNER_TEMP/propig-browser.log" 2>&1 &
+          node scripts/serve-static-export.mjs > "$RUNNER_TEMP/propig-browser.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 90); do
-            if curl --fail --silent http://127.0.0.1:3002/admin/emoticon-studio >/dev/null; then break; fi
+            if curl --fail --silent http://127.0.0.1:3002/__propig_static_health >/dev/null; then break; fi
             if [ "$attempt" -eq 90 ]; then cat "$RUNNER_TEMP/propig-browser.log"; exit 1; fi
             sleep 2
           done
+          node -e "fetch('http://127.0.0.1:3002/__propig_static_health').then(r=>r.json()).then(v=>{if(v.kind!=='propig-static-export'||v.apiProxy!==false)throw Error('Wrong QA server')}).catch(e=>{console.error(e);process.exitCode=1})"
           BASE_URL=http://127.0.0.1:3002 npm run verify:release-browser
 
   functions:

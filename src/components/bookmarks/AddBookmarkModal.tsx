@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { buildJsonAuthHeaders } from '@/lib/client-auth';
@@ -262,6 +263,66 @@ function buildUsageCostMessage(metadata: Metadata): string {
   return `토큰 ${totalTokens.toLocaleString('ko-KR')} / 예상비용 ${usdText}${krwText}`;
 }
 
+
+// SDK transitions invalidate even A→B→A while AuthContext has not rendered yet.
+// This fence cannot cancel a callback/request already sent to the server.
+function useModalSession(isOpen: boolean, uid: string | undefined, resetBusy: () => void) {
+  const session = useRef({ active: false, generation: 0, busy: false });
+  const resetBusyEvent = React.useEffectEvent(resetBusy);
+  React.useLayoutEffect(() => {
+    const state = session.current;
+    state.active = isOpen;
+    state.generation += 1;
+    state.busy = false;
+    resetBusyEvent();
+    // Guest dialogs must remain dismissible, and hidden dialogs need no SDK listener.
+    if (!isOpen || !uid) return () => {
+      state.active = false;
+      state.generation += 1;
+      state.busy = false;
+    };
+    const auth = getAuth();
+    let observedUid = auth.currentUser?.uid;
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (observedUid !== user?.uid) {
+        observedUid = user?.uid;
+        state.generation += 1;
+        state.busy = false;
+        resetBusyEvent();
+      }
+    });
+    return () => {
+      state.active = false;
+      state.generation += 1;
+      state.busy = false;
+      unsubscribe();
+    };
+  }, [isOpen, uid]);
+  const isCurrent = (generation: number) => session.current.active
+    && session.current.generation === generation
+    && !!uid && getAuth().currentUser?.uid === uid;
+  const begin = () => {
+    const state = session.current;
+    if (state.busy || !state.active) return null;
+    if (!uid) { toast.error('로그인이 필요합니다.'); return null; }
+    if (!isCurrent(state.generation)) return null;
+    state.busy = true;
+    return state.generation;
+  };
+  const finish = (generation: number) => {
+    if (!isCurrent(generation)) return false;
+    session.current.busy = false;
+    return true;
+  };
+  const close = () => {
+    if (session.current.busy || !session.current.active) return false;
+    session.current.active = false;
+    session.current.generation += 1;
+    return true;
+  };
+  return { begin, isCurrent, finish, close };
+}
+
 export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
   isOpen,
   onClose,
@@ -279,6 +340,11 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
   const [favicon, setFavicon] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const revision = useRef(0);
+  const session = useModalSession(isOpen, currentUser?.uid, () => {
+    setIsLoading(false);
+    setIsAnalyzing(false);
+  });
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   const getErrorMessage = (error: unknown): string => {
@@ -286,11 +352,10 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
     return String(error);
   };
 
-  const handleClose = React.useCallback(() => {
-    if (!isLoading && !isAnalyzing) {
-      onClose();
-    }
-  }, [isAnalyzing, isLoading, onClose]);
+  const handleClose = () => {
+    if (session.close()) onClose();
+  };
+  const closeEvent = React.useEffectEvent(handleClose);
 
   useEffect(() => {
     if (!categoryId && categories.length > 0) {
@@ -298,9 +363,8 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
     }
   }, [categories, categoryId]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
+  const initializeDraft = React.useEffectEvent(() => {
+    revision.current += 1;
     if (mode === 'edit' && initialData) {
       setUrl(initialData.url || '');
       setTitle(initialData.title || '');
@@ -317,7 +381,10 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
     setDescription('');
     setTags('');
     setCategoryId(categories[0]?.id || '');
-  }, [isOpen, mode, initialData, categories]);
+  });
+  React.useLayoutEffect(() => {
+    if (isOpen) initializeDraft();
+  }, [isOpen, mode, currentUser?.uid]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -328,7 +395,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        handleClose();
+        closeEvent();
       }
     };
 
@@ -338,7 +405,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
       window.cancelAnimationFrame(frame);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleClose, isOpen]);
+  }, [isOpen]);
 
   const getDefaultTitleFromUrl = (targetUrl: string): string => {
     try {
@@ -348,10 +415,14 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
     }
   };
 
-  const analyzeUrl = async (targetUrl: string): Promise<Metadata> => {
+  const analyzeUrl = async (targetUrl: string, isValid: () => boolean): Promise<Metadata> => {
+    const assertCurrent = () => { if (!isValid()) throw new Error('Stale bookmark analysis'); };
+    assertCurrent();
+    const headers = await buildJsonAuthHeaders(currentUser);
+    assertCurrent();
     const response = await fetch('/api/analyze-bookmark', {
       method: 'POST',
-      headers: await buildJsonAuthHeaders(currentUser),
+      headers,
       body: JSON.stringify({
         url: targetUrl,
         categories: categories.map((c) => c.name),
@@ -360,7 +431,9 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
       }),
     });
 
+    assertCurrent();
     const payload = await response.json().catch(() => null);
+    assertCurrent();
     if (!response.ok) {
       const message = payload && typeof payload.error === 'string'
         ? payload.error
@@ -413,19 +486,26 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
   };
 
   const handleAnalyzeUrl = async () => {
+    const generation = session.begin();
+    if (generation === null) return;
+    const editRevision = revision.current;
+    const isValid = () => session.isCurrent(generation) && revision.current === editRevision;
     if (!url) {
+      session.finish(generation);
       toast.error('URL을 입력해주세요.');
       return;
     }
 
     if (categories.length === 0) {
+      session.finish(generation);
       toast.error('카테고리를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
     setIsAnalyzing(true);
     try {
-      const metadata = await analyzeUrl(url);
+      const metadata = await analyzeUrl(url, isValid);
+      if (!isValid()) return;
       applyMetadataToForm(metadata, { force: true });
       const usageCostText = buildUsageCostMessage(metadata);
       toast.success(
@@ -434,22 +514,29 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
           : (mode === 'edit' ? 'AI 재분석이 완료되었습니다.' : '자동 분석이 완료되었습니다.'),
       );
     } catch (error: unknown) {
+      if (!isValid()) return;
       console.error('URL 분석 실패:', error);
       toast.error(`자동 분석 실패: ${getErrorMessage(error)}`);
     } finally {
-      setIsAnalyzing(false);
+      if (session.finish(generation)) setIsAnalyzing(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const generation = session.begin();
+    if (generation === null) return;
+    const editRevision = revision.current;
+    const isValid = () => session.isCurrent(generation) && revision.current === editRevision;
 
     if (!url) {
+      session.finish(generation);
       toast.error('URL을 입력해주세요.');
       return;
     }
 
     if (categories.length === 0) {
+      session.finish(generation);
       toast.error('카테고리를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
       return;
     }
@@ -468,7 +555,8 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
       if (needsAnalysis) {
         setIsAnalyzing(true);
         try {
-          const metadata = await analyzeUrl(url);
+          const metadata = await analyzeUrl(url, isValid);
+          if (!isValid()) return;
 
           if (!resolvedTitle && metadata.title) {
             resolvedTitle = metadata.title;
@@ -493,13 +581,15 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
 
           applyMetadataToForm(metadata, { force: false });
         } catch (error: unknown) {
+          if (!isValid()) return;
           console.error('URL 자동 분석 실패:', error);
           toast.error(`자동 분석 실패: ${getErrorMessage(error)}`);
         } finally {
-          setIsAnalyzing(false);
+          if (session.isCurrent(generation)) setIsAnalyzing(false);
         }
       }
 
+      if (!isValid()) return;
       if (!resolvedTitle) {
         resolvedTitle = getDefaultTitleFromUrl(url);
         setTitle(resolvedTitle);
@@ -514,12 +604,18 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
         tags: resolvedTags,
       });
 
-      onClose();
+      if (!isValid()) return;
+      session.finish(generation);
+      if (session.close()) onClose();
     } catch (error) {
+      if (!isValid()) return;
       console.error(mode === 'edit' ? '북마크 수정 실패:' : '북마크 추가 실패:', error);
       toast.error(mode === 'edit' ? '북마크 수정에 실패했습니다.' : '북마크 추가에 실패했습니다.');
     } finally {
-      setIsLoading(false);
+      if (session.finish(generation)) {
+        setIsLoading(false);
+        setIsAnalyzing(false);
+      }
     }
   };
 
@@ -560,6 +656,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
                 placeholder="https://example.com"
                 value={url}
                 onChange={(e) => {
+                  revision.current += 1;
                   setUrl(e.target.value);
                   setFavicon('');
                 }}
@@ -570,7 +667,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
                 type="button"
                 $variant="secondary"
                 onClick={handleAnalyzeUrl}
-                disabled={isAnalyzing || !url}
+                disabled={isLoading || isAnalyzing || !url}
                 style={{ padding: '10px 16px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
               >
                 {isAnalyzing ? <LoadingSpinner aria-hidden="true" /> : mode === 'edit' ? 'AI 재분석' : '자동 채우기'}
@@ -587,7 +684,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
               autoComplete="off"
               placeholder="북마크 제목"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => { revision.current += 1; setTitle(e.target.value); }}
             />
           </FormGroup>
 
@@ -598,7 +695,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
               name="description"
               placeholder="간단한 설명을 입력하세요"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { revision.current += 1; setDescription(e.target.value); }}
             />
           </FormGroup>
 
@@ -608,7 +705,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
               id="category"
               name="category"
               value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
+              onChange={(e) => { revision.current += 1; setCategoryId(e.target.value); }}
             >
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
@@ -627,7 +724,7 @@ export const AddBookmarkModal: React.FC<AddBookmarkModalProps> = ({
               autoComplete="off"
               placeholder="태그1, 태그2, 태그3 (콤마로 구분)"
               value={tags}
-              onChange={(e) => setTags(e.target.value)}
+              onChange={(e) => { revision.current += 1; setTags(e.target.value); }}
             />
           </FormGroup>
 

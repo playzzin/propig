@@ -26,3 +26,13 @@
 - Sequential Thinking은 복잡한 아키텍처 비교, 데이터 마이그레이션, 원인을 특정하기 어려운 장애 분석처럼 여러 가설과 수정이 필요한 작업에서만 사용한다.
 - 일반적인 구현, 단순 수정, 문서 조회에는 사용하지 않는다.
 - Sequential Thinking이 설치되지 않은 환경에서는 프로젝트의 기존 분석, 계획, 구현, 검토, 검증 절차를 그대로 따른다.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /.next-static-export/
+/.next-static-export.previous-*/
+/out.previous-*/
+/.static-export.lock
 /.next-menu-qa/
 /.next-menu-build/
 /.next-menu-followup-build/

@@ -160,16 +160,14 @@ for (const hosting of hostingConfigs) {
   );
 }
 
-assert.match(
-  buildScript,
-  /disabledRouteSuffix\s*=\s*['"]\.static-export-disabled['"]/,
-  'Static export build script must keep a reversible API route disable suffix.',
-);
-assert.match(
-  buildScript,
-  /collectRouteFiles\(apiDir\)/,
-  'Static export build script must collect API route files before export.',
-);
+assert.match(buildScript, /mkdtempSync\(join\(dirname\(root\), stagePrefix\)\)/,
+  'Static export must build in an invocation-owned sibling workspace.');
+assert.match(buildScript, /copyTree\(join\(root, name\), join\(workspace, name\)\)/,
+  'Static export must snapshot current inputs into the isolated workspace.');
+assert.match(buildScript, /rmSync\(join\(workspace, name\)/,
+  'API removal must be confined to the copied workspace.');
+assert.doesNotMatch(buildScript, /renameSync\(routePath|collectRouteFiles\(apiDir\)/,
+  'Static export must not temporarily rename live API source.');
 
 const exportedFunctions = await collectExportedFunctions();
 const gatewaySource = await readText('functions/src/api/hostingApi.ts');
