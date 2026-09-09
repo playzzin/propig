@@ -1,354 +1,38 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import styled from 'styled-components';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  BadgeCheck,
-  Ban,
-  Building2,
-  Check,
-  Clock3,
-  KeyRound,
-  LockKeyhole,
-  Mail,
-  Menu as MenuIcon,
-  RefreshCw,
-  Save,
-  Search,
-  ShieldCheck,
-  UserCog,
-  Users,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext';
+import { BadgeCheck, Ban, Building2, Check, Clock3, KeyRound, LockKeyhole, Mail, Menu as MenuIcon, RefreshCw, Save, Search, ShieldCheck, UserCog, Users } from 'lucide-react';
 import { useMenuContext } from '@/contexts/MenuContext';
-import { useCurrentUserAccess } from '@/hooks/useCurrentUserAccess';
 import { useMenuSitesQuery } from '@/hooks/useMenuSitesQuery';
 import { getSwitchableSiteEntries } from '@/constants/accountMenu';
-import type { MenuItem } from '@/types/menu';
-import {
-  DEFAULT_USER_PERMISSIONS,
-  USER_POSITION_OPTIONS,
-  USER_ROLE_OPTIONS,
-  type AdminUserUpdateResponse,
-  type AdminUsersResponse,
-  type ManagedUserAccess,
-  type ManagedUserMenuAccess,
-  type ManagedUserPermissionKey,
-  type ManagedUserPermissions,
-  type ManagedUserPosition,
-  type ManagedUserRecord,
-  type ManagedUserRole,
-  type ManagedUserSiteAccess,
-} from '@/types/userAccess';
+import { USER_PERMISSION_ITEMS, USER_POSITION_OPTIONS, USER_ROLE_OPTIONS, type ManagedUserRole, type ManagedUserPosition, type ManagedUserSiteAccess, type ManagedUserPermissionKey } from '@/types/userAccess';
+import { useAdminUsersController, useAdminUsersSession } from './useAdminUsersController';
+import { ROLE_LABELS, POSITION_LABELS, isManagedUserRole, getInitial, formatDate, getAllTruePermissions, flattenMenuAccessOptions, getDefaultMenuAccess, filterUsers, type MenuAccessOption, type StatusFilter, type UserSort } from './userManagementModel';
 
-type FilterRole = ManagedUserRole | 'all';
-type AdminUsersCurrentUser = NonNullable<ReturnType<typeof useAuth>['currentUser']>;
-type UserDraft = {
-  role: ManagedUserRole;
-  position: ManagedUserPosition;
-  siteAccess: ManagedUserSiteAccess;
-  menuAccess: ManagedUserMenuAccess;
-  permissions: ManagedUserPermissions;
-  disabled: boolean;
-};
-
-type MenuAccessOption = {
-  key: string;
-  siteId: string;
-  id: string;
-  text: string;
-  path?: string;
-  depth: number;
-  item: MenuItem;
-};
-
-const ROLE_LABELS: Record<ManagedUserRole, string> = {
-  admin: '관리자',
-  user: '사용자',
-  partner: '파트너',
-  guest: '게스트',
-};
-
-const POSITION_LABELS: Record<ManagedUserPosition, string> = {
-  ceo: '최고 관리자',
-  manager: '매니저',
-  staff: '스태프',
-  intern: '인턴',
-};
-
-const PERMISSION_ITEMS: Array<{
-  key: ManagedUserPermissionKey;
-  title: string;
-  description: string;
-}> = [
-  {
-    key: 'userManagement',
-    title: '유저 관리',
-    description: '사용자 권한, 사이트 접근, 계정 상태를 관리합니다.',
-  },
-  {
-    key: 'menuManagement',
-    title: '통합 메뉴 관리',
-    description: '여러 사이트 모드의 메뉴 구조를 편집합니다.',
-  },
-  {
-    key: 'projectBoardManagement',
-    title: '프로젝트 보드',
-    description: '프로젝트, 포트폴리오, 과제 사진 보드를 관리합니다.',
-  },
-  {
-    key: 'photoManagement',
-    title: '사진첩 관리',
-    description: '업로드 사진과 앨범 자료를 관리합니다.',
-  },
-  {
-    key: 'storageManagement',
-    title: 'Storage 관리',
-    description: '공용 파일과 폴더를 관리합니다.',
-  },
-];
-
-const USERS_QUERY_KEY = ['admin-users'] as const;
-const ADMIN_USERS_VERIFY_FIXTURE_PARAM = '__adminUsersFixture';
-const ADMIN_USERS_VERIFY_TOKEN = 'admin-users-fixture-token';
-
-function isManagedUserRole(value: string): value is ManagedUserRole {
-  return USER_ROLE_OPTIONS.includes(value as ManagedUserRole);
-}
-
-function getInitial(user: ManagedUserRecord): string {
-  return (user.displayName || user.email || user.uid).trim().charAt(0).toUpperCase() || 'U';
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return new Intl.DateTimeFormat('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function getAllTruePermissions(): ManagedUserPermissions {
-  return {
-    menuManagement: true,
-    userManagement: true,
-    projectBoardManagement: true,
-    photoManagement: true,
-    storageManagement: true,
-  };
-}
-
-const ADMIN_USERS_VERIFY_ACCESS: ManagedUserAccess = {
-  role: 'admin',
-  position: 'ceo',
-  siteAccess: {
-    admin: true,
-    corp: true,
-    propig: true,
-    shop: true,
-  },
-  menuAccess: {},
-  permissions: getAllTruePermissions(),
-};
-
-function getMenuAccessKey(siteId: string, item: MenuItem): string {
-  return `${siteId}:${item.id}`;
-}
-
-function flattenMenuAccessOptions(siteId: string, items: MenuItem[], depth = 0): MenuAccessOption[] {
-  return items.flatMap((item) => {
-    if (item.type === 'divider' || item.hidden) return [];
-
-    const current: MenuAccessOption = {
-      key: getMenuAccessKey(siteId, item),
-      siteId,
-      id: item.id,
-      text: item.text,
-      path: item.path,
-      depth,
-      item,
-    };
-    const children = (item.sub || []).flatMap((subItem) =>
-      typeof subItem === 'string' ? [] : flattenMenuAccessOptions(siteId, [subItem], depth + 1),
-    );
-
-    return [current, ...children];
-  });
-}
-
-function getDefaultMenuAccess(draft: UserDraft, option: MenuAccessOption): boolean {
-  if (draft.role === 'admin') return true;
-  if (draft.siteAccess[option.siteId] === false) return false;
-
-  const requiredPermissions = option.item.permissions || [];
-  if (requiredPermissions.length > 0) {
-    return requiredPermissions.some((permission) => draft.permissions[permission] === true);
-  }
-
-  const explicitAccess = draft.menuAccess[option.key];
-  if (explicitAccess !== undefined) return explicitAccess;
-
-  const hasRoleAccess =
-    !option.item.roles ||
-    option.item.roles.length === 0 ||
-    option.item.roles.includes(draft.role);
-  if (!hasRoleAccess) return false;
-
-  return (
-    !option.item.position ||
-    option.item.position.length === 0 ||
-    option.item.position.includes(draft.position)
-  );
-}
-
-function buildDraft(user: ManagedUserRecord, siteIds: string[]): UserDraft {
-  const isAdmin = user.role === 'admin';
-  const siteAccess = siteIds.reduce<ManagedUserSiteAccess>(
-    (acc, siteId) => {
-      const defaultAccess = isAdmin || siteId !== 'admin';
-      acc[siteId] = isAdmin ? true : user.siteAccess[siteId] ?? defaultAccess;
-      return acc;
-    },
-    { ...user.siteAccess },
-  );
-
-  return {
-    role: user.role,
-    position: user.position,
-    siteAccess,
-    menuAccess: { ...user.menuAccess },
-    permissions: isAdmin ? getAllTruePermissions() : { ...DEFAULT_USER_PERMISSIONS, ...user.permissions },
-    disabled: user.disabled,
-  };
-}
-
-async function fetchAdminUsers(currentUser: AdminUsersCurrentUser) {
-  const token = await currentUser.getIdToken();
-  const response = await fetch('/api/admin/users', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error || '사용자 목록을 불러오지 못했습니다.');
-  }
-
-  return (await response.json()) as AdminUsersResponse;
-}
-
-async function saveUserAccess({
-  currentUser,
-  uid,
-  draft,
-}: {
-  currentUser: AdminUsersCurrentUser;
-  uid: string;
-  draft: UserDraft;
-}) {
-  const token = await currentUser.getIdToken();
-  const response = await fetch('/api/admin/users', {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      uid,
-      role: draft.role,
-      position: draft.position,
-      siteAccess: draft.siteAccess,
-      menuAccess: draft.menuAccess,
-      permissions: draft.role === 'admin' ? getAllTruePermissions() : draft.permissions,
-      disabled: draft.disabled,
-    }),
-  });
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error || '사용자 권한을 저장하지 못했습니다.');
-  }
-
-  return (await response.json()) as AdminUserUpdateResponse;
-}
-
-function readInitialUsersSearch(): string {
-  if (typeof window === 'undefined') return '';
-
-  try {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('q') ?? params.get('search') ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function readInitialSelectedUid(): string {
-  if (typeof window === 'undefined') return '';
-
-  try {
-    return new URLSearchParams(window.location.search).get('uid') ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function isAdminUsersVerifyFixtureEnabled(): boolean {
-  if (process.env.NODE_ENV === 'production' || typeof window === 'undefined') return false;
-
-  try {
-    return new URLSearchParams(window.location.search).get(ADMIN_USERS_VERIFY_FIXTURE_PARAM) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function createAdminUsersVerifyUser(): AdminUsersCurrentUser {
-  return {
-    uid: 'admin-users-fixture-admin',
-    email: 'admin-users-fixture@example.com',
-    displayName: 'Admin Users Fixture',
-    getIdToken: async () => ADMIN_USERS_VERIFY_TOKEN,
-    getIdTokenResult: async () =>
-      ({
-        claims: { admin: true, role: 'admin' },
-        token: ADMIN_USERS_VERIFY_TOKEN,
-        authTime: '',
-        issuedAtTime: '',
-        expirationTime: '',
-        signInProvider: null,
-        signInSecondFactor: null,
-      }) as Awaited<ReturnType<AdminUsersCurrentUser['getIdTokenResult']>>,
-  } as AdminUsersCurrentUser;
-}
-
+type Session = ReturnType<typeof useAdminUsersSession>;
 export default function AdminUsersPage() {
-  const queryClient = useQueryClient();
-  const { loginWithGoogle, isConfigured } = useAuth();
-  const { siteData: contextSiteData } = useMenuContext();
-  const currentUserAccess = useCurrentUserAccess();
-  const menuSitesQuery = useMenuSitesQuery();
-  const [verificationUser, setVerificationUser] = useState<AdminUsersCurrentUser | null>(null);
-  const currentUser = verificationUser ?? currentUserAccess.currentUser;
-  const access = verificationUser ? ADMIN_USERS_VERIFY_ACCESS : currentUserAccess.access;
-  const isAccessLoading = verificationUser ? false : currentUserAccess.isLoading;
-  const refetchUserAccess = currentUserAccess.refetch;
-  const [selectedUid, setSelectedUid] = useState(readInitialSelectedUid);
-  const [search, setSearch] = useState(readInitialUsersSearch);
-  const [roleFilter, setRoleFilter] = useState<FilterRole>('all');
-  const [draft, setDraft] = useState<UserDraft | null>(null);
-  const [selectedMenuSiteId, setSelectedMenuSiteId] = useState('');
-  const isFullAdmin = access.role === 'admin';
-  const canManageUsers = isFullAdmin || access.permissions.userManagement;
+  const session = useAdminUsersSession();
+  if (session.loading) return <PageShell id="content-area"><GatePanel><h1>관리자 권한 확인 중</h1><p>로그인과 유저 관리 권한을 확인하고 있습니다.</p><Link href="/admin">관리자 홈</Link></GatePanel></PageShell>;
+  if (!session.currentUser) return <PageShell id="content-area"><GatePanel><h1>로그인이 필요합니다</h1><p>유저 관리 권한이 있는 계정으로 로그인해 주세요.</p><button type="button" disabled={!session.isConfigured} onClick={() => void session.loginWithGoogle()}>Google로 로그인</button><Link href="/admin">관리자 홈</Link></GatePanel></PageShell>;
+  if (!session.allowed) return <PageShell id="content-area"><GatePanel><h1>유저 관리 권한이 없습니다</h1><p>관리자 또는 유저 관리 권한을 위임받은 계정만 사용할 수 있습니다. 계정 전환 중이라면 확인이 끝날 때까지 기다려 주세요.</p><button type="button" onClick={() => void session.accessQuery.refetch()}>권한 다시 확인</button><Link href="/admin">관리자 홈</Link></GatePanel></PageShell>;
+  return <AdminUsersWorkspace key={session.sessionKey} session={session} />;
+}
 
+function AdminUsersWorkspace({ session }: { session: Session }) {
+  const currentUser = session.currentUser!;
+  const isFullAdmin = session.isFullAdmin;
+  const { siteData: contextSiteData } = useMenuContext();
+  const menuSitesQuery = useMenuSitesQuery();
+  const [search, setSearch] = useState(() => typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('q') ?? new URLSearchParams(window.location.search).get('search') ?? '');
+  const [roleFilter, setRoleFilter] = useState<ManagedUserRole | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sort, setSort] = useState<UserSort>('name');
+  const [visibleCount, setVisibleCount] = useState(50);
+  const [selectedMenuSiteId, setSelectedMenuSiteId] = useState('');
+  const detailRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLElement>(null);
   const menuSites = useMemo(() => {
     const queryData = menuSitesQuery.data;
     return queryData && Object.keys(queryData).length > 0 ? queryData : contextSiteData;
@@ -386,90 +70,30 @@ export default function AdminUsersPage() {
   );
   const isMenuAccessLoading = menuSitesQuery.isLoading && Object.keys(contextSiteData).length === 0;
 
+  const controller = useAdminUsersController({ currentUser, sdkSession: session.sdkSession, isFullAdmin, siteIds, permissionManagedMenuKeys });
+  const { usersQuery, users, selectedUser, draft, setDraft, canEditSelectedUser, handleSave, dirty, summary, saving, saveError, uncertain, storage } = controller;
+  const filteredUsers = useMemo(() => filterUsers(users, search, roleFilter, statusFilter, sort), [users, search, roleFilter, statusFilter, sort]);
+  const initialUid = useRef(typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('uid') ?? '');
   useEffect(() => {
-    if (!isAdminUsersVerifyFixtureEnabled()) return undefined;
-
-    const timer = window.setTimeout(() => {
-      setVerificationUser(createAdminUsersVerifyUser());
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  const usersQuery = useQuery({
-    queryKey: USERS_QUERY_KEY,
-    queryFn: () => fetchAdminUsers(currentUser!),
-    enabled: Boolean(currentUser && canManageUsers),
-    retry: false,
-  });
-
-  const users = useMemo(() => usersQuery.data?.users ?? [], [usersQuery.data?.users]);
-  const selectedUser = users.find((user) => user.uid === selectedUid) ?? users[0] ?? null;
-  const canEditSelectedUser =
-    !selectedUser || isFullAdmin || (selectedUser.uid !== currentUser?.uid && selectedUser.role !== 'admin');
-
-  useEffect(() => {
-    if (!selectedUser) {
-      queueMicrotask(() => {
-        setSelectedUid('');
-        setDraft(null);
-      });
-      return;
+    // URL target selection is cancellable, one-shot, and uses the controller's atomic owner binding.
+    if (!initialUid.current || !users.some(user => user.uid === initialUid.current)) return;
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) { controller.selectUser(initialUid.current); initialUid.current = ''; } });
+    return () => { cancelled = true; };
+  }, [controller, users]);
+  const chooseUser = (uid: string) => {
+    initialUid.current = '';
+    if (controller.selectUser(uid)) {
+      requestAnimationFrame(() => { detailRef.current?.focus(); if (window.matchMedia('(max-width: 980px)').matches) detailRef.current?.scrollIntoView({ block: 'start' }); });
     }
-
-    if (!selectedUid || selectedUid !== selectedUser.uid) {
-      queueMicrotask(() => setSelectedUid(selectedUser.uid));
-    }
-  }, [selectedUid, selectedUser]);
-
-  useEffect(() => {
-    if (!selectedUser) {
-      queueMicrotask(() => setDraft(null));
-      return;
-    }
-
-    queueMicrotask(() => setDraft(buildDraft(selectedUser, siteIds)));
-  }, [selectedUser, siteIds]);
-
-  const updateMutation = useMutation({
-    mutationFn: saveUserAccess,
-    onSuccess: (payload) => {
-      queryClient.setQueryData<AdminUsersResponse>(USERS_QUERY_KEY, (previous) => {
-        if (!previous) return previous;
-        return {
-          ...previous,
-          users: previous.users.map((user) => (user.uid === payload.user.uid ? payload.user : user)),
-          storage: payload.storage,
-        };
-      });
-      toast.success('사용자 권한을 저장했습니다.');
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : '저장에 실패했습니다.');
-    },
-  });
-
-  const filteredUsers = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    return users.filter((user) => {
-      const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-      const matchesKeyword =
-        !keyword ||
-        user.email?.toLowerCase().includes(keyword) ||
-        user.displayName?.toLowerCase().includes(keyword) ||
-        user.uid.toLowerCase().includes(keyword);
-
-      return matchesRole && matchesKeyword;
-    });
-  }, [roleFilter, search, users]);
-
+  };
   const stats = useMemo(() => {
     const adminCount = users.filter((user) => user.role === 'admin').length;
     const menuManagerCount = users.filter((user) => user.permissions.menuManagement).length;
     const disabledCount = users.filter((user) => user.disabled).length;
 
     return [
-      { label: '전체 유저', value: String(users.length), icon: Users },
+      { label: '불러온 유저', value: String(users.length), icon: Users },
       { label: '관리자', value: String(adminCount), icon: ShieldCheck },
       { label: '메뉴 권한', value: String(menuManagerCount), icon: MenuIcon },
       { label: '비활성', value: String(disabledCount), icon: Ban },
@@ -477,7 +101,7 @@ export default function AdminUsersPage() {
   }, [users]);
 
   const handleRoleChange = (role: ManagedUserRole) => {
-    if (!canEditSelectedUser || (!isFullAdmin && role === 'admin')) return;
+    if (!canEditSelectedUser || (!isFullAdmin && role === 'admin') || (selectedUser?.uid === currentUser.uid && selectedUser.role === 'admin' && role !== 'admin')) return;
 
     setDraft((previous) => {
       if (!previous) return previous;
@@ -565,61 +189,8 @@ export default function AdminUsersPage() {
     });
   };
 
-  const handleSave = () => {
-    if (!currentUser || !selectedUser || !draft || !canEditSelectedUser) return;
-    const normalizedDraft: UserDraft = {
-      ...draft,
-      menuAccess: Object.fromEntries(
-        Object.entries(draft.menuAccess).filter(([key]) => !permissionManagedMenuKeys.has(key)),
-      ),
-    };
-    updateMutation.mutate({ currentUser, uid: selectedUser.uid, draft: normalizedDraft });
-  };
-
-  if (!currentUser && !isAccessLoading) {
-    return (
-      <PageShell id="content-area">
-        <GatePanel>
-          <span>Admin required</span>
-          <h1>로그인이 필요합니다</h1>
-          <p>사용자 권한과 메뉴 관리 권한은 관리자 계정으로만 변경할 수 있습니다.</p>
-          <button type="button" onClick={() => void loginWithGoogle()} disabled={!isConfigured}>
-            Google로 로그인
-          </button>
-        </GatePanel>
-      </PageShell>
-    );
-  }
-
-  if (isAccessLoading) {
-    return (
-      <PageShell id="content-area">
-        <GatePanel>
-          <span>Checking access</span>
-          <h1>관리자 권한 확인 중</h1>
-          <p>로그인 계정의 관리자 권한과 Firestore 쓰기 권한을 확인하고 있습니다.</p>
-        </GatePanel>
-      </PageShell>
-    );
-  }
-
-  if (!canManageUsers) {
-    return (
-      <PageShell id="content-area">
-        <GatePanel>
-          <span>Access denied</span>
-          <h1>관리자 권한이 없습니다</h1>
-          <p>이 페이지는 관리자 custom claim, admins 문서, 또는 서버 관리자 허용 목록에 포함된 계정만 접근할 수 있습니다.</p>
-          <button type="button" onClick={() => void refetchUserAccess()}>
-            권한 다시 확인
-          </button>
-        </GatePanel>
-      </PageShell>
-    );
-  }
-
   return (
-    <PageShell id="content-area">
+    <PageShell id="content-area" data-admin-users-ready="true">
       <Toolbar>
         <div>
           <span>User access control</span>
@@ -628,22 +199,25 @@ export default function AdminUsersPage() {
         </div>
 
         <ToolbarActions>
-          <StatusPill $ok={usersQuery.data?.storage.canPersist !== false}>
+          <Link href="/admin" onNavigate={event => { if (!controller.confirmLeave()) event.preventDefault(); }}>관리자 홈</Link>
+          <StatusPill $ok={storage?.canPersist !== false}>
             <LockKeyhole size={15} />
-            {usersQuery.data?.storage.canPersist === false ? 'Firestore 설정 필요' : 'Firestore 저장'}
+            {!storage ? '저장 환경 확인 중' : storage.canPersist === false ? 'Firestore 설정 필요' : '저장 가능'}
           </StatusPill>
           <IconButton
             type="button"
             aria-label="새로고침"
             title="새로고침"
-            onClick={() => void usersQuery.refetch()}
-            disabled={usersQuery.isFetching}
+            onClick={() => void controller.refresh()}
+            disabled={usersQuery.isFetching || saving || controller.refreshing}
           >
             <RefreshCw size={17} />
           </IconButton>
         </ToolbarActions>
       </Toolbar>
 
+      <p className="scope-note">검색·통계는 불러온 사용자 범위입니다. 나머지 사용자는 ‘더 불러오기’로 확인하세요.</p>
+      {storage?.message && <p className="scope-note" role="status">{storage.message}</p>}
       <StatsGrid>
         {stats.map((stat) => {
           const Icon = stat.icon;
@@ -658,7 +232,7 @@ export default function AdminUsersPage() {
       </StatsGrid>
 
       <Workspace>
-        <UserPanel>
+        <UserPanel ref={listRef} tabIndex={-1} aria-label="사용자 목록">
           <PanelHeader>
             <div>
               <strong>사용자</strong>
@@ -670,8 +244,9 @@ export default function AdminUsersPage() {
             <SearchBox>
               <Search size={16} />
               <input
+                aria-label="이름, 이메일, UID 검색"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => { setSearch(event.target.value); setVisibleCount(50); }}
                 placeholder="이름, 이메일, UID 검색"
               />
             </SearchBox>
@@ -679,7 +254,7 @@ export default function AdminUsersPage() {
               value={roleFilter}
               onChange={(event) => {
                 const value = event.target.value;
-                setRoleFilter(value === 'all' || isManagedUserRole(value) ? value : 'all');
+                setRoleFilter(value === 'all' || isManagedUserRole(value) ? value : 'all'); setVisibleCount(50);
               }}
               aria-label="역할 필터"
             >
@@ -690,24 +265,32 @@ export default function AdminUsersPage() {
                 </option>
               ))}
             </select>
+            <select aria-label="상태 필터" value={statusFilter} onChange={event => { setStatusFilter(event.target.value as StatusFilter); setVisibleCount(50); }}>
+              <option value="all">전체 상태</option><option value="active">활성</option><option value="disabled">비활성</option><option value="unverified">이메일 미인증</option>
+            </select>
+            <select aria-label="사용자 정렬" value={sort} onChange={event => { setSort(event.target.value as UserSort); setVisibleCount(50); }}>
+              <option value="name">이름순</option><option value="recent">최근 로그인순</option><option value="created">최근 가입순</option>
+            </select>
           </FilterBar>
 
           <UserList>
             {usersQuery.isLoading && <EmptyState>사용자 목록을 불러오는 중입니다.</EmptyState>}
             {usersQuery.error && (
               <EmptyState>
-                {usersQuery.error instanceof Error ? usersQuery.error.message : '사용자 목록을 불러오지 못했습니다.'}
+                <p role="alert">사용자 목록을 불러오지 못했습니다. 연결과 권한을 확인해 주세요.</p><SegmentButton type="button" onClick={() => void (usersQuery.isFetchNextPageError ? usersQuery.fetchNextPage() : controller.refresh())} disabled={usersQuery.isFetching || saving}>목록 다시 시도</SegmentButton>
               </EmptyState>
             )}
             {!usersQuery.isLoading && !usersQuery.error && filteredUsers.length === 0 && (
-              <EmptyState>조건에 맞는 사용자가 없습니다.</EmptyState>
+              <EmptyState>{users.length === 0 ? '등록된 사용자가 없습니다.' : '불러온 사용자 중 검색 조건에 맞는 사용자가 없습니다.'}{users.length > 0 && <SegmentButton type="button" onClick={() => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); }}>검색 조건 초기화</SegmentButton>}</EmptyState>
             )}
-            {filteredUsers.map((user) => (
+            {filteredUsers.slice(0, visibleCount).map((user) => (
               <UserRow
                 key={user.uid}
                 type="button"
                 className={selectedUser?.uid === user.uid ? 'active' : ''}
-                onClick={() => setSelectedUid(user.uid)}
+                aria-pressed={selectedUser?.uid === user.uid}
+                data-user-uid={user.uid}
+                onClick={() => chooseUser(user.uid)}
               >
                 <Avatar>
                   {user.photoURL ? (
@@ -720,14 +303,20 @@ export default function AdminUsersPage() {
                 <UserIdentity>
                   <strong>{user.displayName || user.email || '이름 없음'}</strong>
                   <span>{user.email || user.uid}</span>
+                  {user.disabled && <span className="disabled-badge">비활성 · 로그인 차단</span>}
                 </UserIdentity>
                 <RoleBadge $role={user.role}>{ROLE_LABELS[user.role]}</RoleBadge>
               </UserRow>
             ))}
           </UserList>
+          <ListActions>
+            <span role="status">{Math.min(visibleCount, filteredUsers.length)} / {filteredUsers.length}명 표시 · {users.length}명 불러옴</span>
+            {filteredUsers.length > visibleCount && <SegmentButton type="button" onClick={() => setVisibleCount(count => count + 50)}>목록 50명 더 표시</SegmentButton>}
+            {usersQuery.hasNextPage && <SegmentButton type="button" onClick={() => void usersQuery.fetchNextPage()} disabled={usersQuery.isFetching || saving || controller.refreshing}>{usersQuery.isFetchingNextPage ? '불러오는 중…' : '더 불러오기'}</SegmentButton>}
+          </ListActions>
         </UserPanel>
 
-        <DetailPanel>
+        <DetailPanel ref={detailRef} tabIndex={-1} aria-label="사용자 상세" data-selected-uid={selectedUser?.uid ?? ''}>
           {!selectedUser || !draft ? (
             <EmptyDetail>
               <UserCog size={34} />
@@ -735,6 +324,10 @@ export default function AdminUsersPage() {
             </EmptyDetail>
           ) : (
             <>
+              <ListActions>
+                <SegmentButton type="button" onClick={() => { if (controller.closeEditor()) { listRef.current?.focus(); listRef.current?.scrollIntoView({ block: 'start' }); } }}>상세 닫기 · 목록으로</SegmentButton>
+                <span role="status">{dirty ? '저장하지 않은 변경 사항' : '저장된 상태'}</span>
+              </ListActions>
               <DetailHeader>
                 <Avatar $large>
                   {selectedUser.photoURL ? (
@@ -766,6 +359,8 @@ export default function AdminUsersPage() {
                 </MetaItem>
               </MetaGrid>
 
+              {!canEditSelectedUser && <p className="scope-note">{controller.refreshing ? '서버 상태 확인 중에는 편집할 수 없습니다.' : '위임 관리자는 본인 또는 관리자 계정을 수정할 수 없습니다.'}</p>}
+              {selectedUser.uid === currentUser.uid && <p className="scope-note">본인 계정의 관리자 강등 및 비활성화는 이 화면에서 할 수 없습니다.</p>}
               <Section>
                 <SectionTitle>
                   <ShieldCheck size={17} />
@@ -777,7 +372,8 @@ export default function AdminUsersPage() {
                       key={role}
                       type="button"
                       className={draft.role === role ? 'active' : ''}
-                      disabled={!canEditSelectedUser || (!isFullAdmin && role === 'admin')}
+                      aria-pressed={draft.role === role}
+                      disabled={!canEditSelectedUser || (!isFullAdmin && role === 'admin') || (selectedUser.uid === currentUser.uid && selectedUser.role === 'admin' && role !== 'admin')}
                       onClick={() => handleRoleChange(role)}
                     >
                       {draft.role === role && <Check size={15} />}
@@ -814,7 +410,7 @@ export default function AdminUsersPage() {
                 <SiteGrid>
                   {siteEntries.map(([siteId, site]) => {
                     const Icon = siteId === 'shop' ? BadgeCheck : siteId === 'admin' ? ShieldCheck : Building2;
-                    const checked = draft.role === 'admin' || draft.siteAccess[siteId] === true;
+                    const checked = draft.role === 'admin' || (draft.siteAccess[siteId] ?? siteId !== 'admin');
                     return (
                       <ToggleCard key={siteId} className={checked ? 'active' : ''}>
                         <span className="icon" style={{ color: site.color || '#2563eb' }}>
@@ -826,6 +422,7 @@ export default function AdminUsersPage() {
                         </div>
                         <Switch
                           type="button"
+                          aria-label={`${site.name || siteId} 사이트 접근`}
                           aria-pressed={checked}
                           className={checked ? 'on' : ''}
                           disabled={draft.role === 'admin' || !canEditSelectedUser}
@@ -864,7 +461,7 @@ export default function AdminUsersPage() {
                     <EmptyMenuAccess>선택된 사이트 모드가 없습니다.</EmptyMenuAccess>
                   ) : (
                     <>
-                      <MenuAccessModeList role="tablist" aria-label="사이트 모드별 메뉴">
+                      <MenuAccessModeList role="group" aria-label="사이트 모드별 메뉴">
                         {menuAccessGroups.map((group) => {
                           const selected = group.siteId === selectedMenuAccessGroup.siteId;
                           const checkedCount = draft
@@ -875,8 +472,7 @@ export default function AdminUsersPage() {
                             <MenuAccessModeButton
                               key={group.siteId}
                               type="button"
-                              role="tab"
-                              aria-selected={selected}
+                              aria-pressed={selected}
                               className={selected ? 'active' : ''}
                               onClick={() => setSelectedMenuSiteId(group.siteId)}
                             >
@@ -903,6 +499,7 @@ export default function AdminUsersPage() {
                                 </div>
                                 <Switch
                                   type="button"
+                                  aria-label={`${option.text} 메뉴 접근`}
                                   aria-pressed={checked}
                                   className={checked ? 'on' : ''}
                                   disabled={draft.role === 'admin' || !canEditSelectedUser}
@@ -924,7 +521,7 @@ export default function AdminUsersPage() {
                   <strong>관리 권한</strong>
                 </SectionTitle>
                 <PermissionList>
-                  {PERMISSION_ITEMS.map((item) => {
+                  {USER_PERMISSION_ITEMS.map((item) => {
                     const checked = draft.role === 'admin' || draft.permissions[item.key];
                     return (
                       <PermissionRow key={item.key}>
@@ -934,6 +531,7 @@ export default function AdminUsersPage() {
                         </div>
                         <Switch
                           type="button"
+                          aria-label={`${item.title} 권한`}
                           aria-pressed={checked}
                           className={checked ? 'on' : ''}
                           disabled={draft.role === 'admin' || !canEditSelectedUser}
@@ -957,6 +555,7 @@ export default function AdminUsersPage() {
                   </div>
                   <Switch
                     type="button"
+                    aria-label="계정 비활성화"
                     aria-pressed={draft.disabled}
                     className={draft.disabled ? 'on danger' : ''}
                     disabled={selectedUser.uid === currentUser?.uid || !canEditSelectedUser}
@@ -967,11 +566,18 @@ export default function AdminUsersPage() {
                 </PermissionRow>
               </Section>
 
+              <Section aria-label="변경 요약">
+                <strong>변경 요약</strong>
+                {summary.length ? <ul>{summary.map(item => <li key={item}>{item}</li>)}</ul> : <p>변경 사항이 없습니다.</p>}
+                {(uncertain || saveError) && <p role="alert">{uncertain || saveError}</p>}
+                {uncertain && <SegmentButton type="button" disabled={saving || usersQuery.isFetching} onClick={() => void controller.refresh()}>새로고침으로 저장 상태 확인</SegmentButton>}
+              </Section>
               <ActionBar>
                 <span>마지막 수정: {formatDate(selectedUser.updatedAt)}</span>
-                <SaveButton type="button" onClick={handleSave} disabled={updateMutation.isPending || !canEditSelectedUser}>
-                  {updateMutation.isPending ? <RefreshCw size={17} /> : <Save size={17} />}
-                  저장
+                <SegmentButton type="button" onClick={controller.discardDraft} disabled={!dirty || saving || controller.refreshing}>초안 폐기</SegmentButton>
+                <SaveButton type="button" onClick={() => void handleSave()} disabled={saving || usersQuery.isFetching || !canEditSelectedUser || !dirty || Boolean(uncertain) || storage?.canPersist === false}>
+                  {saving ? <RefreshCw size={17} /> : <Save size={17} />}
+                  {saving ? '저장 중…' : '변경 사항 저장'}
                 </SaveButton>
               </ActionBar>
             </>
@@ -985,11 +591,20 @@ export default function AdminUsersPage() {
 const PageShell = styled.main`
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   background: #f5f7fb;
   color: #17211d;
+  & > * { flex-shrink: 0; }
+  button, select, input, a { min-height: 44px; }
+  button, a { touch-action: manipulation; }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [tabindex="-1"]:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+  button:disabled { cursor: not-allowed; opacity: .6; }
+  a { display: inline-flex; align-items: center; padding: 0 10px; color: #0f766e; font-weight: 800; }
+  .scope-note { margin: 10px 28px; color: #52645e; line-height: 1.5; }
+  .disabled-badge { color: #b91c1c; font-weight: 800; }
 `;
 
 const Toolbar = styled.header`
@@ -1051,8 +666,8 @@ const StatusPill = styled.div<{ $ok?: boolean }>`
 `;
 
 const IconButton = styled.button`
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border: 1px solid rgba(23, 33, 29, 0.12);
   border-radius: 8px;
   background: #ffffff;
@@ -1112,17 +727,16 @@ const StatItem = styled.div`
 `;
 
 const Workspace = styled.section`
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
   padding: 0 28px 24px;
   display: grid;
   grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
   gap: 14px;
-  overflow: hidden;
+  align-items: start;
 
   @media (max-width: 980px) {
     grid-template-columns: 1fr;
-    overflow-y: auto;
     padding: 0 16px 20px;
   }
 `;
@@ -1148,11 +762,11 @@ const DetailPanel = styled.section`
   background: #ffffff;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: visible;
+  min-width: 0;
 
   @media (max-width: 980px) {
-    min-height: 760px;
+    min-height: 200px;
   }
 `;
 
@@ -1173,7 +787,7 @@ const PanelHeader = styled.div`
   }
 
   span {
-    color: #72817a;
+    color: #52645e;
     font-size: 0.78rem;
     font-weight: 800;
   }
@@ -1183,12 +797,12 @@ const FilterBar = styled.div`
   padding: 12px 14px;
   border-bottom: 1px solid rgba(23, 33, 29, 0.08);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, .65fr);
   gap: 8px;
 
   select {
     min-width: 0;
-    height: 38px;
+    height: 44px;
     border-radius: 8px;
     border: 1px solid rgba(23, 33, 29, 0.12);
     background: #ffffff;
@@ -1200,7 +814,7 @@ const FilterBar = styled.div`
 
 const SearchBox = styled.label`
   min-width: 0;
-  height: 38px;
+  height: 44px;
   border: 1px solid rgba(23, 33, 29, 0.12);
   border-radius: 8px;
   background: #f8fafc;
@@ -1224,7 +838,6 @@ const SearchBox = styled.label`
 const UserList = styled.div`
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
   padding: 8px;
   display: grid;
   align-content: start;
@@ -1291,7 +904,7 @@ const UserIdentity = styled.div`
 
   span {
     margin-top: 3px;
-    color: #687872;
+    color: #52645e;
     font-size: 0.76rem;
   }
 `;
@@ -1336,7 +949,7 @@ const DetailHeader = styled.header`
 
   p {
     margin: 5px 0 0;
-    color: #687872;
+    color: #52645e;
     font-size: 0.78rem;
     overflow-wrap: anywhere;
   }
@@ -1398,7 +1011,7 @@ const SectionTitle = styled.div`
   }
 
   small {
-    color: #687872;
+    color: #52645e;
     font-size: 0.74rem;
     font-weight: 850;
   }
@@ -1415,7 +1028,7 @@ const RoleGrid = styled.div`
 `;
 
 const SegmentButton = styled.button`
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid rgba(23, 33, 29, 0.12);
   border-radius: 8px;
   background: #ffffff;
@@ -1448,7 +1061,7 @@ const FieldRow = styled.div`
   }
 
   select {
-    height: 40px;
+    height: 44px;
     border: 1px solid rgba(23, 33, 29, 0.12);
     border-radius: 8px;
     background: #ffffff;
@@ -1502,7 +1115,7 @@ const ToggleCard = styled.div`
   }
 
   span {
-    color: #687872;
+    color: #52645e;
     font-size: 0.74rem;
     margin-top: 3px;
   }
@@ -1523,7 +1136,7 @@ const MenuAccessModeList = styled.div`
 const MenuAccessModeButton = styled.button`
   min-width: 112px;
   max-width: 168px;
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid rgba(23, 33, 29, 0.12);
   border-radius: 8px;
   background: #ffffff;
@@ -1558,7 +1171,7 @@ const MenuAccessModeButton = styled.button`
   small {
     font-size: 0.7rem;
     font-weight: 850;
-    opacity: 0.74;
+    opacity: 1;
   }
 `;
 
@@ -1603,7 +1216,7 @@ const MenuAccessRow = styled.div<{ $depth: number }>`
 
   span {
     margin-top: 3px;
-    color: #687872;
+    color: #52645e;
     font-size: 0.72rem;
     line-height: 1.35;
     overflow-wrap: anywhere;
@@ -1611,10 +1224,10 @@ const MenuAccessRow = styled.div<{ $depth: number }>`
 `;
 
 const EmptyMenuAccess = styled.div`
-  min-height: 42px;
+  min-height: 44px;
   border: 1px dashed rgba(23, 33, 29, 0.14);
   border-radius: 8px;
-  color: #687872;
+  color: #52645e;
   display: grid;
   place-items: center;
   font-size: 0.78rem;
@@ -1650,15 +1263,15 @@ const PermissionRow = styled.div`
 
   span {
     margin-top: 4px;
-    color: #687872;
+    color: #52645e;
     font-size: 0.76rem;
     line-height: 1.35;
   }
 `;
 
 const Switch = styled.button`
-  width: 42px;
-  height: 24px;
+  width: 48px;
+  height: 44px;
   border: 0;
   border-radius: 999px;
   background: #cbd5e1;
@@ -1673,8 +1286,8 @@ const Switch = styled.button`
     border-radius: 999px;
     background: #ffffff;
     position: absolute;
-    top: 3px;
-    left: 3px;
+    top: 13px;
+    left: 5px;
     transition: transform 0.16s ease;
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.22);
   }
@@ -1688,7 +1301,7 @@ const Switch = styled.button`
   }
 
   &.on::after {
-    transform: translateX(18px);
+    transform: translateX(20px);
   }
 
   &:disabled {
@@ -1701,7 +1314,8 @@ const ActionBar = styled.footer`
   margin-top: auto;
   position: sticky;
   bottom: 0;
-  padding: 14px 154px 14px 18px;
+  padding: 14px 18px;
+  flex-wrap: wrap;
   border-top: 1px solid rgba(23, 33, 29, 0.08);
   display: flex;
   align-items: center;
@@ -1710,17 +1324,17 @@ const ActionBar = styled.footer`
   background: #ffffff;
 
   span {
-    color: #687872;
+    color: #52645e;
     font-size: 0.78rem;
     font-weight: 800;
   }
 
   @media (max-width: 980px) {
-    padding-right: 96px;
+    padding-right: 18px;
   }
 
   @media (max-width: 640px) {
-    padding: 12px 68px 12px 12px;
+    padding: 12px;
     flex-direction: column;
     align-items: stretch;
 
@@ -1732,7 +1346,7 @@ const ActionBar = styled.footer`
 
 const SaveButton = styled.button`
   min-width: 96px;
-  min-height: 40px;
+  min-height: 44px;
   border: 0;
   border-radius: 8px;
   background: #0f766e;
@@ -1756,7 +1370,7 @@ const SaveButton = styled.button`
 
 const EmptyState = styled.div`
   padding: 22px 12px;
-  color: #687872;
+  color: #52645e;
   text-align: center;
   font-size: 0.86rem;
   font-weight: 800;
@@ -1764,7 +1378,7 @@ const EmptyState = styled.div`
 
 const EmptyDetail = styled.div`
   margin: auto;
-  color: #687872;
+  color: #52645e;
   display: grid;
   justify-items: center;
   gap: 10px;
@@ -1809,7 +1423,7 @@ const GatePanel = styled.section`
   }
 
   button {
-    min-height: 42px;
+    min-height: 44px;
     margin-top: 20px;
     padding: 0 16px;
     border: 0;
@@ -1824,4 +1438,15 @@ const GatePanel = styled.section`
       cursor: not-allowed;
     }
   }
+`;
+
+const ListActions = styled.div`
+  padding: 12px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #e2e8f0;
+  span { color: #52645e; font-size: .8rem; }
+  button { padding: 8px 12px; }
 `;

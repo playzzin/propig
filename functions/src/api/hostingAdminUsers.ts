@@ -10,7 +10,6 @@ import {
     db,
     formatTimestamp,
     isRecord,
-    parseJson,
     requireAccess,
     requireMethod,
     type UserPermissions,
@@ -21,21 +20,46 @@ import {
 const USER_POSITIONS = ['ceo', 'manager', 'staff', 'intern'] as const;
 type UserPosition = (typeof USER_POSITIONS)[number];
 
-const UpdateUserSchema = z.object({
-    uid: z.string().min(1),
+// Keep validation and paging contracts in parity with the other admin-users entrypoint.
+const isSafeKey = (key: string, maxLength: number): boolean =>
+  key.length > 0 && key.length <= maxLength && key === key.trim() &&
+  !/[\u0000-\u001f\u007f]/.test(key) && !/^__.*__$/.test(key) &&
+  key !== 'prototype' && !Object.prototype.hasOwnProperty.call(Object.prototype, key);
+const booleanMap = (maxKeyLength: number) => z.record(
+  z.string().refine((key) => isSafeKey(key, maxKeyLength)), z.boolean(),
+).refine((value) => Object.keys(value).length <= 100).default({});
+// Inspect raw own keys before Zod can strip prototype-related keys.
+const safePayloadKeys = z.unknown().refine((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return [record, record.siteAccess, record.menuAccess, record.permissions].every((entry) =>
+    !entry || typeof entry !== 'object' || Object.keys(entry).every((key) => isSafeKey(key, 160)),
+  );
+});
+const PageQuerySchema = z.object({ pageToken: z.string().min(1).max(2048).optional() }).strict();
+const UPDATE_UNCERTAIN = {
+  error: '변경이 일부 반영되었을 수 있습니다. 새로고침 후 상태를 확인해 주세요.',
+  code: 'USER_UPDATE_UNCERTAIN',
+};
+const errorCode = (error: unknown): string | undefined =>
+  error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code : undefined;
+
+const UpdateUserSchema = safePayloadKeys.pipe(z.object({
+    uid: z.string().min(1).max(128).refine((uid) => isSafeKey(uid, 128) && !uid.includes('/') && uid !== '.' && uid !== '..'),
     role: z.enum(['admin', 'user', 'partner', 'guest']),
     position: z.enum(USER_POSITIONS),
-    siteAccess: z.record(z.string(), z.boolean()).default({}),
-    menuAccess: z.record(z.string(), z.boolean()).default({}),
+    siteAccess: booleanMap(80),
+    menuAccess: booleanMap(160),
     permissions: z.object({
         menuManagement: z.boolean().optional(),
         userManagement: z.boolean().optional(),
         projectBoardManagement: z.boolean().optional(),
         photoManagement: z.boolean().optional(),
         storageManagement: z.boolean().optional(),
-    }).default({}),
+    }).strict().default({}),
     disabled: z.boolean().optional(),
-});
+}).strict());
 
 type UserAccessDoc = {
     role?: unknown;
@@ -70,7 +94,7 @@ function sanitizeBooleanMap(value: unknown, maxKeyLength: number): Record<string
     if (!isRecord(value)) return {};
     return Object.entries(value).reduce<Record<string, boolean>>((result, [key, enabled]) => {
         const normalized = key.trim();
-        if (normalized && normalized.length <= maxKeyLength) result[normalized] = enabled === true;
+        if (isSafeKey(normalized, maxKeyLength)) result[normalized] = enabled === true;
         return result;
     }, {});
 }
@@ -104,7 +128,8 @@ function normalizePermissions(
 function buildManagedUser(user: UserRecord, access: UserAccessDoc | null, hasAdminDoc: boolean) {
     const claims = isRecord(user.customClaims) ? user.customClaims : {};
     const claimAdmin = claims.admin === true || claims.role === 'admin';
-    const role = normalizeRole(access?.role ?? claims.role, claimAdmin || hasAdminDoc ? 'admin' : 'user');
+    const role: UserRole = claimAdmin || hasAdminDoc
+        ? 'admin' : normalizeRole(access?.role ?? claims.role);
     return {
         uid: user.uid,
         email: user.email ?? access?.email ?? null,
@@ -132,20 +157,12 @@ function buildManagedUser(user: UserRecord, access: UserAccessDoc | null, hasAdm
     };
 }
 
-async function listAllUsers(): Promise<UserRecord[]> {
-    const users: UserRecord[] = [];
-    let pageToken: string | undefined;
-    do {
-        const page = await admin.auth().listUsers(1000, pageToken);
-        users.push(...page.users);
-        pageToken = page.pageToken;
-    } while (pageToken && users.length < 5000);
-    return users.slice(0, 5000);
-}
-
 async function handleList(req: Request, res: Response): Promise<void> {
     await requireAccess(req, 'userManagement');
-    const users = await listAllUsers();
+    const payload = PageQuerySchema.safeParse(req.query);
+    if (!payload.success) throw new ApiError(400, '목록 조회 조건이 올바르지 않습니다.');
+    const page = await admin.auth().listUsers(100, payload.data.pageToken);
+    const users = page.users;
     const accessRefs = users.map((user) => db.collection('userAccess').doc(user.uid));
     const adminRefs = users.map((user) => db.collection('admins').doc(user.uid));
     const [accessSnapshots, adminSnapshots] = users.length
@@ -168,12 +185,20 @@ async function handleList(req: Request, res: Response): Promise<void> {
                 right.email || right.displayName || right.uid,
             );
         });
-    res.status(200).json({ users: managedUsers, storage });
+    res.status(200).json({ users: managedUsers, storage, nextPageToken: page.pageToken ?? null });
 }
 
 async function handleUpdate(req: Request, res: Response): Promise<void> {
     const auth = await requireAccess(req, 'userManagement');
-    const payload = parseJson(req, UpdateUserSchema, '요청 데이터가 올바르지 않습니다.');
+    let body: unknown = req.body;
+    if (typeof body === 'string' || Buffer.isBuffer(body)) {
+        try { body = JSON.parse(body.toString()); } catch {
+            throw new ApiError(400, '요청 데이터가 올바르지 않습니다.');
+        }
+    }
+    const parsed = UpdateUserSchema.safeParse(body);
+    if (!parsed.success) throw new ApiError(400, '요청 데이터가 올바르지 않습니다.');
+    const payload = parsed.data;
     if (auth.isAdmin && payload.uid === auth.uid && (payload.role !== 'admin' || payload.disabled === true)) {
         throw new ApiError(400, '현재 로그인한 관리자 계정은 관리자 권한을 해제하거나 비활성화할 수 없습니다.');
     }
@@ -184,9 +209,7 @@ async function handleUpdate(req: Request, res: Response): Promise<void> {
     const accessRef = db.collection('userAccess').doc(payload.uid);
     const adminRef = db.collection('admins').doc(payload.uid);
     const [targetUser, accessSnapshot, adminSnapshot] = await Promise.all([
-        admin.auth().getUser(payload.uid).catch((error) => {
-            throw new ApiError(404, error instanceof Error ? error.message : '사용자를 찾을 수 없습니다.');
-        }),
+        admin.auth().getUser(payload.uid),
         accessRef.get(),
         adminRef.get(),
     ]);
@@ -212,89 +235,117 @@ async function handleUpdate(req: Request, res: Response): Promise<void> {
         siteAccess,
         menuAccess,
         permissions,
+        ...permissions,
         menuManager: permissions.menuManagement,
         userManager: permissions.userManagement,
         projectBoardManager: permissions.projectBoardManagement,
         photoManager: permissions.photoManagement,
         storageManager: permissions.storageManagement,
     };
-    if (typeof payload.disabled === 'boolean' && payload.disabled !== targetUser.disabled) {
-        await admin.auth().updateUser(payload.uid, { disabled: payload.disabled });
+    if (Buffer.byteLength(JSON.stringify(claims), 'utf8') > 1000) {
+        throw new ApiError(400, '권한 데이터가 Firebase custom claims 한도(1000바이트)를 초과합니다.');
     }
-    await admin.auth().setCustomUserClaims(payload.uid, claims);
-    const updatedUser = await admin.auth().getUser(payload.uid);
-    const batch = db.batch();
-    batch.set(accessRef, {
-        uid: payload.uid,
-        email: updatedUser.email ?? null,
-        displayName: updatedUser.displayName ?? null,
-        photoURL: updatedUser.photoURL ?? null,
-        disabled: updatedUser.disabled,
-        emailVerified: updatedUser.emailVerified,
-        providerIds: updatedUser.providerData.map((provider) => provider.providerId),
-        role: payload.role,
-        position: payload.position,
-        siteAccess,
-        menuAccess,
-        permissions,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedBy: auth.uid,
-    }, { merge: true });
-    if (payload.role === 'admin') {
-        batch.set(adminRef, {
+    // Everything after the first mutation attempt is potentially partially applied.
+    try {
+        if (typeof payload.disabled === 'boolean' && payload.disabled !== targetUser.disabled) {
+            await admin.auth().updateUser(payload.uid, { disabled: payload.disabled });
+        }
+        await admin.auth().setCustomUserClaims(payload.uid, claims);
+        const updatedUser = await admin.auth().getUser(payload.uid);
+        const batch = db.batch();
+        batch.set(accessRef, {
             uid: payload.uid,
             email: updatedUser.email ?? null,
             displayName: updatedUser.displayName ?? null,
             photoURL: updatedUser.photoURL ?? null,
+            disabled: updatedUser.disabled,
+            emailVerified: updatedUser.emailVerified,
+            providerIds: updatedUser.providerData.map((provider) => provider.providerId),
             role: payload.role,
             position: payload.position,
+            siteAccess,
             menuAccess,
             permissions,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedBy: auth.uid,
-        }, { merge: true });
-    } else {
-        batch.delete(adminRef);
+        }, { mergeFields: ['uid', 'email', 'displayName', 'photoURL', 'disabled', 'emailVerified',
+            'providerIds', 'role', 'position', 'siteAccess', 'menuAccess', 'permissions', 'updatedAt', 'updatedBy'] });
+        if (payload.role === 'admin') {
+            batch.set(adminRef, {
+                uid: payload.uid,
+                email: updatedUser.email ?? null,
+                displayName: updatedUser.displayName ?? null,
+                photoURL: updatedUser.photoURL ?? null,
+                role: payload.role,
+                position: payload.position,
+                menuAccess,
+                permissions,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedBy: auth.uid,
+            }, { mergeFields: ['uid', 'email', 'displayName', 'photoURL', 'role', 'position',
+                'menuAccess', 'permissions', 'updatedAt', 'updatedBy'] });
+        } else {
+            batch.delete(adminRef);
+        }
+        await batch.commit();
+        const [nextAccess, nextAdmin] = await Promise.all([accessRef.get(), adminRef.get()]);
+        const user = buildManagedUser(
+            updatedUser,
+            nextAccess.exists ? nextAccess.data() as UserAccessDoc : null,
+            nextAdmin.exists,
+        );
+        await writeActivityLogSafely({
+            auth,
+            req,
+            action: 'admin.user.update',
+            target: {
+                type: 'userAccess',
+                id: payload.uid,
+                label: updatedUser.email ?? updatedUser.displayName ?? payload.uid,
+            },
+            summary: `${updatedUser.email ?? payload.uid} 계정 권한을 변경했습니다.`,
+            metadata: {
+                before: {
+                    role: targetIsAdmin ? 'admin' : normalizeRole(existingAccess?.role ?? existingClaims.role),
+                    disabled: targetUser.disabled,
+                    hadAdminDoc: adminSnapshot.exists,
+                },
+                after: {
+                    role: user.role,
+                    position: user.position,
+                    disabled: user.disabled,
+                    permissions: user.permissions,
+                    siteAccessCount: Object.keys(user.siteAccess).length,
+                    menuAccessCount: Object.keys(user.menuAccess).length,
+                    hasAdminDoc: nextAdmin.exists,
+                },
+            },
+        });
+        res.status(200).json({ ok: true, user, storage });
+    } catch (error) {
+        console.error('[Admin Users PATCH Uncertain]', error);
+        res.status(503).json(UPDATE_UNCERTAIN);
     }
-    await batch.commit();
-    const [nextAccess, nextAdmin] = await Promise.all([accessRef.get(), adminRef.get()]);
-    const user = buildManagedUser(
-        updatedUser,
-        nextAccess.exists ? nextAccess.data() as UserAccessDoc : null,
-        nextAdmin.exists,
-    );
-    await writeActivityLogSafely({
-        auth,
-        req,
-        action: 'admin.user.update',
-        target: {
-            type: 'userAccess',
-            id: payload.uid,
-            label: updatedUser.email ?? updatedUser.displayName ?? payload.uid,
-        },
-        summary: `${updatedUser.email ?? payload.uid} 계정 권한을 변경했습니다.`,
-        metadata: {
-            before: {
-                role: normalizeRole(existingAccess?.role ?? existingClaims.role, targetIsAdmin ? 'admin' : 'user'),
-                disabled: targetUser.disabled,
-                hadAdminDoc: adminSnapshot.exists,
-            },
-            after: {
-                role: user.role,
-                position: user.position,
-                disabled: user.disabled,
-                permissions: user.permissions,
-                siteAccessCount: Object.keys(user.siteAccess).length,
-                menuAccessCount: Object.keys(user.menuAccess).length,
-                hasAdminDoc: nextAdmin.exists,
-            },
-        },
-    });
-    res.status(200).json({ ok: true, user, storage });
 }
 
 export async function handleAdminUsers(req: Request, res: Response): Promise<void> {
-    requireMethod(req, ['GET', 'PATCH']);
-    if (req.method === 'GET') return handleList(req, res);
-    return handleUpdate(req, res);
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+        requireMethod(req, ['GET', 'PATCH']);
+        if (req.method === 'GET') return await handleList(req, res);
+        return await handleUpdate(req, res);
+    } catch (error) {
+        if (error instanceof ApiError) {
+            res.status(error.status).json({ error: error.message });
+            return;
+        }
+        console.error('[Admin Users Error]', error);
+        const code = errorCode(error);
+        const notFound = req.method === 'PATCH' && code === 'auth/user-not-found';
+        const invalid = code === 'auth/invalid-page-token' || code === 'auth/invalid-uid' || code === 'auth/invalid-argument';
+        res.status(notFound ? 404 : invalid ? 400 : 503).json({
+            error: notFound ? '사용자를 찾을 수 없습니다.' : invalid
+                ? '요청 데이터가 올바르지 않습니다.' : '사용자 권한 저장소에 연결할 수 없습니다.',
+        });
+    }
 }
