@@ -30,7 +30,19 @@
 - 실제 Next `/api/admin/users`의 미인증 GET/PATCH 모두 HTTP401 및 no-store 확인. 로그인된 실제 계정으로 GET/PATCH를 수행한 것은 아니다.
 - 원본과 검증 mirror의 변경 소스·테스트·설정 10개 파일 내용 일치, git diff --check PASS.
 - 로그: `/tmp/propig-users-{baseline-browser,baseline-api,static-second,functions-build,browser-final,browser-expanded,build-static,build-next,release-browser,test,next-browser,lint-final}.log`; screenshot: `/tmp/propig-users-{desktop,mobile}.png`; axe: `/tmp/propig-users-axe.json`.
-- 현재 결과는 로컬 구현·검증 상태다. 이 새 작업의 게시 승인 및 배포 결과는 별도로 기록한다.
+
+## 운영 게시 — 2026-09-10
+
+- 사용자가 이번 작업의 커밋·푸시·운영 배포를 명시 승인했다.
+- 코드 커밋: `820f4c89c431b56b6ffff5f730123a443a8e2f96`, 기존 `codex/add-founding-background-to-introduction` 브랜치에 push. main 병합 없음.
+- 검증 원본/mirror 소스·설정 507개 일치. 승인 범위 11개 파일만 커밋했다.
+- Firebase `propig-63524`에 `hosting,functions:hostingApi`만 배포, CLI exit 0. Hosting 480개 파일 게시 및 hostingApi 업데이트 성공.
+- 배포 전후 원격 함수 이름 집합 동일. hostingApi ACTIVE 및 metadata 변경 확인, 다른 25개 함수 metadata 동일(legacy 포함). Rules와 실제 회원 데이터·권한은 변경하지 않았다.
+- 운영 `/admin/users`, `/corp`, `/blog`, `/propig`, `/admin` HTTP200 및 검증한 정적 HTML 산출물과 bytes/SHA-256 일치.
+- 운영 유저 관리 PC·모바일 guest gate 브라우저 PASS. 구 fixture query로 인증 우회 불가, private 사용자 API 요청 0, 유저 행·입력 노출 0, pageerror 및 가로 넘침 없음.
+- 운영 `/api/admin/users` 미인증 GET/PATCH 각각 HTTP401 및 no-store 확인. 격리 브라우저 회귀도 함께 재통과했다. 로그인된 실제 관리자 쓰기 E2E를 검증했다는 뜻은 아니다.
+- 근거: `/tmp/propig-users-{deploy,production-browser,prepublish-api,prepublish-boundary}.log`, 원격 함수 전후 metadata는 접근 제한된 임시 JSON으로 보관.
+- 이 운영 결과 기록은 코드 배포 후 문서 전용 후속 커밋으로 게시한다.
 
 ## 남은 한계
 
