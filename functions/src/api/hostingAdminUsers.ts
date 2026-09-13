@@ -266,7 +266,10 @@ async function handleUpdate(req: Request, res: Response): Promise<void> {
                 transaction.get(accessRef), transaction.get(adminRef),
             ]);
             return managedUserRevision(currentAuth, currentAccess.exists ? currentAccess.data() : null, currentAdmin.exists);
-        });
+        }, auth.isAdmin ? {
+            uid: auth.uid,
+            readCurrentUser: () => admin.auth().getUser(auth.uid),
+        } : undefined); // Delegated gates/target serialization stay unchanged.
     // Everything after the first mutation attempt is potentially partially applied.
     try {
         if (typeof payload.disabled === 'boolean' && payload.disabled !== targetUser.disabled) {

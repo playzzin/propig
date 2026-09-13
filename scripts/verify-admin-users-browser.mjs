@@ -65,6 +65,7 @@ window.fetch=async(input,options={})=>{
   else if(mode==='invalid'){status=400;payload={error:'격리 입력 거절'}}
   else if(mode==='conflict'){status=409;payload={error:'다른 관리자가 변경했습니다. 새로고침 후 다시 편집하세요.',code:'USER_UPDATE_CONFLICT'}}
   else if(mode==='in-progress'){status=409;payload={error:'다른 저장 요청이 진행 중입니다. 새로고침으로 확인하세요.',code:'USER_UPDATE_IN_PROGRESS'}}
+  else if(mode==='actor-unsafe'){status=403;payload={error:'현재 관리자 권한을 확인할 수 없습니다. 새로고침 후 다시 확인하세요.',code:'USER_UPDATE_ACTOR_UNSAFE'}}
   else if(mode==='uncertain'){status=503;payload={error:'변경이 일부 반영되었을 수 있습니다. 새로고침 후 상태를 확인해 주세요.',code:'USER_UPDATE_UNCERTAIN'}}
   else if(mode==='malformed')payload={};
   else if(method==='GET'){
@@ -198,7 +199,7 @@ try {
     assert.deepEqual(await page.evaluate(() => window.__toasts), []);
     console.log('PASS whole-request deadline, late token rejection, same-UID reopen, unmount late failure');
 
-    for (const mode of ['conflict', 'in-progress']) {
+    for (const mode of ['conflict', 'in-progress', 'actor-unsafe']) {
       await ready(); await choose(); await position.selectOption('manager');
       await page.evaluate(mode => {window.__modes.save=mode;}, mode); await save().click();
       await page.getByRole('alert').waitFor();

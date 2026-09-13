@@ -395,7 +395,10 @@ export async function PATCH(request: NextRequest) {
           transaction.get(accessRef), transaction.get(adminRef),
         ]);
         return managedUserRevision(currentAuth, currentAccess.exists ? currentAccess.data() : null, currentAdmin.exists);
-      });
+      }, authResult.isAdmin ? {
+        uid: authResult.uid,
+        readCurrentUser: () => admin.auth().getUser(authResult.uid),
+      } : undefined); // Delegated gates/target serialization stay unchanged.
 
     // Auth and Firestore are not atomic: even a rejected write may have reached the service.
     mutationStarted = true;

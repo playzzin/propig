@@ -132,7 +132,7 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
         if (!response.ok) {
           const error = payload as { code?: string; error?: string };
           const uncertain = Boolean(body && (error?.code === 'USER_UPDATE_UNCERTAIN' || response.status >= 500));
-          const reloadRequired = Boolean(body && ['USER_UPDATE_CONFLICT', 'USER_UPDATE_IN_PROGRESS'].includes(error?.code ?? ''));
+          const reloadRequired = Boolean(body && ['USER_UPDATE_CONFLICT', 'USER_UPDATE_IN_PROGRESS', 'USER_UPDATE_ACTOR_UNSAFE'].includes(error?.code ?? ''));
           throw new RequestFailure(uncertain ? '일부 변경이 반영되었을 수 있습니다. 다시 저장하지 말고 새로고침으로 계정 상태를 확인하세요.' :
             (typeof error?.error === 'string' ? error.error : '요청을 처리하지 못했습니다.'), uncertain, reloadRequired);
         }

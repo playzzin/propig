@@ -10,7 +10,7 @@ function load(path) {
  const out = ts.transpileModule(text, { compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS}, reportDiagnostics: true });
  assert.equal(out.diagnostics.length, 0);
  const exports = {};
- vm.runInNewContext(out.outputText, {exports, require: (name) => {assert.equal(name, 'node:crypto'); return require(name);}, console, Buffer});
+ vm.runInNewContext(out.outputText, {exports, require: (name) => {assert.equal(name, 'node:crypto'); return require(name);}, console, Buffer, process: {env:{}}});
  return exports;
 }
 function database() {
@@ -60,6 +60,24 @@ function database() {
   const success=await h.reserveUserUpdate(db,'success',r,r,async()=>r); await h.finishUserUpdate(db,success);
   assert(!db.docs.has(success.ref.path)); await h.markUserUpdateUncertain(db,success); assert(!db.docs.has(success.ref.path));
   const fresh=await h.reserveUserUpdate(db,'success',r,r,async()=>r); await h.markUserUpdateUncertain(db,success); assert.equal(db.docs.get(fresh.ref.path).state,'running');
+  const paired=database();const adminUser=id=>({uid:id,disabled:false,customClaims:{admin:true}});
+  const actor=id=>({uid:id,readCurrentUser:async()=>adminUser(id)});
+  const cross=await Promise.allSettled([
+    h.reserveUserUpdate(paired,'B',r,r,async()=>r,actor('A')),
+    h.reserveUserUpdate(paired,'A',r,r,async()=>r,actor('B')),
+  ]);
+  assert.equal(cross.filter(x=>x.status==='fulfilled').length,1);assert.equal(paired.docs.size,2);
+  const pair=cross.find(x=>x.status==='fulfilled').value;
+  assert.equal(pair.refs.length,2);assert([...paired.docs.values()].every(x=>x.owner===pair.owner));
+  await h.markUserUpdateUncertain(paired,pair);assert([...paired.docs.values()].every(x=>x.state==='uncertain'));
+  await assert.rejects(h.finishUserUpdate(paired,pair),code('USER_UPDATE_UNCERTAIN'));assert.equal(paired.docs.size,2);
+  const same=database();const self=await h.reserveUserUpdate(same,'A',r,r,async()=>r,actor('A'));assert.equal(same.docs.size,1);await h.finishUserUpdate(same,self);assert.equal(same.docs.size,0);
+  const altered=database();const owned=await h.reserveUserUpdate(altered,'B',r,r,async()=>r,actor('A'));altered.docs.get(owned.refs[1].path).owner='external-owner';
+  await assert.rejects(h.finishUserUpdate(altered,owned),code('USER_UPDATE_UNCERTAIN'));assert.equal(altered.docs.size,2);
+  for(const user of [null,{uid:'A',disabled:true,customClaims:{admin:true}},{uid:'A',disabled:false,customClaims:{}},{uid:'WRONG',disabled:false,customClaims:{admin:true}}]){
+    const unsafe=database();await assert.rejects(h.reserveUserUpdate(unsafe,'B',r,r,async()=>r,{uid:'A',readCurrentUser:async()=>{if(!user)throw Object.assign(Error('missing'),{code:'auth/user-not-found'});return user;}}),code('USER_UPDATE_ACTOR_UNSAFE'));assert.equal(unsafe.docs.size,0);
+  }
+  console.log('PASS',path,'paired cross-demotion single winner, self dedup, all-lock uncertainty, partial-owner failure, fresh actor rejection');
   const map=Object.fromEntries(Array.from({length:100},(_,i)=>['key'+i,i%2===0]));
   const audit=h.userAccessAudit({role:'user',position:'staff',disabled:false,permissions:{photoManagement:true},siteAccess:map,menuAccess:map,isAdminDocLinked:false,customClaims:{secret:'not-logged'}});
   function sanitize(v,d=0){if(v==null||['boolean','number','string'].includes(typeof v))return v;if(d>=4)return '[truncated]';if(Array.isArray(v))return v.slice(0,40).map(x=>sanitize(x,d+1));return Object.fromEntries(Object.entries(v).slice(0,60).map(([k,x])=>[k,sanitize(x,d+1)]));}

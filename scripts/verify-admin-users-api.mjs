@@ -15,15 +15,18 @@ const baseline = process.env.ADMIN_USERS_SERVER_BASELINE === '1';
 class ApiError extends Error { constructor(status, message, details) { super(message); this.status = status; this.details = details; } }
 class Timestamp { toDate() { return new Date('2026-09-09T00:00:00.000Z'); } }
 let state;
+const testEnv={};
 function reset() {
+  delete testEnv.ADMIN_UIDS;
   state = {
     identity: { ok: true, uid: 'operator', isAdmin: true, role: 'admin', permissions: allPermissions() },
     target: { uid: 'target', email: 'target@example.invalid', displayName: '격리 회원', photoURL: null, disabled: false, emailVerified: true, customClaims: { unrelated: 'preserved' }, providerData: [{ providerId: 'password' }], metadata: { creationTime: '2026-01-01T00:00:00.000Z', lastSignInTime: null } },
     access: { uid: 'target', role: 'user', position: 'staff', siteAccess: { obsolete: true }, menuAccess: { 'corp:obsolete': true }, permissions: { ...noPermissions }, unrelated: 'preserved' },
+    actor: { uid: 'operator', disabled: false, customClaims: { admin: true } }, actorAccess: null, actorAdminDoc: null,
     guards: {}, audit: [], adminDoc: null, authWrites: [], dbWrites: [], listCalls: [], fail: null,
   };
 }
-const docValue = (name, id) => name === 'admins' ? state.adminDoc : name === 'userAccess' ? state.access : state.guards[name + '/' + id];
+const docValue = (name, id) => name === 'admins' ? (id === 'operator' ? state.actorAdminDoc : state.adminDoc) : name === 'userAccess' ? (id === 'operator' ? state.actorAccess : state.access) : state.guards[name + '/' + id];
 const snapshot = (name, id) => ({ id, exists: Boolean(docValue(name, id)), data: () => docValue(name, id) ? clone(docValue(name, id)) : undefined });
 let transactionQueue = Promise.resolve();
 const db = {
@@ -69,7 +72,7 @@ const db = {
 };
 const auth = {
   async listUsers(size, token) { state.listCalls.push({ size, token }); return { users: [clone(state.target)], pageToken: token ? undefined : 'next-token' }; },
-  async getUser(uid) { if (state.fail === 'missing') throw Object.assign(Error('PRIVATE_USER_DETAIL'), { code: 'auth/user-not-found' }); return { ...clone(state.target), uid }; },
+  async getUser(uid) { if (uid === 'operator') { if (!state.actor) throw Object.assign(Error('PRIVATE_ACTOR'), { code: 'auth/user-not-found' }); return clone(state.actor); } if (state.fail === 'missing') throw Object.assign(Error('PRIVATE_USER_DETAIL'), { code: 'auth/user-not-found' }); return { ...clone(state.target), uid }; },
   async updateUser(uid, patch) { state.authWrites.push({ kind: 'disabled', uid, patch }); if (state.fail === 'update') throw Error('PRIVATE_AUTH_DETAIL'); Object.assign(state.target, patch); return clone(state.target); },
   async setCustomUserClaims(uid, claims) { state.authWrites.push({ kind: 'claims', uid }); if (Buffer.byteLength(JSON.stringify(claims)) > 1000) throw Object.assign(Error('PRIVATE_CLAIMS_DETAIL'), { code: 'auth/claims-too-large' }); if (state.fail === 'claims') throw Error('PRIVATE_AUTH_DETAIL'); state.target.customClaims = clone(claims); },
 };
@@ -103,7 +106,7 @@ function load(filename) {
       return requirePackage(name);
     },
     module, exports: module.exports, console: { log() {}, error() {}, warn() {} }, Buffer, URL, URLSearchParams, Headers, Request, Response, Date, TextEncoder,
-    process: { env: {} }, setTimeout, clearTimeout, AbortController, structuredClone,
+    process: { env: testEnv }, setTimeout, clearTimeout, AbortController, structuredClone,
   }, { filename });
   return module.exports;
 }
@@ -167,6 +170,19 @@ for (const kind of ['next', 'hosting']) {
     assert.deepEqual(both.map(x=>x.status).sort(),[200,409]);assert.equal(state.authWrites.filter(x=>x.kind==='claims').length,1);
     const stale=await invoke(kind,'PATCH',payload({expectedRevision:revision}));assert.equal(stale.status,409);assert.equal(state.authWrites.filter(x=>x.kind==='claims').length,1);
     assert.equal(Object.keys(state.guards).length,0,'success releases owned guard');
+  });
+  for (const actorState of ['deleted','disabled','demoted']) await check(`fresh actor ${actorState} blocks stale token before writes`, async () => {
+    if(actorState==='deleted')state.actor=null;
+    else if(actorState==='disabled')state.actor.disabled=true;
+    else state.actor.customClaims={};
+    const result=await invoke(kind,'PATCH',payload());assert.equal(result.status,403);assert.equal(result.data.code,'USER_UPDATE_ACTOR_UNSAFE');assert.equal(state.authWrites.length,0);assert.equal(Object.keys(state.guards).length,0);assert(!JSON.stringify(result.data).includes('PRIVATE_'));
+  });
+  await check('server UID allowlist remains valid but disabled actor cannot use it', async () => {
+    state.actor.customClaims={};testEnv.ADMIN_UIDS=' other, operator ';let result=await invoke(kind,'PATCH',payload());assert.equal(result.status,200);state.actor.disabled=true;result=await invoke(kind,'PATCH',payload());assert.equal(result.status,403);assert.equal(result.data.code,'USER_UPDATE_ACTOR_UNSAFE');
+  });
+  for (const authority of ['access','adminDoc']) await check(`fresh ${authority} actor authority is respected`, async () => {
+    state.actor.customClaims={};if(authority==='access')state.actorAccess={role:'admin'};else state.actorAdminDoc={role:'admin'};
+    const result=await invoke(kind,'PATCH',payload());assert.equal(result.status,200);assert.equal(Object.keys(state.guards).length,0);
   });
   await check('uncertain save retains guard and rejects fresh retry', async () => {
     state.fail='claims';const r=await invoke(kind,'PATCH',payload());assert.equal(r.data.code,'USER_UPDATE_UNCERTAIN');
