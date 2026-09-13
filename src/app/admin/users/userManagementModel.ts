@@ -136,6 +136,7 @@ export function buildDraft(user: ManagedUserRecord, siteIds: string[]): UserDraf
 
 const flags = z.record(z.string(), z.boolean());
 export const managedUserSchema = z.object({
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
   uid: z.string().min(1), email: z.string().nullable(), displayName: z.string().nullable(),
   photoURL: z.string().nullable(), role: z.enum(USER_ROLE_OPTIONS), position: z.enum(USER_POSITION_OPTIONS),
   disabled: z.boolean(), emailVerified: z.boolean(), siteAccess: flags, menuAccess: flags,

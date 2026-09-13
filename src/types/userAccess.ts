@@ -60,6 +60,8 @@ export interface ManagedUserAccess {
 }
 
 export interface ManagedUserRecord extends ManagedUserAccess {
+  /** Opaque authoritative snapshot revision; send unchanged when saving. */
+  revision: string;
   uid: string;
   email: string | null;
   displayName: string | null;

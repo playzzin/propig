@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { readImageBudgetLimit } from '@/lib/server/image-budget-operations';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { IMAGE_STYLE_PRESET_INSTRUCTIONS } from '@/constants/imageStylePresets';
@@ -151,25 +152,31 @@ async function reserveImageOperation(uid: string, payload: z.infer<typeof Genera
             throw new ImageOperationConflictError('같은 이미지 생성 요청이 이미 완료되었지만 보관된 결과가 없어 새 operationId가 필요합니다.');
         }
         // Elapsed time cannot prove that an earlier paid provider request did not run.
-        // Keep its reservation blocked until explicit reconciliation, including after crashes.
-        if (data.status === 'pending' || data.status === 'uncertain') {
+        // Manual reconciliation is terminal too; never replay this logical paid operation.
+        if (data.status === 'pending' || data.status === 'uncertain' || data.status === 'reconciled' || data.costReconciliation) {
             throw new ImageOperationConflictError('같은 이미지 생성 요청이 처리 중이거나 결과 확인이 필요합니다.');
         }
+        const limitUsd = await readImageBudgetLimit(transaction, adminDb, uid, IMAGE_DAILY_BUDGET_USD);
         const budgetSnapshot = await transaction.get(budgetReference);
         const budget = budgetSnapshot.data() || {};
-        const previousReservation = !data.budgetSettled && data.budgetDate === budgetDate
-            ? Math.max(0, Number(data.reservedUsd) || 0)
-            : 0;
-        const spentUsd = Math.max(0, Number(budget.spentUsd) || 0);
-        const pendingUsd = Math.max(0, Number(budget.reservedUsd) || 0) - previousReservation;
-        if (spentUsd + pendingUsd + reservedUsd > IMAGE_DAILY_BUDGET_USD) {
+        const validAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+        if (budgetSnapshot.exists && (budget.uid !== uid || budget.date !== budgetDate || !validAmount(budget.spentUsd) || !validAmount(budget.reservedUsd))) {
+            throw new ImageOperationConflictError('이미지 예산 기록을 확인해 주세요.');
+        }
+        const hasPreviousReservation = !data.budgetSettled && data.budgetDate === budgetDate;
+        if (hasPreviousReservation && !validAmount(data.reservedUsd)) throw new ImageOperationConflictError('이미지 예산 기록을 확인해 주세요.');
+        const previousReservation = hasPreviousReservation ? data.reservedUsd as number : 0;
+        const spentUsd = budgetSnapshot.exists ? budget.spentUsd as number : 0;
+        const pendingUsd = (budgetSnapshot.exists ? budget.reservedUsd as number : 0) - previousReservation;
+        if (pendingUsd < 0 || !Number.isFinite(spentUsd + pendingUsd + reservedUsd)) throw new ImageOperationConflictError('이미지 예산 기록을 확인해 주세요.');
+        if (spentUsd + pendingUsd + reservedUsd > limitUsd) {
             throw new ImageBudgetExceededError('오늘의 OpenRouter 이미지 생성 예산을 모두 사용했습니다.');
         }
         const now = new Date();
         transaction.set(budgetReference, {
             uid,
             date: budgetDate,
-            limitUsd: IMAGE_DAILY_BUDGET_USD,
+            limitUsd,
             spentUsd,
             reservedUsd: pendingUsd + reservedUsd,
             updatedAt: now,
@@ -244,6 +251,8 @@ async function finishImageOperation(key: string, status: 'completed' | 'failed' 
     await adminDb.runTransaction(async (transaction) => {
         const operationSnapshot = await transaction.get(operationReference);
         const operation = operationSnapshot.data() || {};
+        // An old finisher may arrive after manual review; never overwrite that terminal fence.
+        if (operation.status === 'reconciled' || operation.costReconciliation) return;
         if (operation.budgetSettled) {
             transaction.set(operationReference, { status, ...(durableResult ? { result: durableResult } : {}), ...(resultChunkCount ? { resultChunkCount } : {}), ...(resultStoragePath ? { resultStoragePath, resultSha256 } : {}), ...(resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {}), updatedAt: new Date() }, { merge: true });
             return;

@@ -38,7 +38,8 @@ for (const [name, source] of [['Next', next], ['Hosting', hosting]]) {
   assert.match(source, /providerAttempted\s*\?\s*'uncertain'\s*:\s*'failed'/, `${name} image route must preserve uncertain provider outcomes.`);
   assert.match(source, /OPENROUTER_IMAGE_DAILY_BUDGET_USD/, `${name} image route must expose a bounded daily USD budget.`);
   assert.match(source, /collection\('aiDailyBudgets'\)/, `${name} image route must reserve cost in the shared daily budget ledger.`);
-  assert.match(source, /spentUsd \+ pendingUsd \+ reservedUsd > IMAGE_DAILY_BUDGET_USD/, `${name} image route must reject requests before the budget is exceeded.`);
+  assert.match(source, /const limitUsd = await readImageBudgetLimit\(transaction, (?:adminDb|db), uid, IMAGE_DAILY_BUDGET_USD\)/, `${name} must read the policy within the reservation transaction.`);
+  assert.match(source, /spentUsd \+ pendingUsd \+ reservedUsd > limitUsd/, `${name} image route must enforce the resolved policy before exceeding the budget.`);
   assert.match(source, /budgetSettled:\s*true[\s\S]*chargedUsd/, `${name} image route must settle reservations exactly once.`);
   assert.match(source, /signal:\s*AbortSignal\.timeout\(OPENROUTER_DISCOVERY_TIMEOUT_MS\)/, `${name} model discovery must have an explicit timeout.`);
   assert.match(source, /signal:\s*AbortSignal\.timeout\(OPENROUTER_GENERATION_TIMEOUT_MS\)/, `${name} image generation must have an explicit timeout.`);

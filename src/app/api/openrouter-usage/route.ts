@@ -132,9 +132,6 @@ const emptyReport = (rangeDays: number, message: string | null) => ({
   byOperation: [],
   recent: [],
   truncated: false,
-  uncertainSummary: { count: 0, reservedCostUsd: 0 },
-  uncertain: [],
-  uncertainTruncated: false,
 });
 
 export async function GET(request: NextRequest) {
@@ -194,9 +191,6 @@ export async function GET(request: NextRequest) {
       })),
       recent: records.slice(0, 20),
       truncated: snapshot.size > MAX_RECORDS,
-      uncertainSummary: { count: 0, reservedCostUsd: 0 },
-      uncertain: [],
-      uncertainTruncated: false,
     });
   } catch (error) {
     console.error('[OpenRouter Usage] Failed to build report:', error);

@@ -2,9 +2,9 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   BarChart3,
@@ -18,16 +18,14 @@ import {
 } from 'lucide-react';
 import styled from 'styled-components';
 import { useAuth } from '@/contexts/AuthContext';
+import { auth } from '@/firebase/config';
+import { useAdminUsersSession } from '@/app/admin/users/useAdminUsersController';
 import type {
-  UncertainResolutionInput,
-  UncertainUsageRecord,
   UsageOperation,
 } from './UncertainUsageReconciliation';
 
 const LoginModal = dynamic(() => import('@/components/LoginModal').then((module) => module.LoginModal));
-const UncertainUsageReconciliation = dynamic(
-  () => import('./UncertainUsageReconciliation').then((module) => module.UncertainUsageReconciliation),
-);
+const ImageBudgetPanel = dynamic(() => import('./ImageBudgetPanel'));
 const OpenRouterUsageCharts = dynamic(
   () => import('./OpenRouterUsageCharts').then((module) => module.OpenRouterUsageCharts),
   { loading: () => <ChartLoading role="status">사용량 차트를 준비하는 중입니다…</ChartLoading> },
@@ -65,12 +63,6 @@ type UsageResponse = {
     day: string;
     occurredAt: string | null;
   }>;
-  uncertainSummary: {
-    count: number;
-    reservedCostUsd: number;
-  };
-  uncertain: UncertainUsageRecord[];
-  uncertainTruncated: boolean;
   truncated: boolean;
 };
 
@@ -128,29 +120,16 @@ const operationLabel = (operation: UsageOperation) => {
 const sourceLabel = (source: 'next_server' | 'firebase_function') =>
   source === 'firebase_function' ? 'Functions' : 'Next 서버';
 
-async function fetchOpenRouterUsage(user: User, range: RangeDays): Promise<UsageResponse> {
+async function fetchOpenRouterUsage(user: User, range: RangeDays, signal: AbortSignal): Promise<UsageResponse> {
   const token = await user.getIdToken();
+  if (signal.aborted || auth.currentUser?.uid !== user.uid) throw new Error('이전 계정의 조회를 중단했습니다.');
   const response = await fetch(`/api/openrouter-usage?range=${range}`, {
     headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store',
+    cache: 'no-store', signal,
   });
   const payload = (await response.json().catch(() => null)) as (UsageResponse & { error?: string }) | null;
   if (!response.ok) throw new Error(payload?.error || 'OpenRouter 사용량을 불러오지 못했습니다.');
   return payload as UsageResponse;
-}
-
-async function reconcileOpenRouterUsage(user: User, input: UncertainResolutionInput): Promise<void> {
-  const token = await user.getIdToken();
-  const response = await fetch('/api/openrouter-usage', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
-  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-  if (!response.ok) throw new Error(payload?.error || '불확실 비용 정산을 처리하지 못했습니다.');
 }
 
 const operationIcon = (operation: UsageOperation) => {
@@ -165,8 +144,14 @@ const operationIcon = (operation: UsageOperation) => {
 };
 
 export default function OpenRouterUsagePage() {
+  const session = useAdminUsersSession();
+  if (session.loading) return <PageShell><p role="status">사용량 조회 권한을 확인하고 있습니다.</p></PageShell>;
+  if (session.currentUser && (!session.allowed || !session.isFullAdmin)) return <PageShell><h1>전체 관리자 권한이 필요합니다</h1><Link href="/admin">관리자 홈</Link></PageShell>;
+  return <OpenRouterUsageWorkspace key={session.sessionKey} sessionKey={session.sessionKey} />;
+}
+
+function OpenRouterUsageWorkspace({ sessionKey }: { sessionKey: string }) {
   const { currentUser, loading: authLoading, isConfigured: authConfigured, error: authError } = useAuth();
-  const queryClient = useQueryClient();
   const [range, setRange] = useState<RangeDays>(30);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
@@ -180,30 +165,13 @@ export default function OpenRouterUsagePage() {
   const isAuthChecking = authLoading && !authLoadingTimedOut;
   const canOpenLogin = authConfigured && !isAuthChecking;
   const usageQuery = useQuery({
-    queryKey: ['openrouter-usage', currentUser?.uid ?? 'anonymous', range],
-    queryFn: () => fetchOpenRouterUsage(currentUser as User, range),
+    queryKey: ['openrouter-usage', currentUser?.uid ?? 'anonymous', sessionKey, range],
+    queryFn: ({ signal }) => fetchOpenRouterUsage(currentUser as User, range, signal),
+    gcTime: 0, retry: false,
     enabled: Boolean(currentUser),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
-  const { mutateAsync: reconcileUsage } = useMutation({
-    mutationFn: (input: UncertainResolutionInput) => {
-      if (!currentUser) throw new Error('관리자 로그인이 필요합니다. 다시 로그인해 주세요.');
-      return reconcileOpenRouterUsage(currentUser, input);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ['openrouter-usage'],
-      });
-    },
-  });
-  const handleReconcile = useCallback(
-    async (input: UncertainResolutionInput) => {
-      await reconcileUsage(input);
-    },
-    [reconcileUsage],
-  );
-
   const summary = usageQuery.data?.summary;
   const hasKnownCost = Boolean(summary && summary.pricedRequestCount > 0);
   const costPerThousandTokens =
@@ -303,19 +271,12 @@ export default function OpenRouterUsagePage() {
           <WarningNotice role="status">이 기간에 기록이 많아 최근 10,000건만 집계했습니다.</WarningNotice>
         ) : null}
 
-        {data?.recordingAvailable ? (
-          <UncertainUsageReconciliation
-            summary={data.uncertainSummary || { count: 0, reservedCostUsd: 0 }}
-            items={data.uncertain || []}
-            truncated={Boolean(data.uncertainTruncated)}
-            onResolve={handleReconcile}
-          />
-        ) : null}
+        <ImageBudgetPanel />
 
         <KpiGrid>
           <KpiCard>
             <KpiIcon $tone="money"><DollarSign size={19} aria-hidden /></KpiIcon>
-            <KpiLabel>실제 누적 비용</KpiLabel>
+            <KpiLabel>공급자 응답에 기록된 비용</KpiLabel>
             <KpiValue>{hasKnownCost ? formatUsd(summary?.costUsd) : '비용 미확인'}</KpiValue>
             <KpiMeta>{summary ? `${formatNumber(summary.pricedRequestCount)}건의 비용 응답 기준` : '-'}</KpiMeta>
           </KpiCard>

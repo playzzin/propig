@@ -9,7 +9,7 @@ import AxeBuilder from '@axe-core/playwright';
 const root = process.cwd();
 const baseline = process.env.ADMIN_USERS_BASELINE_PAGE;
 const permissions = { userManagement: false, menuManagement: false, projectBoardManagement: false, photoManagement: false, storageManagement: false };
-const user = (uid, displayName, overrides = {}) => ({ uid, displayName, email: `${uid}@example.invalid`, photoURL: null, disabled: false, emailVerified: true, providerIds: ['password'], createdAt: '2026-01-01T00:00:00.000Z', lastSignInAt: null, role: 'user', position: 'staff', siteAccess: { corp: true, blog: true, shop: true, admin: false }, menuAccess: {}, permissions, updatedAt: null, updatedBy: null, isAdminDocLinked: false, ...overrides });
+const user = (uid, displayName, overrides = {}) => ({ revision: 'a'.repeat(64), uid, displayName, email: `${uid}@example.invalid`, photoURL: null, disabled: false, emailVerified: true, providerIds: ['password'], createdAt: '2026-01-01T00:00:00.000Z', lastSignInAt: null, role: 'user', position: 'staff', siteAccess: { corp: true, blog: true, shop: true, admin: false }, menuAccess: {}, permissions, updatedAt: null, updatedBy: null, isAdminDocLinked: false, ...overrides });
 const records = [user('actor-A', '관리 운영자', { role: 'admin', position: 'ceo', permissions: Object.fromEntries(Object.keys(permissions).map(k => [k, true])), isAdminDocLinked: true }), user('member-1', '일반 회원'), user('member-2', '파트너 회원', { role: 'partner' }), user('guest-1', '중지 회원', { role: 'guest', disabled: true, emailVerified: false })];
 const sites = Object.fromEntries(['corp', 'blog', 'shop', 'admin'].map(id => [id, { name: id, icon: 'users', menu: [{ id: `${id}-home`, text: `${id} 홈`, type: 'link', path: id === 'shop' ? '/propig' : `/${id}` }], trash: [] }]));
 const stubs = {
@@ -63,6 +63,8 @@ window.fetch=async(input,options={})=>{
   let payload,status=200;
   if(mode==='denied'){status=403;payload={error:'격리 권한 거절'}}
   else if(mode==='invalid'){status=400;payload={error:'격리 입력 거절'}}
+  else if(mode==='conflict'){status=409;payload={error:'다른 관리자가 변경했습니다. 새로고침 후 다시 편집하세요.',code:'USER_UPDATE_CONFLICT'}}
+  else if(mode==='in-progress'){status=409;payload={error:'다른 저장 요청이 진행 중입니다. 새로고침으로 확인하세요.',code:'USER_UPDATE_IN_PROGRESS'}}
   else if(mode==='uncertain'){status=503;payload={error:'변경이 일부 반영되었을 수 있습니다. 새로고침 후 상태를 확인해 주세요.',code:'USER_UPDATE_UNCERTAIN'}}
   else if(mode==='malformed')payload={};
   else if(method==='GET'){
@@ -70,7 +72,7 @@ window.fetch=async(input,options={})=>{
    payload={users:structuredClone(list),storage,nextPageToken:url.searchParams.has('pageToken')?null:'fixture-page-2'};
   }else{
    const i=window.__records.findIndex(u=>u.uid===body.uid);if(i<0)throw Error('Unexpected target');
-   window.__records[i]={...window.__records[i],...body,updatedAt:'2026-09-09T00:00:00.000Z'};
+   window.__records[i]={...window.__records[i],...body,revision:'b'.repeat(64),updatedAt:'2026-09-09T00:00:00.000Z'};
    payload={ok:true,user:structuredClone(window.__records[i]),storage};if(mode==='wrong-uid')payload.user.uid='wrong-target';
   }
   return {ok:status<400,status,json:()=>window.__stage('json',()=>payload)};
@@ -195,6 +197,25 @@ try {
     await page.evaluate(() => window.__release('save', true)); await settle();
     assert.deepEqual(await page.evaluate(() => window.__toasts), []);
     console.log('PASS whole-request deadline, late token rejection, same-UID reopen, unmount late failure');
+
+    for (const mode of ['conflict', 'in-progress']) {
+      await ready(); await choose(); await position.selectOption('manager');
+      await page.evaluate(mode => {window.__modes.save=mode;}, mode); await save().click();
+      await page.getByRole('alert').waitFor();
+      assert.equal(await page.evaluate(() => window.__calls.find(c=>c.method==='PATCH').body.expectedRevision), 'a'.repeat(64));
+      assert.equal(await position.inputValue(), 'manager', 'conflict preserves unsaved draft');
+      assert.equal(await save().isDisabled(), true, 'conflict cannot blindly resubmit');
+      await page.getByRole('button', {name:'상세 닫기 · 목록으로',exact:true}).click(); await choose();
+      assert.equal(await save().isDisabled(), true, 'reopening does not clear server conflict');
+      await page.evaluate(() => {delete window.__modes.save;window.__records.find(u=>u.uid==='member-1').revision='c'.repeat(64);});
+      await page.getByRole('button', {name:'새로고침으로 저장 상태 확인',exact:true}).click();
+      await page.waitForFunction(() => window.__calls.filter(c=>c.method==='GET').length>1); await settle();
+      await position.selectOption('intern'); await save().click();
+      await page.waitForFunction(() => window.__toasts.some(t=>t.type==='success'));
+      assert.equal(await page.evaluate(() => window.__calls.filter(c=>c.method==='PATCH').at(-1).body.expectedRevision), 'c'.repeat(64));
+    }
+    console.log('PASS server revision echo, conflict/in-progress preservation and explicit refresh recovery');
+
 
 
     await ready();

@@ -200,6 +200,8 @@ function AdminUsersWorkspace({ session }: { session: Session }) {
 
         <ToolbarActions>
           <Link href="/admin" onNavigate={event => { if (!controller.confirmLeave()) event.preventDefault(); }}>관리자 홈</Link>
+          {isFullAdmin && <Link href="/admin/users/invitations" onNavigate={event => { if (!controller.confirmLeave()) event.preventDefault(); }}>팀원 온보딩 초대</Link>}
+          {controller.targetUid && <a href="/admin/users" onClick={event => { if (!controller.confirmLeave()) event.preventDefault(); }}>전체 유저 목록으로</a>}
           <StatusPill $ok={storage?.canPersist !== false}>
             <LockKeyhole size={15} />
             {!storage ? '저장 환경 확인 중' : storage.canPersist === false ? 'Firestore 설정 필요' : '저장 가능'}
@@ -359,6 +361,13 @@ function AdminUsersWorkspace({ session }: { session: Session }) {
                 </MetaItem>
               </MetaGrid>
 
+              <Section aria-label="권한 변경 안전 안내">
+                <SectionTitle><ShieldCheck size={17} /><strong>변경 이력과 저장 보호</strong></SectionTitle>
+                {isFullAdmin && <Link href={`/admin/openrouter-usage?uid=${encodeURIComponent(selectedUser.uid)}`} onNavigate={event => { if (!controller.confirmLeave()) event.preventDefault(); }}>이 사용자의 이미지 예산·비용 확인</Link>}
+                <p className="scope-note">마지막 권한 변경: {formatDate(selectedUser.updatedAt)} · 변경자: {selectedUser.updatedBy || '기록 없음'}</p>
+                <p className="scope-note">조회한 권한 버전을 기준으로 저장합니다. 다른 관리자가 먼저 변경하면 덮어쓰지 않고, 최신 상태 확인을 요청합니다.</p>
+                {isFullAdmin && <Link href={`/admin/activity-logs?action=admin.user.update&q=${encodeURIComponent(selectedUser.uid)}`} onClick={(event) => { if (!controller.confirmLeave()) event.preventDefault(); }}>이 사용자의 권한 변경 이력 보기</Link>}
+              </Section>
               {!canEditSelectedUser && <p className="scope-note">{controller.refreshing ? '서버 상태 확인 중에는 편집할 수 없습니다.' : '위임 관리자는 본인 또는 관리자 계정을 수정할 수 없습니다.'}</p>}
               {selectedUser.uid === currentUser.uid && <p className="scope-note">본인 계정의 관리자 강등 및 비활성화는 이 화면에서 할 수 없습니다.</p>}
               <Section>

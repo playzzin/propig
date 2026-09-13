@@ -2,6 +2,9 @@ import { onRequest, type Request } from 'firebase-functions/v2/https';
 import type { Response } from 'express';
 import { openRouterApiKey } from '../secrets';
 import { handleAdminUsers } from './hostingAdminUsers';
+import { handleAdminInvitations, handleAcceptInvitation } from './hostingInvitations';
+import { handleProductionInbox } from './hostingProductionInbox';
+import { handleImageBudgets } from './hostingImageBudgets';
 import { handleAiConfig, handleAiConfigTest } from './hostingAiConfigRoutes';
 import {
     handleActivityLogs,
@@ -41,6 +44,10 @@ export const HOSTING_API_ROUTE_PATTERNS = [
     '/api/admin/activity-logs',
     '/api/admin/menu-sites',
     '/api/admin/users',
+    '/api/admin/invitations',
+    '/api/invitations/accept',
+    '/api/production-inbox',
+    '/api/admin/image-budgets',
     '/api/ai-config',
     '/api/ai-config/test',
     '/api/convert-image',
@@ -74,6 +81,10 @@ const exactRoutes = new Map<string, RouteHandler>([
     ['/api/admin/activity-logs', handleAdminActivityLogs],
     ['/api/admin/menu-sites', handleAdminMenuSites],
     ['/api/admin/users', handleAdminUsers],
+    ['/api/admin/invitations', handleAdminInvitations],
+    ['/api/invitations/accept', handleAcceptInvitation],
+    ['/api/production-inbox', handleProductionInbox],
+    ['/api/admin/image-budgets', handleImageBudgets],
     ['/api/ai-config', handleAiConfig],
     ['/api/ai-config/test', handleAiConfigTest],
     ['/api/convert-image', handleConvertImage],

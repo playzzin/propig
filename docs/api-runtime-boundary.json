@@ -35,6 +35,26 @@
       "function": "adminStorage",
       "notes": "Backed by functions/src/api/adminStorage.ts."
     },
+    "/api/admin/image-budgets": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Full-admin per-user image policy and manual uncertain accounting; enforced by both image reservation transactions, same-operation replay stays blocked."
+    },
+    "/api/production-inbox": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated current-UID read-only production discovery across fixed legacy stores; no paid replay or cross-account reads."
+    },
+    "/api/admin/invitations": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Full-admin onboarding invitation issuance, bounded listing, cancellation and token rotation; no automatic access grants."
+    },
+    "/api/invitations/accept": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Verified-email single-use onboarding acceptance; explicit access review required, no claims or userAccess mutation."
+    },
     "/api/admin/users": {
       "classification": "firebase-hosting-rewrite",
       "function": "hostingApi",

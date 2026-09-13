@@ -51,7 +51,7 @@ export function useAdminUsersSession() {
 
 class StaleRequest extends Error {}
 class RequestFailure extends Error {
-  constructor(message: string, readonly uncertain = false) { super(message); }
+  constructor(message: string, readonly uncertain = false, readonly reloadRequired = false) { super(message); }
 }
 export const ADMIN_USERS_DEADLINE_MS = 20_000;
 type Editor = { identity: symbol; uid: string; source: ManagedUserRecord; base: UserDraft; draft: UserDraft; revision: number };
@@ -62,7 +62,9 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
 }) {
   const queryClient = useQueryClient();
   const instanceId = useId();
-  const queryKey = useMemo(() => ['admin-users', currentUser.uid, sdkSession, instanceId] as const, [currentUser.uid, sdkSession, instanceId]);
+  // Invitation review resolves the exact account rather than searching only the first Auth page.
+  const [targetUid] = useState(() => typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('uid') ?? '');
+  const queryKey = useMemo(() => ['admin-users', currentUser.uid, sdkSession, instanceId, targetUid] as const, [currentUser.uid, sdkSession, instanceId, targetUid]);
   const lifecycle = useRef({ live: false, generation: 0 });
   const controllers = useRef(new Set<AbortController>());
   const editorRef = useRef<Editor | null>(null);
@@ -94,7 +96,7 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
   }, [queryClient, queryKey]);
 
   // Deadline starts BEFORE token acquisition and also bounds JSON decoding.
-  const request = useCallback(async (path: string, body?: { uid: string } & UserDraft, signal?: AbortSignal) => {
+  const request = useCallback(async (path: string, body?: { uid: string; expectedRevision: string } & UserDraft, signal?: AbortSignal) => {
     const generation = lifecycle.current.generation;
     const controller = new AbortController();
     controllers.current.add(controller);
@@ -130,8 +132,9 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
         if (!response.ok) {
           const error = payload as { code?: string; error?: string };
           const uncertain = Boolean(body && (error?.code === 'USER_UPDATE_UNCERTAIN' || response.status >= 500));
+          const reloadRequired = Boolean(body && ['USER_UPDATE_CONFLICT', 'USER_UPDATE_IN_PROGRESS'].includes(error?.code ?? ''));
           throw new RequestFailure(uncertain ? '일부 변경이 반영되었을 수 있습니다. 다시 저장하지 말고 새로고침으로 계정 상태를 확인하세요.' :
-            (typeof error?.error === 'string' ? error.error : '요청을 처리하지 못했습니다.'), uncertain);
+            (typeof error?.error === 'string' ? error.error : '요청을 처리하지 못했습니다.'), uncertain, reloadRequired);
         }
         return payload;
       })()]);
@@ -151,7 +154,7 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
     refetchOnWindowFocus: false, refetchOnReconnect: false,
     queryFn: async ({ pageParam, signal }) => {
       const generation = lifecycle.current.generation;
-      const result = usersPageSchema.parse(await request(`/api/admin/users${pageParam ? `?pageToken=${encodeURIComponent(pageParam)}` : ''}`, undefined, signal));
+      const result = usersPageSchema.parse(await request(`/api/admin/users${targetUid ? `?uid=${encodeURIComponent(targetUid)}` : pageParam ? `?pageToken=${encodeURIComponent(pageParam)}` : ''}`, undefined, signal));
       if (!isLive(generation)) throw new StaleRequest();
       return result;
     },
@@ -211,7 +214,7 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
     setSaving(true); setSaveError('');
     const submitted: UserDraft = { ...value.draft, menuAccess: Object.fromEntries(Object.entries(value.draft.menuAccess).filter(([key]) => !permissionManagedMenuKeys.has(key))) };
     try {
-      const raw = await request('/api/admin/users', { uid: value.uid, ...submitted });
+      const raw = await request('/api/admin/users', { uid: value.uid, expectedRevision: value.source.revision, ...submitted });
       if (!isLive(generation)) return;
       const parsed = userAckSchema.safeParse(raw);
       if (!parsed.success || parsed.data.user.uid !== value.uid) throw new RequestFailure('저장 확인 응답이 올바르지 않습니다. 새로고침으로 서버 상태를 확인하세요.', true);
@@ -229,7 +232,7 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
     } catch (error) {
       if (!isLive(generation) || error instanceof StaleRequest) return;
       const message = error instanceof Error ? error.message : '저장에 실패했습니다.';
-      if (error instanceof RequestFailure && error.uncertain) {
+      if (error instanceof RequestFailure && (error.uncertain || error.reloadRequired)) {
         uncertainRef.current = { ...uncertainRef.current, [value.uid]: message };
         setUncertainUsers(uncertainRef.current);
       }
@@ -268,7 +271,7 @@ export function useAdminUsersController({ currentUser, sdkSession, isFullAdmin, 
     return () => window.removeEventListener('beforeunload', beforeUnload);
   }, []);
 
-  return { usersQuery, users, selectedUser, selectedUid, draft: editor?.draft ?? null, setDraft, selectUser, closeEditor, confirmLeave,
+  return { targetUid, usersQuery, users, selectedUser, selectedUid, draft: editor?.draft ?? null, setDraft, selectUser, closeEditor, confirmLeave,
     canEditSelectedUser: canEditSelectedUser && !refreshing, dirty, summary, saving, saveError, uncertain,
     handleSave, refresh, refreshing, discardDraft, storage: usersQuery.data?.pages[0]?.storage };
 }

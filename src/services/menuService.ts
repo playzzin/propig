@@ -534,6 +534,10 @@ class MenuService implements MenuServiceInterface {
       nextData = adminMigration.data;
       changed = changed || adminMigration.changed;
 
+      const inboxMigration = this.applyAdminProductionInboxMenu(nextData);
+      nextData = inboxMigration.data;
+      changed = changed || inboxMigration.changed;
+
       const storyboardStudioMigration = this.applyAdminStoryboardStudioMenu(nextData);
       nextData = storyboardStudioMigration.data;
       changed = changed || storyboardStudioMigration.changed;
@@ -642,6 +646,10 @@ class MenuService implements MenuServiceInterface {
     const workspaceFilesCleanup = this.cleanupAdminWorkspaceFilesMenu(nextData);
     nextData = workspaceFilesCleanup.data;
     changed = changed || workspaceFilesCleanup.changed;
+
+    const inboxSync = this.applyAdminProductionInboxMenu(nextData);
+    nextData = inboxSync.data;
+    changed = changed || inboxSync.changed;
 
     const storyboardStudioSync = this.applyAdminStoryboardStudioMenu(nextData);
     nextData = storyboardStudioSync.data;
@@ -1606,6 +1614,16 @@ class MenuService implements MenuServiceInterface {
       },
       changed: true,
     };
+  }
+
+  private applyAdminProductionInboxMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {
+    const site = data.admin;
+    if (!site || this.siteHasMenuTarget(site, 'admin-production-inbox', '/admin/production-inbox')) return { data, changed: false };
+    const item: MenuItem = { id: 'admin-production-inbox', text: '내 제작 작업함', path: '/admin/production-inbox', icon: 'list-check', type: 'link', roles: ['admin'], position: ['ceo', 'manager'] };
+    const menu = [...site.menu];
+    const divider = menu.findIndex(entry => entry.id === 'admin-divider-1');
+    menu.splice(divider >= 0 ? divider : menu.length, 0, item);
+    return { data: { ...data, admin: { ...site, menu } }, changed: true };
   }
 
   private applyAdminStoryboardStudioMenu(data: SiteDataType): { data: SiteDataType; changed: boolean } {

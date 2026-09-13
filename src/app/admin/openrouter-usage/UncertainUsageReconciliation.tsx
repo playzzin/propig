@@ -16,10 +16,10 @@ export type UsageOperation = 'text' | 'image' | 'video';
 export type UncertainUsageRecord = {
   id: string;
   operation: UsageOperation;
-  model: string;
-  estimatedCostUsd: number;
-  reservedCostUsd: number;
-  day: string;
+  model: string | null;
+  estimatedCostUsd: number | null;
+  reservedCostUsd: number | null;
+  day: string | null;
   reservedAt: string | null;
   updatedAt: string | null;
   jobId: string | null;
@@ -66,12 +66,12 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('ko-KR', {
   minute: '2-digit',
 });
 
-const formatUsd = (value: number) => USD_FORMATTER.format(Number.isFinite(value) ? value : 0);
+const formatUsd = (value: number | null) => typeof value === 'number' && Number.isFinite(value) ? USD_FORMATTER.format(value) : '금액 미기록';
 
-const formatTimestamp = (value: string | null, fallbackDay: string) => {
-  if (!value) return `${fallbackDay} 기록`;
+const formatTimestamp = (value: string | null, fallbackDay: string | null) => {
+  if (!value) return fallbackDay ? `${fallbackDay} 기록` : '시각 미기록';
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? `${fallbackDay} 기록` : DATE_TIME_FORMATTER.format(parsed);
+  return Number.isNaN(parsed.getTime()) ? (fallbackDay ? `${fallbackDay} 기록` : '시각 미기록') : DATE_TIME_FORMATTER.format(parsed);
 };
 
 const operationLabel = (operation: UsageOperation) => {
@@ -115,8 +115,8 @@ export function UncertainUsageReconciliation({ summary, items, truncated, onReso
             <strong>{visibleCount}{truncated ? '건 이상의' : '건의'} 비용 확인이 필요합니다</strong>
             <span>
               {truncated
-                ? `표시된 항목의 ${formatUsd(summary.reservedCostUsd)} 이상을 예산에서 보류하고 있습니다.`
-                : `OpenRouter 응답이 불명확해 ${formatUsd(summary.reservedCostUsd)}를 예산에서 보류하고 있습니다.`}
+                ? `표시된 미확정 항목에 ${formatUsd(summary.reservedCostUsd)}가 보수적으로 반영되어 있습니다.`
+                : `응답이 불명확한 이미지 비용 ${formatUsd(summary.reservedCostUsd)}가 예산에 보수적으로 반영되어 있습니다.`}
               Activity 기록과 대조한 뒤 정산하세요.
             </span>
           </ReservationCopy>
@@ -136,11 +136,11 @@ export function UncertainUsageReconciliation({ summary, items, truncated, onReso
         <SectionHeader>
           <div>
             <SectionTitle id="uncertain-usage-title">불확실 비용 정산</SectionTitle>
-            <SectionHint>보류된 호출만 표시합니다. 두 작업 모두 확인 대화상자를 거친 뒤 반영됩니다.</SectionHint>
+            <SectionHint>선택 계정의 이미지 미확정 비용입니다. 정산은 내부 원장 조정이며 환불이나 생성 재시도가 아닙니다.</SectionHint>
           </div>
           <SectionHeaderActions>
             {summary.count > 0 ? (
-              <ReservedBadge aria-label={`보류 비용 ${truncated ? '표시분 ' : ''}${formatUsd(summary.reservedCostUsd)}`}>
+              <ReservedBadge aria-label={`미확정 비용 ${truncated ? '표시분 ' : ''}${formatUsd(summary.reservedCostUsd)}`}>
                 {visibleCount}{truncated ? '건 이상' : '건'} · {truncated ? '표시분 ' : ''}{formatUsd(summary.reservedCostUsd)}
               </ReservedBadge>
             ) : null}
@@ -166,7 +166,7 @@ export function UncertainUsageReconciliation({ summary, items, truncated, onReso
           <EmptyState>
             <EmptyIcon aria-hidden="true"><CheckCircle2 size={22} /></EmptyIcon>
             <div>
-              <strong>확인이 필요한 보류 비용이 없습니다</strong>
+              <strong>확인이 필요한 미확정 비용이 없습니다</strong>
               <span>불확실한 호출이 생기면 이곳에서 Activity 기록과 대조할 수 있습니다.</span>
             </div>
           </EmptyState>
@@ -176,7 +176,7 @@ export function UncertainUsageReconciliation({ summary, items, truncated, onReso
               <UncertainRow key={item.id}>
                 <RowIdentity>
                   <OperationBadge $operation={item.operation}>{operationLabel(item.operation)}</OperationBadge>
-                  <ModelName title={item.model} translate="no">{item.model}</ModelName>
+                  <ModelName title={item.model ?? undefined} translate="no">{item.model || '모델 미기록'}</ModelName>
                   <TimeText>{formatTimestamp(item.reservedAt ?? item.updatedAt, item.day)}</TimeText>
                 </RowIdentity>
 
@@ -205,7 +205,7 @@ export function UncertainUsageReconciliation({ summary, items, truncated, onReso
 
                 <CostAndActions>
                   <CostBlock>
-                    <span>보류액</span>
+                    <span>미확정 반영액</span>
                     <strong>{formatUsd(item.reservedCostUsd)}</strong>
                     {item.estimatedCostUsd !== item.reservedCostUsd ? (
                       <small>예상 {formatUsd(item.estimatedCostUsd)}</small>
@@ -224,7 +224,7 @@ export function UncertainUsageReconciliation({ summary, items, truncated, onReso
                       $tone="released"
                       onClick={(event) => openDialog(item, 'not_charged', event.currentTarget)}
                     >
-                      미과금 해제
+                      미과금 정산
                     </ResolveButton>
                   </RowActions>
                 </CostAndActions>
@@ -317,7 +317,7 @@ function ResolutionDialog({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (isSubmitting || status === 'success') return;
+    if (isSubmittingRef.current || isSubmitting || status === 'success') return;
 
     let parsedActualCost: number | undefined;
     if (isCharged) {
@@ -331,6 +331,8 @@ function ResolutionDialog({
     }
 
     const trimmedNote = note.trim();
+    if (trimmedNote.length < 10) { setError('공급자 기록과 대조한 확인 근거를 10자 이상 입력해 주세요.'); return; }
+    isSubmittingRef.current = true;
     setError(null);
     setStatus('submitting');
     try {
@@ -342,6 +344,7 @@ function ResolutionDialog({
       });
       setStatus('success');
     } catch (resolutionError) {
+      isSubmittingRef.current = false;
       setError(errorMessage(resolutionError));
       setStatus('idle');
     }
@@ -367,8 +370,8 @@ function ResolutionDialog({
               {isCharged ? <ReceiptText size={20} /> : <ShieldAlert size={20} />}
             </DialogIcon>
             <div>
-              <h2 id={titleId}>{isCharged ? '과금 내역 확정' : '미과금 예약 해제'}</h2>
-              <p translate="no">{selection.item.model}</p>
+              <h2 id={titleId}>{isCharged ? '과금 내역 확정' : '미과금 원장 정산'}</h2>
+              <p translate="no">{selection.item.model || '모델 미기록'}</p>
             </div>
           </DialogHeading>
           <CloseButton type="button" onClick={onClose} disabled={isSubmitting} aria-label="정산 대화상자 닫기">
@@ -378,7 +381,7 @@ function ResolutionDialog({
 
         <DialogDescription id={descriptionId} $warning={!isCharged}>
           {isCharged
-            ? 'OpenRouter Activity에 표시된 실제 과금액을 입력하세요. 확정 금액이 사용량과 예산에 반영됩니다.'
+            ? 'OpenRouter Activity와 대조한 금액을 입력하세요. 관리자 확인 기록에 따라 내부 이미지 예산을 조정하며 공급자 청구서나 환불은 변경하지 않습니다.'
             : 'Activity에 과금이 없을 때만 해제하세요. 실제로 과금된 호출을 해제하면 비용이 누락되고 같은 예산을 다시 사용해 중복 과금될 수 있습니다.'}
         </DialogDescription>
 
@@ -387,7 +390,7 @@ function ResolutionDialog({
             <CheckCircle2 size={20} aria-hidden="true" />
             <div>
               <strong>정산을 반영했습니다</strong>
-              <span>최신 사용량과 보류액을 다시 불러왔습니다.</span>
+              <span>원장 저장을 확인했습니다. 화면 안내에 따라 최신 예산을 확인하세요.</span>
             </div>
             <DialogButton ref={successButtonRef} type="button" $tone="primary" onClick={onClose}>닫기</DialogButton>
           </SuccessPanel>
@@ -426,7 +429,7 @@ function ResolutionDialog({
 
             <FieldGroup>
               <LabelRow>
-                <label htmlFor={`${titleId}-note`}>정산 메모 <OptionalText>선택</OptionalText></label>
+                <label htmlFor={`${titleId}-note`}>확인 근거 <OptionalText>필수 · 10자 이상</OptionalText></label>
                 <CharacterCount>{note.length}/300</CharacterCount>
               </LabelRow>
               <NoteInput
@@ -457,7 +460,7 @@ function ResolutionDialog({
                 disabled={isSubmitting}
                 data-primary-action="true"
               >
-                {isSubmitting ? '처리 중…' : isCharged ? '과금으로 확정' : '미과금으로 해제'}
+                {isSubmitting ? '처리 중…' : isCharged ? '과금으로 확정' : '미과금으로 정산'}
               </DialogButton>
             </DialogActions>
           </DialogForm>

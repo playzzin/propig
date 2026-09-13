@@ -20,13 +20,28 @@ function reset() {
     identity: { ok: true, uid: 'operator', isAdmin: true, role: 'admin', permissions: allPermissions() },
     target: { uid: 'target', email: 'target@example.invalid', displayName: '격리 회원', photoURL: null, disabled: false, emailVerified: true, customClaims: { unrelated: 'preserved' }, providerData: [{ providerId: 'password' }], metadata: { creationTime: '2026-01-01T00:00:00.000Z', lastSignInTime: null } },
     access: { uid: 'target', role: 'user', position: 'staff', siteAccess: { obsolete: true }, menuAccess: { 'corp:obsolete': true }, permissions: { ...noPermissions }, unrelated: 'preserved' },
-    adminDoc: null, authWrites: [], dbWrites: [], listCalls: [], fail: null,
+    guards: {}, audit: [], adminDoc: null, authWrites: [], dbWrites: [], listCalls: [], fail: null,
   };
 }
-const snapshot = (name, id) => ({ id, exists: Boolean(name === 'admins' ? state.adminDoc : state.access), data: () => clone(name === 'admins' ? state.adminDoc : state.access) });
+const docValue = (name, id) => name === 'admins' ? state.adminDoc : name === 'userAccess' ? state.access : state.guards[name + '/' + id];
+const snapshot = (name, id) => ({ id, exists: Boolean(docValue(name, id)), data: () => docValue(name, id) ? clone(docValue(name, id)) : undefined });
+let transactionQueue = Promise.resolve();
 const db = {
-  collection(name) { return { doc(id) { return { name, id, get: async () => { if (state.fail === 'read') throw Error('PRIVATE_DATABASE_DETAIL'); return snapshot(name, id); } }; } }; },
+  collection(name) { return { doc(id) { return { name, id, path: name + '/' + id, get: async () => { if (state.fail === 'read') throw Error('PRIVATE_DATABASE_DETAIL'); return snapshot(name, id); } }; } }; },
   getAll: async (...refs) => { if (state.fail === 'read') throw Error('PRIVATE_DATABASE_DETAIL'); return refs.map(ref => snapshot(ref.name, ref.id)); },
+  async runTransaction(callback) {
+    const previous = transactionQueue; let release; transactionQueue = new Promise(resolve => { release = resolve; }); await previous;
+    const ops = [];
+    try {
+      const value = await callback({ get: async ref => snapshot(ref.name, ref.id),
+        create(ref,data) {if(docValue(ref.name,ref.id))throw Error('exists');ops.push({ref,data});},
+        set(ref,data,options) {ops.push({ref,data,options});},
+        update(ref,data) {ops.push({ref,data,options:{merge:true}});},
+        delete(ref) {ops.push({ref,remove:true});} });
+      for (const op of ops) {const k=op.ref.path;if(op.remove)delete state.guards[k];else state.guards[k]=op.options?.merge?{...state.guards[k],...clone(op.data)}:clone(op.data);}
+      return value;
+    } finally {release();}
+  },
   batch() {
     const ops = [];
     return {
@@ -66,14 +81,14 @@ const common = {
   parseJson: req => { try { return typeof req.body === 'string' ? JSON.parse(req.body) : req.body; } catch { throw new ApiError(400, '잘못된 JSON'); } },
   requireMethod: (req, methods) => { if (!methods.includes(req.method)) throw new ApiError(405, 'Method not allowed'); },
   requireAccess: async () => { if (!state.identity.ok) throw new ApiError(state.identity.status, '권한 없음'); return state.identity; },
-  writeActivityLogSafely: async () => {},
+  writeActivityLogSafely: async entry => { state.audit.push(entry); },
 };
 const stubs = {
   'firebase-admin': admin,
   'firebase-admin/firestore': { FieldValue: admin.firestore.FieldValue, Timestamp },
   '@/lib/firebase-admin': { __esModule: true, default: admin, db, getFirebaseAdminStatus: () => ({ canPersistToFirestore: true, credentialMode: 'fixture', message: null }) },
   '@/lib/server/admin-auth': { requireAdminOrPermissionAuth: async () => state.identity },
-  '@/lib/server/activity-log': { writeActivityLogSafely: async () => {} },
+  '@/lib/server/activity-log': { writeActivityLogSafely: async entry => { state.audit.push(entry); } },
   './hostingCommon': common,
 };
 function load(filename) {
@@ -83,6 +98,7 @@ function load(filename) {
     require: name => {
       if (name in stubs) return stubs[name];
       if (name.startsWith('@/')) return load(path.join(root, 'src', name.slice(2) + '.ts'));
+      if (name.startsWith('.')) return load(path.resolve(path.dirname(filename), name + '.ts'));
       if (name.startsWith('firebase')) throw Error('Unstubbed Firebase access: ' + name);
       return requirePackage(name);
     },
@@ -94,6 +110,10 @@ function load(filename) {
 const next = load(baseline ? '/tmp/propig-users-before-route.ts' : path.join(root, 'src/app/api/admin/users/route.ts'));
 const hosting = load(baseline ? '/tmp/propig-users-before-hosting.ts' : path.join(root, 'functions/src/api/hostingAdminUsers.ts'));
 async function invoke(kind, method, body, query = '') {
+  if (!baseline && method === 'PATCH' && body?.expectedRevision === 'AUTO') {
+    const current = await invoke(kind, 'GET');
+    body = {...body, expectedRevision: current.data?.users?.[0]?.revision ?? '0'.repeat(64)};
+  }
   const url = new URL('https://fixture.invalid/api/admin/users' + query);
   if (kind === 'next') {
     const response = await next[method]({ url: url.href, nextUrl: url, headers: new Headers(), json: async () => typeof body === 'string' ? JSON.parse(body) : body });
@@ -105,7 +125,7 @@ async function invoke(kind, method, body, query = '') {
   try { await hosting.handleAdminUsers(req, res); } catch (error) { result.status = error.status || 500; result.data = { error: error.message, ...(error.details || {}) }; }
   result.cache = headers['cache-control']; return result;
 }
-const payload = (overrides = {}) => ({ uid: 'target', role: 'user', position: 'staff', siteAccess: {}, menuAccess: {}, permissions: { ...noPermissions }, disabled: false, ...overrides });
+const payload = (overrides = {}) => ({ ...(!baseline ? {expectedRevision:'AUTO'} : {}), uid: 'target', role: 'user', position: 'staff', siteAccess: {}, menuAccess: {}, permissions: { ...noPermissions }, disabled: false, ...overrides });
 let tests = 0;
 for (const kind of ['next', 'hosting']) {
   const check = async (name, run) => { reset(); await run(); tests++; console.log(`${baseline ? 'REPRODUCED' : 'PASS'} ${kind}: ${name}`); };
@@ -116,6 +136,11 @@ for (const kind of ['next', 'hosting']) {
     continue;
   }
   for (const status of [401, 403]) await check(`authorization ${status} has no side effects`, async () => { state.identity = { ok: false, status, message: '권한 없음' }; const r = await invoke(kind, 'PATCH', payload()); assert.equal(r.status, status); assert.equal(state.authWrites.length, 0); });
+  if (!baseline) {
+    await check('invitation review resolves exact uid without scanning pages', async () => { const r = await invoke(kind, 'GET', undefined, '?uid=invited-member'); assert.equal(r.status, 200); assert.equal(r.data.users.length, 1); assert.equal(r.data.users[0].uid, 'invited-member'); assert.equal(r.data.nextPageToken, null); assert.equal(state.listCalls.length, 0); });
+    await check('missing invitation review user reports404', async () => { state.fail='missing'; const r=await invoke(kind,'GET',undefined,'?uid=missing-member'); assert.equal(r.status,404); assert(!JSON.stringify(r.data).includes('PRIVATE_')); });
+    await check('uid cannot be combined with pagination or document paths', async () => { for(const query of ['?uid=member&pageToken=next-token','?uid=bad%2Fpath']){ const r=await invoke(kind,'GET',undefined,query); assert.equal(r.status,400); } assert.equal(state.listCalls.length,0); });
+  }
   await check('bounded first page and explicit cursor', async () => { const r = await invoke(kind, 'GET'); assert.equal(r.status, 200); assert.equal(state.listCalls.length, 1); assert.equal(state.listCalls[0].size, 100); assert.equal(r.data.nextPageToken, 'next-token'); assert.match(r.cache, /no-store/); });
   await check('continuation token reaches Auth', async () => { const r = await invoke(kind, 'GET', undefined, '?pageToken=next-token'); assert.equal(r.status, 200); assert.equal(state.listCalls[0].token, 'next-token'); assert.equal(r.data.nextPageToken, null); });
   await check('bad cursor rejected before reads', async () => { const r = await invoke(kind, 'GET', undefined, '?pageToken=' + 'x'.repeat(2050)); assert.equal(r.status, 400); assert.equal(state.listCalls.length, 0); });
@@ -130,6 +155,24 @@ for (const kind of ['next', 'hosting']) {
   await check('oversized claims preflight before disable', async () => { state.target.customClaims.padding = 'x'.repeat(1100); const r = await invoke(kind, 'PATCH', payload({ disabled: true })); assert.equal(r.status, 400); assert.equal(state.authWrites.length, 0); assert.equal(state.target.disabled, false); });
   await check('permission aliases cleared and maps replaced', async () => { state.target.customClaims.photoManagement = true; state.target.customClaims.photoManager = true; const r = await invoke(kind, 'PATCH', payload()); assert.equal(r.status, 200); assert.equal(r.data.ok, true); assert.equal(state.target.customClaims.photoManagement, false); assert.equal(state.target.customClaims.photoManager, false); assert.deepEqual(state.access.siteAccess, {}); assert.deepEqual(state.access.menuAccess, {}); assert.equal(state.access.unrelated, 'preserved'); assert.equal(state.target.customClaims.unrelated, 'preserved'); });
   for (const failure of ['update', 'claims', 'commit']) await check(`${failure} failure reports uncertain mutation`, async () => { state.fail = failure; const r = await invoke(kind, 'PATCH', payload({ disabled: true })); assert.equal(r.status, 503); assert.equal(r.data.code, 'USER_UPDATE_UNCERTAIN'); assert(!JSON.stringify(r.data).includes('PRIVATE_')); });
+  await check('missing and stale revisions cause no Auth writes', async () => {
+    const missing = payload(); delete missing.expectedRevision;
+    const absent = await invoke(kind,'PATCH',missing); assert.equal(absent.status,409);
+    const r = await invoke(kind,'PATCH',payload({expectedRevision:'f'.repeat(64)}));
+    assert.equal(r.status,409); assert.equal(r.data.code,'USER_UPDATE_CONFLICT'); assert.equal(state.authWrites.length,0);
+  });
+  await check('mixed Next/Hosting simultaneous save has a single winner', async () => {
+    const before = await invoke(kind,'GET');const revision=before.data.users[0].revision;assert.match(revision,/^[a-f0-9]{64}$/);
+    const both = await Promise.all([invoke('next','PATCH',payload({expectedRevision:revision,position:'manager'})),invoke('hosting','PATCH',payload({expectedRevision:revision,position:'intern'}))]);
+    assert.deepEqual(both.map(x=>x.status).sort(),[200,409]);assert.equal(state.authWrites.filter(x=>x.kind==='claims').length,1);
+    const stale=await invoke(kind,'PATCH',payload({expectedRevision:revision}));assert.equal(stale.status,409);assert.equal(state.authWrites.filter(x=>x.kind==='claims').length,1);
+    assert.equal(Object.keys(state.guards).length,0,'success releases owned guard');
+  });
+  await check('uncertain save retains guard and rejects fresh retry', async () => {
+    state.fail='claims';const r=await invoke(kind,'PATCH',payload());assert.equal(r.data.code,'USER_UPDATE_UNCERTAIN');
+    const writes=state.authWrites.length;state.fail=null;
+    const retry=await invoke(kind,'PATCH',payload());assert.equal(retry.status,503);assert.equal(retry.data.code,'USER_UPDATE_UNCERTAIN');assert.equal(state.authWrites.length,writes);
+  });
   await check('missing user is safe 404 before writes', async () => { state.fail = 'missing'; const r = await invoke(kind, 'PATCH', payload()); assert.equal(r.status, 404); assert.equal(state.authWrites.length, 0); assert(!JSON.stringify(r.data).includes('PRIVATE_')); });
 }
 console.log(`${baseline ? 'REPRODUCED' : 'PASS'} ${tests} actual Next/Hosting user handler cases; real Zod, identity/Admin SDK/Firestore/audit IO mocked; no live users touched`);
