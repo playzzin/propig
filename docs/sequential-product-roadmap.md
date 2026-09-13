@@ -47,6 +47,16 @@
 - Rules 변경은 초대 클라이언트 직접 접근 차단과 이미지 정책/원장 관리자 클라이언트 쓰기 차단이다. 서버 Admin SDK 접근은 유지한다.
 - 사용자의 이번 작업 커밋·푸시·배포 승인을 확인했다. 운영 반영 결과는 별도 릴리스 기록에 기재한다. 기존 구형 함수 삭제, 실회원 변경, 유료 호출은 하지 않는다.
 
+## 후속 관리자 보호 보강 — 2026-09-13
+
+- 코드 `7c8371f` 커밋·origin push 후 Hosting 500파일과 hostingApi만 배포 완료. Rules/실회원 권한/운영 잠금은 변경하지 않았다.
+- actor + target 공유 잠금과 fresh actor 권한 검증으로 두 API의 교차 관리자 해제 경합을 보호한다. 기존 ADMIN_UIDS 서버 권위는 유지하고 삭제/비활성 actor는 차단한다.
+- 읽기 전용 복구 진단 도구와 운영 runbook 추가. 잠금 해제 자동화는 의도적으로 제공하지 않는다.
+- 실제 양 handler 64사례, helper/복구/브라우저 회귀, 실제 Firestore 에뮬레이터 동시 예약 검사와 전체 통합 게이트 통과.
+- 운영 9경로 HTML 해시 일치, 5 API 비로그인401, 1366/390px 관련8화면 확인. Functions26개 유지, 메타데이터 변경은 hostingApi만 확인.
+- 상세: `docs/admin-user-continuity-recovery.md`. 전역 마지막 관리자 invariant는 여전히 외부 writer·기존 token·직접 Rules 권위를 포함한 별도 설계가 필요하다. 이번 보강과 구분한다.
+- 다음 제품 확장은 독립 팀 데이터 공유·영상/텍스트 예산이다. 자동으로 기존 개인 데이터를 공유하거나 유료 원장을 합치지 않는다.
+
 ## 2단계 착수 전 확인한 제품 결정
 
 - 현재 전역 userAccess/admins만 있고 실제 팀 membership·초대 모델은 없다. localWorkspaceService의 workspaceId는 로컬 폴더 식별자라 협업 tenant로 재사용할 수 없다.
