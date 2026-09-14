@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 
-const baseUrl = (process.env.CAREERS_EXPERIENCE_URL || 'http://127.0.0.1:3002').replace(/\/$/, '');
+const baseUrl = (process.env.CAREERS_EXPERIENCE_URL || process.env.BASE_URL || 'http://127.0.0.1:3002').replace(/\/$/, '');
 const executableCandidates = [
   process.env.CHROME_PATH,
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',

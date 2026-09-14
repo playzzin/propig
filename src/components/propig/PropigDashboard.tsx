@@ -1871,8 +1871,8 @@ function PropigDashboardSession() {
                         <MemoInlineTextarea
                           data-propig-memo-inline-editor
                           value={note.content}
-                          maxLength={MAX_MEMO_LENGTH}
-                          onChange={(event) => updateNote(note.id, { content: event.target.value.slice(0, MAX_MEMO_LENGTH) })}
+                          maxLength={Math.max(MAX_MEMO_LENGTH, note.content.length)}
+                          onChange={(event) => updateNote(note.id, { content: event.target.value.slice(0, Math.max(MAX_MEMO_LENGTH, note.content.length)) })}
                           placeholder="메모 내용을 입력하세요."
                           aria-label="메모 내용"
                           rows={getMemoTextareaRows(note.content)}

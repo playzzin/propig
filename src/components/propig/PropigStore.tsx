@@ -159,6 +159,21 @@ export default function PropigStore() {
         </HeroActions>
       </StoreHero>
 
+      {appRegistry.error ? (
+        <section aria-label="앱 등록 상태 복구">
+          <ErrorText role="alert">{appRegistry.error}</ErrorText>
+          {appRegistry.canRetryLoad ? (
+            <LoginButton type="button" onClick={() => appRegistry.retryLoad()}>
+              앱 목록 다시 불러오기
+            </LoginButton>
+          ) : null}
+        </section>
+      ) : null}
+      {appRegistry.isAwaitingServer && !appRegistry.error ? (
+        <p role="status">기기에 저장된 목록을 표시하고 있어요. 서버 확인 후 등록·해제·순서 변경을 할 수 있어요.</p>
+      ) : null}
+      {appRegistry.isLoading ? <p role="status">앱 등록 정보를 확인하고 있어요.</p> : null}
+
       <StoreOrderPanel>
         <StoreOrderHead>
           <div>
@@ -184,7 +199,7 @@ export default function PropigStore() {
                   <StoreOrderButton
                     type="button"
                     onClick={() => void handleMoveApp(app, -1)}
-                    disabled={index === 0 || appRegistry.isLoading || appRegistry.isSavingOrder}
+                    disabled={index === 0 || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder}
                     aria-label={`${app.title} 위로 이동`}
                     title="위로 이동"
                   >
@@ -193,7 +208,7 @@ export default function PropigStore() {
                   <StoreOrderButton
                     type="button"
                     onClick={() => void handleMoveApp(app, 1)}
-                    disabled={index === installedApps.length - 1 || appRegistry.isLoading || appRegistry.isSavingOrder}
+                    disabled={index === installedApps.length - 1 || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder}
                     aria-label={`${app.title} 아래로 이동`}
                     title="아래로 이동"
                   >
@@ -211,7 +226,6 @@ export default function PropigStore() {
       <StoreGrid>
         {PROPIG_STORE_APPS.map((app) => renderStoreCard(app, appRegistry, handleStoreToggle, handlePreviewApp))}
       </StoreGrid>
-      {appRegistry.error ? <ErrorText>{appRegistry.error}</ErrorText> : null}
 
       {previewApp ? (
         <PreviewBackdrop
@@ -308,7 +322,7 @@ export default function PropigStore() {
               <PreviewConfirmButton
                 type="button"
                 onClick={() => void handleConfirmRegistration(previewApp)}
-                disabled={appRegistry.isInstalled(previewApp.id) || appRegistry.savingAppId === previewApp.id || appRegistry.isLoading}
+                disabled={appRegistry.isInstalled(previewApp.id) || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer}
               >
                 {appRegistry.isInstalled(previewApp.id) ? (
                   <Check size={16} />
@@ -364,7 +378,7 @@ function renderStoreCard(
         <StoreInstallButton
           type="button"
           $installed={installed}
-          disabled={planned || saving || appRegistry.isLoading}
+          disabled={planned || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer}
           aria-pressed={planned ? undefined : installed}
           onClick={() => void handleStoreToggle(app)}
         >

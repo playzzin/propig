@@ -275,6 +275,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /memoReminderJobs/{jobId} {
+      allow get: if signedIn() && (resource == null || resource.data.userId == request.auth.uid);
+      allow list: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
     match /users/{userId} {
       allow read, write: if isOwner(userId) || isAdmin();
 
@@ -283,10 +289,18 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /memoNotifications/{notificationId} {
+        allow read: if isOwner(userId);
+        allow update: if isOwner(userId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']) &&
+          request.resource.data.readAt == request.time;
+        allow create, delete: if false;
+      }
+
       match /{collectionId}/{document=**} {
         allow read, write: if (isOwner(userId) || isAdmin()) &&
           !isRetiredUserProgramCollection(collectionId) &&
-          collectionId != 'storyboardArtifactCleanupCandidates';
+          collectionId != 'storyboardArtifactCleanupCandidates' && collectionId != 'memoNotifications';
       }
     }
 
@@ -337,9 +351,10 @@ service cloud.firestore {
     }
 
     match /{collection}/{document=**} {
-      allow read: if isAdmin() && collection != 'onboardingInvitations';
+      allow read: if isAdmin() && collection != 'onboardingInvitations' && collection != 'memoReminderJobs' && collection != 'users';
       allow write: if isAdmin() &&
         collection != 'onboardingInvitations' &&
+        collection != 'memoReminderJobs' &&
         collection != 'aiBudgetPolicies' &&
         collection != 'aiDailyBudgets' &&
         collection != 'aiOperationReservations' &&

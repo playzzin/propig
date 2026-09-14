@@ -4,7 +4,7 @@ import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureVerifiedScreenshot, waitForAnimationFrame } from './screenshot-quality.mjs';
 
-const baseUrl = process.env.CORP_PAGES_URL || process.env.ERP_HOME_URL || 'http://localhost:3002/';
+const baseUrl = process.env.CORP_PAGES_URL || process.env.ERP_HOME_URL || process.env.BASE_URL || 'http://localhost:3002/';
 const screenshotDir = path.resolve(process.env.CORP_PAGES_SCREENSHOT_DIR || '.tmp-corp-pages');
 const corruptedTextPattern =
   /[\u{fffd}\u{c3}\u{c2}\u{ec}\u{ed}\u{eb}\u{ea}\u{f0}\u{5360}\u{5a9b}\u{6d39}\u{be18}\u{afa9}\u{317c}\u{bfc9}\u{c495}\u{c208}\u{c88e}\u{317b}\u{317d}\u{be2f}\u{b497}\u{f9cf}\u{b76f}\u{bac1}\u{7b4c}\u{7515}\u{63f6}\u{91ab}]/u;

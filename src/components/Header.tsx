@@ -22,6 +22,7 @@ const SiteModeSwitcher = dynamic(
     () => import('./SiteModeSwitcher').then((module) => module.SiteModeSwitcher),
     { ssr: false },
 );
+const MemoNotificationBell = dynamic(() => import('./propig/memos/MemoNotificationBell'), { ssr: false });
 
 interface HeaderProps {
     isMobileSidebarOpen: boolean;
@@ -123,6 +124,7 @@ export default function Header({
 
                 <div className="header-actions">
                     <SiteModeSwitcher />
+                    {currentUser && <MemoNotificationBell key={currentUser.uid} uid={currentUser.uid} />}
                     {currentUser ? (
                         <ProfileButton />
                     ) : (

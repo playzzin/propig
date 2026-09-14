@@ -20,6 +20,8 @@ import {
     StickyNoteColorSchema,
     StickyNoteSchema
 } from '@/types/stickyNote';
+import { SmartMemoFields } from '@/types/stickyNote';
+import { normalizeSmartMemoPatch } from '@/utils/smartMemo';
 import {
     createId,
     clamp,
@@ -70,6 +72,7 @@ const FirestoreStickyNoteSchema = z.object({
     isArchived: z.boolean().default(false),
     createdAt: FirestoreMillisSchema,
     updatedAt: FirestoreMillisSchema,
+    ...SmartMemoFields,
 }).passthrough();
 
 const toFirestoreStickyNote = (note: StickyNote): Omit<StickyNote, 'id'> => ({
@@ -85,6 +88,11 @@ const toFirestoreStickyNote = (note: StickyNote): Omit<StickyNote, 'id'> => ({
     isArchived: note.isArchived,
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
+    ...(note.memoType !== undefined ? { memoType: note.memoType } : {}),
+    ...(note.checklistItems !== undefined ? { checklistItems: note.checklistItems } : {}),
+    ...(note.priority !== undefined ? { priority: note.priority } : {}),
+    ...(note.reminderAt !== undefined ? { reminderAt: note.reminderAt } : {}),
+    ...(note.reminderAcknowledgedAt !== undefined ? { reminderAcknowledgedAt: note.reminderAcknowledgedAt } : {}),
 });
 
 const parseFirestoreStickyNote = (id: string, data: unknown): StickyNote | null => {
@@ -165,17 +173,21 @@ export function useStickyNotes() {
         const deleted = pendingDeletedNoteIdsRef.current;
         const inFlight = inFlightFirestoreWritesRef.current;
         const entries = Array.from(pending.entries());
+        const writes = new Map<string, Promise<void>>();
         pending.clear();
         for (const [id, patch] of entries) {
             if (deleted.has(id)) continue;
             inFlight.add(id);
-            void serializeNoteWrite(uid, id, async () => {
+            const write = serializeNoteWrite(uid, id, async () => {
                 await ensureFirestorePersistence();
                 if (auth.currentUser?.uid !== uid || deleted.has(id) || deletedNoteKeys.has(`${uid}/${id}`)) return;
                 await setDoc(doc(db, 'users', uid, 'stickyNotes', id),
                     { ...patch, updatedAt: serverTimestamp() }, { merge: true });
-            }).catch(() => setStorageError('Sync failed')).finally(() => inFlight.delete(id));
+            });
+            writes.set(id, write);
+            void write.catch(() => setStorageError('Sync failed')).finally(() => inFlight.delete(id));
         }
+        return writes;
     }, []);
 
     // Flush using the owning UID, never the next render's identity. Local edits
@@ -192,9 +204,14 @@ export function useStickyNotes() {
     }, [currentUser?.uid, clearPendingWrites, flushFirestoreWrites]);
 
     const notesOwnerRef = useRef<string | null>(null);
+    const recoveryBlockedRef = useRef<string | null>(null);
     const setNotes = useCallback((action: StickyNote[] | ((prev: StickyNote[]) => StickyNote[])) => {
         if (getStorageKey(auth.currentUser?.uid ?? null) !== storageKey) return;
         if (typeof action === 'function' && notesOwnerRef.current !== storageKey) return;
+        if (recoveryBlockedRef.current === storageKey) {
+            setStorageError('기존 메모 원본을 보존 중입니다. 저장 공간을 확보한 뒤 새로고침해주세요.');
+            return;
+        }
         const next = typeof action === 'function' ? action(notesRef.current) : action;
         notesRef.current = next;
         notesOwnerRef.current = storageKey;
@@ -216,25 +233,37 @@ export function useStickyNotes() {
         let cancelled = false;
         queueMicrotask(() => {
             if (cancelled) return;
-            const raw = window.localStorage.getItem(storageKey);
-            if (!raw) {
-                setNotes([]);
-                setStorageError(null);
-                return;
-            }
+            let raw: string | null = null;
             try {
+                raw = window.localStorage.getItem(storageKey);
+                if (!raw) { setNotes([]); setStorageError(null); return; }
                 const parsedJson = JSON.parse(raw);
                 const parsed = StickyNotesLocalStateV1Schema.safeParse(parsedJson);
 
                 if (!parsed.success) {
-                    setNotes([]);
-                    setStorageError('저장된 메모 데이터 형식이 변경되어 초기화되었습니다.');
+                    window.localStorage.setItem(`${storageKey}:recovery`, raw);
+                    const candidates = isPlainRecord(parsedJson) && Array.isArray(parsedJson.notes) ? parsedJson.notes : [];
+                    const recovered = candidates.flatMap(value => {
+                        const note = StickyNoteSchema.safeParse(value);
+                        return note.success ? [note.data] : [];
+                    });
+                    notesRef.current = recovered;
+                    notesOwnerRef.current = storageKey;
+                    setNotesState(recovered);
+                    setStorageError('읽을 수 있는 메모를 복구했습니다. 원본 데이터는 복구 사본으로 보존했습니다.');
                     return;
                 }
                 setNotes(parsed.data.notes);
                 setStorageError(null);
             } catch {
-                setNotes([]);
+                if (raw) {
+                    try { window.localStorage.setItem(`${storageKey}:recovery`, raw); }
+                    catch { recoveryBlockedRef.current = storageKey; }
+                }
+                notesRef.current = [];
+                notesOwnerRef.current = storageKey;
+                setNotesState([]);
+                setStorageError('저장된 메모를 읽지 못했습니다. 원본은 삭제하지 않았습니다.');
             }
         });
         return () => { cancelled = true; };
@@ -500,10 +529,11 @@ export function useStickyNotes() {
     const updateNote = useCallback((noteId: string, patch: Partial<StickyNote>) => {
         setNotes(prev => prev.map(n => {
             if (n.id !== noteId) return n;
-            const next = { ...n, ...patch, updatedAt: Date.now() };
+            const safePatch = normalizeSmartMemoPatch(n, patch);
+            const next = { ...n, ...safePatch, updatedAt: Date.now() };
             if (currentUser) {
                 const firestorePatch: Record<string, unknown> = {};
-                for (const [key, value] of Object.entries(patch)) {
+                for (const [key, value] of Object.entries(safePatch)) {
                     if (value === undefined || key === 'id' || key === 'createdAt' || key === 'updatedAt') continue;
                     firestorePatch[key] = value;
                 }
@@ -538,6 +568,17 @@ export function useStickyNotes() {
         }
     }, [currentUser, setNotes, storageKey]);
 
+    const restoreNote = useCallback((note: StickyNote) => {
+        if (getStorageKey(auth.currentUser?.uid ?? null) !== storageKey) return;
+        pendingDeletedNoteIdsRef.current.delete(note.id);
+        if (currentUser) deletedNoteKeys.delete(`${currentUser.uid}/${note.id}`);
+        setNotes(previous => {
+            if (previous.some(existing => existing.id === note.id)) return previous;
+            if (currentUser) queueFirestoreWrite(note.id, { ...toFirestoreStickyNote(note) });
+            return [...previous, note];
+        });
+    }, [currentUser, queueFirestoreWrite, setNotes, storageKey]);
+
     const clearNotes = useCallback(async () => {
         clearPendingWrites();
         setNotes([]);
@@ -570,12 +611,24 @@ export function useStickyNotes() {
         });
     }, [currentUser, queueFirestoreWrite, setNotes]);
 
+    const flushNote = useCallback(async (noteId: string) => {
+        const uid = currentUser?.uid;
+        if (!uid || auth.currentUser?.uid !== uid) throw new Error('로그인이 필요합니다.');
+        const note = notesRef.current.find(item => item.id === noteId);
+        if (!note || deletedNoteKeys.has(`${uid}/${noteId}`)) throw new Error('메모를 찾을 수 없습니다.');
+        pendingFirestoreWritesRef.current.set(noteId, toFirestoreStickyNote(note));
+        await flushFirestoreWrites(uid).get(noteId);
+        if (auth.currentUser?.uid !== uid) throw new Error('계정이 변경되었습니다.');
+    }, [currentUser?.uid, flushFirestoreWrites]);
+
     return {
         notes,
         storageError,
         createNote,
         updateNote,
         deleteNote,
+        restoreNote,
+        flushNote,
         clearNotes,
         clearAllNotesData,
         bringToFront,

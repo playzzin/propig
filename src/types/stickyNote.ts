@@ -7,6 +7,21 @@ export const TAG_COLOR_ORDER = ['sun', 'lime', 'sky', 'rose', 'violet', 'slate']
 
 export type StickyNoteColor = z.infer<typeof StickyNoteColorSchema>;
 
+export const MemoChecklistItemSchema = z.object({
+    id: z.string().min(1),
+    text: z.string().max(4000),
+    isChecked: z.boolean(),
+    comments: z.array(z.object({ id: z.string().min(1), text: z.string().max(1000), createdAt: z.number().finite() })).default([]),
+});
+export type MemoChecklistItem = z.infer<typeof MemoChecklistItemSchema>;
+export const SmartMemoFields = {
+    memoType: z.enum(['text', 'checklist']).optional(),
+    checklistItems: z.array(MemoChecklistItemSchema).optional(),
+    priority: z.enum(['low', 'medium', 'high']).optional(),
+    reminderAt: z.number().finite().nullable().optional(),
+    reminderAcknowledgedAt: z.number().finite().optional(),
+};
+
 export type StickyNote = {
     id: string;
     content: string;
@@ -21,6 +36,11 @@ export type StickyNote = {
     isArchived: boolean;
     createdAt: number;
     updatedAt: number;
+    memoType?: 'text' | 'checklist';
+    checklistItems?: MemoChecklistItem[];
+    priority?: 'low' | 'medium' | 'high';
+    reminderAt?: number | null;
+    reminderAcknowledgedAt?: number;
 };
 
 export const StickyNoteSchema: z.ZodType<StickyNote> = z
@@ -38,5 +58,6 @@ export const StickyNoteSchema: z.ZodType<StickyNote> = z
         isArchived: z.boolean(),
         createdAt: z.number(),
         updatedAt: z.number(),
+        ...SmartMemoFields,
     })
     .strict();

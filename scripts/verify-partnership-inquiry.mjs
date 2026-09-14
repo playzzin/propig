@@ -3,7 +3,7 @@ import { access, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 
-const baseUrl = process.env.PARTNERSHIP_URL || 'http://127.0.0.1:3002';
+const baseUrl = process.env.PARTNERSHIP_URL || process.env.BASE_URL || 'http://127.0.0.1:3002';
 const executableCandidates = [
   process.env.CHROME_PATH,
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,

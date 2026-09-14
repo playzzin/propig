@@ -89,7 +89,7 @@ export const StickyNoteCard = ({
     };
 
     const finishComposition = (content: string) => {
-        const nextContent = content.slice(0, MAX_NOTE_LENGTH);
+        const nextContent = content.slice(0, Math.max(MAX_NOTE_LENGTH, note.content.length));
         isComposingRef.current = false;
         setLocalContent(nextContent);
         commitContent(nextContent);
@@ -249,10 +249,10 @@ export const StickyNoteCard = ({
                         placeholder={`제목\n메모 내용을 입력하세요...`}
                         onFocus={beginEditing}
                         onBlur={finishEditing}
-                        maxLength={MAX_NOTE_LENGTH}
+                        maxLength={Math.max(MAX_NOTE_LENGTH, note.content.length)}
                         aria-label="메모 내용"
                         onChange={(e) => {
-                            const next = e.target.value.slice(0, MAX_NOTE_LENGTH);
+                            const next = e.target.value.slice(0, Math.max(MAX_NOTE_LENGTH, note.content.length));
                             setLocalContent(next);
                             if (!isComposingRef.current) commitContent(next);
                         }}

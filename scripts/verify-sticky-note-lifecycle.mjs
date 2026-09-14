@@ -16,13 +16,13 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const storage = new Map();
 let timers = new Map(), nextTimer = 0;
 globalThis.window = { localStorage: {getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)}, setTimeout:fn=>{timers.set(++nextTimer,fn);return nextTimer;},clearTimeout:id=>timers.delete(id)};
-let user = {uid:'A'}, calls=[], records=new Map(), hold=null, persistenceHold=null, deleteFailure=false;
+let user = {uid:'A'}, calls=[], records=new Map(), hold=null, persistenceHold=null, deleteFailure=false, writeFailure=false;
 globalThis.__stickyMock = {
  auth:{get currentUser(){return user;}}, useAuth:()=>({currentUser:user}), db:{},
  ensureFirestorePersistence:()=>persistenceHold?.promise ?? Promise.resolve(),
  collection:(_, ...p)=>p.join('/'),doc:(_, ...p)=>p.join('/'),query:x=>x,
  serverTimestamp:()=>123, onSnapshot:()=>()=>{}, getDocs:async()=>({docs:[]}),writeBatch:()=>({delete(){},commit:async()=>{}}),
- setDoc:async(path,data)=>{calls.push(['set',path,data]);if(hold){const h=hold;hold=null;await h.promise;}records.set(path,{...records.get(path),...data});},
+ setDoc:async(path,data)=>{calls.push(['set',path,data]);if(writeFailure)throw new Error('permission-denied');if(hold){const h=hold;hold=null;await h.promise;}records.set(path,{...records.get(path),...data});},
  deleteDoc:async(path)=>{calls.push(['delete',path]);if(deleteFailure)throw new Error('permission-denied');records.delete(path);}
 };
 await build({entryPoints:[`${root}/src/hooks/useStickyNotes.ts`],outfile:outputFile,bundle:true,platform:'node',format:'cjs',nodePaths:[tools,runtime],plugins:[{name:'mocks',setup(b){
@@ -67,6 +67,33 @@ deleteFailure=true; await act(async()=>{api.deleteNote(id);await drain();});
 assert.equal(api.notes[0].content,'restore me'); assert.ok(api.storageError.includes('복원'));
 deleteFailure=false; await act(async()=>{api.deleteNote(id);await drain();}); assert.equal(api.notes.length,0); await unmount();
 console.log('PASS failed deletion restores editable note and supports explicit retry');
-console.log('6 lifecycle regressions PASS; real React hook + esbuild, mocked Firebase/browser storage, no remote access.');
+await reset(); id=await add();
+await act(async()=>api.updateNote(id,{content:'체크\n[x] 완료',memoType:'checklist',checklistItems:[{id:'i',text:'완료',isChecked:true,comments:[]}],priority:'high',reminderAt:100}));
+const undoNote=structuredClone(api.notes[0]);
+const undoGate=deferred(); hold=undoGate; await tick();
+await act(async()=>{api.deleteNote(id);api.restoreNote(undoNote);});
+await tick(); await act(async()=>{undoGate.resolve();await drain();});
+assert.equal(api.notes.length,1); assert.equal(api.notes[0].id,id);
+assert.equal(saved()[0].checklistItems[0].isChecked,true);
+assert.equal(records.get(`users/A/stickyNotes/${id}`).priority,'high');
+assert.deepEqual(calls.map(call=>call[0]),['set','delete','set']);
+await unmount(); console.log('PASS undo keeps ID/metadata and serializes restore after inflight write/delete');
+await reset(); id=await add(); const healthy=structuredClone(api.notes[0]); await unmount();
+const malformed=JSON.stringify({version:1,notes:[healthy,{...healthy,id:'invalid',checklistItems:[{id:'bad',text:'x',isChecked:'invalid'}]}]});
+storage.set('sticky_notes:v1:A',malformed);
+await mount(); assert.equal(api.notes.length,1); assert.equal(storage.get('sticky_notes:v1:A'),malformed);
+assert.equal(storage.get('sticky_notes:v1:A:recovery'),malformed);
+await act(async()=>api.updateNote(healthy.id,{content:'복구 후 편집'}));
+assert.equal(saved()[0].content,'복구 후 편집'); assert.equal(storage.get('sticky_notes:v1:A:recovery'),malformed);
+await unmount(); console.log('PASS invalid single memo recovers healthy data and preserves raw recovery copy');
+await reset(); id=await add();
+await act(async()=>{api.updateNote(id,{content:'알림 직전 편집'});});
+writeFailure=true;
+await act(async()=>{await assert.rejects(api.flushNote(id), /permission-denied/);});
+writeFailure=false;
+await act(async()=>{await api.flushNote(id);});
+assert.equal(records.get(`users/A/stickyNotes/${id}`).content,'알림 직전 편집');
+await unmount(); console.log('PASS reminder flush propagates write failure and retries latest memo before scheduling');
+console.log('9 lifecycle regressions PASS; real React hook + esbuild, mocked Firebase/browser storage, no remote access.');
 
 fs.rmSync(tempDir,{recursive:true,force:true});

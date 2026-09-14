@@ -24,3 +24,4 @@ export * from './api/adminStorage';
 export * from './api/openRouterUsage';
 export * from './api/hostingApi';
 export * from './triggers/onImageDelete';
+export { setMemoReminder, dispatchMemoReminders } from './triggers/memoReminders';

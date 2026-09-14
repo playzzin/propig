@@ -3,7 +3,7 @@ import { access } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 
 // Run only against the newly built shell. Never starts/stops a server or writes user data.
-const baseUrl = process.env.SIDEBAR_VERIFY_URL || 'http://127.0.0.1:3002';
+const baseUrl = process.env.SIDEBAR_VERIFY_URL || process.env.BASE_URL || 'http://127.0.0.1:3002';
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(baseUrl).hostname), 'Local QA only');
 const candidates = [process.env.CHROME_PATH, process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
   '/usr/bin/chromium', '/usr/bin/google-chrome',

@@ -45,12 +45,13 @@ function createRegistryRef(uid: string) {
 interface RegistryState {
   installedAppIds: PropigStoreAppId[];
   isLoading: boolean;
+  isAwaitingServer: boolean;
   savingAppId: PropigStoreAppId | null;
   isSavingOrder: boolean;
   error: string | null;
 }
 function initialState(): RegistryState {
-  return { installedAppIds: DEFAULT_PROPIG_INSTALLED_APP_IDS, isLoading: true, savingAppId: null, isSavingOrder: false, error: null };
+  return { installedAppIds: DEFAULT_PROPIG_INSTALLED_APP_IDS, isLoading: true, isAwaitingServer: false, savingAppId: null, isSavingOrder: false, error: null };
 }
 
 export function usePropigAppRegistry() {
@@ -58,7 +59,11 @@ export function usePropigAppRegistry() {
   const uid = currentUser?.uid ?? null;
   // A new identity gets a fresh generation even for A -> B -> A. Never expose
   // the previous owner's state on the render before effect cleanup runs.
-  const session = useMemo(() => ({ uid, state: initialState(), ready: false, busy: false, active: false }), [uid]);
+  const session = useMemo(() => ({
+    uid, state: initialState(), ready: false, busy: false, active: false,
+    loadFailed: false, loadGeneration: 0, hasSnapshot: false,
+    bindSubscription: null as (() => void) | null,
+  }), [uid]);
   const currentSession = useRef(session);
   currentSession.current = session;
   const [view, setView] = useState({ session, state: session.state });
@@ -78,19 +83,56 @@ export function usePropigAppRegistry() {
       session.ready = true;
       update({ installedAppIds: readLocalRegistry(uid), isLoading: false });
     } else {
-      unsubscribe = onSnapshot(createRegistryRef(uid), (snapshot) => {
+      const bindSubscription = () => {
         if (!current()) return;
-        session.ready = true;
-        // Local pending snapshots must not replace the saved rollback baseline.
-        if (session.busy) return;
-        const data = snapshot.exists() ? snapshot.data() as { installedAppIds?: unknown } : undefined;
-        update({ installedAppIds: normalizeInstalledAppIds(data?.installedAppIds, DEFAULT_PROPIG_INSTALLED_APP_IDS), isLoading: false, error: null });
-      }, (snapshotError) => {
-        if (!current()) return;
+        // Invalidate before unsubscribe: even queued callbacks from the old
+        // listener cannot make this attempt writable or replace its state.
+        const generation = ++session.loadGeneration;
         session.ready = false;
-        console.warn('Failed to load propig app registry:', snapshotError);
-        update({ installedAppIds: readLocalRegistry(uid), isLoading: false, error: '앱 등록 정보를 불러오지 못했습니다.' });
-      });
+        session.loadFailed = false;
+        update({ isLoading: true, isAwaitingServer: false, error: null });
+        const previousUnsubscribe = unsubscribe;
+        unsubscribe = undefined;
+        const currentLoad = () => current() && session.loadGeneration === generation && !session.loadFailed;
+        const failLoad = (snapshotError: unknown) => {
+          if (!currentLoad()) return;
+          session.ready = false;
+          session.loadFailed = true;
+          console.warn('Failed to load propig app registry:', snapshotError);
+          update({
+            // Keep the last same-account view after a successful snapshot.
+            ...(session.hasSnapshot || session.busy ? {} : { installedAppIds: readLocalRegistry(uid) }),
+            isLoading: false,
+            error: '앱 등록 정보를 불러오지 못했습니다.',
+          });
+        };
+        try {
+          previousUnsubscribe?.();
+          unsubscribe = onSnapshot(createRegistryRef(uid), { includeMetadataChanges: true }, (snapshot) => {
+            if (!currentLoad()) return;
+            const isAwaitingServer = snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites;
+            session.ready = !isAwaitingServer;
+            session.hasSnapshot = true;
+            update({ isAwaitingServer });
+            // Local pending snapshots must not replace the saved rollback baseline.
+            if (session.busy) return;
+            const data = snapshot.exists() ? snapshot.data() as { installedAppIds?: unknown } : undefined;
+            update({
+              // A cache miss is not proof that the server registry is absent.
+              ...(isAwaitingServer && !snapshot.exists() ? {} : {
+                installedAppIds: normalizeInstalledAppIds(data?.installedAppIds, DEFAULT_PROPIG_INSTALLED_APP_IDS),
+              }),
+              isLoading: false, isAwaitingServer, error: null,
+            });
+          }, failLoad);
+        } catch (snapshotError) {
+          // Reference creation and synchronous listener setup failures are also
+          // recoverable, without turning a failed read into a writable fallback.
+          failLoad(snapshotError);
+        }
+      };
+      session.bindSubscription = bindSubscription;
+      bindSubscription();
     }
     const handleRegistryChange = (event: Event) => {
       const detail = (event as CustomEvent<RegistryEventDetail>).detail;
@@ -106,11 +148,25 @@ export function usePropigAppRegistry() {
     return () => {
       alive = false;
       session.active = false;
+      session.ready = false;
+      session.bindSubscription = null;
+      ++session.loadGeneration;
       unsubscribe?.();
       window.removeEventListener(REGISTRY_EVENT, handleRegistryChange);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, [session, uid]);
+
+  const loadGeneration = session.loadGeneration;
+  const canRetryLoad = Boolean(uid && session.active && session.loadFailed && !session.busy && !state.isLoading && !state.savingAppId && !state.isSavingOrder);
+  // No-op when unavailable. Capture the attempt as well as the account session
+  // so a retained handler cannot retry a later failure (even synchronously).
+  const retryLoad = useCallback(() => {
+    if (!uid || !session.active || currentSession.current !== session ||
+      session.loadGeneration !== loadGeneration || !session.loadFailed ||
+      session.busy || session.state.isLoading || session.state.savingAppId || session.state.isSavingOrder) return;
+    session.bindSubscription?.();
+  }, [session, uid, loadGeneration]);
 
   const saveInstalledAppIds = useCallback(async (
     transform: (ids: PropigStoreAppId[]) => PropigStoreAppId[],
@@ -175,5 +231,5 @@ export function usePropigAppRegistry() {
   }, [saveInstalledAppIds]);
   const installedAppIdSet = useMemo(() => new Set(state.installedAppIds), [state.installedAppIds]);
   const isInstalled = useCallback((appId: PropigStoreAppId) => installedAppIdSet.has(appId), [installedAppIdSet]);
-  return { ...state, installedAppIdSet, isInstalled, installApp, uninstallApp, toggleApp, reorderApps, moveApp };
+  return { ...state, canRetryLoad, retryLoad, installedAppIdSet, isInstalled, installApp, uninstallApp, toggleApp, reorderApps, moveApp };
 }

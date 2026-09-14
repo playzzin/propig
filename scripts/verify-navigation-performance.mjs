@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 
-const baseUrl = process.env.NAVIGATION_PERF_URL || 'http://127.0.0.1:3002';
+const baseUrl = process.env.NAVIGATION_PERF_URL || process.env.BASE_URL || 'http://127.0.0.1:3002';
 const maxTransitionMs = Number(process.env.NAVIGATION_PERF_MAX_MS || 5_000);
 const defaultRoutes = [
   '/corp/company/ceo-intro',

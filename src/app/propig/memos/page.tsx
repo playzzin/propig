@@ -5,15 +5,13 @@ import styled from 'styled-components';
 import dynamic from 'next/dynamic';
 
 const MemoLoading = () => <div role="status" aria-live="polite">메모장을 불러오는 중…</div>;
-const BasicMemoAccordion = dynamic(() => import('@/components/BasicMemoAccordion'), { loading: MemoLoading });
+const SmartMemoWorkspace = dynamic(() => import('@/components/propig/memos/SmartMemoWorkspace'), { loading: MemoLoading });
 const StickyNotesBoard = dynamic(() => import('@/components/StickyNotesBoard'), { loading: MemoLoading });
 const DoodlePad = dynamic(() => import('@/components/propig/DoodlePad'), { loading: MemoLoading });
 
 type MemoViewMode = 'list' | 'sticker' | 'doodle';
 
 const MEMO_DEFAULT_VIEW_STORAGE_KEY = 'propig-memos:default-view';
-const MOBILE_MEMO_VIEW_FALLBACK: MemoViewMode = 'sticker';
-const MEMO_MOBILE_MEDIA_QUERY = '(max-width: 720px)';
 
 function isMemoViewMode(value: string | null): value is MemoViewMode {
   return value === 'list' || value === 'sticker' || value === 'doodle';
@@ -21,51 +19,33 @@ function isMemoViewMode(value: string | null): value is MemoViewMode {
 
 function getStoredMemoDefaultView(): MemoViewMode {
   if (typeof window === 'undefined') return 'list';
-  const stored = window.localStorage.getItem(MEMO_DEFAULT_VIEW_STORAGE_KEY);
-  return isMemoViewMode(stored) ? stored : 'list';
+  try {
+    const stored = window.localStorage.getItem(MEMO_DEFAULT_VIEW_STORAGE_KEY);
+    return isMemoViewMode(stored) ? stored : 'list';
+  } catch { return 'list'; }
 }
 
 export default function PropigMemosPage() {
   const [viewMode, setViewMode] = useState<MemoViewMode>('list');
   const [defaultViewMode, setDefaultViewMode] = useState<MemoViewMode>('list');
-  const [isMobileMemoViewport, setIsMobileMemoViewport] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       const storedView = getStoredMemoDefaultView();
-      setViewMode(storedView);
+      setViewMode(new URLSearchParams(window.location.search).has('memoId') ? 'list' : storedView);
       setDefaultViewMode(storedView);
     }, 0);
 
-    return () => window.clearTimeout(timeoutId);
+    const openMemo = () => setViewMode('list');
+    window.addEventListener('propig:open-memo', openMemo);
+    return () => { window.clearTimeout(timeoutId); window.removeEventListener('propig:open-memo', openMemo); };
   }, []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const mediaQuery = window.matchMedia(MEMO_MOBILE_MEDIA_QUERY);
-    const syncMobileViewport = () => {
-      const isMobile = mediaQuery.matches;
-      setIsMobileMemoViewport(isMobile);
-      if (isMobile) {
-        setViewMode((current) => (current === 'list' ? MOBILE_MEMO_VIEW_FALLBACK : current));
-      }
-    };
-
-    syncMobileViewport();
-    mediaQuery.addEventListener('change', syncMobileViewport);
-    return () => mediaQuery.removeEventListener('change', syncMobileViewport);
-  }, []);
-
-  const effectiveViewMode = isMobileMemoViewport && viewMode === 'list' ? MOBILE_MEMO_VIEW_FALLBACK : viewMode;
-  const effectiveDefaultViewMode = isMobileMemoViewport && defaultViewMode === 'list' ? MOBILE_MEMO_VIEW_FALLBACK : defaultViewMode;
+  const effectiveViewMode = viewMode;
+  const effectiveDefaultViewMode = defaultViewMode;
 
   const changeViewMode = (nextMode: MemoViewMode) => {
-    if (isMobileMemoViewport && nextMode === 'list') {
-      setViewMode(MOBILE_MEMO_VIEW_FALLBACK);
-      return;
-    }
     setViewMode(nextMode);
   };
 
@@ -73,7 +53,7 @@ export default function PropigMemosPage() {
     setDefaultViewMode(nextMode);
     setViewMode(nextMode);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(MEMO_DEFAULT_VIEW_STORAGE_KEY, nextMode);
+      try { window.localStorage.setItem(MEMO_DEFAULT_VIEW_STORAGE_KEY, nextMode); } catch { /* The current view still works without storage. */ }
     }
   };
 
@@ -83,7 +63,7 @@ export default function PropigMemosPage() {
         <MemoPageShell>
           <MemoToolbar>
             <ModeBar aria-label="메모 보기 방식">
-              {!isMobileMemoViewport ? (
+              {(
                 <ModeButton
                   type="button"
                   $active={effectiveViewMode === 'list'}
@@ -94,7 +74,7 @@ export default function PropigMemosPage() {
                   <i className="fa-solid fa-list-ul" aria-hidden="true" />
                   <span>목록</span>
                 </ModeButton>
-              ) : null}
+              )}
               <ModeButton
                 type="button"
                 $active={effectiveViewMode === 'sticker'}
@@ -137,7 +117,7 @@ export default function PropigMemosPage() {
                 <span>다음에 메모장을 열 때 먼저 보여줄 화면을 정합니다.</span>
               </ManagementCopy>
               <DefaultModeGrid>
-                {!isMobileMemoViewport ? (
+                {(
                   <DefaultModeButton
                     type="button"
                     $active={effectiveDefaultViewMode === 'list'}
@@ -147,7 +127,7 @@ export default function PropigMemosPage() {
                     <i className="fa-solid fa-list-ul" aria-hidden="true" />
                     <span>목록</span>
                   </DefaultModeButton>
-                ) : null}
+                )}
                 <DefaultModeButton
                   type="button"
                   $active={effectiveDefaultViewMode === 'sticker'}
@@ -171,7 +151,7 @@ export default function PropigMemosPage() {
           ) : null}
 
           <MemoModeBody>
-            {effectiveViewMode === 'list' ? <BasicMemoAccordion /> : null}
+            {effectiveViewMode === 'list' ? <SmartMemoWorkspace /> : null}
             {effectiveViewMode === 'sticker' ? <StickyNotesBoard /> : null}
             {effectiveViewMode === 'doodle' ? <DoodlePad /> : null}
           </MemoModeBody>
