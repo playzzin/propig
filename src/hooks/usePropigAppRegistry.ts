@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { db, ensureFirestorePersistence } from '@/firebase/config';
 import {
@@ -190,13 +190,29 @@ export function usePropigAppRegistry() {
       if (uid) {
         await ensureFirestorePersistence();
         if (!current() || !session.ready) throw new Error('사용자 또는 앱 등록 상태가 변경되었습니다.');
-        await setDoc(createRegistryRef(uid), { installedAppIds: normalized, updatedAt: serverTimestamp(), version: 1 }, { merge: true });
+        await runTransaction(db, async transaction => {
+          const ref = createRegistryRef(uid);
+          const snapshot = await transaction.get(ref);
+          if (!current() || !session.ready) throw new Error('사용자 또는 앱 등록 상태가 변경되었습니다.');
+          const remote = normalizeInstalledAppIds(snapshot.data()?.installedAppIds, DEFAULT_PROPIG_INSTALLED_APP_IDS);
+          if (remote.length !== previous.length || remote.some((id, index) => id !== previous[index])) {
+            throw Object.assign(new Error('다른 기기에서 앱 목록을 변경했습니다. 최신 목록을 불러온 뒤 다시 변경해 주세요.'), { code: 'REGISTRY_CONFLICT' });
+          }
+          transaction.set(ref, { installedAppIds: normalized, updatedAt: serverTimestamp(), version: 1 }, { merge: true });
+        });
         if (!current()) throw new Error('사용자가 변경되었습니다.');
       }
       // Publish only after cloud ACK, never leak an optimistic failure to peers.
       publishRegistry(uid, normalized);
     } catch (saveError) {
-      update({ installedAppIds: previous, error: '앱 등록 정보를 저장하지 못했습니다.' });
+      const conflict = (saveError as { code?: string })?.code === 'REGISTRY_CONFLICT';
+      if (conflict && current()) {
+        session.ready = false;
+        session.loadFailed = true;
+      }
+      update({ installedAppIds: previous, error: conflict
+        ? '다른 기기에서 앱 목록을 변경했습니다. 최신 목록을 불러온 뒤 다시 변경해 주세요.'
+        : '앱 등록 정보를 저장하지 못했습니다.' });
       throw saveError;
     } finally {
       session.busy = false;
