@@ -1220,7 +1220,7 @@ const Page = styled.main`
   color: var(--board-ink);
   background: #010713;
   color-scheme: dark;
-  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 
   button,
   a {

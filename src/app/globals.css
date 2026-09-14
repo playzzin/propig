@@ -98,7 +98,7 @@ html[data-propig-design='codeit'] {
 }
 
 body {
-  font-family: 'Pretendard', -apple-system, sans-serif;
+  font-family: 'Pretendard Variable', 'Pretendard', -apple-system, sans-serif;
   background-color: var(--bg-base);
   color: var(--text-main);
   width: 100%;

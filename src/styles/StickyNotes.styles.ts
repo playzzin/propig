@@ -2,7 +2,7 @@
 import styled, { css } from 'styled-components';
 import { StickyNoteColor } from '@/types/stickyNote';
 
-const stickyNotesFontFamily = "'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const stickyNotesFontFamily = "'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 // Helper for gradients
 const getGradient = (color: StickyNoteColor) => {

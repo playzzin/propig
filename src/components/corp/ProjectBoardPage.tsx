@@ -2563,7 +2563,7 @@ const PageShell = styled.main`
     #f6f8f5;
   background-size: 34px 34px, 34px 34px, auto;
   color: #17211d;
-  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   letter-spacing: 0;
 
   *,

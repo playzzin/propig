@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import styled from 'styled-components';
-import BasicMemoAccordion from '@/components/BasicMemoAccordion';
-import StickyNotesBoard from '@/components/StickyNotesBoard';
-import DoodlePad from '@/components/propig/DoodlePad';
+import dynamic from 'next/dynamic';
+
+const MemoLoading = () => <div role="status" aria-live="polite">메모장을 불러오는 중…</div>;
+const BasicMemoAccordion = dynamic(() => import('@/components/BasicMemoAccordion'), { loading: MemoLoading });
+const StickyNotesBoard = dynamic(() => import('@/components/StickyNotesBoard'), { loading: MemoLoading });
+const DoodlePad = dynamic(() => import('@/components/propig/DoodlePad'), { loading: MemoLoading });
 
 type MemoViewMode = 'list' | 'sticker' | 'doodle';
 

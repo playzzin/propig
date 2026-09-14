@@ -1052,7 +1052,7 @@ const Page = styled.main`
     linear-gradient(90deg, rgba(19, 32, 29, 0.025) 1px, transparent 1px),
     #edf1f0;
   background-size: 32px 32px;
-  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 `;
 
 const PageMotion = styled(motion.div)`

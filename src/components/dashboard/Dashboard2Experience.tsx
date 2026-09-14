@@ -2148,7 +2148,7 @@ const PageShell = styled.main<{ $squareSections: boolean }>`
   padding: 16px;
   background: #eef1f4;
   color: #333236;
-  font-family: Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
   letter-spacing: 0;
 
   * {
