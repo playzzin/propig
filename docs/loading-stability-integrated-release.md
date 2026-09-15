@@ -14,7 +14,15 @@
 - 개발3002/CY3000 및 Hermes 보호장치·인증 설정 미변경. API/Rules/함수 운영 재배포는 범위 밖이며 Hosting만 게시한다.
 
 ## 이전 인계의 상태 갱신
-memo-hydration-performance-handoff.md, dashboard-widget-startup-handoff.md 및 sequential-autonomous-release.md의 'build 차단/미검증'은 당시 기록이다. 이번 통합 검증으로 build/browser 제한을 해소했다. 게시 결과는 후속 기록으로 확정한다.
+memo-hydration-performance-handoff.md, dashboard-widget-startup-handoff.md 및 sequential-autonomous-release.md의 'build 차단/미검증'은 당시 기록이다. 이번 통합 검증으로 build/browser 제한을 해소했다.
+
+## 게시 결과
+- 제품 코드 bae010e commit/push, Hosting507파일 게시 완료. 운영 https://propig-63524.web.app.
+- 운영 4모드×1366/390px APK 실제 다운로드·SHA-256·WebP 선택·20KB 예산 통과.
+- 운영 guest 상점 등록/해제/reload, 모달 keyboard/focus, 홈/습관/버킷 모바일 폭·JS 오류 검사 통과.
+- 운영 홈/메모 390/1366px font subset·보기 전환 통과.
+- 배포 전후 함수28개 metadata 완전 동일. Rules/함수/인증 설정 미변경.
+- 전체 로드맵 완료가 아니라 누적 로딩·저장 안정화 변경의 게시 완료다.
 
 ## 남는 한계
 실회원 로그인 세션의 로딩 시간·실제 계정 저장/충돌 검증은 실행하지 않았다. 브라우저 제품 UX 검증과 mock SDK/hook 검증의 범위를 구분한다. react-test-renderer deprecation 경고가 남아 있다. 다중 기기 보호는 신규 registry transaction 경로 범위이며 구형 클라이언트/Admin SDK까지 강제하지 않는다.
