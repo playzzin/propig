@@ -2315,8 +2315,7 @@ function PropigDashboardSession() {
   };
 
   return (
-    <DashboardShell>
-      <SiteAppDownload siteId="shop" />
+    <DashboardShell data-dashboard-design="calm">
       <DashboardHeader>
         <HeaderCopy>
           <DateText>
@@ -2324,6 +2323,7 @@ function PropigDashboardSession() {
             {dateLabel}
           </DateText>
           <PageTitle>위젯 대시보드</PageTitle>
+          <DashboardTagline>작은 기록이 모여, 나다운 하루가 돼요.</DashboardTagline>
           <HeroSummary>
             <span>{heroStatus}</span>
             <em>{heroDetail}</em>
@@ -2419,9 +2419,28 @@ function PropigDashboardSession() {
       ) : (
         <AllHiddenState>상점에서 앱을 등록하면 대시보드 위젯이 표시됩니다.</AllHiddenState>
       )}
+      <AppDownloadArea><SiteAppDownload siteId="shop" /></AppDownloadArea>
     </DashboardShell>
   );
 }
+
+const dashboardEnter = keyframes`
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
+
+const DashboardTagline = styled.p`
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 12px 0 0;
+`;
+
+const AppDownloadArea = styled.div`
+  max-width: 1240px;
+  margin: 28px auto 0;
+  > aside { margin: 0 !important; }
+`;
 
 const spin = keyframes`
   to {
@@ -2445,16 +2464,16 @@ const DashboardShell = styled.main`
   flex: 1 1 auto;
   height: 100%;
   min-height: 0;
-  --bg: #07110e;
-  --surface: #0e1715;
-  --surface-raised: #121f1b;
-  --surface-soft: #17241f;
-  --surface-hover: #1d3129;
-  --border: #243831;
-  --border-strong: #38564a;
-  --text: #eff8f1;
-  --muted: #a4b4aa;
-  --faint: #74847b;
+  --bg: #0c121b;
+  --surface: #131d29;
+  --surface-raised: #182433;
+  --surface-soft: #1b2938;
+  --surface-hover: #253649;
+  --border: #2b3b4a;
+  --border-strong: #536b7c;
+  --text: #edf4f8;
+  --muted: #afbdca;
+  --faint: #95a7b8;
   --accent: #42d392;
   --accent-soft: rgba(66, 211, 146, 0.14);
   --accent-border: rgba(66, 211, 146, 0.42);
@@ -2462,16 +2481,26 @@ const DashboardShell = styled.main`
   --danger-soft: rgba(255, 104, 104, 0.12);
   --warning: #f7c76d;
   --blue: #8fb8ff;
-  background:
-    linear-gradient(90deg, rgba(66, 211, 146, 0.1) 0 1px, transparent 1px 100%),
-    linear-gradient(180deg, rgba(143, 184, 255, 0.07) 0 1px, transparent 1px 100%),
-    linear-gradient(145deg, #07110e 0%, #091211 43%, #13150f 100%);
-  background-size: 72px 72px, 72px 72px, auto;
+  background: radial-gradient(ellipse at 85% 0%, rgba(77, 134, 174, 0.12), transparent 55%), var(--bg);
   color: var(--text);
   color-scheme: dark;
   isolation: isolate;
   overflow-y: auto;
-  padding: clamp(16px, 3vw, 34px);
+  padding: clamp(18px, 3vw, 36px);
+  scrollbar-gutter: stable;
+
+  :is(button, a, input, textarea, select):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    && *, && *::before, && *::after {
+      animation: none !important;
+      transition-duration: 0s !important;
+      scroll-behavior: auto !important;
+    }
+  }
   position: relative;
 
   body[data-propig-design='codeit'] & {
@@ -2497,7 +2526,7 @@ const DashboardShell = styled.main`
   }
 
   &::before {
-    background: linear-gradient(120deg, rgba(66, 211, 146, 0.18), transparent 38%, rgba(143, 184, 255, 0.12));
+    background: none;
     content: '';
     inset: 0;
     opacity: 0.52;
@@ -2522,17 +2551,23 @@ const DashboardShell = styled.main`
 `;
 
 const DashboardHeader = styled.header`
-  align-items: flex-end;
+  align-items: center;
+  background: linear-gradient(125deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
   display: flex;
   gap: 18px;
   justify-content: space-between;
   margin: 0 auto 16px;
   max-width: 1240px;
-  padding: 10px 0 18px;
+  padding: clamp(22px, 3vw, 36px);
   position: relative;
+  animation: ${dashboardEnter} 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
   &::after {
-    background: linear-gradient(90deg, rgba(66, 211, 146, 0.44), rgba(143, 184, 255, 0.24), transparent);
+    background: linear-gradient(90deg, #42d392, #7ab6f0, transparent);
     bottom: 0;
     content: '';
     height: 1px;
@@ -2588,8 +2623,9 @@ const DateText = styled.p`
 
 const PageTitle = styled.h1`
   font-size: clamp(1.55rem, 3vw, 2.4rem);
-  letter-spacing: 0;
-  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  line-height: 1.2;
   margin: 0;
 
   body[data-propig-design='codeit'] & {
@@ -2605,7 +2641,7 @@ const HeroSummary = styled.div`
   display: flex;
   flex-wrap: wrap;
   font-size: 0.9rem;
-  font-weight: 800;
+  font-weight: 500;
   gap: 8px 12px;
   margin-top: 10px;
 
@@ -2673,16 +2709,14 @@ const metricToneColor: Record<MetricTone, string> = {
 
 const MetricTile = styled.div<{ $tone: MetricTone }>`
   align-items: center;
-  background:
-    linear-gradient(180deg, rgba(18, 31, 27, 0.92), rgba(8, 15, 14, 0.9)),
-    ${({ $tone }) => `linear-gradient(90deg, ${metricToneColor[$tone]}24, transparent)`};
+  background: var(--surface-soft);
   border: 1px solid ${({ $tone }) => `${metricToneColor[$tone]}55`};
-  border-radius: 8px;
+  border-radius: 14px;
   display: flex;
   gap: 9px;
-  min-height: 42px;
+  min-height: 64px;
   min-width: 76px;
-  padding: 8px 12px;
+  padding: 12px 16px;
   position: relative;
 
   svg {
@@ -2703,7 +2737,8 @@ const MetricCopy = styled.div`
   min-width: 0;
 
   strong {
-    font-size: 1.05rem;
+    font-size: 1.35rem;
+    font-variant-numeric: tabular-nums;
     line-height: 1;
   }
 
@@ -2719,14 +2754,14 @@ const LoginButton = styled.button`
   align-items: center;
   background: linear-gradient(135deg, #42d392, #2dd4bf);
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   color: #06110d;
   cursor: pointer;
   display: inline-flex;
   font-weight: 800;
   gap: 7px;
   justify-content: center;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 14px;
   transition:
     transform 0.16s ease,
@@ -2743,6 +2778,8 @@ const LoginButton = styled.button`
     box-shadow: 0 12px 28px rgba(37, 87, 214, 0.2);
   }
 
+  &:active:not(:disabled) { transform: scale(0.97); }
+
   &:disabled {
     cursor: not-allowed;
     opacity: 0.55;
@@ -2751,16 +2788,16 @@ const LoginButton = styled.button`
 
 const LayoutBar = styled.section`
   align-items: center;
-  background: rgba(8, 15, 14, 0.72);
+  background: var(--surface);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  backdrop-filter: blur(16px);
+  border-radius: 16px;
+  backdrop-filter: none;
   display: flex;
   gap: 12px;
   justify-content: space-between;
-  margin: 0 auto 14px;
+  margin: 0 auto 20px;
   max-width: 1240px;
-  padding: 11px 12px;
+  padding: 12px 16px;
 
   @media (max-width: 760px) {
     align-items: stretch;
@@ -2819,9 +2856,12 @@ const ShowWidgetButton = styled.button`
   font-size: 0.8rem;
   font-weight: 900;
   gap: 6px;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 11px;
   white-space: nowrap;
+
+  transition: background 160ms ease, border-color 160ms ease;
+  @media (pointer: coarse) { min-height: 44px; }
 
   &:hover {
     background: rgba(66, 211, 146, 0.2);
@@ -2850,9 +2890,12 @@ const ResetLayoutButton = styled.button`
   font-size: 0.8rem;
   font-weight: 900;
   gap: 6px;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 11px;
   white-space: nowrap;
+
+  transition: background 160ms ease, border-color 160ms ease;
+  @media (pointer: coarse) { min-height: 44px; }
 
   &:hover {
     background: var(--surface-hover);
@@ -2861,8 +2904,10 @@ const ResetLayoutButton = styled.button`
 
 const WidgetGrid = styled.section`
   align-items: start;
+
+  > :only-child { grid-column: 1 / -1; }
   display: grid;
-  gap: 14px;
+  gap: 22px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0 auto;
   max-width: 1240px;
@@ -2895,7 +2940,8 @@ const HideWidgetButton = styled.button`
   font-size: 0.78rem;
   font-weight: 900;
   gap: 6px;
-  height: 34px;
+  height: 40px;
+  @media (pointer: coarse) { min-height: 44px; }
   padding: 0 10px;
   white-space: nowrap;
 
@@ -2907,21 +2953,24 @@ const HideWidgetButton = styled.button`
 `;
 
 const WidgetPanel = styled.section<{ $accent: string }>`
-  background:
-    linear-gradient(180deg, rgba(18, 31, 27, 0.98), rgba(8, 15, 14, 0.98)),
-    ${({ $accent }) => `linear-gradient(135deg, ${$accent}18, transparent 42%)`};
+  background: var(--surface);
+  --widget-accent: ${({ $accent }) => $accent};
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  border-top: 4px solid ${({ $accent }) => $accent};
+  border-radius: 20px;
+  border-top: 2px solid ${({ $accent }) => $accent};
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.34),
+    0 8px 28px rgba(0, 0, 0, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
   display: flex;
   flex-direction: column;
   min-height: 392px;
   min-width: 0;
   overflow: hidden;
-  padding: clamp(14px, 2vw, 20px);
+  padding: clamp(18px, 2vw, 26px);
+  animation: ${dashboardEnter} 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+
+  &:focus-within { border-color: var(--widget-accent); }
   position: relative;
 
   &::before {
@@ -2944,7 +2993,7 @@ const WidgetPanel = styled.section<{ $accent: string }>`
     border-color: var(--codeit-border);
     border-radius: var(--codeit-radius);
     box-shadow: var(--codeit-shadow-md);
-    animation: propigCodeitCardIn 0.58s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
   }
 
   body[data-propig-design='codeit'] &::before {
@@ -2952,21 +3001,9 @@ const WidgetPanel = styled.section<{ $accent: string }>`
     opacity: 0.35;
   }
 
-  body[data-propig-design='codeit'] &:hover {
-    transform: translateY(-3px);
-    transition: transform 0.22s ease, box-shadow 0.22s ease;
-    box-shadow: var(--codeit-shadow-lg);
-  }
-
-  @keyframes propigCodeitCardIn {
-    from {
-      opacity: 0;
-      transform: translateY(16px) scale(0.985);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+  @media (hover: hover) {
+    &:hover { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2); }
+    body[data-propig-design='codeit'] &:hover { box-shadow: var(--codeit-shadow-lg); }
   }
 `;
 
@@ -3119,14 +3156,15 @@ const ScheduleForm = styled(QuickForm)`
 `;
 
 const controlBase = `
-  background: rgba(5, 12, 10, 0.72);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--text);
   font: inherit;
   font-size: 0.95rem;
   min-width: 0;
   outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 
   &:focus {
     border-color: var(--accent);
@@ -3186,13 +3224,13 @@ const PrimaryButton = styled.button`
   align-items: center;
   background: linear-gradient(135deg, #42d392, #2dd4bf);
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   color: #06110d;
   cursor: pointer;
   display: inline-flex;
   font-weight: 800;
   gap: 7px;
-  height: 42px;
+  height: 44px;
   justify-content: center;
   padding: 0 14px;
   transition:
@@ -3210,6 +3248,8 @@ const PrimaryButton = styled.button`
     color: #ffffff;
     box-shadow: 0 12px 28px rgba(52, 81, 209, 0.18);
   }
+
+  &:active:not(:disabled) { transform: scale(0.97); }
 
   &:disabled {
     cursor: not-allowed;
