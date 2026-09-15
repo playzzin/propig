@@ -18,3 +18,9 @@
 - 사용자 이번 디자인의 commit/push/운영 배포 명시 승인.
 - Hosting만 게시, 함수/Rules/인증/실회원 원본 데이터 미변경.
 - 운영 로그인 사용자의 실제 데이터 편집 테스트는 하지 않는다. local fixture와 운영 smoke 범위는 구분한다.
+
+## 게시 완료
+- 코드 8fc53f1 commit/push, Hosting507파일 배포 완료.
+- 운영 guest store/modal/dashboard/habit/bucket PC·모바일 회귀 통과, 새 data-dashboard-design=calm 및 실제 화면 확인.
+- 운영 APK 검사 첫 실행은 shop 이미지 locator timeout. 독립 shop 진입에서 다운로드 링크/이미지 존재를 확인하고 전체4모드×2폭 재실행 PASS. 일시적 실패 원인은 확정하지 않았다.
+- 함수/Rules/인증 변경 없음. 전체 로드맵 완료가 아닌 대시보드 디자인 차수 완료.
