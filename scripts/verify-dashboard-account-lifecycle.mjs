@@ -28,7 +28,7 @@ await act(async()=>out.toggleHabit(record('B').habits[0]));assert.equal(writes.l
 await act(async()=>root.unmount());
 for(const name of ['useBucketWidget','useTodoWidget']) {
  const pending=[],subs=[];auth.currentUser={uid:'A'};
- const service={ensureDefaultCategories:()=>new Promise(r=>pending.push(r)),subscribe:(uid,cb)=>{const s={uid,closed:false};subs.push(s);cb([{id:uid+'-item',recurrence:{mode:'once'},completedDates:[]}]);return()=>{s.closed=true;};},subscribeCategories:(uid,cb)=>{const s={uid,closed:false};subs.push(s);cb([{id:uid+'-cat'}]);return()=>{s.closed=true;};}};
+ const service={ensureDefaultCategories:()=>new Promise(r=>pending.push(r)),subscribe:(uid,cb)=>{const s={uid,closed:false};subs.push(s);if(uid==='A')cb([{id:uid+'-item',recurrence:{mode:'once'},completedDates:[]}]);return()=>{s.closed=true;};},subscribeCategories:(uid,cb)=>{const s={uid,closed:false};subs.push(s);if(uid==='A')cb([{id:uid+'-cat'}]);return()=>{s.closed=true;};}};
  service.subscribeTasks=service.subscribe;
  const c={...React,auth,bucketListService:service,todoListService:service,ensureFirestorePersistence:async()=>{},toast:{error(){}},getOccurrencesForDate:()=>[],TODO_ANYTIME_COMPLETION_KEY:'__anytime__'};
  const useWidget=compile(name,c);
@@ -38,7 +38,7 @@ for(const name of ['useBucketWidget','useTodoWidget']) {
  auth.currentUser={uid:'B'};await act(async()=>root.update(React.createElement(App,{uid:'B'})));
  assert.equal((out.items||out.tasks).length,0);assert.equal(out.categories.length,0);checks++;
  await act(async()=>root.unmount());await act(async()=>pending.shift()());
- assert.equal(subs.filter(s=>s.uid==='B').length,0);assert.ok(subs.every(s=>s.closed));checks++;
+ assert.equal(subs.filter(s=>s.uid==='B').length,2);assert.ok(subs.every(s=>s.closed));checks++;
 }
 let resolve,saveCalls=0;
 const saveContext={auth,removeUndefined:x=>x,ensureFirestorePersistence:()=>new Promise(r=>{resolve=r;}),setDoc:async()=>{saveCalls++;},createHabitWorkspaceRef:x=>x,serverTimestamp:()=>0};

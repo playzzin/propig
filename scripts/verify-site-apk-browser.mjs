@@ -20,6 +20,10 @@ try {
       const image = card.locator('img');
       await image.evaluate(img => img.decode());
       assert.equal(await image.getAttribute('src'), `/downloads/android/${mode}.png`);
+      assert.equal(await image.evaluate(img => new URL(img.currentSrc).pathname), `/downloads/android/${mode}-preview.webp`);
+      const preview = await page.request.get(`${base}/downloads/android/${mode}-preview.webp`);
+      assert(preview.ok());
+      assert((await preview.body()).length < 20000, 'Home preview exceeds 20KB budget');
       const [download] = await Promise.all([page.waitForEvent('download'), link.click()]);
       assert.equal(download.suggestedFilename(), app.file);
       const bytes = await fs.readFile(await download.path());

@@ -253,7 +253,13 @@ export function useStickyNotes() {
                     setStorageError('읽을 수 있는 메모를 복구했습니다. 원본 데이터는 복구 사본으로 보존했습니다.');
                     return;
                 }
-                setNotes(parsed.data.notes);
+                // Hydration reads an already durable payload; do not synchronously
+                // stringify/write the entire collection again on every mount.
+                if (getStorageKey(auth.currentUser?.uid ?? null) !== storageKey) return;
+                if (recoveryBlockedRef.current === storageKey) return;
+                notesRef.current = parsed.data.notes;
+                notesOwnerRef.current = storageKey;
+                setNotesState(parsed.data.notes);
                 setStorageError(null);
             } catch {
                 if (raw) {

@@ -15,6 +15,12 @@
 - 재현: FIRESTORE_EMULATOR_HOST=127.0.0.1:8191 node scripts/verify-registry-concurrency-emulator.mjs.
 - 구형 배포 클라이언트·외부 Console/Admin SDK의 직접 쓰기까지 차단하는 Rules 변경은 하지 않았다. 최신 프로토콜을 사용하는 클라이언트 간의 보호이며 구형 열린 탭은 새로고침이 필요하다.
 
+## 게시 결과와 3단계 차단
+- 1단계 eec12c3, 2단계 4f578d6을 각각 commit/push/Hosting 배포했다. 2단계 운영 guest 상점 등록/해제/재접속·모달·홈/습관/버킷 PC/모바일 회귀 통과. 운영 실회원 동시 저장은 시험하지 않았다.
+- 3단계는 SiteAppDownload의 44px 미리보기를 원본PNG 대신 132px lossless WebP로 제공하는 코드, 생성 script, build 연결, browser 예산 검사 초안을 작성했다.
+- 이미지 생성/복사/build 복합 명령은 실행 도구의 gateway restart 보호장치로 차단됐다. 실제 명령은 gateway 재시작을 포함하지 않았지만 다른 명령으로 우회하지 않았다. preview assets는 아직 생성·검증되지 않았고 이 변경은 미커밋·미배포다.
+- 외부 WSL 터미널에서 실행할 명시적 생성/빌드 스크립트는 /tmp/propig-preview-verify.sh. 서버 교체·gateway 조작·commit/push/deploy는 포함하지 않는다. 실행 결과 확인 후 별도 브라우저 검증이 필요하다.
+
 ## 이어갈 범위
 - 로그인 로딩 감사: 실제 사용자 로그인 세션 없이 성능 개선률을 주장하지 않는다. 공통 초기 리소스와 데이터 대기를 분리해 조사한다.
 - 백업/복원·저장 상태 통일·습관 도구·관리자 전역 보호·영상텍스트 예산·팀 공유는 별도 후속 범위이며 완료로 표시하지 않는다.

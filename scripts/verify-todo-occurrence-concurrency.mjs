@@ -118,7 +118,7 @@ for (const reverse of [false, true]) {
   flush(reverse); await Promise.all(results); assert.deepEqual(dates(), [c]); checks++;
 }
 dashboardContext.uid = null;
-await dashboardContext.toggle({id:'task', completedDates:[]}, a);
+await assert.rejects(dashboardContext.toggle({id:'task', completedDates:[]}, a), /불러온/);
 assert.equal(pending.length,0); checks++;
 console.log(`PASS: ${checks} checks; dashboard and full todo UI; old-service lost-update reproduced; atomic add/remove/mixed both orders, once/anytime/idempotence, UID path, serverTimestamp, auth guard and failure handling.`);
 console.log('Fixture only: no live Firestore, browser, network, paid calls, or full build.');

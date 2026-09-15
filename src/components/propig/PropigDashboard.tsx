@@ -666,14 +666,22 @@ function useBucketWidget(uid: string | undefined) {
     let unsubscribeItems: (() => void) | undefined;
     let unsubscribeCategories: (() => void) | undefined;
     let didCancel = false;
+    let listReady = false;
+    let categoriesReady = false;
+    let defaultsReady = false;
+    let connectionError: string | null = null;
+    const publishStatus = () => {
+      if (didCancel || auth.currentUser?.uid !== uid) return;
+      setOwnerUid(uid);
+      setError(connectionError);
+      setState(connectionError ? 'error' : listReady && categoriesReady && defaultsReady ? 'ready' : 'loading');
+    };
 
     const connect = async () => {
       try {
         setState('loading');
         setItems([]); setCategories([]);
         await ensureFirestorePersistence();
-        if (didCancel || auth.currentUser?.uid !== uid) return;
-        await bucketListService.ensureDefaultCategories(uid);
         if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribeItems = bucketListService.subscribe(
@@ -682,13 +690,13 @@ function useBucketWidget(uid: string | undefined) {
             if (didCancel || auth.currentUser?.uid !== uid) return;
             setItems(nextItems);
             setOwnerUid(uid);
-            setState('ready');
-            setError(null);
+            listReady = true;
+            publishStatus();
           },
           (nextError) => {
             if (didCancel || auth.currentUser?.uid !== uid) return;
-            setError(nextError.message);
-            setState('error');
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
 
@@ -698,19 +706,24 @@ function useBucketWidget(uid: string | undefined) {
             if (didCancel || auth.currentUser?.uid !== uid) return;
             setCategories(nextCategories);
             setOwnerUid(uid);
-            setState('ready');
-            setError(null);
+            categoriesReady = true;
+            publishStatus();
           },
           (nextError) => {
             if (didCancel || auth.currentUser?.uid !== uid) return;
-            setError(nextError.message);
-            setState('error');
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
+        // Start both listeners before the independent default-category bootstrap.
+        await bucketListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
+        defaultsReady = true;
+        publishStatus();
       } catch (nextError) {
         if (didCancel || auth.currentUser?.uid !== uid) return;
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-        setState('error');
+        connectionError = nextError instanceof Error ? nextError.message : String(nextError);
+        publishStatus();
       }
     };
 
@@ -725,11 +738,10 @@ function useBucketWidget(uid: string | undefined) {
 
   const createItem = useCallback(
     async (title: string) => {
-      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       const category = categories[0]?.id;
       if (!category) {
-        toast.error('버킷리스트 분류를 불러온 뒤 다시 시도해주세요.');
-        return;
+        throw new Error('버킷리스트 분류를 불러온 뒤 다시 시도해주세요.');
       }
 
       await bucketListService.create(uid, {
@@ -745,7 +757,7 @@ function useBucketWidget(uid: string | undefined) {
 
   const updateStatus = useCallback(
     async (item: BucketListItem) => {
-      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       await bucketListService.update(uid, item.id, { status: cycleBucketStatus(item.status) });
     },
     [uid, ownerUid, state],
@@ -753,7 +765,7 @@ function useBucketWidget(uid: string | undefined) {
 
   const removeItem = useCallback(
     async (itemId: string) => {
-      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       await bucketListService.remove(uid, itemId);
     },
     [uid, ownerUid, state],
@@ -785,14 +797,22 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
     let unsubscribeTasks: (() => void) | undefined;
     let unsubscribeCategories: (() => void) | undefined;
     let didCancel = false;
+    let listReady = false;
+    let categoriesReady = false;
+    let defaultsReady = false;
+    let connectionError: string | null = null;
+    const publishStatus = () => {
+      if (didCancel || auth.currentUser?.uid !== uid) return;
+      setOwnerUid(uid);
+      setError(connectionError);
+      setState(connectionError ? 'error' : listReady && categoriesReady && defaultsReady ? 'ready' : 'loading');
+    };
 
     const connect = async () => {
       try {
         setState('loading');
         setTasks([]); setCategories([]);
         await ensureFirestorePersistence();
-        if (didCancel || auth.currentUser?.uid !== uid) return;
-        await todoListService.ensureDefaultCategories(uid);
         if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribeTasks = todoListService.subscribeTasks(
@@ -801,13 +821,13 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
             if (didCancel || auth.currentUser?.uid !== uid) return;
             setTasks(nextTasks);
             setOwnerUid(uid);
-            setState('ready');
-            setError(null);
+            listReady = true;
+            publishStatus();
           },
           (nextError) => {
             if (didCancel || auth.currentUser?.uid !== uid) return;
-            setError(nextError.message);
-            setState('error');
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
 
@@ -817,19 +837,24 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
             if (didCancel || auth.currentUser?.uid !== uid) return;
             setCategories(nextCategories);
             setOwnerUid(uid);
-            setState('ready');
-            setError(null);
+            categoriesReady = true;
+            publishStatus();
           },
           (nextError) => {
             if (didCancel || auth.currentUser?.uid !== uid) return;
-            setError(nextError.message);
-            setState('error');
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
+        // Start both listeners before the independent default-category bootstrap.
+        await todoListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
+        defaultsReady = true;
+        publishStatus();
       } catch (nextError) {
         if (didCancel || auth.currentUser?.uid !== uid) return;
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-        setState('error');
+        connectionError = nextError instanceof Error ? nextError.message : String(nextError);
+        publishStatus();
       }
     };
 
@@ -853,11 +878,10 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
   const createTask = useCallback(
     async (title: string, time: string) => {
-      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       const categoryId = categories[0]?.id;
       if (!categoryId) {
-        toast.error('할일 분류를 불러온 뒤 다시 시도해주세요.');
-        return;
+        throw new Error('할일 분류를 불러온 뒤 다시 시도해주세요.');
       }
 
       await todoListService.create(uid, createTodoDraft(title, categoryId, todayKey, time));
@@ -867,7 +891,7 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
   const toggleTask = useCallback(
     async (task: TodoTask, completionKey: string) => {
-      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       const exists = task.completedDates.includes(completionKey);
       await todoListService.setOccurrenceCompleted(uid, task.id, completionKey, !exists);
     },
@@ -876,7 +900,7 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
   const removeTask = useCallback(
     async (taskId: string) => {
-      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       await todoListService.remove(uid, taskId);
     },
     [uid, ownerUid, state],
@@ -2084,7 +2108,7 @@ function PropigDashboardSession() {
               placeholder="하고 싶은 일"
               disabled={isDataLocked}
             />
-            <PrimaryButton type="submit" disabled={isDataLocked || !bucketDraft.trim() || savingKey === 'bucket:create'}>
+            <PrimaryButton type="submit" disabled={isDataLocked || bucket.state !== 'ready' || !bucketDraft.trim() || savingKey === 'bucket:create'}>
               {savingKey === 'bucket:create' ? <SpinningLoader size={16} /> : <Plus size={16} />}
               추가
             </PrimaryButton>
@@ -2221,7 +2245,7 @@ function PropigDashboardSession() {
             disabled={isDataLocked}
           />
           <TimeInput value={todoTime} onChange={(event) => setTodoTime(event.target.value)} type="time" aria-label="시간" disabled={isDataLocked} />
-          <PrimaryButton type="submit" disabled={isDataLocked || !todoDraft.trim() || savingKey === 'todo:create'}>
+          <PrimaryButton type="submit" disabled={isDataLocked || todo.state !== 'ready' || !todoDraft.trim() || savingKey === 'todo:create'}>
             {savingKey === 'todo:create' ? <SpinningLoader size={16} /> : <Plus size={16} />}
             추가
           </PrimaryButton>

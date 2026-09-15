@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3002",
     "dev:webpack": "next dev --webpack -p 3002",
-    "build": "node scripts/build-static-export.mjs",
+    "build": "node scripts/build-site-app-previews.mjs && node scripts/build-static-export.mjs",
     "build:next": "next build",
     "start": "next start -p 3002",
     "lint": "eslint --cache --cache-strategy content --cache-location node_modules/.cache/eslint .",
@@ -71,7 +71,7 @@
     "verify:admin-users-browser": "node scripts/verify-admin-users-browser.mjs",
     "verify:admin-menu": "node scripts/verify-admin-menu-site-mode.mjs && node scripts/verify-menu-cache-races.mjs && node scripts/verify-menu-react-lifecycle.mjs && node scripts/verify-menu-save-persistence.mjs && node scripts/verify-admin-menu-save-lifecycle.mjs",
     "verify:image-operation-integrity": "node scripts/verify-image-operation-integrity.mjs",
-    "verify:account-lifecycle": "node scripts/verify-bookmark-modal-lifecycle.cjs && node scripts/verify-bookmark-account-lifecycle.cjs && node scripts/verify-dashboard-account-lifecycle.mjs && node scripts/verify-fullpage-account-lifecycle.mjs && node scripts/verify-propig-registry-lifecycle.mjs && node scripts/verify-propig-store-feedback.mjs",
+    "verify:account-lifecycle": "node scripts/verify-bookmark-modal-lifecycle.cjs && node scripts/verify-bookmark-account-lifecycle.cjs && node scripts/verify-dashboard-account-lifecycle.mjs && node scripts/verify-dashboard-widget-startup.mjs && node scripts/verify-fullpage-account-lifecycle.mjs && node scripts/verify-propig-registry-lifecycle.mjs && node scripts/verify-propig-store-feedback.mjs",
     "verify:account-tools-browser": "node scripts/verify-account-tools-browser.mjs",
     "verify:data-integrity": "node scripts/verify-sticky-note-lifecycle.mjs && node scripts/verify-todo-occurrence-concurrency.mjs && node scripts/verify-admin-home-access.mjs",
     "verify:memo-editor-persistence": "node scripts/verify-memo-editor-persistence.mjs",

@@ -9,8 +9,11 @@ export function SiteAppDownload({ siteId }: { siteId: Mode }) {
     <aside aria-label={`${app.label} Android 앱`} style={{ margin: '16px 0', padding: 14, border: '1px solid var(--border-medium)', borderRadius: 14, background: 'var(--bg-card)', color: 'var(--text-main)' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`/downloads/android/${siteId}.png`} alt="" width={44} height={44} style={{ borderRadius: 11, flexShrink: 0 }} />
+          <picture style={{ display: 'flex', flexShrink: 0 }}>
+            <source srcSet={`/downloads/android/${siteId}-preview.webp`} type="image/webp" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/downloads/android/${siteId}.png`} alt="" width={44} height={44} style={{ borderRadius: 11, flexShrink: 0 }} />
+          </picture>
           <div>
             <strong style={{ fontSize: 14 }}>{app.label} 앱</strong>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>홈 화면 아이콘으로 이 모드에 바로 접속</p>
