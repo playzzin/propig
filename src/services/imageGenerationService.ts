@@ -1,16 +1,25 @@
-import { httpsCallable } from 'firebase/functions';
-import { functions } from '@/firebase/config';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db } from '@/firebase/config';
+
+import { storage } from '@/firebase/storage';
+import type { ImageReferenceInput } from '@/types/imageReference';
+
+const shouldLogGenerationDebug = process.env.NODE_ENV !== 'production';
 
 export interface GenerateImageParams {
+    operationId?: string;
     prompt: string;
     negativePrompt?: string;
     aspectRatio?: string;
     width?: number;
     height?: number;
     stylePreset?: string;
+    resourceMode?: 'efficient' | 'premium';
     image?: string; // Base64 encoded image for Image-to-Image
-    provider?: 'gemini' | 'grok';
+    referenceImages?: ImageReferenceInput[];
+    provider?: 'openrouter';
     authToken?: string;
 }
 
@@ -20,6 +29,7 @@ export interface GenerateImageResult {
     imageId?: string;
     reasonCode?: string;
     details?: string;
+    blockedInput?: string;
     images?: Array<{
         id: string;
         url: string;
@@ -35,16 +45,22 @@ async function callNextApi(params: GenerateImageParams): Promise<GenerateImageRe
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            ...(authToken ? { Authorization: 'Bearer ' + authToken } : {}),
         },
-        body: JSON.stringify(bodyParams),
+        body: JSON.stringify({
+            ...bodyParams,
+            operationId: bodyParams.operationId || crypto.randomUUID(),
+        }),
     });
 
     const data = await response.json() as GenerateImageResult;
     if (!response.ok) {
         return {
             success: false,
+            reasonCode: data.reasonCode,
             error: data.error || `HTTP ${response.status}`,
+            details: data.details,
+            blockedInput: data.blockedInput,
         };
     }
 
@@ -57,13 +73,16 @@ function buildGuidedErrorMessage(params: {
     reasonCode?: string;
 }): string {
     if (params.reasonCode === 'api_key_expired') {
-        return `Gemini API 키 만료: 새 키 발급 후 \`.env.local\`/ \`functions/.env\`의 GEMINI_API_KEY를 교체하세요. (${params.apiError})`;
+        return `OpenRouter API 키를 확인하세요. 로컬에서는 \`.env.local\`, 운영에서는 서버 환경변수 또는 Firebase Secret의 OPENROUTER_API_KEY를 갱신합니다. (${params.apiError})`;
     }
     if (params.reasonCode === 'billing_disabled') {
         return `GCP 결제 계정 비활성 상태입니다. 결제 계정 활성화 후 프로젝트에 다시 연결하세요. (${params.apiError})`;
     }
     if (params.reasonCode === 'permission_denied') {
-        return `Gemini API 권한/활성화 문제입니다. API 활성화와 키 제한(HTTP referrer/IP)을 확인하세요. (${params.apiError})`;
+        return `OpenRouter API 인증 또는 권한 문제입니다. 키와 계정 크레딧 상태를 확인하세요. (${params.apiError})`;
+    }
+    if (params.reasonCode === 'input_image_privacy') {
+        return params.apiError || '첨부한 참조 사진에 실제 인물이 포함되었거나 그렇게 감지되어 모델이 요청을 받지 않았습니다. 인물 사진을 빼거나 인물이 없는 제품·건물·배경 사진 또는 일러스트로 바꾼 뒤 다시 생성해 주세요.';
     }
 
     return [
@@ -72,94 +91,26 @@ function buildGuidedErrorMessage(params: {
     ].filter(Boolean).join(' | ') || 'Unknown error occurred during image generation';
 }
 
-function isFinalInfraError(reasonCode?: string, message?: string): boolean {
-    if (!reasonCode && !message) return false;
-
-    if (reasonCode === 'api_key_expired' || reasonCode === 'billing_disabled' || reasonCode === 'permission_denied') {
-        return true;
-    }
-
-    const text = (message || '').toLowerCase();
-    return (
-        text.includes('api key expired') ||
-        text.includes('billing account') ||
-        text.includes('accountdisabled') ||
-        text.includes('permission denied') ||
-        text.includes('forbidden')
-    );
-}
-
-function shouldFallbackToCallable(params: {
-    provider?: 'gemini' | 'grok';
-    reasonCode?: string;
-    message?: string;
-}): boolean {
-    if (params.provider) {
-        return false;
-    }
-
-    return !isFinalInfraError(params.reasonCode, params.message);
-}
-
 export const generateImage = async (params: GenerateImageParams): Promise<GenerateImageResult> => {
-    let apiErrorMessage = '';
-    let apiReasonCode: string | undefined;
-
-    // 1) Prefer Next.js API route (same backend style as other Gemini features).
     try {
         const apiResult = await callNextApi(params);
-        if (apiResult.success) {
-            return apiResult;
-        }
-
-        apiErrorMessage = apiResult.error || apiResult.details || '';
-        apiReasonCode = apiResult.reasonCode;
-
-        // Do not attempt callable fallback for definitive infra/config failures.
-        if (!shouldFallbackToCallable({
-            provider: params.provider,
-            reasonCode: apiReasonCode,
-            message: apiErrorMessage,
-        })) {
-            return {
-                success: false,
-                reasonCode: apiReasonCode,
-                error: buildGuidedErrorMessage({
-                    apiError: apiErrorMessage,
-                    callableError: '',
-                    reasonCode: apiReasonCode,
-                }),
-            };
-        }
-
-        console.warn('[imageGenerationService] /api/generate-image failed, trying callable fallback:', apiResult.error);
+        if (apiResult.success) return apiResult;
+        return {
+            ...apiResult,
+            error: buildGuidedErrorMessage({
+                apiError: apiResult.error || apiResult.details || '',
+                callableError: '',
+                reasonCode: apiResult.reasonCode,
+            }),
+        };
     } catch (error) {
-        apiErrorMessage = error instanceof Error ? error.message : String(error);
-        console.warn('[imageGenerationService] /api/generate-image request error, trying callable fallback:', error);
-    }
-
-    // 2) Fallback: Firebase callable function (for environments already using deployed functions).
-    try {
-        const callableParams = { ...params };
-        delete callableParams.authToken;
-        const generateImageFn = httpsCallable<GenerateImageParams, GenerateImageResult>(functions, 'generateImage');
-        const { data } = await generateImageFn(callableParams);
-        return data;
-    } catch (error: unknown) {
         console.error('Error generating image:', error);
-
-        const callableMessage =
-            error instanceof Error
-                ? error.message
-                : String(error);
-
+        const apiError = error instanceof Error ? error.message : String(error);
         return {
             success: false,
-            reasonCode: apiReasonCode,
             error: buildGuidedErrorMessage({
-                apiError: apiErrorMessage,
-                callableError: callableMessage,
-                reasonCode: apiReasonCode,
+                apiError,
+                callableError: '',
             }),
         };
     }
@@ -168,7 +119,7 @@ export const generateImage = async (params: GenerateImageParams): Promise<Genera
 export interface GenerateVideoParams {
     prompt: string;
     image?: string; // Reference image (first frame or base image)
-    provider?: 'gemini' | 'grok'; // Even if specific video models are used, this is the selected engine on the UI
+    provider?: 'openrouter';
     mode?: 'generate' | 'extend' | 'edit';
     videoUrl?: string;
     duration?: number;
@@ -181,13 +132,15 @@ export interface GenerateVideoResult {
     success: boolean;
     videoUrl?: string;
     videoId?: string;
-    provider?: 'gemini' | 'grok';
+    provider?: 'openrouter';
     metadata?: unknown;
     error?: string;
 }
 
 export const generateVideo = async (params: GenerateVideoParams): Promise<GenerateVideoResult> => {
-    console.log('[generateVideo] Sending request to API:', params.provider);
+    if (shouldLogGenerationDebug) {
+        console.info('[generateVideo] Sending request to API:', params.provider);
+    }
 
     try {
         const { authToken, ...bodyParams } = params;
@@ -218,10 +171,6 @@ export const generateVideo = async (params: GenerateVideoParams): Promise<Genera
     }
 };
 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db, storage } from '@/firebase/config';
-
 export interface SaveHistoryParams {
     userId: string;
     url: string;
@@ -229,7 +178,12 @@ export interface SaveHistoryParams {
     generatedId: string;
     prompt: string;
     negativePrompt?: string;
-    provider: 'gemini' | 'grok';
+    provider: 'openrouter';
+    artifactProvenance?: {
+        kind: 'storyboard-scene';
+        storyboardId: string;
+        sceneId: string | null;
+    } | null;
 }
 
 export const saveGenerationHistory = async (params: SaveHistoryParams) => {
@@ -251,10 +205,12 @@ export const saveGenerationHistory = async (params: SaveHistoryParams) => {
             negativePrompt: params.type === 'image' ? (params.negativePrompt ?? null) : null,
             type: params.type,
             provider: params.provider,
+            storagePath: fileName,
+            artifactProvenance: params.artifactProvenance ?? null,
             createdAt: serverTimestamp(),
         });
 
-        return { downloadUrl, historyId: docRef.id };
+        return { downloadUrl, historyId: docRef.id, storagePath: fileName };
     } catch (error) {
         console.error('Failed to save generation history:', error);
         throw error;

@@ -8,11 +8,23 @@ export const runtime = 'nodejs';
 const MergeVideosSchema = z.object({
     clips: z
         .array(
-            z.object({
+            z.preprocess((value) => {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+                const clip = value as Record<string, unknown>;
+                return clip.transitionStyle === 'fade'
+                    ? { ...clip, transitionStyle: 'crossfade' }
+                    : value;
+            }, z.object({
                 url: z.string().url(),
                 id: z.string().optional(),
                 title: z.string().optional(),
-            }),
+                trimStartSeconds: z.number().min(0).max(60).optional(),
+                trimEndSeconds: z.number().min(0).max(60).optional(),
+                playbackRate: z.number().min(0.5).max(2).optional(),
+                audioVolume: z.number().min(0).max(2).optional(),
+                transitionStyle: z.enum(['cut', 'crossfade', 'match-cut', 'bridge']).optional(),
+                transitionSeconds: z.number().min(0).max(2).optional(),
+            })),
         )
         .min(1)
         .max(12),
@@ -20,8 +32,21 @@ const MergeVideosSchema = z.object({
         .enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'])
         .optional()
         .default('16:9'),
-    resolution: z.enum(['480p', '720p']).optional().default('720p'),
+    resolution: z.enum(['480p', '720p', '1080p']).optional().default('720p'),
     fps: z.number().int().min(12).max(60).optional().default(30),
+    backgroundMusicUrl: z.string().url().refine((value) => {
+        try {
+            const hostname = new URL(value).hostname.toLowerCase();
+            return value.startsWith('https://')
+                && (hostname === 'firebasestorage.googleapis.com' || hostname === 'storage.googleapis.com');
+        } catch {
+            return false;
+        }
+    }, 'Background music must come from project storage.').optional(),
+    audioMixPreset: z.enum(['dialogue-first', 'balanced', 'music-first', 'custom']).optional(),
+    backgroundMusicVolume: z.number().min(0).max(1).optional(),
+    sceneAudioVolume: z.number().min(0).max(2).optional(),
+    audioCrossfadeSeconds: z.number().min(0).max(2).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -51,6 +76,11 @@ export async function POST(req: NextRequest) {
             aspectRatio: data.aspectRatio as StudioAspectRatio,
             resolution: data.resolution as StudioResolution,
             fps: data.fps,
+            backgroundMusicUrl: data.backgroundMusicUrl,
+            audioMixPreset: data.audioMixPreset,
+            backgroundMusicVolume: data.backgroundMusicVolume,
+            sceneAudioVolume: data.sceneAudioVolume,
+            audioCrossfadeSeconds: data.audioCrossfadeSeconds,
         });
 
         return new NextResponse(new Uint8Array(buffer), {

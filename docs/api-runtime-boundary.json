@@ -1,0 +1,196 @@
+{
+  "routes": {
+    "/api/ai-config": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Admin OpenRouter configuration endpoint routed through the authenticated Hosting API gateway."
+    },
+    "/api/ai-config/test": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Admin-only OpenRouter diagnostics routed through the Hosting API gateway."
+    },
+    "/api/activity-logs": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated client activity writes handled by the Hosting API gateway."
+    },
+    "/api/admin/activity-logs": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Admin activity browser endpoint handled by the Hosting API gateway."
+    },
+    "/api/admin/check": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "adminCheck",
+      "notes": "Backed by functions/src/api/adminCheck.ts for shared access hooks."
+    },
+    "/api/admin/menu-sites": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Permission-gated menu management write endpoint handled by the Hosting API gateway."
+    },
+    "/api/admin/storage": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "adminStorage",
+      "notes": "Backed by functions/src/api/adminStorage.ts."
+    },
+    "/api/admin/image-budgets": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Full-admin per-user image policy and manual uncertain accounting; enforced by both image reservation transactions, same-operation replay stays blocked."
+    },
+    "/api/production-inbox": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated current-UID read-only production discovery across fixed legacy stores; no paid replay or cross-account reads."
+    },
+    "/api/admin/invitations": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Full-admin onboarding invitation issuance, bounded listing, cancellation and token rotation; no automatic access grants."
+    },
+    "/api/invitations/accept": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Verified-email single-use onboarding acceptance; explicit access review required, no claims or userAccess mutation."
+    },
+    "/api/admin/users": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Admin and userManagement permission endpoint handled by the Hosting API gateway."
+    },
+    "/api/analyze-bookmark": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "analyzeBookmark",
+      "notes": "Backed by functions/src/api/analyzeBookmark.ts."
+    },
+    "/api/convert-image": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated Sharp image conversion handled by the Functions gateway with size and rate limits."
+    },
+    "/api/emoticon-studio/plan": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Permission-gated OpenRouter animation planning and model capability metadata handled by the Hosting API gateway."
+    },
+    "/api/extract-video-frame": {
+      "classification": "needs-functions-port",
+      "notes": "Video frame extraction requires a Node runtime."
+    },
+    "/api/fetch-image": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated SSRF-safe external image proxy handled by the Hosting API gateway."
+    },
+    "/api/generate-image": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "OpenRouter image generation handled by the Hosting API gateway using Firebase Secret."
+    },
+    "/api/generate-image-storyboard": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated OpenRouter storyboard planning handled by the Hosting API gateway."
+    },
+    "/api/generate-image-storyboard/flow": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated OpenRouter storyboard flow redesign handled by the Hosting API gateway."
+    },
+    "/api/generate-image-storyboard/scene": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated OpenRouter single-scene storyboard redesign handled by the Hosting API gateway."
+    },
+    "/api/generate-project-board-content": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Permission-gated OpenRouter HTML generation handled by the Hosting API gateway."
+    },
+    "/api/generate-video": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated OpenRouter video generation handled by the Hosting API gateway."
+    },
+    "/api/merge-videos": {
+      "classification": "needs-functions-port",
+      "notes": "Video merge endpoint requires ffmpeg-capable server runtime."
+    },
+    "/api/openrouter-usage": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "openRouterUsage",
+      "notes": "Admin-only OpenRouter usage, token, and cost reporting endpoint backed by functions/src/api/openRouterUsage.ts."
+    },
+    "/api/storyboards/[storyboardId]": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated storyboard cascade deletion removes owned media, jobs, clips, project metadata, and storyboard subcollections."
+    },
+    "/api/sub-agent/scrape": {
+      "classification": "development-only",
+      "notes": "Route returns 404 in production and should stay hidden from production UI."
+    },
+    "/api/user/erp-home-preferences": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Signed-in ERP home preference persistence handled by the Hosting API gateway."
+    },
+    "/api/video-studio/clips": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Owned Video Studio clip creation handled by the Hosting API gateway."
+    },
+    "/api/video-studio/estimate": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated OpenRouter video model auto-selection and cost estimation handled by the Hosting API gateway."
+    },
+    "/api/video-studio/clips/[clipId]": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Owned Video Studio clip deletion handled by the Hosting API gateway."
+    },
+    "/api/video-studio/jobs": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Owned Video Studio job submission handled by the Hosting API gateway."
+    },
+    "/api/video-studio/jobs/[jobId]": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Owned Video Studio job requeue and cancel operations handled by the Hosting API gateway."
+    },
+    "/api/video-studio/jobs/process": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated owned-job manual processing endpoint; queued jobs are also handled by triggers."
+    },
+    "/api/video-studio/jobs/run": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated alias for owned Video Studio job processing."
+    },
+    "/api/video-studio/projects/[projectId]/storage": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Owned Video Studio residual storage inspection and deletion handled by the Hosting API gateway."
+    },
+    "/api/video-studio/projects/[projectId]/timeline": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Owned Video Studio timeline resequencing handled by the Hosting API gateway."
+    },
+    "/api/video-studio/readiness": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated no-charge readiness checks for Firebase Admin, FFmpeg, and automatic OpenRouter video model selection."
+    },
+    "/api/video-studio/status": {
+      "classification": "firebase-hosting-rewrite",
+      "function": "hostingApi",
+      "notes": "Authenticated Video Studio runtime status handled by the Hosting API gateway."
+    }
+  }
+}

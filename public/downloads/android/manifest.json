@@ -1,0 +1,42 @@
+{
+  "corp": {
+    "label": "ProPig 기업",
+    "package": "com.propig.launcher.corp",
+    "home": "https://propig-63524.web.app/corp",
+    "version": "1.0.0",
+    "minAndroid": "6.0",
+    "file": "propig-corp-1.0.0.apk",
+    "bytes": 119258,
+    "sha256": "9c9d12d945161830baca6ce30122a7cd0b29bacfb5c93c3680beec0cc3466698"
+  },
+  "blog": {
+    "label": "ProPig 블로그",
+    "package": "com.propig.launcher.blog",
+    "home": "https://propig-63524.web.app/blog",
+    "version": "1.0.0",
+    "minAndroid": "6.0",
+    "file": "propig-blog-1.0.0.apk",
+    "bytes": 172506,
+    "sha256": "84350b20d7fefdb571e16f5a453035b8036281bd43b66aa16a0e68b56b18f06f"
+  },
+  "shop": {
+    "label": "ProPig 생활",
+    "package": "com.propig.launcher.shop",
+    "home": "https://propig-63524.web.app/propig",
+    "version": "1.0.0",
+    "minAndroid": "6.0",
+    "file": "propig-shop-1.0.0.apk",
+    "bytes": 119258,
+    "sha256": "64be98cceb77860fc4f2d88c4a8d028c17db4807544bf01e5d44bad1aac8062f"
+  },
+  "admin": {
+    "label": "ProPig 관리자",
+    "package": "com.propig.launcher.admin",
+    "home": "https://propig-63524.web.app/admin",
+    "version": "1.0.0",
+    "minAndroid": "6.0",
+    "file": "propig-admin-1.0.0.apk",
+    "bytes": 295386,
+    "sha256": "d165e26dbbc76846922cc831f29c88066edb20e5b49e965135db4a174cf21370"
+  }
+}

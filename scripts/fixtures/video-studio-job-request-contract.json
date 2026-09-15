@@ -1,0 +1,222 @@
+{
+  "requestCases": [
+    {
+      "name": "generate accepts a bounded prompt",
+      "expected": true,
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "A calm establishing shot" }
+    },
+    {
+      "name": "generate requires prompt",
+      "expected": false,
+      "issuePath": "prompt",
+      "request": { "operation": "generate", "projectId": "project-1" }
+    },
+    {
+      "name": "generate rejects whitespace prompt",
+      "expected": false,
+      "issuePath": "prompt",
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "   " }
+    },
+    {
+      "name": "project id rejects more than 240 characters",
+      "expected": false,
+      "issuePath": "projectId",
+      "filledField": { "name": "projectId", "length": 241, "character": "p" },
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Bounded ids" }
+    },
+    {
+      "name": "prompt rejects more than 12000 characters",
+      "expected": false,
+      "issuePath": "prompt",
+      "filledField": { "name": "prompt", "length": 12001, "character": "p" },
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Bounded prompt" }
+    },
+    {
+      "name": "continuity notes reject more than 4000 characters",
+      "expected": false,
+      "issuePath": "continuityNotes",
+      "filledField": { "name": "continuityNotes", "length": 4001, "character": "n" },
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Bounded notes" }
+    },
+    {
+      "name": "extend requires source clip",
+      "expected": false,
+      "issuePath": "sourceClipId",
+      "request": { "operation": "extend", "projectId": "project-1", "prompt": "Continue forward" }
+    },
+    {
+      "name": "continue accepts source clip and prompt",
+      "expected": true,
+      "request": { "operation": "continue", "projectId": "project-1", "sourceClipId": "clip-1", "prompt": "Continue forward" }
+    },
+    {
+      "name": "edit requires source clip",
+      "expected": false,
+      "issuePath": "sourceClipId",
+      "request": { "operation": "edit", "projectId": "project-1", "prompt": "Change the camera move" }
+    },
+    {
+      "name": "extract frame requires source clip",
+      "expected": false,
+      "issuePath": "sourceClipId",
+      "request": { "operation": "extract-frame", "projectId": "project-1" }
+    },
+    {
+      "name": "extract frame accepts source clip without prompt",
+      "expected": true,
+      "request": { "operation": "extract-frame", "projectId": "project-1", "sourceClipId": "clip-1" }
+    },
+    {
+      "name": "merge requires clips",
+      "expected": false,
+      "issuePath": "mergeClipIds",
+      "request": { "operation": "merge", "projectId": "project-1" }
+    },
+    {
+      "name": "repeat count 12 is accepted",
+      "expected": true,
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Twelve connected takes", "repeatCount": 12 }
+    },
+    {
+      "name": "repeat count 13 is rejected",
+      "expected": false,
+      "issuePath": "repeatCount",
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Too many connected takes", "repeatCount": 13 }
+    },
+    {
+      "name": "merge supports 12 edited clips",
+      "expected": true,
+      "mergeClipCount": 12,
+      "mergeEditCount": 12,
+      "request": { "operation": "merge", "projectId": "project-1" }
+    },
+    {
+      "name": "merge supports 13 edited clips",
+      "expected": true,
+      "mergeClipCount": 13,
+      "mergeEditCount": 13,
+      "request": { "operation": "merge", "projectId": "project-1" }
+    },
+    {
+      "name": "merge supports storyboard maximum 48",
+      "expected": true,
+      "mergeClipCount": 48,
+      "mergeEditCount": 48,
+      "request": { "operation": "merge", "projectId": "project-1" }
+    },
+    {
+      "name": "merge rejects more than storyboard maximum",
+      "expected": false,
+      "issuePath": "mergeClipIds",
+      "mergeClipCount": 49,
+      "request": { "operation": "merge", "projectId": "project-1" }
+    },
+    {
+      "name": "merge rejects duplicate clips",
+      "expected": false,
+      "issuePath": "mergeClipIds.1",
+      "request": { "operation": "merge", "projectId": "project-1", "mergeClipIds": ["clip-1", "clip-1"] }
+    },
+    {
+      "name": "merge edit must target a selected clip",
+      "expected": false,
+      "issuePath": "mergeClipEdits.0.clipId",
+      "request": {
+        "operation": "merge",
+        "projectId": "project-1",
+        "mergeClipIds": ["clip-1"],
+        "mergeClipEdits": [{ "clipId": "clip-2", "transitionStyle": "fade" }]
+      }
+    },
+    {
+      "name": "reference image rejects insecure URL",
+      "expected": false,
+      "issuePath": "referenceImage",
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Reference test", "referenceImage": "http://example.com/reference.png" }
+    },
+    {
+      "name": "end reference image rejects non-image URL",
+      "expected": false,
+      "issuePath": "endReferenceImage",
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Reference test", "endReferenceImage": "file:///tmp/reference.png" }
+    },
+    {
+      "name": "background music rejects external storage URL",
+      "expected": false,
+      "issuePath": "backgroundMusicUrl",
+      "request": { "operation": "merge", "projectId": "project-1", "mergeClipIds": ["clip-1"], "backgroundMusicUrl": "https://example.com/music.mp3" }
+    },
+    {
+      "name": "background music rejects URL over 2048 characters",
+      "expected": false,
+      "issuePath": "backgroundMusicUrl",
+      "storageUrlLength": 2049,
+      "request": { "operation": "merge", "projectId": "project-1", "mergeClipIds": ["clip-1"] }
+    },
+    {
+      "name": "reference image rejects oversized data URL",
+      "expected": false,
+      "issuePath": "referenceImage",
+      "imageDataUrlLength": 280001,
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Reference size test" }
+    },
+    {
+      "name": "dialogue mode requires dialogue",
+      "expected": false,
+      "issuePath": "dialogue",
+      "request": { "operation": "generate", "projectId": "project-1", "prompt": "Speaking character", "audioMode": "dialogue" }
+    }
+  ],
+  "repeatCostCases": [
+    {
+      "name": "single generation uses per-segment estimate",
+      "repeatCount": 1,
+      "estimatedCostUsd": 0.72,
+      "remainingUsd": 1,
+      "initialCanSubmit": true,
+      "expectedTotalUsd": 0.72,
+      "expectedCanSubmit": true,
+      "expectedSufficient": true
+    },
+    {
+      "name": "repeat total blocks a balance that covers only one segment",
+      "repeatCount": 2,
+      "estimatedCostUsd": 0.72,
+      "remainingUsd": 1,
+      "initialCanSubmit": true,
+      "expectedTotalUsd": 1.44,
+      "expectedCanSubmit": false,
+      "expectedSufficient": false
+    },
+    {
+      "name": "repeat maximum stores rounded total",
+      "repeatCount": 12,
+      "estimatedCostUsd": 0.100001,
+      "remainingUsd": 1.200012,
+      "initialCanSubmit": true,
+      "expectedTotalUsd": 1.200012,
+      "expectedCanSubmit": true,
+      "expectedSufficient": true
+    },
+    {
+      "name": "unknown balance preserves provider eligibility",
+      "repeatCount": 12,
+      "estimatedCostUsd": 0.2,
+      "remainingUsd": null,
+      "initialCanSubmit": true,
+      "expectedTotalUsd": 2.4,
+      "expectedCanSubmit": true,
+      "expectedSufficient": null
+    },
+    {
+      "name": "unknown price remains unknown",
+      "repeatCount": 12,
+      "estimatedCostUsd": null,
+      "remainingUsd": 100,
+      "initialCanSubmit": true,
+      "expectedTotalUsd": null,
+      "expectedCanSubmit": true,
+      "expectedSufficient": null
+    }
+  ]
+}

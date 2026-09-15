@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import admin from '@/lib/firebase-admin';
+import { classifyFirebaseAuthVerificationError } from '@/lib/server/firebase-auth-verification-error';
 
 type UserAuthSuccess = {
     ok: true;
@@ -9,7 +10,7 @@ type UserAuthSuccess = {
 
 type UserAuthFailure = {
     ok: false;
-    status: 401 | 500;
+    status: 401 | 500 | 503;
     message: string;
 };
 
@@ -46,6 +47,6 @@ export const requireUserAuth = async (request: NextRequest): Promise<UserAuthRes
         };
     } catch (error) {
         console.error('[User Auth Error] verifyIdToken failed:', error);
-        return { ok: false, status: 401, message: 'The provided auth token is invalid.' };
+        return { ok: false, ...classifyFirebaseAuthVerificationError(error) };
     }
 };

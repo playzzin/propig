@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { GoogleGenerativeAI, type Content } from '@google/generative-ai';
 
 // ============================================
 // Image Generation Types
@@ -55,6 +54,7 @@ export const llmChatRequestSchema = z.object({
     temperature: z.number().min(0).max(2).optional(),
     maxTokens: z.number().positive().optional(),
     stream: z.boolean().optional(),
+    responseFormat: z.enum(['json_object']).optional(),
 });
 
 export const llmChatResponseSchema = z.object({
@@ -64,8 +64,10 @@ export const llmChatResponseSchema = z.object({
             promptTokens: z.number(),
             completionTokens: z.number(),
             totalTokens: z.number(),
+            costUsd: z.number().nonnegative().optional(),
         })
         .optional(),
+    model: z.string().optional(),
     finishReason: z.enum(['stop', 'length', 'content_filter', 'error']).optional(),
 });
 
@@ -95,7 +97,7 @@ export interface LLMAdapter {
     getProvider(): string;
 
     /**
-     * Generate images from text prompt (Gemini only)
+     * Generate images from text prompt when the configured provider supports it.
      */
     generateImage?(prompt: string, options?: ImageGenerationOptions): Promise<ImageGenerationResponse>;
 }
@@ -108,6 +110,14 @@ export interface OpenAIConfig {
     apiKey: string;
     model?: string;
     baseURL?: string;
+}
+
+export interface OpenRouterConfig {
+    apiKey: string;
+    model?: string;
+    fallbackModels?: string[];
+    siteUrl?: string;
+    siteName?: string;
 }
 
 export class OpenAIAdapter implements LLMAdapter {
@@ -141,6 +151,9 @@ export class OpenAIAdapter implements LLMAdapter {
                     messages: validatedRequest.messages,
                     temperature: validatedRequest.temperature,
                     max_tokens: validatedRequest.maxTokens,
+                    ...(validatedRequest.responseFormat
+                        ? { response_format: { type: validatedRequest.responseFormat } }
+                        : {}),
                     stream: validatedRequest.stream,
                 }),
             });
@@ -170,6 +183,120 @@ export class OpenAIAdapter implements LLMAdapter {
 
     getProvider(): string {
         return 'openai';
+    }
+
+    private mapFinishReason(reason: string | undefined): LLMChatResponse['finishReason'] {
+        switch (reason) {
+            case 'stop':
+                return 'stop';
+            case 'length':
+                return 'length';
+            case 'content_filter':
+                return 'content_filter';
+            default:
+                return 'stop';
+        }
+    }
+}
+
+type OpenRouterCompletion = {
+    choices?: Array<{
+        message?: { content?: string };
+        finish_reason?: string;
+    }>;
+    usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        cost?: number;
+    };
+    model?: string;
+};
+
+export class OpenRouterAdapter implements LLMAdapter {
+    private apiKey: string;
+    private model: string;
+    private fallbackModels: string[];
+    private siteUrl?: string;
+    private siteName?: string;
+
+    constructor(config: OpenRouterConfig) {
+        this.apiKey = config.apiKey;
+        this.model = config.model || 'openai/gpt-4.1-mini';
+        this.fallbackModels = Array.from(
+            new Set((config.fallbackModels || []).map((model) => model.trim()).filter(Boolean)),
+        ).filter((model) => model !== this.model);
+        this.siteUrl = config.siteUrl;
+        this.siteName = config.siteName;
+    }
+
+    async chat(messages: LLMMessage[], options?: Partial<LLMChatRequest>): Promise<LLMChatResponse> {
+        const validatedRequest = llmChatRequestSchema.parse({
+            messages,
+            temperature: options?.temperature ?? 0.7,
+            maxTokens: options?.maxTokens ?? 2000,
+            stream: options?.stream ?? false,
+        });
+
+        if (validatedRequest.stream) {
+            throw new Error('OpenRouter streaming is not supported by the buffered LLM adapter.');
+        }
+
+        try {
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${this.apiKey}`,
+                    ...(this.siteUrl ? { 'HTTP-Referer': this.siteUrl } : {}),
+                    ...(this.siteName ? { 'X-OpenRouter-Title': this.siteName } : {}),
+                },
+                body: JSON.stringify({
+                    model: this.model,
+                    ...(this.fallbackModels.length > 0 ? { models: this.fallbackModels } : {}),
+                    messages: validatedRequest.messages,
+                    temperature: validatedRequest.temperature,
+                    max_tokens: validatedRequest.maxTokens,
+                    ...(validatedRequest.responseFormat
+                        ? { response_format: { type: validatedRequest.responseFormat } }
+                        : {}),
+                    stream: false,
+                }),
+            });
+
+            const rawBody = await response.text();
+            let data: OpenRouterCompletion = {};
+            try {
+                data = JSON.parse(rawBody) as OpenRouterCompletion;
+            } catch {
+                // Keep the provider response only in the sanitized error below.
+            }
+
+            if (!response.ok) {
+                const message = rawBody.slice(0, 1000) || `HTTP ${response.status}`;
+                throw new Error(`OpenRouter API error: ${response.status} - ${message}`);
+            }
+
+            const llmResponse: LLMChatResponse = {
+                content: data.choices?.[0]?.message?.content || '',
+                usage: {
+                    promptTokens: data.usage?.prompt_tokens || 0,
+                    completionTokens: data.usage?.completion_tokens || 0,
+                    totalTokens: data.usage?.total_tokens || 0,
+                    costUsd: data.usage?.cost,
+                },
+                model: data.model || this.model,
+                finishReason: this.mapFinishReason(data.choices?.[0]?.finish_reason),
+            };
+
+            return llmChatResponseSchema.parse(llmResponse);
+        } catch (error) {
+            throw new Error(`OpenRouter chat failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    getProvider(): string {
+        return 'openrouter';
     }
 
     private mapFinishReason(reason: string | undefined): LLMChatResponse['finishReason'] {
@@ -282,189 +409,6 @@ export class ClaudeAdapter implements LLMAdapter {
 }
 
 // ============================================
-// Google Gemini Adapter
-// ============================================
-
-export interface GeminiConfig {
-    apiKey: string;
-    model?: string;
-}
-
-
-// Import SDK (add at top of file, but since I'm editing the class, I'll assume import exists or add it)
-// Wait, I need to add the import first.
-// I'll do this in two steps or use MultiReplace.
-// Actually, let's use MultiReplace to add import AND replace class.
-
-
-
-export class GeminiAdapter implements LLMAdapter {
-    private apiKey: string;
-    private model: string;
-
-    constructor(config: GeminiConfig) {
-        this.apiKey = config.apiKey;
-        this.model = config.model || 'gemini-2.5-flash'; // Fallback to stable 2.5 model
-    }
-
-    async chat(messages: LLMMessage[], options?: Partial<LLMChatRequest>): Promise<LLMChatResponse> {
-        const validatedRequest = llmChatRequestSchema.parse({
-            messages,
-            temperature: options?.temperature ?? 0.7,
-            maxTokens: options?.maxTokens ?? 2000,
-        });
-
-        try {
-            const genAI = new GoogleGenerativeAI(this.apiKey);
-
-            // Extract system instruction
-            const systemMessage = validatedRequest.messages.find(m => m.role === 'system');
-            const systemInstruction = systemMessage?.content;
-
-            // Filter out system message to get conversation history
-            const conversationMessages = validatedRequest.messages.filter(m => m.role !== 'system');
-
-            // Convert to Gemini Content format
-            const history = conversationMessages.slice(0, -1).map(msg => ({
-                role: msg.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: msg.content }],
-            }));
-
-            const lastMessage = conversationMessages[conversationMessages.length - 1];
-
-            const modelParams: { model: string; systemInstruction?: string } = {
-                model: this.model,
-            };
-
-            // Gemini 1.5 and 2.0 support systemInstruction
-            if (systemInstruction) {
-                modelParams.systemInstruction = systemInstruction;
-            }
-
-            const model = genAI.getGenerativeModel(modelParams);
-
-            const chat = model.startChat({
-                history: history,
-                generationConfig: {
-                    temperature: validatedRequest.temperature,
-                    maxOutputTokens: validatedRequest.maxTokens,
-                },
-            });
-
-            const result = await chat.sendMessage(lastMessage.content);
-            const response = await result.response;
-            const text = response.text();
-
-            // Calculate mock usage if not provided by SDK
-            const usageMetadata = response.usageMetadata;
-
-            const llmResponse: LLMChatResponse = {
-                content: text,
-                usage: {
-                    promptTokens: usageMetadata?.promptTokenCount || 0,
-                    completionTokens: usageMetadata?.candidatesTokenCount || 0,
-                    totalTokens: usageMetadata?.totalTokenCount || 0,
-                },
-                finishReason: 'stop',
-            };
-
-            return llmChatResponseSchema.parse(llmResponse);
-        } catch (error) {
-            console.error('Gemini Adapter Error Details:', error);
-            throw new Error(
-                `Gemini chat failed: ${error instanceof Error ? error.message : String(error)}`
-            );
-        }
-    }
-
-    getProvider(): string {
-        return 'gemini';
-    }
-
-    // ============================================
-    // Image Generation (Gemini 2.5 Flash Image)
-    // ============================================
-
-    async generateImage(prompt: string, options?: ImageGenerationOptions): Promise<ImageGenerationResponse> {
-        // Build enhanced prompt with size and quality instructions
-        let fullPrompt = prompt;
-        if (options?.width || options?.height) {
-            fullPrompt += ` (${options.width || 1024}x${options.height || 1024} pixels)`;
-        }
-        fullPrompt += ", high quality, detailed, professional";
-        if (options?.promptSuffix) {
-            fullPrompt += ", " + options.promptSuffix;
-        }
-
-        try {
-            const genAI = new GoogleGenerativeAI(this.apiKey);
-            
-            // Use gemini-2.5-flash-image model for image generation
-            const model = genAI.getGenerativeModel({ 
-                model: 'gemini-2.5-flash-image'
-            });
-
-            // Build contents with optional reference image
-            const contents: Content[] = [];
-            
-            if (options?.referenceImageBase64 && options?.referenceImageMimeType) {
-                // Image-to-image: include reference image
-                contents.push({
-                    role: 'user',
-                    parts: [
-                        { text: prompt },
-                        {
-                            inlineData: {
-                                mimeType: options.referenceImageMimeType,
-                                data: options.referenceImageBase64
-                            }
-                        }
-                    ]
-                });
-            } else {
-                contents.push({
-                    role: 'user',
-                    parts: [{ text: fullPrompt }]
-                });
-            }
-
-            const result = await model.generateContent({ contents });
-            const response = result.response;
-
-            const images: Array<{ base64: string; mimeType: string }> = [];
-            
-            // Extract images from response
-            if (response.candidates && response.candidates[0]?.content?.parts) {
-                for (const part of response.candidates[0].content.parts) {
-                    if (part.inlineData?.data) {
-                        images.push({
-                            base64: part.inlineData.data,
-                            mimeType: part.inlineData.mimeType || 'image/png'
-                        });
-                    }
-                }
-            }
-
-            // Get revised prompt if available
-            const revisedPrompt = response.promptFeedback?.safetyRatings 
-                ? prompt 
-                : prompt;
-
-            return {
-                images,
-                revisedPrompt,
-                usage: {
-                    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-                    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-                }
-            };
-        } catch (error) {
-            console.error('Gemini Image Generation Error:', error);
-            throw new Error(`Gemini image generation failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-}
-
 // ============================================
 // Mock Adapter (for development/testing)
 // ============================================
@@ -560,12 +504,12 @@ export class GeneratedFeature {
 // LLM Adapter Factory
 // ============================================
 
-export type LLMProviderType = 'openai' | 'claude' | 'gemini' | 'mock';
+export type LLMProviderType = 'openai' | 'claude' | 'openrouter' | 'mock';
 
 export interface LLMFactoryConfig {
     openai?: OpenAIConfig;
     claude?: ClaudeConfig;
-    gemini?: GeminiConfig;
+    openrouter?: OpenRouterConfig;
 }
 
 /**
@@ -597,11 +541,11 @@ export class LLMAdapterFactory {
                 }
                 return new ClaudeAdapter(config.claude);
 
-            case 'gemini':
-                if (!config?.gemini?.apiKey) {
-                    throw new Error('Gemini API key is required');
+            case 'openrouter':
+                if (!config?.openrouter?.apiKey) {
+                    throw new Error('OpenRouter API key is required');
                 }
-                return new GeminiAdapter(config.gemini);
+                return new OpenRouterAdapter(config.openrouter);
 
             case 'mock':
                 return new MockAdapter();
@@ -635,10 +579,11 @@ export class LLMAdapterFactory {
                     model: process.env.CLAUDE_MODEL,
                 });
 
-            case 'gemini':
-                return new GeminiAdapter({
-                    apiKey: process.env.GEMINI_API_KEY || '',
-                    model: process.env.GEMINI_MODEL,
+            case 'openrouter':
+                return new OpenRouterAdapter({
+                    apiKey: process.env.OPENROUTER_API_KEY || '',
+                    model: process.env.OPENROUTER_MODEL,
+                    fallbackModels: (process.env.OPENROUTER_FALLBACK_MODELS || '').split(','),
                 });
 
             default:

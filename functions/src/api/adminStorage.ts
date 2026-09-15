@@ -1,6 +1,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
+import { db } from '../firestore';
 
 if (!admin.apps.length) {
     admin.initializeApp();
@@ -23,6 +24,24 @@ const MAX_LIST_LIMIT = 20000;
 const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
 const MAX_FOLDER_NAME_LENGTH = 120;
 
+function buildFirebaseTokenUrl(
+    bucketName: string,
+    fileName: string,
+    metadata: Record<string, unknown>,
+): string | null {
+    const customMetadata =
+        metadata.metadata && typeof metadata.metadata === 'object'
+            ? metadata.metadata as Record<string, unknown>
+            : {};
+    const tokenValue = customMetadata.firebaseStorageDownloadTokens;
+    const token = typeof tokenValue === 'string'
+        ? tokenValue.split(',').map((item) => item.trim()).find(Boolean)
+        : null;
+    if (!token) return null;
+
+    return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(fileName)}?alt=media&token=${encodeURIComponent(token)}`;
+}
+
 type HeaderReadableRequest = {
     header(name: string): string | undefined;
 };
@@ -35,7 +54,7 @@ function parseBearerToken(header: string | undefined): string | null {
 }
 
 function parseAdminUidAllowList(): string[] {
-    const raw = process.env.GEMINI_ADMIN_UIDS || process.env.ADMIN_UIDS || '';
+    const raw = process.env.ADMIN_UIDS || '';
     return raw
         .split(',')
         .map((item) => item.trim())
@@ -58,7 +77,6 @@ async function requireAdmin(req: HeaderReadableRequest) {
             return { ok: true as const, uid: decoded.uid };
         }
 
-        const db = admin.firestore();
         const [adminDoc, accessDoc] = await Promise.all([
             db.collection('admins').doc(decoded.uid).get().catch(() => null),
             db.collection('userAccess').doc(decoded.uid).get().catch(() => null),
@@ -224,19 +242,25 @@ export const adminStorage = onRequest({ cors: true, timeoutSeconds: 120, memory:
                 return;
             }
 
-            const expiresAt = new Date(Date.now() + SIGNED_URL_TTL_MS);
-            const [url] = await file.getSignedUrl({
+            const [metadata] = await file.getMetadata();
+            const tokenUrl = buildFirebaseTokenUrl(
+                bucket.name,
+                file.name,
+                metadata as Record<string, unknown>,
+            );
+            const expiresAt = tokenUrl ? null : new Date(Date.now() + SIGNED_URL_TTL_MS);
+            const url = tokenUrl || (await file.getSignedUrl({
                 action: 'read',
-                expires: expiresAt,
+                expires: expiresAt!,
                 responseDisposition: forceDownload ? encodeContentDispositionFileName(readFileName(downloadPath)) : undefined,
-            });
+            }))[0];
 
             res.status(200).json({
                 ok: true,
                 bucket: bucket.name,
                 path: downloadPath,
                 url,
-                expiresAt: expiresAt.toISOString(),
+                expiresAt: expiresAt?.toISOString() ?? null,
             });
             return;
         }

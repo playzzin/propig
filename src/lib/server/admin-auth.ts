@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import admin, { db as adminDb } from '@/lib/firebase-admin';
+import { classifyFirebaseAuthVerificationError } from '@/lib/server/firebase-auth-verification-error';
 import {
     DEFAULT_USER_PERMISSIONS,
     USER_PERMISSION_KEYS,
@@ -20,7 +21,7 @@ type AdminAuthSuccess = {
 
 type AdminAuthFailure = {
     ok: false;
-    status: 401 | 403 | 500;
+    status: 401 | 403 | 500 | 503;
     message: string;
 };
 
@@ -89,7 +90,7 @@ const parseBearerToken = (request: NextRequest): string | null => {
 };
 
 const parseAdminUidAllowList = (): string[] => {
-    const raw = process.env.GEMINI_ADMIN_UIDS || process.env.ADMIN_UIDS || '';
+    const raw = process.env.ADMIN_UIDS || '';
     return raw
         .split(',')
         .map((item) => item.trim())
@@ -168,19 +169,45 @@ export const requireAdminAuth = async (request: NextRequest): Promise<AdminAuthR
     } catch (error) {
         console.error('[Admin Auth Error] verifyIdToken failed:', error);
 
-        if (error instanceof Error && error.message.includes('Could not load the default credentials')) {
-            return {
-                ok: false,
-                status: 500,
-                message: 'Firebase Admin service account is required.',
-            };
-        }
-
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return { ok: false, status: 401, message: `Invalid auth token. Detail: ${errorMessage}` };
+        return { ok: false, ...classifyFirebaseAuthVerificationError(error) };
     }
 };
 
+/**
+ * Authenticate any signed-in user while retaining the resolved access context.
+ * A route can use this to hide administrator-only response fields without
+ * blocking the underlying user feature.
+ */
+export const requireUserAccessAuth = async (
+    request: NextRequest,
+): Promise<AdminOrPermissionAuthResult> => {
+    const token = parseBearerToken(request);
+    if (!token) {
+        return { ok: false, status: 401, message: 'Authorization Bearer token is required.' };
+    }
+
+    if (!admin.apps.length) {
+        return { ok: false, status: 500, message: 'Firebase Admin is not initialized.' };
+    }
+
+    try {
+        const decoded = (await admin.auth().verifyIdToken(token)) as DecodedAuthToken;
+        const access = await loadAccessContext(decoded);
+
+        return {
+            ok: true,
+            uid: decoded.uid,
+            email: typeof decoded.email === 'string' ? decoded.email : undefined,
+            isAdmin: access.isAdmin,
+            role: access.role,
+            permissions: access.permissions,
+        };
+    } catch (error) {
+        console.error('[User Access Auth Error] verifyIdToken failed:', error);
+
+        return { ok: false, ...classifyFirebaseAuthVerificationError(error) };
+    }
+};
 export const requireAdminOrPermissionAuth = async (
     request: NextRequest,
     permission: ManagedUserPermissionKey,
@@ -213,15 +240,6 @@ export const requireAdminOrPermissionAuth = async (
     } catch (error) {
         console.error('[Admin Permission Auth Error] verifyIdToken failed:', error);
 
-        if (error instanceof Error && error.message.includes('Could not load the default credentials')) {
-            return {
-                ok: false,
-                status: 500,
-                message: 'Firebase Admin service account is required.',
-            };
-        }
-
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return { ok: false, status: 401, message: `Invalid auth token. Detail: ${errorMessage}` };
+        return { ok: false, ...classifyFirebaseAuthVerificationError(error) };
     }
 };

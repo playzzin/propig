@@ -1,5 +1,7 @@
 'use client';
 
+import { SiteAppDownload } from '@/components/site-home/SiteAppDownload';
+
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -53,7 +55,7 @@ import {
   type PropigWidgetId,
 } from '@/constants/propigStore';
 import { useAuth } from '@/contexts/AuthContext';
-import { db, ensureFirestorePersistence } from '@/firebase/config';
+import { auth, db, ensureFirestorePersistence } from '@/firebase/config';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 import { useStickyNotes } from '@/hooks/useStickyNotes';
 import {
@@ -376,10 +378,6 @@ function formatMemoUpdatedAt(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
-function uniqueSortedCompletionKeys(keys: string[]): string[] {
-  return [...new Set(keys.filter((key) => key === TODO_ANYTIME_COMPLETION_KEY || /^\d{4}-\d{2}-\d{2}$/.test(key)))].sort();
-}
-
 function shouldOccurOn(task: TodoTask, dateKey: string): boolean {
   const recurrence = task.recurrence;
 
@@ -594,6 +592,7 @@ function createHabitWorkspaceRef(uid: string) {
 async function saveHabitWorkspace(uid: string, workspace: HabitWorkspace): Promise<void> {
   const payload = removeUndefined(workspace) as Record<string, unknown>;
   await ensureFirestorePersistence();
+  if (auth.currentUser?.uid !== uid) throw new Error('계정이 변경되어 저장을 중단했습니다.');
   await setDoc(createHabitWorkspaceRef(uid), { ...payload, updatedAt: serverTimestamp() }, { merge: true });
 }
 
@@ -655,6 +654,7 @@ function getWidgetStatusText(state: WidgetState, currentUser: unknown): string {
 function useBucketWidget(uid: string | undefined) {
   const [items, setItems] = useState<BucketListItem[]>([]);
   const [categories, setCategories] = useState<BucketCategoryOption[]>([]);
+  const [ownerUid, setOwnerUid] = useState<string | undefined>();
   const [state, setState] = useState<WidgetState>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -666,46 +666,64 @@ function useBucketWidget(uid: string | undefined) {
     let unsubscribeItems: (() => void) | undefined;
     let unsubscribeCategories: (() => void) | undefined;
     let didCancel = false;
+    let listReady = false;
+    let categoriesReady = false;
+    let defaultsReady = false;
+    let connectionError: string | null = null;
+    const publishStatus = () => {
+      if (didCancel || auth.currentUser?.uid !== uid) return;
+      setOwnerUid(uid);
+      setError(connectionError);
+      setState(connectionError ? 'error' : listReady && categoriesReady && defaultsReady ? 'ready' : 'loading');
+    };
 
     const connect = async () => {
       try {
         setState('loading');
+        setItems([]); setCategories([]);
         await ensureFirestorePersistence();
-        await bucketListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribeItems = bucketListService.subscribe(
           uid,
           (nextItems) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setItems(nextItems);
-            setState('ready');
-            setError(null);
+            setOwnerUid(uid);
+            listReady = true;
+            publishStatus();
           },
           (nextError) => {
-            if (didCancel) return;
-            setError(nextError.message);
-            setState('error');
+            if (didCancel || auth.currentUser?.uid !== uid) return;
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
 
         unsubscribeCategories = bucketListService.subscribeCategories(
           uid,
           (nextCategories) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setCategories(nextCategories);
-            setState('ready');
-            setError(null);
+            setOwnerUid(uid);
+            categoriesReady = true;
+            publishStatus();
           },
           (nextError) => {
-            if (didCancel) return;
-            setError(nextError.message);
-            setState('error');
+            if (didCancel || auth.currentUser?.uid !== uid) return;
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
+        // Start both listeners before the independent default-category bootstrap.
+        await bucketListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
+        defaultsReady = true;
+        publishStatus();
       } catch (nextError) {
-        if (didCancel) return;
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-        setState('error');
+        if (didCancel || auth.currentUser?.uid !== uid) return;
+        connectionError = nextError instanceof Error ? nextError.message : String(nextError);
+        publishStatus();
       }
     };
 
@@ -720,11 +738,10 @@ function useBucketWidget(uid: string | undefined) {
 
   const createItem = useCallback(
     async (title: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       const category = categories[0]?.id;
       if (!category) {
-        toast.error('버킷리스트 분류를 불러온 뒤 다시 시도해주세요.');
-        return;
+        throw new Error('버킷리스트 분류를 불러온 뒤 다시 시도해주세요.');
       }
 
       await bucketListService.create(uid, {
@@ -735,30 +752,30 @@ function useBucketWidget(uid: string | undefined) {
         targetDate: '',
       });
     },
-    [categories, uid],
+    [categories, uid, ownerUid, state],
   );
 
   const updateStatus = useCallback(
     async (item: BucketListItem) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       await bucketListService.update(uid, item.id, { status: cycleBucketStatus(item.status) });
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   const removeItem = useCallback(
     async (itemId: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       await bucketListService.remove(uid, itemId);
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   return {
-    items: uid ? items : [],
-    categories: uid ? categories : [],
-    state: uid ? state : 'idle',
-    error: uid ? error : null,
+    items: uid && ownerUid === uid ? items : [],
+    categories: uid && ownerUid === uid ? categories : [],
+    state: uid ? (ownerUid === uid ? state : state === 'error' ? 'error' : 'loading') : 'idle',
+    error: uid && ownerUid === uid ? error : null,
     createItem,
     updateStatus,
     removeItem,
@@ -768,6 +785,7 @@ function useBucketWidget(uid: string | undefined) {
 function useTodoWidget(uid: string | undefined, todayKey: string) {
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [categories, setCategories] = useState<TodoCategoryOption[]>([]);
+  const [ownerUid, setOwnerUid] = useState<string | undefined>();
   const [state, setState] = useState<WidgetState>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -779,46 +797,64 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
     let unsubscribeTasks: (() => void) | undefined;
     let unsubscribeCategories: (() => void) | undefined;
     let didCancel = false;
+    let listReady = false;
+    let categoriesReady = false;
+    let defaultsReady = false;
+    let connectionError: string | null = null;
+    const publishStatus = () => {
+      if (didCancel || auth.currentUser?.uid !== uid) return;
+      setOwnerUid(uid);
+      setError(connectionError);
+      setState(connectionError ? 'error' : listReady && categoriesReady && defaultsReady ? 'ready' : 'loading');
+    };
 
     const connect = async () => {
       try {
         setState('loading');
+        setTasks([]); setCategories([]);
         await ensureFirestorePersistence();
-        await todoListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribeTasks = todoListService.subscribeTasks(
           uid,
           (nextTasks) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setTasks(nextTasks);
-            setState('ready');
-            setError(null);
+            setOwnerUid(uid);
+            listReady = true;
+            publishStatus();
           },
           (nextError) => {
-            if (didCancel) return;
-            setError(nextError.message);
-            setState('error');
+            if (didCancel || auth.currentUser?.uid !== uid) return;
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
 
         unsubscribeCategories = todoListService.subscribeCategories(
           uid,
           (nextCategories) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setCategories(nextCategories);
-            setState('ready');
-            setError(null);
+            setOwnerUid(uid);
+            categoriesReady = true;
+            publishStatus();
           },
           (nextError) => {
-            if (didCancel) return;
-            setError(nextError.message);
-            setState('error');
+            if (didCancel || auth.currentUser?.uid !== uid) return;
+            connectionError = nextError.message;
+            publishStatus();
           },
         );
+        // Start both listeners before the independent default-category bootstrap.
+        await todoListService.ensureDefaultCategories(uid);
+        if (didCancel || auth.currentUser?.uid !== uid) return;
+        defaultsReady = true;
+        publishStatus();
       } catch (nextError) {
-        if (didCancel) return;
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-        setState('error');
+        if (didCancel || auth.currentUser?.uid !== uid) return;
+        connectionError = nextError instanceof Error ? nextError.message : String(nextError);
+        publishStatus();
       }
     };
 
@@ -842,45 +878,41 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
   const createTask = useCallback(
     async (title: string, time: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       const categoryId = categories[0]?.id;
       if (!categoryId) {
-        toast.error('할일 분류를 불러온 뒤 다시 시도해주세요.');
-        return;
+        throw new Error('할일 분류를 불러온 뒤 다시 시도해주세요.');
       }
 
       await todoListService.create(uid, createTodoDraft(title, categoryId, todayKey, time));
     },
-    [categories, todayKey, uid],
+    [categories, todayKey, uid, ownerUid, state],
   );
 
   const toggleTask = useCallback(
     async (task: TodoTask, completionKey: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       const exists = task.completedDates.includes(completionKey);
-      const nextDates = exists
-        ? task.completedDates.filter((dateKey) => dateKey !== completionKey)
-        : uniqueSortedCompletionKeys([...task.completedDates, completionKey]);
-      await todoListService.setCompletedDates(uid, task.id, nextDates);
+      await todoListService.setOccurrenceCompleted(uid, task.id, completionKey, !exists);
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   const removeTask = useCallback(
     async (taskId: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) throw new Error('목록과 분류를 불러온 뒤 다시 시도해주세요.');
       await todoListService.remove(uid, taskId);
     },
-    [uid],
+    [uid, ownerUid, state],
   );
 
   return {
-    tasks: uid ? tasks : [],
-    categories: uid ? categories : [],
-    state: uid ? state : 'idle',
-    error: uid ? error : null,
-    todayOccurrences: uid ? todayOccurrences : [],
-    anytimeTasks: uid ? anytimeTasks : [],
+    tasks: uid && ownerUid === uid ? tasks : [],
+    categories: uid && ownerUid === uid ? categories : [],
+    state: uid ? (ownerUid === uid ? state : state === 'error' ? 'error' : 'loading') : 'idle',
+    error: uid && ownerUid === uid ? error : null,
+    todayOccurrences: uid && ownerUid === uid ? todayOccurrences : [],
+    anytimeTasks: uid && ownerUid === uid ? anytimeTasks : [],
     createTask,
     toggleTask,
     removeTask,
@@ -889,6 +921,7 @@ function useTodoWidget(uid: string | undefined, todayKey: string) {
 
 function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
   const [workspace, setWorkspace] = useState<HabitWorkspace>(EMPTY_HABIT_WORKSPACE);
+  const [ownerUid, setOwnerUid] = useState<string | undefined>();
   const [state, setState] = useState<WidgetState>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -903,24 +936,27 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
     const connect = async () => {
       try {
         setState('loading');
+        setWorkspace(EMPTY_HABIT_WORKSPACE);
         await ensureFirestorePersistence();
+        if (didCancel || auth.currentUser?.uid !== uid) return;
 
         unsubscribe = onSnapshot(
           createHabitWorkspaceRef(uid),
           (snapshot) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setWorkspace(normalizeHabitWorkspace(snapshot.data()));
+            setOwnerUid(uid);
             setState('ready');
             setError(null);
           },
           (nextError) => {
-            if (didCancel) return;
+            if (didCancel || auth.currentUser?.uid !== uid) return;
             setError(nextError.message);
             setState('error');
           },
         );
       } catch (nextError) {
-        if (didCancel) return;
+        if (didCancel || auth.currentUser?.uid !== uid) return;
         setError(nextError instanceof Error ? nextError.message : String(nextError));
         setState('error');
       }
@@ -934,7 +970,7 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
     };
   }, [uid]);
 
-  const effectiveWorkspace = uid ? workspace : EMPTY_HABIT_WORKSPACE;
+  const effectiveWorkspace = uid && ownerUid === uid ? workspace : EMPTY_HABIT_WORKSPACE;
   const selectedRecords = useMemo(
     () => effectiveWorkspace.records[selectedDateKey] ?? {},
     [effectiveWorkspace.records, selectedDateKey],
@@ -954,7 +990,7 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
 
   const createHabit = useCallback(
     async (name: string, categoryId?: string) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       const fallbackCategoryId = makeQuickId('habit-category');
       const category = workspace.categories.find((item) => item.id === categoryId) ?? workspace.categories[0] ?? {
         id: fallbackCategoryId,
@@ -978,12 +1014,12 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
       setWorkspace(nextWorkspace);
       await saveHabitWorkspace(uid, nextWorkspace);
     },
-    [uid, workspace],
+    [uid, workspace, ownerUid, state],
   );
 
   const saveHabitRecord = useCallback(
     async (habitId: string, patch: Partial<HabitRecord>) => {
-      if (!uid) return;
+      if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
       const currentDay = workspace.records[selectedDateKey] ?? {};
       const currentRecord = currentDay[habitId] ?? {};
       const nextRecord: HabitRecord = {
@@ -1004,7 +1040,7 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
       setWorkspace(nextWorkspace);
       await saveHabitWorkspace(uid, nextWorkspace);
     },
-    [selectedDateKey, uid, workspace],
+    [selectedDateKey, uid, workspace, ownerUid, state],
   );
 
   const toggleHabit = useCallback(
@@ -1018,8 +1054,8 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
 
   return {
     workspace: effectiveWorkspace,
-    state: uid ? state : 'idle',
-    error: uid ? error : null,
+    state: uid ? (ownerUid === uid ? state : state === 'error' ? 'error' : 'loading') : 'idle',
+    error: uid && ownerUid === uid ? error : null,
     selectedRecords,
     sortedHabits,
     createHabit,
@@ -1073,6 +1109,11 @@ function SortableWidget({
 }
 
 export default function PropigDashboard() {
+  const { currentUser } = useAuth();
+  return <PropigDashboardSession key={currentUser?.uid ?? 'anonymous'} />;
+}
+
+function PropigDashboardSession() {
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
   const appRegistry = usePropigAppRegistry();
   const router = useRouter();
@@ -1854,8 +1895,8 @@ export default function PropigDashboard() {
                         <MemoInlineTextarea
                           data-propig-memo-inline-editor
                           value={note.content}
-                          maxLength={MAX_MEMO_LENGTH}
-                          onChange={(event) => updateNote(note.id, { content: event.target.value.slice(0, MAX_MEMO_LENGTH) })}
+                          maxLength={Math.max(MAX_MEMO_LENGTH, note.content.length)}
+                          onChange={(event) => updateNote(note.id, { content: event.target.value.slice(0, Math.max(MAX_MEMO_LENGTH, note.content.length)) })}
                           placeholder="메모 내용을 입력하세요."
                           aria-label="메모 내용"
                           rows={getMemoTextareaRows(note.content)}
@@ -2067,7 +2108,7 @@ export default function PropigDashboard() {
               placeholder="하고 싶은 일"
               disabled={isDataLocked}
             />
-            <PrimaryButton type="submit" disabled={isDataLocked || !bucketDraft.trim() || savingKey === 'bucket:create'}>
+            <PrimaryButton type="submit" disabled={isDataLocked || bucket.state !== 'ready' || !bucketDraft.trim() || savingKey === 'bucket:create'}>
               {savingKey === 'bucket:create' ? <SpinningLoader size={16} /> : <Plus size={16} />}
               추가
             </PrimaryButton>
@@ -2204,7 +2245,7 @@ export default function PropigDashboard() {
             disabled={isDataLocked}
           />
           <TimeInput value={todoTime} onChange={(event) => setTodoTime(event.target.value)} type="time" aria-label="시간" disabled={isDataLocked} />
-          <PrimaryButton type="submit" disabled={isDataLocked || !todoDraft.trim() || savingKey === 'todo:create'}>
+          <PrimaryButton type="submit" disabled={isDataLocked || todo.state !== 'ready' || !todoDraft.trim() || savingKey === 'todo:create'}>
             {savingKey === 'todo:create' ? <SpinningLoader size={16} /> : <Plus size={16} />}
             추가
           </PrimaryButton>
@@ -2274,7 +2315,7 @@ export default function PropigDashboard() {
   };
 
   return (
-    <DashboardShell>
+    <DashboardShell data-dashboard-design="calm">
       <DashboardHeader>
         <HeaderCopy>
           <DateText>
@@ -2282,11 +2323,12 @@ export default function PropigDashboard() {
             {dateLabel}
           </DateText>
           <PageTitle>위젯 대시보드</PageTitle>
+          <DashboardTagline>작은 기록이 모여, 나다운 하루가 돼요.</DashboardTagline>
           <HeroSummary>
             <span>{heroStatus}</span>
             <em>{heroDetail}</em>
           </HeroSummary>
-          <ProgressTrack aria-label={`오늘 루틴 진행률 ${dailyProgress}%`}>
+          <ProgressTrack role="progressbar" aria-label="오늘 루틴 진행률" aria-valuemin={0} aria-valuemax={100} aria-valuenow={dailyProgress}>
             <ProgressFill $value={dailyProgress} />
           </ProgressTrack>
         </HeaderCopy>
@@ -2377,9 +2419,28 @@ export default function PropigDashboard() {
       ) : (
         <AllHiddenState>상점에서 앱을 등록하면 대시보드 위젯이 표시됩니다.</AllHiddenState>
       )}
+      <AppDownloadArea><SiteAppDownload siteId="shop" /></AppDownloadArea>
     </DashboardShell>
   );
 }
+
+const dashboardEnter = keyframes`
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
+
+const DashboardTagline = styled.p`
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 12px 0 0;
+`;
+
+const AppDownloadArea = styled.div`
+  max-width: 1240px;
+  margin: 28px auto 0;
+  > aside { margin: 0 !important; }
+`;
 
 const spin = keyframes`
   to {
@@ -2403,16 +2464,16 @@ const DashboardShell = styled.main`
   flex: 1 1 auto;
   height: 100%;
   min-height: 0;
-  --bg: #07110e;
-  --surface: #0e1715;
-  --surface-raised: #121f1b;
-  --surface-soft: #17241f;
-  --surface-hover: #1d3129;
-  --border: #243831;
-  --border-strong: #38564a;
-  --text: #eff8f1;
-  --muted: #a4b4aa;
-  --faint: #74847b;
+  --bg: #0c121b;
+  --surface: #131d29;
+  --surface-raised: #182433;
+  --surface-soft: #1b2938;
+  --surface-hover: #253649;
+  --border: #2b3b4a;
+  --border-strong: #536b7c;
+  --text: #edf4f8;
+  --muted: #afbdca;
+  --faint: #95a7b8;
   --accent: #42d392;
   --accent-soft: rgba(66, 211, 146, 0.14);
   --accent-border: rgba(66, 211, 146, 0.42);
@@ -2420,16 +2481,26 @@ const DashboardShell = styled.main`
   --danger-soft: rgba(255, 104, 104, 0.12);
   --warning: #f7c76d;
   --blue: #8fb8ff;
-  background:
-    linear-gradient(90deg, rgba(66, 211, 146, 0.1) 0 1px, transparent 1px 100%),
-    linear-gradient(180deg, rgba(143, 184, 255, 0.07) 0 1px, transparent 1px 100%),
-    linear-gradient(145deg, #07110e 0%, #091211 43%, #13150f 100%);
-  background-size: 72px 72px, 72px 72px, auto;
+  background: radial-gradient(ellipse at 85% 0%, rgba(77, 134, 174, 0.12), transparent 55%), var(--bg);
   color: var(--text);
   color-scheme: dark;
   isolation: isolate;
   overflow-y: auto;
-  padding: clamp(16px, 3vw, 34px);
+  padding: clamp(18px, 3vw, 36px);
+  scrollbar-gutter: stable;
+
+  :is(button, a, input, textarea, select):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    && *, && *::before, && *::after {
+      animation: none !important;
+      transition-duration: 0s !important;
+      scroll-behavior: auto !important;
+    }
+  }
   position: relative;
 
   body[data-propig-design='codeit'] & {
@@ -2455,7 +2526,7 @@ const DashboardShell = styled.main`
   }
 
   &::before {
-    background: linear-gradient(120deg, rgba(66, 211, 146, 0.18), transparent 38%, rgba(143, 184, 255, 0.12));
+    background: none;
     content: '';
     inset: 0;
     opacity: 0.52;
@@ -2480,17 +2551,23 @@ const DashboardShell = styled.main`
 `;
 
 const DashboardHeader = styled.header`
-  align-items: flex-end;
+  align-items: center;
+  background: linear-gradient(125deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
   display: flex;
   gap: 18px;
   justify-content: space-between;
   margin: 0 auto 16px;
   max-width: 1240px;
-  padding: 10px 0 18px;
+  padding: clamp(22px, 3vw, 36px);
   position: relative;
+  animation: ${dashboardEnter} 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
   &::after {
-    background: linear-gradient(90deg, rgba(66, 211, 146, 0.44), rgba(143, 184, 255, 0.24), transparent);
+    background: linear-gradient(90deg, #42d392, #7ab6f0, transparent);
     bottom: 0;
     content: '';
     height: 1px;
@@ -2546,8 +2623,9 @@ const DateText = styled.p`
 
 const PageTitle = styled.h1`
   font-size: clamp(1.55rem, 3vw, 2.4rem);
-  letter-spacing: 0;
-  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  line-height: 1.2;
   margin: 0;
 
   body[data-propig-design='codeit'] & {
@@ -2563,7 +2641,7 @@ const HeroSummary = styled.div`
   display: flex;
   flex-wrap: wrap;
   font-size: 0.9rem;
-  font-weight: 800;
+  font-weight: 500;
   gap: 8px 12px;
   margin-top: 10px;
 
@@ -2631,16 +2709,14 @@ const metricToneColor: Record<MetricTone, string> = {
 
 const MetricTile = styled.div<{ $tone: MetricTone }>`
   align-items: center;
-  background:
-    linear-gradient(180deg, rgba(18, 31, 27, 0.92), rgba(8, 15, 14, 0.9)),
-    ${({ $tone }) => `linear-gradient(90deg, ${metricToneColor[$tone]}24, transparent)`};
+  background: var(--surface-soft);
   border: 1px solid ${({ $tone }) => `${metricToneColor[$tone]}55`};
-  border-radius: 8px;
+  border-radius: 14px;
   display: flex;
   gap: 9px;
-  min-height: 42px;
+  min-height: 64px;
   min-width: 76px;
-  padding: 8px 12px;
+  padding: 12px 16px;
   position: relative;
 
   svg {
@@ -2661,7 +2737,8 @@ const MetricCopy = styled.div`
   min-width: 0;
 
   strong {
-    font-size: 1.05rem;
+    font-size: 1.35rem;
+    font-variant-numeric: tabular-nums;
     line-height: 1;
   }
 
@@ -2677,14 +2754,14 @@ const LoginButton = styled.button`
   align-items: center;
   background: linear-gradient(135deg, #42d392, #2dd4bf);
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   color: #06110d;
   cursor: pointer;
   display: inline-flex;
   font-weight: 800;
   gap: 7px;
   justify-content: center;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 14px;
   transition:
     transform 0.16s ease,
@@ -2701,6 +2778,8 @@ const LoginButton = styled.button`
     box-shadow: 0 12px 28px rgba(37, 87, 214, 0.2);
   }
 
+  &:active:not(:disabled) { transform: scale(0.97); }
+
   &:disabled {
     cursor: not-allowed;
     opacity: 0.55;
@@ -2709,16 +2788,16 @@ const LoginButton = styled.button`
 
 const LayoutBar = styled.section`
   align-items: center;
-  background: rgba(8, 15, 14, 0.72);
+  background: var(--surface);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  backdrop-filter: blur(16px);
+  border-radius: 16px;
+  backdrop-filter: none;
   display: flex;
   gap: 12px;
   justify-content: space-between;
-  margin: 0 auto 14px;
+  margin: 0 auto 20px;
   max-width: 1240px;
-  padding: 11px 12px;
+  padding: 12px 16px;
 
   @media (max-width: 760px) {
     align-items: stretch;
@@ -2777,9 +2856,12 @@ const ShowWidgetButton = styled.button`
   font-size: 0.8rem;
   font-weight: 900;
   gap: 6px;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 11px;
   white-space: nowrap;
+
+  transition: background 160ms ease, border-color 160ms ease;
+  @media (pointer: coarse) { min-height: 44px; }
 
   &:hover {
     background: rgba(66, 211, 146, 0.2);
@@ -2808,9 +2890,12 @@ const ResetLayoutButton = styled.button`
   font-size: 0.8rem;
   font-weight: 900;
   gap: 6px;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 11px;
   white-space: nowrap;
+
+  transition: background 160ms ease, border-color 160ms ease;
+  @media (pointer: coarse) { min-height: 44px; }
 
   &:hover {
     background: var(--surface-hover);
@@ -2819,8 +2904,10 @@ const ResetLayoutButton = styled.button`
 
 const WidgetGrid = styled.section`
   align-items: start;
+
+  > :only-child { grid-column: 1 / -1; }
   display: grid;
-  gap: 14px;
+  gap: 22px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0 auto;
   max-width: 1240px;
@@ -2853,7 +2940,8 @@ const HideWidgetButton = styled.button`
   font-size: 0.78rem;
   font-weight: 900;
   gap: 6px;
-  height: 34px;
+  height: 40px;
+  @media (pointer: coarse) { min-height: 44px; }
   padding: 0 10px;
   white-space: nowrap;
 
@@ -2865,21 +2953,24 @@ const HideWidgetButton = styled.button`
 `;
 
 const WidgetPanel = styled.section<{ $accent: string }>`
-  background:
-    linear-gradient(180deg, rgba(18, 31, 27, 0.98), rgba(8, 15, 14, 0.98)),
-    ${({ $accent }) => `linear-gradient(135deg, ${$accent}18, transparent 42%)`};
+  background: var(--surface);
+  --widget-accent: ${({ $accent }) => $accent};
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  border-top: 4px solid ${({ $accent }) => $accent};
+  border-radius: 20px;
+  border-top: 2px solid ${({ $accent }) => $accent};
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.34),
+    0 8px 28px rgba(0, 0, 0, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
   display: flex;
   flex-direction: column;
   min-height: 392px;
   min-width: 0;
   overflow: hidden;
-  padding: clamp(14px, 2vw, 20px);
+  padding: clamp(18px, 2vw, 26px);
+  animation: ${dashboardEnter} 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+
+  &:focus-within { border-color: var(--widget-accent); }
   position: relative;
 
   &::before {
@@ -2902,7 +2993,7 @@ const WidgetPanel = styled.section<{ $accent: string }>`
     border-color: var(--codeit-border);
     border-radius: var(--codeit-radius);
     box-shadow: var(--codeit-shadow-md);
-    animation: propigCodeitCardIn 0.58s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
   }
 
   body[data-propig-design='codeit'] &::before {
@@ -2910,21 +3001,9 @@ const WidgetPanel = styled.section<{ $accent: string }>`
     opacity: 0.35;
   }
 
-  body[data-propig-design='codeit'] &:hover {
-    transform: translateY(-3px);
-    transition: transform 0.22s ease, box-shadow 0.22s ease;
-    box-shadow: var(--codeit-shadow-lg);
-  }
-
-  @keyframes propigCodeitCardIn {
-    from {
-      opacity: 0;
-      transform: translateY(16px) scale(0.985);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+  @media (hover: hover) {
+    &:hover { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2); }
+    body[data-propig-design='codeit'] &:hover { box-shadow: var(--codeit-shadow-lg); }
   }
 `;
 
@@ -3077,14 +3156,15 @@ const ScheduleForm = styled(QuickForm)`
 `;
 
 const controlBase = `
-  background: rgba(5, 12, 10, 0.72);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--text);
   font: inherit;
   font-size: 0.95rem;
   min-width: 0;
   outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 
   &:focus {
     border-color: var(--accent);
@@ -3144,13 +3224,13 @@ const PrimaryButton = styled.button`
   align-items: center;
   background: linear-gradient(135deg, #42d392, #2dd4bf);
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   color: #06110d;
   cursor: pointer;
   display: inline-flex;
   font-weight: 800;
   gap: 7px;
-  height: 42px;
+  height: 44px;
   justify-content: center;
   padding: 0 14px;
   transition:
@@ -3168,6 +3248,8 @@ const PrimaryButton = styled.button`
     color: #ffffff;
     box-shadow: 0 12px 28px rgba(52, 81, 209, 0.18);
   }
+
+  &:active:not(:disabled) { transform: scale(0.97); }
 
   &:disabled {
     cursor: not-allowed;

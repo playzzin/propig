@@ -1,18 +1,13 @@
 import { z } from 'zod';
-
-const isHttpUrl = (value: string) => {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
-};
+import { isPersistableBrandAssetUrl } from '@/constants/brandAssets';
 
 export const envLogoUrlSchema = z
   .string()
   .trim()
-  .refine((value) => value.length === 0 || isHttpUrl(value), 'http(s) URL을 입력해 주세요.');
+  .refine(
+    (value) => value.length === 0 || isPersistableBrandAssetUrl(value),
+    '저장 가능한 http(s) 이미지 URL을 입력해 주세요.',
+  );
 
 export const systemSettingsFormSchema = z.object({
   logoUrl: envLogoUrlSchema,
