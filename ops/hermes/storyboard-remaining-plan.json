@@ -1,0 +1,3 @@
+[
+  {"role":"qa","goal":"스토리보드 프리셋·비교 UI의 계정 분리, 저장 실패, 결과 보존, 삭제된 선택 장면과 키보드 동작을 격리 React/IO로 독립 검증한다. 기존 Workspace/Video 검사에는 새 자식 mock만 등록하며 기존 검증 조건을 유지한다. 제품 코드는 읽기 전용이다.","files":["scripts/verify-storyboard-repeat-tools.cjs","scripts/verify-storyboard-workspace-lifecycle.cjs","scripts/verify-storyboard-video-confirmation.cjs"]}
+]

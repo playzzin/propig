@@ -1,15 +1,5 @@
-'use client';
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import PropigDashboard from '@/components/propig/PropigDashboard';
+import ErpHomePage from '@/components/erp/ErpHomePage';
 
 export default function Home() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.replace('/propig');
-  }, [router]);
-
-  return <PropigDashboard />;
+  return <ErpHomePage />;
 }

@@ -1,4 +1,6 @@
 import { CORP_PAGE_DEFINITIONS } from '@/constants/corpPages';
+import { DEFAULT_SITE_HOME_PATHS } from '@/constants/siteHome';
+import { COMPANY_MENU_ITEMS } from '@/constants/companyMenu';
 import type { SiteHomePageProps } from '@/components/site-home/SiteHomePage';
 
 export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
@@ -9,7 +11,7 @@ export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
   accentAlt: '#38bdf8',
   icon: 'shield-halved',
   metrics: [
-    { label: '사이트 모드', value: '3', caption: '관리, 기업, propig' },
+    { label: '기본 사이트 모드', value: String(Object.keys(DEFAULT_SITE_HOME_PATHS).length), caption: '관리, 기업, 블로그, propig' },
     { label: '핵심 도구', value: '6', caption: '메뉴와 운영 기능' },
     { label: '진입 방식', value: '홈', caption: '모드 전환 시 이동' },
   ],
@@ -51,16 +53,28 @@ export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
       description: '콘텐츠 생성과 모델 설정을 빠르게 열 수 있습니다.',
       links: [
         {
-          label: 'AI 이미지 생성기',
-          path: '/admin/image-generator',
-          icon: 'wand-magic-sparkles',
-          description: '브랜드 이미지와 콘텐츠용 이미지를 생성합니다.',
+          label: 'AI 스토리보드',
+          path: '/admin/storyboard',
+          icon: 'clapperboard',
+          description: '장면 구성과 이미지·영상 제작 작업을 관리합니다.',
         },
         {
-          label: 'Gemini 설정 센터',
-          path: '/admin/gemini-settings',
+          label: '반자동 이모티콘 스튜디오',
+          path: '/admin/emoticon-studio',
+          icon: 'wand-magic-sparkles',
+          description: 'ChatGPT 구독으로 만든 결과를 가져와 편집하고 내보냅니다.',
+        },
+        {
+          label: 'OpenRouter 설정',
+          path: '/admin/openrouter-settings',
           icon: 'key',
           description: 'API 키와 모델별 적용 대상을 점검합니다.',
+        },
+        {
+          label: 'OpenRouter 사용량',
+          path: '/admin/openrouter-usage',
+          icon: 'chart-line',
+          description: '실제 비용과 토큰 사용량을 확인합니다.',
         },
         {
           label: 'YouTube 분석',
@@ -73,8 +87,10 @@ export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
   ],
 };
 
-const corpCompanyLinks = CORP_PAGE_DEFINITIONS.filter((page) => page.category === '회사소개').slice(0, 4);
-const corpProjectLinks = CORP_PAGE_DEFINITIONS.filter((page) => page.category !== '회사소개').slice(0, 6);
+const corpProjectLinks = CORP_PAGE_DEFINITIONS
+  .filter((page) => page.category !== '회사소개')
+  .filter((page) => page.category !== '제휴하기' || page.path === '/corp/partnership/business')
+  .slice(0, 6);
 
 export const CORP_HOME_CONTENT: SiteHomePageProps = {
   eyebrow: 'CORPORATE SITE',
@@ -83,15 +99,16 @@ export const CORP_HOME_CONTENT: SiteHomePageProps = {
   accent: '#60a5fa',
   accentAlt: '#a78bfa',
   icon: 'building',
+  prefetchLinks: false,
   metrics: [
-    { label: '소개 섹션', value: '7', caption: '회사 핵심 콘텐츠' },
+    { label: '소개 섹션', value: String(COMPANY_MENU_ITEMS.length), caption: '회사 핵심 콘텐츠' },
     { label: '콘텐츠 그룹', value: '4', caption: '소개, 프로젝트, 제휴, 채용' },
     { label: '운영 목적', value: '브랜드', caption: '외부 공개형 흐름' },
   ],
-  primaryLinks: corpCompanyLinks.map((page) => ({
-    label: page.menuLabel,
-    path: page.path,
-    icon: 'circle-info',
+  primaryLinks: COMPANY_MENU_ITEMS.map((page) => ({
+    label: page.label,
+    path: page.href,
+    icon: page.icon,
     description: page.description,
   })),
   sections: [
@@ -133,12 +150,6 @@ export const PROPIG_HOME_CONTENT: SiteHomePageProps = {
           description: '생각, 할 일 보조 기록, 아이디어를 빠르게 적고 다시 찾습니다.',
         },
         {
-          label: '만다라트 목표 설계',
-          path: '/mandalart',
-          icon: 'diagram-project',
-          description: '큰 목표를 8개의 실행 축으로 나누어 방향을 잡습니다.',
-        },
-        {
           label: '습관 기록',
           path: '/habit-tracker',
           icon: 'calendar-check',
@@ -155,6 +166,55 @@ export const PROPIG_HOME_CONTENT: SiteHomePageProps = {
           path: '/bucket-list',
           icon: 'star',
           description: '장기 목표와 달성 기록을 한 곳에 모아봅니다.',
+        },
+      ],
+    },
+  ],
+};
+
+export const BLOG_HOME_CONTENT: SiteHomePageProps = {
+  eyebrow: 'BLOG WORKSPACE',
+  title: '블로그 작업 대시보드',
+  description: '글감 수집, 구성 설계, 시각 자료 준비를 하나의 흐름으로 연결해 콘텐츠 작업을 빠르게 시작하세요.',
+  accent: '#f59e0b',
+  accentAlt: '#fb7185',
+  icon: 'pen-nib',
+  prefetchLinks: false,
+  metrics: [
+    { label: '시작 지점', value: '글감', caption: '북마크에서 소재를 모읍니다' },
+    { label: '기획 도구', value: '2개', caption: '아이디어와 영상 인사이트를 정리합니다' },
+    { label: '미디어 준비', value: '연결됨', caption: '사진첩과 AI 이미지 도구를 활용합니다' },
+  ],
+  primaryLinks: [
+    {
+      label: '글감 수집',
+      path: '/bookmarks',
+      icon: 'bookmark',
+      description: '참고할 링크와 자료를 저장해 다음 글의 소재로 정리합니다.',
+    },
+  ],
+  sections: [
+    {
+      title: '콘텐츠 준비 흐름',
+      description: '글을 쓰기 전에 필요한 자료와 메시지를 빠르게 정리할 수 있는 도구입니다.',
+      links: [
+        {
+          label: '기본 메모',
+          path: '/propig/memos',
+          icon: 'file-lines',
+          description: '제목 후보, 개요, 초안 메모를 가볍게 기록합니다.',
+        },
+        {
+          label: 'YouTube 분석',
+          path: '/youtube-analyze',
+          icon: 'circle-play',
+          description: '영상 콘텐츠에서 핵심 인사이트와 참고 소재를 추출합니다.',
+        },
+        {
+          label: '사진첩',
+          path: '/admin/photos',
+          icon: 'images',
+          description: '이미지 자산을 찾아 글의 시각 자료로 활용합니다.',
         },
       ],
     },

@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {inspectUserUpdateRecovery,parseRecoveryArgs} from './admin-user-recovery.mjs';
+const docs=new Map(),reads=[];
+const db={collection:c=>({doc:id=>({get:async()=>{reads.push(c+'/'+id);const data=docs.get(c+'/'+id);return{exists:data!==undefined,data:()=>data}}})})};
+let user={uid:'fixture',disabled:false,email:'PRIVATE_EMAIL',customClaims:{admin:true,private:'PRIVATE_CLAIM'}};
+const auth={getUser:async uid=>{if(uid==='missing')throw Object.assign(Error('PRIVATE_SDK'),{code:'auth/user-not-found'});return user;}};
+const key='serverRateLimits/admin-user-update-'+createHash('sha256').update('fixture').digest('hex');
+for(const args of [[],['--project','demo-test','--database','pppp','--uid','fixture'],['--ack-read-only','--project','demo-test','--database','pppp','--uid','fixture','--delete'],['--ack-read-only','--project','demo-test','--database','pppp','--uid','../path']])assert.throws(()=>parseRecoveryArgs(args));
+assert.equal(parseRecoveryArgs(['--ack-read-only','--project','demo-test','--database','pppp','--uid','fixture'])['--database'],'pppp');
+let r=await inspectUserUpdateRecovery({db,auth},['fixture','missing']);assert.equal(r.atomicSnapshot,false);assert.equal(r.observations[1].authExists,false);assert.equal(r.observations[0].guard.state,'absent');assert.equal(r.observations[0].authority.claim,true);
+for(const state of ['running','uncertain','future']){docs.set(key,{state,owner:'PRIVATE_OWNER',startedAt:'1900-01-01',payload:'PRIVATE_PAYLOAD'});r=await inspectUserUpdateRecovery({db,auth},['fixture']);assert.equal(r.observations[0].guard.state,state==='future'?'unknown':state);assert.equal(r.observations[0].unlockPermitted,false);assert(!JSON.stringify(r).includes('PRIVATE_'));}
+docs.set(key,{state:'uncertain',owner:'PRIVATE_OWNER',lockPaths:[key,'serverRateLimits/admin-user-update-'+createHash('sha256').update('missing').digest('hex')]});
+let scoped=await inspectUserUpdateRecovery({db,auth},['fixture']);assert.equal(scoped.observations[0].guard.suppliedScopeCoversDeclaredLocks,false);assert.equal(scoped.observations[0].guard.declaredLockCount,2);
+scoped=await inspectUserUpdateRecovery({db,auth},['fixture','missing']);assert.equal(scoped.observations[0].guard.suppliedScopeCoversDeclaredLocks,true);assert.equal(scoped.observations[0].unlockPermitted,false);
+const old=r.observations[0].observationFingerprint;user={...user,disabled:true};r=await inspectUserUpdateRecovery({db,auth},['fixture']);assert.notEqual(r.observations[0].observationFingerprint,old);
+await assert.rejects(inspectUserUpdateRecovery({db,auth:{getUser:async()=>{throw Error('PRIVATE_SDK')}}},['fixture']),/Auth 조회 실패/);
+await assert.rejects(inspectUserUpdateRecovery({auth,db:{collection:()=>({doc:()=>({get:async()=>{throw Error('PRIVATE_DB')}})})}},['fixture']),/권한\/잠금 조회 실패/);
+assert(reads.every(p=>/^(userAccess|admins|serverRateLimits)\//.test(p)));
+const noArgs=spawnSync(process.execPath,['scripts/admin-user-recovery.mjs'],{encoding:'utf8'});assert.equal(noArgs.status,1);assert(noArgs.stderr.includes('--ack-read-only'));
+console.log('PASS read-only recovery actual module: strict explicit scope, missing/disabled account, lock states/no age unlock, fingerprint drift, secret redaction, SDK failures, CLI fails before credentials; mocked IO has no write methods');

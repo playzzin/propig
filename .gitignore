@@ -16,6 +16,15 @@
 # next.js
 /.next/
 /.next-static-export/
+/.next-static-export.previous-*/
+/out.previous-*/
+/.static-export.lock
+/.next-menu-qa/
+/.next-menu-build/
+/.next-menu-followup-build/
+/.next-sidebar-dev/
+/.next-sidebar-build/
+/.next-sidebar-compact-build/
 /out/
 
 # production
@@ -96,6 +105,7 @@ tsconfig.tsbuildinfo
 .codex-review/
 .codex-server-logs/
 .codex-*
+.hermes-*
 .agent/
 .agents/
 .playwright-mcp/
@@ -103,6 +113,8 @@ tsconfig.tsbuildinfo
 
 # Local verification artifacts
 /NUL
+/output/
+/.deploy-*/
 /*.png
 /*.html
 /*.txt

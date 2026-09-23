@@ -2,6 +2,7 @@ import type { MenuItem, SiteDataType } from '@/types/menu';
 
 export const DEFAULT_SITE_HOME_PATHS: Record<string, string> = {
   admin: '/admin',
+  blog: '/blog',
   corp: '/corp',
   shop: '/propig',
 };
@@ -16,13 +17,13 @@ export const DEFAULT_SITE_HOME_MENU_ITEMS: Record<string, MenuItem> = {
     roles: ['admin'],
     position: ['ceo', 'manager', 'staff'],
   },
-  corp: {
-    id: 'corp-home',
-    text: '기업 홈',
-    path: DEFAULT_SITE_HOME_PATHS.corp,
-    icon: 'house',
+  blog: {
+    id: 'blog-home',
+    text: '블로그 대시보드',
+    path: DEFAULT_SITE_HOME_PATHS.blog,
+    icon: 'pen-nib',
     type: 'link',
-    roles: [],
+    roles: ['admin', 'user', 'partner', 'guest'],
     position: ['ceo', 'manager', 'staff'],
   },
   shop: {
@@ -63,5 +64,5 @@ export function getSiteHomePath(siteId: string, siteData?: SiteDataType): string
   }
 
   const firstMenuPath = siteData?.[siteId]?.menu ? findFirstMenuPath(siteData[siteId].menu) : null;
-  return firstMenuPath ?? '/admin';
+  return firstMenuPath ?? '/';
 }

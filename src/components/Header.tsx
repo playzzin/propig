@@ -1,18 +1,34 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { getSiteHomePath } from '@/constants/siteHome';
 import { useAuth } from '../contexts/AuthContext';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { useSystem } from '@/contexts/SystemContext';
-import { LoginModal } from './LoginModal';
-import { ProfileButton } from './ProfileButton';
+import { useBrandImageFallback } from '@/hooks/useBrandImageFallback';
+
+const LoginModal = dynamic(
+    () => import('./LoginModal').then((module) => module.LoginModal),
+    { ssr: false },
+);
+const ProfileButton = dynamic(
+    () => import('./ProfileButton').then((module) => module.ProfileButton),
+    { ssr: false },
+);
+const SiteModeSwitcher = dynamic(
+    () => import('./SiteModeSwitcher').then((module) => module.SiteModeSwitcher),
+    { ssr: false },
+);
+const MemoNotificationBell = dynamic(() => import('./propig/memos/MemoNotificationBell'), { ssr: false });
 
 interface HeaderProps {
     isMobileSidebarOpen: boolean;
     toggleMobileSidebar: () => void;
     title?: string;
     description?: string;
-    hideMobileTitle?: boolean;
 }
 
 const LEGACY_DESIGN_MODE_STORAGE_KEY = 'propig:design-mode';
@@ -22,17 +38,19 @@ export default function Header({
     toggleMobileSidebar,
     title,
     description,
-    hideMobileTitle = false
 }: HeaderProps) {
     const { currentUser, isConfigured, error } = useAuth();
-    const { currentSite } = useMenuContext();
+    const { currentSite, siteData } = useMenuContext();
+    const pathname = usePathname();
+    const homePath = getSiteHomePath(currentSite, siteData);
+    const siteName = siteData[currentSite]?.name || currentSite.toUpperCase();
     const { settings } = useSystem();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
-    const [brokenLogoUrl, setBrokenLogoUrl] = useState<string | null>(null);
 
     const canOpenLogin = isConfigured;
-    const logoUrl = settings.envLogos?.[currentSite] || settings.logoUrl;
-    const isLogoBroken = Boolean(logoUrl && brokenLogoUrl === logoUrl);
+    const rawLogoUrl = settings.envLogos?.[currentSite] || settings.logoUrl;
+    const logoImage = useBrandImageFallback(rawLogoUrl);
+    const menuLabel = isMobileSidebarOpen ? '메뉴 닫기' : '메뉴 열기';
 
     useEffect(() => {
         if (typeof document === 'undefined') return;
@@ -48,53 +66,55 @@ export default function Header({
     return (
         <>
             <header id="header">
-                <div className="header-main" style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
+                <div className="header-main">
                     <button
+                        id="mobile-menu-toggle"
                         type="button"
                         className="mobile-logo-toggle"
                         onClick={toggleMobileSidebar}
-                        aria-label={isMobileSidebarOpen ? '메뉴 닫기' : '메뉴 열기'}
-                        title={isMobileSidebarOpen ? '메뉴 닫기' : '메뉴 열기'}
+                        aria-label={menuLabel}
+                        aria-controls="sidebar"
+                        aria-expanded={isMobileSidebarOpen}
+                        title={menuLabel}
                     >
-                        {logoUrl && !isLogoBroken ? (
+                        <i className="fa-solid fa-bars-staggered" aria-hidden="true" />
+                    </button>
+                    <Link
+                        href={homePath}
+                        className="mobile-brand-link"
+                        aria-label={`${siteName} 홈`}
+                        title={`${siteName} 홈`}
+                        onClick={(event) => {
+                            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+                            if (homePath !== pathname && !window.dispatchEvent(new CustomEvent('propig:before-navigation', {
+                                cancelable: true,
+                                detail: { href: homePath },
+                            }))) {
+                                event.preventDefault();
+                                return;
+                            }
+                            if (isMobileSidebarOpen) toggleMobileSidebar();
+                        }}
+                    >
+                        {logoImage.canRenderImage ? (
                             <img
-                                src={logoUrl}
+                                src={logoImage.displaySrc}
                                 alt=""
                                 className="mobile-logo-image"
-                                onError={() => setBrokenLogoUrl(logoUrl)}
+                                onError={logoImage.markBroken}
                             />
                         ) : (
-                            <i className="fa-solid fa-bars-staggered"></i>
+                            <i className="fa-solid fa-layer-group" aria-hidden="true" />
                         )}
-                        {logoUrl && !isLogoBroken && (
-                            <span className="mobile-menu-mark" aria-hidden="true">
-                                <i className="fa-solid fa-bars-staggered" />
-                            </span>
-                        )}
-                    </button>
+                    </Link>
 
                     {title && (
-                        <div className={`header-title-block ${hideMobileTitle ? 'hide-mobile-title' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-                            <h1 style={{
-                                margin: 0,
-                                fontSize: '1.2rem',
-                                fontWeight: 600,
-                                color: 'var(--text-main)',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis'
-                            }}>
+                        <div className="header-title-block">
+                            <h1>
                                 {title}
                             </h1>
                             {description && (
-                                <p style={{
-                                    margin: 0,
-                                    fontSize: '0.8rem',
-                                    color: 'var(--text-dim)',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
-                                }}>
+                                <p>
                                     {description}
                                 </p>
                             )}
@@ -102,18 +122,20 @@ export default function Header({
                     )}
                 </div>
 
-                <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    {/* 로그인 상태에 따라 버튼 또는 프로필 표시 */}
+                <div className="header-actions">
+                    <SiteModeSwitcher />
+                    {currentUser && <MemoNotificationBell key={currentUser.uid} uid={currentUser.uid} />}
                     {currentUser ? (
                         <ProfileButton />
                     ) : (
                         <button
+                            type="button"
                             onClick={() => {
                                 if (!canOpenLogin) return;
                                 setIsLoginOpen(true);
                             }}
                             className="toggle-btn auth-login-btn"
-                            title={canOpenLogin ? '로그인' : error ?? 'Firebase가 설정되지 않았습니다.'}
+                            title={canOpenLogin ? '로그인' : error ?? 'Firebase가 설정되지 않았습니다'}
                             aria-label="로그인"
                             disabled={!canOpenLogin}
                         >
@@ -123,10 +145,12 @@ export default function Header({
                 </div>
             </header>
 
-            <LoginModal
-                isOpen={isLoginOpen}
-                onClose={() => setIsLoginOpen(false)}
-            />
+            {isLoginOpen ? (
+                <LoginModal
+                    isOpen
+                    onClose={() => setIsLoginOpen(false)}
+                />
+            ) : null}
         </>
     );
 }

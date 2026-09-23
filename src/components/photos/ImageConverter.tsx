@@ -4,6 +4,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip';
 import type { Config } from '@imgly/background-removal';
 import { type PhotoAlbum, photoService } from '@/services/photoService';
+import { getPhotoImagePreviewSources } from '@/utils/photoImageUrls';
+import { useAuth } from '@/contexts/AuthContext';
+import { auth } from '@/firebase/config';
 import styled from 'styled-components';
 
 type OutputFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'gif' | 'ico';
@@ -150,7 +153,7 @@ const OUTPUTS: Array<{ format: OutputFormat; label: string }> = [
 
 const ICO_SIZES = [16, 32, 48, 64, 128, 256];
 const MAX_FILES = 80;
-const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const ACCEPT_ATTRIBUTE = 'image/jpeg,image/png,image/webp,image/avif,image/gif,image/svg+xml,.ico,.cur';
 const SAVED_PRESETS_KEY = 'propig.imageConverter.savedPresets';
 const HISTORY_KEY = 'propig.imageConverter.history';
@@ -790,9 +793,14 @@ async function fetchPhotoAsFile(photo: ImageConverterSeedPhoto) {
     throw new Error(`${photo.fileName || photo.id}은(는) 이미지 변환 대상이 아닙니다.`);
   }
 
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error('이미지를 불러오려면 로그인이 필요합니다.');
   const response = await fetch('/api/fetch-image', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({ url: photo.url, fileName: photo.fileName }),
   });
   if (!response.ok) {
@@ -971,7 +979,13 @@ function buildNotes(format: InputFormat) {
   return notes;
 }
 
-async function convertItem(item: ConvertFile, options: ConvertOptions, signal: AbortSignal, onProgress?: (msg: string) => void) {
+async function convertItem(
+  item: ConvertFile,
+  options: ConvertOptions,
+  authToken: string,
+  signal: AbortSignal,
+  onProgress?: (msg: string) => void,
+) {
   let currentFile: File | Blob = item.file;
   let currentUrl = item.originalUrl;
 
@@ -1021,7 +1035,12 @@ async function convertItem(item: ConvertFile, options: ConvertOptions, signal: A
     formData.append('focalX', String(options.focalX));
     formData.append('focalY', String(options.focalY));
 
-    const response = await fetch('/api/convert-image', { method: 'POST', body: formData, signal });
+    const response = await fetch('/api/convert-image', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` },
+      body: formData,
+      signal,
+    });
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       throw new Error(data?.error ?? '이미지 변환 API가 실패했습니다.');
@@ -1039,6 +1058,7 @@ async function convertItem(item: ConvertFile, options: ConvertOptions, signal: A
 }
 
 export default function ImageConverter({ albums = [], defaultAlbumId = null, onAlbumsChanged, seedPhotos = [], seedKey = null }: ImageConverterProps) {
+  const { currentUser } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<ConvertFile[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -1191,7 +1211,7 @@ export default function ImageConverter({ albums = [], defaultAlbumId = null, onA
 
     const rejectedSummary = [
       unsupportedCount > 0 ? `지원하지 않는 형식 ${unsupportedCount}개` : null,
-      oversizedCount > 0 ? `100MB 초과 ${oversizedCount}개` : null,
+      oversizedCount > 0 ? `20MB 초과 ${oversizedCount}개` : null,
       duplicateCount > 0 ? `중복 ${duplicateCount}개` : null,
     ].filter(Boolean).join(', ');
 
@@ -1358,6 +1378,20 @@ export default function ImageConverter({ albums = [], defaultAlbumId = null, onA
       showNotice('변환할 파일이 없습니다.', 'info');
       return;
     }
+
+    if (!currentUser) {
+      showNotice('이미지 변환은 로그인 후 사용할 수 있습니다.', 'error');
+      return;
+    }
+
+    let authToken: string;
+    try {
+      authToken = await currentUser.getIdToken();
+    } catch {
+      showNotice('로그인 정보를 확인하지 못했습니다. 다시 로그인한 뒤 시도해 주세요.', 'error');
+      return;
+    }
+
     stopRequestedRef.current = false;
     setStopRequested(false);
     setIsConverting(true);
@@ -1384,7 +1418,7 @@ export default function ImageConverter({ albums = [], defaultAlbumId = null, onA
         try {
           const itemOptions = mergeOptions(options, item.overrides);
           const itemSignature = buildSignature(itemOptions);
-          const result = await convertItem(item, itemOptions, controller.signal, (msg) => {
+          const result = await convertItem(item, itemOptions, authToken, controller.signal, (msg) => {
             setFiles((previous) => previous.map((current) => current.id === item.id ? { ...current, status: 'converting', error: null, notes: [msg] } : current));
           });
           const resultUrl = URL.createObjectURL(result.blob);
@@ -1433,7 +1467,7 @@ export default function ImageConverter({ albums = [], defaultAlbumId = null, onA
         });
       }
     }
-  }, [options, pushHistory, showNotice]);
+  }, [currentUser, options, pushHistory, showNotice]);
 
   const handleDownload = useCallback((item: ConvertFile) => {
     if (!item.resultBlob || !item.resultUrl || !item.resultFormat) return;
@@ -1684,6 +1718,7 @@ export default function ImageConverter({ albums = [], defaultAlbumId = null, onA
                   <AlbumSourceGrid style={{ marginTop: 12 }}>
                     {sourceAlbum.photoItems.map((photo) => {
                       const disabled = isConverting || isVideoPhoto(photo);
+                      const previewSrc = getPhotoImagePreviewSources(photo)[0] || photo.url;
                       return (
                         <AlbumSourceTile
                           key={photo.id}
@@ -1695,7 +1730,7 @@ export default function ImageConverter({ albums = [], defaultAlbumId = null, onA
                           {isVideoPhoto(photo) ? (
                             <video src={photo.url} muted />
                           ) : (
-                            <img src={photo.url} alt={photo.fileName || photo.prompt || '앨범 사진'} loading="lazy" />
+                            <img src={previewSrc} alt={photo.fileName || photo.prompt || '앨범 사진'} loading="lazy" />
                           )}
                           <span>{photo.fileName || photo.extension?.toUpperCase() || 'album image'}</span>
                         </AlbumSourceTile>
@@ -2038,7 +2073,7 @@ export default function ImageConverter({ albums = [], defaultAlbumId = null, onA
                 <div style={{ textAlign: 'right', color: '#64748b', fontSize: 12.5, lineHeight: 1.55 }}>
                   최대 {MAX_FILES}개 파일
                   <br />
-                  파일당 최대 100MB
+                  파일당 최대 20MB
                 </div>
               </div>
             </div>

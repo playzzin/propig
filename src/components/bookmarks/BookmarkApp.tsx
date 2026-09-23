@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import styled from 'styled-components';
 import { toast } from 'sonner';
 import {
@@ -14,6 +14,7 @@ import {
   Timestamp,
   writeBatch,
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '@/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { buildFallbackFaviconUrl } from '@/lib/bookmark-favicon';
@@ -336,8 +337,39 @@ function buildUsageCostMessage(metadata: { aiUsage?: { totalTokens: number }; ai
   return `토큰 ${totalTokens.toLocaleString('ko-KR')} / 예상비용 ${usdText}${krwText}`;
 }
 
+type BookmarkSession = {
+  uid: string | null;
+  active: boolean;
+  failed: boolean;
+  bookmarksReady: boolean;
+  categoriesReady: boolean;
+};
+
+// Check the SDK identity too: AuthContext may not have rendered a change yet.
+function isBookmarkSessionLive(session: BookmarkSession | null): session is BookmarkSession {
+  return !!session && session.active && !session.failed
+    && (getAuth().currentUser?.uid ?? null) === session.uid;
+}
+
+function requireBookmarkSession(session: BookmarkSession | null): asserts session is BookmarkSession {
+  if (!isBookmarkSessionLive(session) || !session.uid || !session.bookmarksReady || !session.categoriesReady) {
+    throw new Error('계정이 변경되었거나 북마크를 불러오는 중입니다. 다시 시도해주세요.');
+  }
+}
+
 export const BookmarkApp: React.FC = () => {
   const { currentUser } = useAuth();
+  return <BookmarkAccountSession key={currentUser?.uid ?? 'guest'} currentUser={currentUser} />;
+};
+
+const BookmarkAccountSession: React.FC<{ currentUser: ReturnType<typeof useAuth>['currentUser'] }> = ({ currentUser }) => {
+  const uid = currentUser?.uid ?? null;
+  const sessionRef = useRef<BookmarkSession | null>(null);
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quickAddPendingRef = useRef(false);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(uid ? 'loading' : 'ready');
+  const [reloadGeneration, setReloadGeneration] = useState(0);
+
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -375,94 +407,86 @@ export const BookmarkApp: React.FC = () => {
     return trimmedName;
   };
 
-  // 기본 카테고리 생성
+  const resetQuickAddStatusLater = () => {
+    if (statusTimerRef.current !== null) clearTimeout(statusTimerRef.current);
+    const session = sessionRef.current;
+    statusTimerRef.current = setTimeout(() => {
+      statusTimerRef.current = null;
+      if (isBookmarkSessionLive(session)) setQuickAddStatus({ type: null, message: '' });
+    }, 3000);
+  };
+
   useEffect(() => {
-    if (!currentUser) {
-      return;
-    }
-
-    const defaultCategories: Pick<Category, 'name' | 'icon' | 'color' | 'order'>[] = [
-      { name: '업무', icon: 'fa-briefcase', color: '#3B82F6', order: 0 },
-      { name: '학습', icon: 'fa-graduation-cap', color: '#8B5CF6', order: 1 },
-      { name: '개인', icon: 'fa-user', color: '#10B981', order: 2 },
-      { name: '참고', icon: 'fa-bookmark', color: '#F59E0B', order: 3 },
-    ];
-
-    defaultCategories.forEach(async (cat) => {
-      const q = query(
-        collection(db, 'categories'),
-        where('userId', '==', currentUser.uid),
-        where('name', '==', cat.name),
-      );
-      const snapshot = await getDocs(q);
-      if (snapshot.empty) {
-        await addDoc(collection(db, 'categories'), {
-          ...cat,
-          userId: currentUser.uid,
-          createdAt: Timestamp.now(),
-          updatedAt: Timestamp.now(),
-        });
-      }
-    });
-  }, [currentUser]);
-
-  // 북마크 실시간 로드
-  useEffect(() => {
-    if (!currentUser) {
+    // A new token for every setup fences StrictMode replay, retry and A→B→A.
+    const session: BookmarkSession = { uid, active: true, failed: false, bookmarksReady: false, categoriesReady: false };
+    sessionRef.current = session;
+    setBookmarks([]);
+    setCategories([]);
+    setLoadState(uid ? 'loading' : 'ready');
+    setQuickAddStatus({ type: null, message: '' });
+    quickAddPendingRef.current = false;
+    const cleanups: (() => void)[] = [];
+    const fail = () => {
+      if (!isBookmarkSessionLive(session)) return;
+      session.failed = true;
+      session.bookmarksReady = false;
+      session.categoriesReady = false;
       setBookmarks([]);
-      return;
-    }
-
-    const q = query(
-      collection(db, 'bookmarks'),
-      where('userId', '==', currentUser.uid),
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const bookmarksData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt,
-        updatedAt: doc.data().updatedAt,
-      })) as Bookmark[];
-
-      setBookmarks(
-        bookmarksData.sort((a, b) => {
-          const aTime = a.createdAt?.toMillis?.() ?? 0;
-          const bTime = b.createdAt?.toMillis?.() ?? 0;
-          return bTime - aTime;
-        }),
-      );
-    });
-
-    return unsubscribe;
-  }, [currentUser]);
-
-  // 카테고리 실시간 로드
-  useEffect(() => {
-    if (!currentUser) {
       setCategories([]);
-      return;
+      setLoadState('error');
+      setIsModalOpen(false);
+      setIsCategoryModalOpen(false);
+      setQuickAddStatus({ type: null, message: '' });
+      if (statusTimerRef.current !== null) clearTimeout(statusTimerRef.current);
+      statusTimerRef.current = null;
+    };
+    const publishReady = () => {
+      if (session.bookmarksReady && session.categoriesReady) setLoadState('ready');
+    };
+    if (uid && isBookmarkSessionLive(session)) {
+      cleanups.push(onSnapshot(query(collection(db, 'bookmarks'), where('userId', '==', uid)), (snapshot) => {
+        if (!isBookmarkSessionLive(session)) return;
+        const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Bookmark[];
+        setBookmarks(items.sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)));
+        session.bookmarksReady = true;
+        publishReady();
+      }, fail));
+      cleanups.push(onSnapshot(query(collection(db, 'categories'), where('userId', '==', uid)), (snapshot) => {
+        if (!isBookmarkSessionLive(session)) return;
+        const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Category[];
+        setCategories(items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+        session.categoriesReady = true;
+        publishReady();
+      }, fail));
+      const defaultCategories: Pick<Category, 'name' | 'icon' | 'color' | 'order'>[] = [
+        { name: '업무', icon: 'fa-briefcase', color: '#3B82F6', order: 0 },
+        { name: '학습', icon: 'fa-graduation-cap', color: '#8B5CF6', order: 1 },
+        { name: '개인', icon: 'fa-user', color: '#10B981', order: 2 },
+        { name: '참고', icon: 'fa-bookmark', color: '#F59E0B', order: 3 },
+      ];
+      void (async () => {
+        try {
+          for (const cat of defaultCategories) {
+            if (!isBookmarkSessionLive(session)) return;
+            const snapshot = await getDocs(query(collection(db, 'categories'), where('userId', '==', uid), where('name', '==', cat.name)));
+            if (!isBookmarkSessionLive(session)) return;
+            if (snapshot.empty) {
+              await addDoc(collection(db, 'categories'), { ...cat, userId: uid, createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+              if (!isBookmarkSessionLive(session)) return;
+            }
+          }
+        } catch {
+          fail();
+        }
+      })();
     }
-
-    const q = query(
-      collection(db, 'categories'),
-      where('userId', '==', currentUser.uid),
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const categoriesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt,
-        updatedAt: doc.data().updatedAt,
-      })) as Category[];
-
-      setCategories(categoriesData.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
-    });
-
-    return unsubscribe;
-  }, [currentUser]);
+    return () => {
+      session.active = false;
+      cleanups.forEach(unsubscribe => unsubscribe());
+      if (statusTimerRef.current !== null) clearTimeout(statusTimerRef.current);
+      statusTimerRef.current = null;
+    };
+  }, [uid, reloadGeneration]);
 
   // 파비콘 URL 생성
   const getFaviconUrl = (url: string) => {
@@ -477,10 +501,13 @@ export const BookmarkApp: React.FC = () => {
     }
   };
 
-  const analyzeBookmarkMetadata = async (targetUrl: string) => {
+  const analyzeBookmarkMetadata = async (targetUrl: string, session: BookmarkSession) => {
+    requireBookmarkSession(session);
+    const headers = await buildJsonAuthHeaders(currentUser);
+    requireBookmarkSession(session);
     const response = await fetch('/api/analyze-bookmark', {
       method: 'POST',
-      headers: await buildJsonAuthHeaders(currentUser),
+      headers,
       body: JSON.stringify({
         url: targetUrl,
         categories: categories.map((c) => c.name),
@@ -489,7 +516,9 @@ export const BookmarkApp: React.FC = () => {
       }),
     });
 
+    requireBookmarkSession(session);
     const payload = await response.json().catch(() => null);
+    requireBookmarkSession(session);
     if (!response.ok) {
       const message = payload && typeof payload.error === 'string'
         ? payload.error
@@ -514,36 +543,42 @@ export const BookmarkApp: React.FC = () => {
     return parsed.data;
   };
 
-  // 빠른 URL 저장 (Gemini 자동 분석)
+  // 빠른 URL 저장 (OpenRouter 자동 분석)
   const handleQuickAdd = async () => {
-    if (!quickAddUrl.trim()) return;
+    if (!quickAddUrl.trim() || quickAddPendingRef.current) return;
+    const session = sessionRef.current;
+    if (!isBookmarkSessionLive(session)) return;
 
     if (!currentUser) {
       setQuickAddStatus({ type: 'error', message: '로그인이 필요합니다.' });
-      setTimeout(() => setQuickAddStatus({ type: null, message: '' }), 3000);
+      resetQuickAddStatusLater();
       return;
     }
 
-    if (categories.length === 0) {
+    if (!session.bookmarksReady || !session.categoriesReady || categories.length === 0) {
       setQuickAddStatus({ type: 'error', message: '카테고리를 불러오는 중입니다. 잠시 후 다시 시도해주세요.' });
-      setTimeout(() => setQuickAddStatus({ type: null, message: '' }), 3000);
+      resetQuickAddStatusLater();
       return;
     }
 
     // URL 유효성 검사
     if (!quickAddUrl.match(/^https?:\/\/.+/)) {
       setQuickAddStatus({ type: 'error', message: '올바른 URL을 입력해주세요' });
-      setTimeout(() => setQuickAddStatus({ type: null, message: '' }), 3000);
+      resetQuickAddStatusLater();
       return;
     }
 
-    setQuickAddStatus({ type: 'loading', message: 'Gemini가 내용을 분석하고 있습니다...' });
+    if (statusTimerRef.current !== null) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = null;
+    quickAddPendingRef.current = true;
+    setQuickAddStatus({ type: 'loading', message: 'AI가 내용을 분석하고 있습니다...' });
 
     try {
-      const metadata = await analyzeBookmarkMetadata(quickAddUrl);
+      const metadata = await analyzeBookmarkMetadata(quickAddUrl, session);
+      requireBookmarkSession(session);
 
       if (process.env.NODE_ENV !== 'production') {
-        console.log('[QuickAdd] extractBookmarkMetadata response:', metadata);
+        console.info('[QuickAdd] extractBookmarkMetadata response:', metadata);
       }
 
       // 카테고리 매칭
@@ -569,7 +604,9 @@ export const BookmarkApp: React.FC = () => {
         updatedAt: Timestamp.now(),
       };
 
+      requireBookmarkSession(session);
       await addDoc(collection(db, 'bookmarks'), newBookmark);
+      requireBookmarkSession(session);
 
       const usageCostText = buildUsageCostMessage(metadata);
       setQuickAddStatus({
@@ -581,12 +618,15 @@ export const BookmarkApp: React.FC = () => {
       setQuickAddUrl('');
       toast.success(usageCostText ? `북마크 저장 완료. ${usageCostText}` : '북마크를 저장했습니다.');
 
-      setTimeout(() => setQuickAddStatus({ type: null, message: '' }), 3000);
+      resetQuickAddStatusLater();
     } catch (error) {
+      if (!isBookmarkSessionLive(session)) return;
       console.error('빠른 저장 실패:', error);
       setQuickAddStatus({ type: 'error', message: '저장 실패. 다시 시도해주세요.' });
       toast.error('저장 실패. 다시 시도해주세요.');
-      setTimeout(() => setQuickAddStatus({ type: null, message: '' }), 3000);
+      resetQuickAddStatusLater();
+    } finally {
+      if (isBookmarkSessionLive(session)) quickAddPendingRef.current = false;
     }
   };
 
@@ -608,6 +648,8 @@ export const BookmarkApp: React.FC = () => {
     if (!currentUser) {
       throw new Error('로그인이 필요합니다.');
     }
+    const session = sessionRef.current;
+    requireBookmarkSession(session);
 
     try {
       const newBookmark = {
@@ -624,7 +666,9 @@ export const BookmarkApp: React.FC = () => {
         updatedAt: Timestamp.now(),
       };
 
+      requireBookmarkSession(session);
       await addDoc(collection(db, 'bookmarks'), newBookmark);
+      requireBookmarkSession(session);
     } catch (error) {
       console.error('북마크 생성 실패:', error);
       throw error;
@@ -639,6 +683,8 @@ export const BookmarkApp: React.FC = () => {
     categoryId: string;
     tags: string[];
   }) => {
+    const session = sessionRef.current;
+    requireBookmarkSession(session);
     if (!editingBookmark) return;
 
     try {
@@ -651,6 +697,7 @@ export const BookmarkApp: React.FC = () => {
         tags: data.tags,
         updatedAt: Timestamp.now(),
       });
+      requireBookmarkSession(session);
       toast.success('북마크가 수정되었습니다.');
       setEditingBookmark(null);
     } catch (error) {
@@ -660,18 +707,33 @@ export const BookmarkApp: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('정말 삭제하시겠습니까?')) {
-      await deleteDoc(doc(db, 'bookmarks', id));
+    const session = sessionRef.current;
+    if (!isBookmarkSessionLive(session)) return;
+    try {
+      requireBookmarkSession(session);
+      if (confirm('정말 삭제하시겠습니까?')) {
+        requireBookmarkSession(session);
+        await deleteDoc(doc(db, 'bookmarks', id));
+      }
+    } catch {
+      if (isBookmarkSessionLive(session)) toast.error('북마크 삭제를 저장하지 못했습니다. 다시 시도해주세요.');
     }
   };
 
   const handleFavorite = async (id: string) => {
-    const bookmark = bookmarks.find(b => b.id === id);
-    if (bookmark) {
-      await updateDoc(doc(db, 'bookmarks', id), {
-        isFavorite: !bookmark.isFavorite,
-        updatedAt: Timestamp.now(),
-      });
+    const session = sessionRef.current;
+    if (!isBookmarkSessionLive(session)) return;
+    try {
+      requireBookmarkSession(session);
+      const bookmark = bookmarks.find(b => b.id === id);
+      if (bookmark) {
+        await updateDoc(doc(db, 'bookmarks', id), {
+          isFavorite: !bookmark.isFavorite,
+          updatedAt: Timestamp.now(),
+        });
+      }
+    } catch {
+      if (isBookmarkSessionLive(session)) toast.error('즐겨찾기 변경을 저장하지 못했습니다. 다시 시도해주세요.');
     }
   };
 
@@ -681,13 +743,16 @@ export const BookmarkApp: React.FC = () => {
   };
 
   const handleReanalyze = async (bookmark: Bookmark) => {
+    const session = sessionRef.current;
+    if (!isBookmarkSessionLive(session) || !session.bookmarksReady || !session.categoriesReady) return;
     if (categories.length === 0) {
       toast.error('카테고리를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
     try {
-      const metadata = await analyzeBookmarkMetadata(bookmark.url);
+      const metadata = await analyzeBookmarkMetadata(bookmark.url, session);
+      requireBookmarkSession(session);
       const matchedCategory = categories.find((c) => c.name === metadata.suggestedCategory);
 
       await updateDoc(doc(db, 'bookmarks', bookmark.id), {
@@ -699,9 +764,11 @@ export const BookmarkApp: React.FC = () => {
         updatedAt: Timestamp.now(),
       });
 
+      requireBookmarkSession(session);
       const usageCostText = buildUsageCostMessage(metadata);
       toast.success(usageCostText ? `AI 재분석 완료. ${usageCostText}` : 'AI 재분석이 완료되었습니다.');
     } catch (error) {
+      if (!isBookmarkSessionLive(session)) return;
       console.error('AI 재분석 실패:', error);
       toast.error('AI 재분석에 실패했습니다. 잠시 후 다시 시도해주세요.');
     }
@@ -713,6 +780,7 @@ export const BookmarkApp: React.FC = () => {
   };
 
   const openCategoryManager = (category: Category | null = null) => {
+    if (uid && loadState !== 'ready') return;
     setEditingCategory(category);
     setIsCategoryModalOpen(true);
   };
@@ -726,6 +794,8 @@ export const BookmarkApp: React.FC = () => {
     if (!currentUser) {
       throw new Error('로그인이 필요합니다.');
     }
+    const session = sessionRef.current;
+    requireBookmarkSession(session);
 
     const name = validateCategoryName(data.name);
     const nextOrder = categories.reduce((maxOrder, category) => Math.max(maxOrder, category.order ?? 0), -1) + 1;
@@ -740,6 +810,7 @@ export const BookmarkApp: React.FC = () => {
       updatedAt: Timestamp.now(),
     });
 
+    requireBookmarkSession(session);
     setSelectedCategory(categoryRef.id);
     toast.success(`'${name}' 카테고리를 추가했습니다.`);
   };
@@ -748,6 +819,8 @@ export const BookmarkApp: React.FC = () => {
     categoryId: string,
     data: { name: string; icon: string; color: string },
   ) => {
+    const session = sessionRef.current;
+    requireBookmarkSession(session);
     const name = validateCategoryName(data.name, categoryId);
 
     await updateDoc(doc(db, 'categories', categoryId), {
@@ -757,6 +830,7 @@ export const BookmarkApp: React.FC = () => {
       updatedAt: Timestamp.now(),
     });
 
+    requireBookmarkSession(session);
     toast.success(`'${name}' 카테고리를 수정했습니다.`);
   };
 
@@ -764,6 +838,8 @@ export const BookmarkApp: React.FC = () => {
     if (!currentUser) {
       throw new Error('로그인이 필요합니다.');
     }
+    const session = sessionRef.current;
+    requireBookmarkSession(session);
 
     const bookmarkCount = bookmarksCount[category.id] || 0;
     const fallbackCategory = categories.find((item) => item.id !== category.id) ?? null;
@@ -779,6 +855,7 @@ export const BookmarkApp: React.FC = () => {
     );
 
     if (!shouldDelete) return;
+    requireBookmarkSession(session);
 
     if (bookmarkCount > 0 && fallbackCategory) {
       const bookmarksSnapshot = await getDocs(
@@ -789,6 +866,7 @@ export const BookmarkApp: React.FC = () => {
         ),
       );
 
+      requireBookmarkSession(session);
       for (let index = 0; index < bookmarksSnapshot.docs.length; index += 400) {
         const batch = writeBatch(db);
         const now = Timestamp.now();
@@ -800,11 +878,15 @@ export const BookmarkApp: React.FC = () => {
           });
         });
 
+        requireBookmarkSession(session);
         await batch.commit();
+        requireBookmarkSession(session);
       }
     }
 
+    requireBookmarkSession(session);
     await deleteDoc(doc(db, 'categories', category.id));
+    requireBookmarkSession(session);
 
     if (selectedCategory === category.id) {
       setSelectedCategory(fallbackCategory?.id ?? 'all');
@@ -824,7 +906,7 @@ export const BookmarkApp: React.FC = () => {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
   // 필터링된 북마크
-  const filteredBookmarks = bookmarks.filter(bookmark => {
+  const filteredBookmarks = useMemo(() => (loadState === 'ready' ? bookmarks : []).filter(bookmark => {
     if (selectedCategory === 'favorite') {
       if (!bookmark.isFavorite) return false;
     } else if (selectedCategory !== 'all') {
@@ -841,14 +923,18 @@ export const BookmarkApp: React.FC = () => {
     }
 
     return true;
-  });
+  }), [bookmarks, loadState, selectedCategory, normalizedSearchTerm]);
 
-  // 카테고리별 북마크 수
-  const bookmarksCount = categories.reduce((acc, cat) => {
-    acc[cat.id] = bookmarks.filter(b => b.categoryId === cat.id).length;
-    return acc;
-  }, {} as Record<string, number>);
-  const favoriteCount = bookmarks.filter(bookmark => bookmark.isFavorite).length;
+  // One pass over bookmarks; unrelated input/modal renders reuse the totals.
+  const { bookmarksCount, favoriteCount } = useMemo(() => {
+    const counts: Record<string, number> = Object.fromEntries(categories.map(category => [category.id, 0]));
+    let favorites = 0;
+    for (const bookmark of bookmarks) {
+      if (Object.hasOwn(counts, bookmark.categoryId)) counts[bookmark.categoryId] += 1;
+      if (bookmark.isFavorite) favorites += 1;
+    }
+    return { bookmarksCount: counts, favoriteCount: favorites };
+  }, [bookmarks, categories]);
   const emptyStateTitle = bookmarks.length === 0 ? '아직 북마크가 없습니다' : '조건에 맞는 북마크가 없습니다';
   const emptyStateDescription = bookmarks.length === 0
     ? 'URL을 붙여넣거나 북마크 추가 버튼을 클릭하세요.'
@@ -857,7 +943,7 @@ export const BookmarkApp: React.FC = () => {
   return (
     <Container>
       <CategorySidebar
-        categories={categories}
+        categories={loadState === 'ready' ? categories : []}
         activeCategoryId={selectedCategory}
         bookmarksCount={bookmarksCount}
         favoriteCount={favoriteCount}
@@ -907,6 +993,7 @@ export const BookmarkApp: React.FC = () => {
               <AddButton
                 type="button"
                 aria-label="북마크 추가"
+                disabled={!!uid && loadState !== 'ready'}
                 onClick={() => { setEditingBookmark(null); setIsModalOpen(true); }}
               >
                 <i className="fa-solid fa-plus" aria-hidden="true"></i>
@@ -925,11 +1012,11 @@ export const BookmarkApp: React.FC = () => {
               autoComplete="url"
               inputMode="url"
               spellCheck={false}
-              placeholder="🔗 URL을 붙여넣고 Enter를 누르면 Gemini가 자동 분석해서 저장합니다…"
+              placeholder="🔗 URL을 붙여넣고 Enter를 누르면 AI가 자동 분석해서 저장합니다…"
               value={quickAddUrl}
               onChange={(e) => setQuickAddUrl(e.target.value)}
               onKeyDown={handleQuickAddKeyDown}
-              disabled={quickAddStatus.type === 'loading'}
+              disabled={quickAddStatus.type === 'loading' || (!!uid && loadState !== 'ready')}
             />
             {quickAddStatus.type && (
               <QuickAddStatus $type={quickAddStatus.type} role="status" aria-live="polite">
@@ -956,7 +1043,12 @@ export const BookmarkApp: React.FC = () => {
         </Header>
 
         <Content>
-          {filteredBookmarks.length > 0 ? (
+          {loadState !== 'ready' ? (
+            <EmptyState role="status" aria-live="polite">
+              <EmptyTitle>{loadState === 'error' ? '북마크를 불러오지 못했습니다' : '북마크를 불러오는 중입니다'}</EmptyTitle>
+              {loadState === 'error' && <button type="button" onClick={() => setReloadGeneration(value => value + 1)}>다시 불러오기</button>}
+            </EmptyState>
+          ) : filteredBookmarks.length > 0 ? (
             <BookmarkGrid $viewMode={viewMode}>
               {filteredBookmarks.map(bookmark => (
                 <BookmarkCard
