@@ -39,4 +39,11 @@
 
 ## 운영 적용
 
-검증 완료 후 커밋·푸시·Firebase 적용 및 실제 운영 응답을 기록한다.
+- 코드 커밋 `7bbe9acec2618ae22c8d065628494717ead6cc26`, 변경 173개 파일을 기존 `codex/add-founding-background-to-introduction` 브랜치에 푸시했다. 커밋된 제품/설정 파일 780개와 Linux 검증 소스의 차이는 0개다.
+- 첫 시도는 API 구성 발견의 기본 10초 제한에서 운영 반영 전에 중단됐다. 설치된 Firebase CLI의 공식 `FUNCTIONS_DISCOVERY_TIMEOUT=60` 설정으로 같은 산출물을 재시도했다. 제품 설정·인증정보를 변경하지 않았다.
+- 2026-09-24 06:25:46 KST, `propig-63524`의 Hosting 및 `hostingApi(us-central1)`, `openRouterUsage(us-central1)` 업데이트 성공. Hosting live 버전 `f92230a4ce287512`, 정적 파일 531개다.
+- 실제 운영 화면 6개(storyboard·기업소개·대표소개·직원소개·propig·blog)의 HTML SHA-256이 검증 산출물과 일치한다. 연결 JS/CSS 47개 HTTP 200, 새 이미지 2개의 해시도 일치했다.
+- 스토리보드 HTML SHA-256: `be80a250ce6c95bd658a378b17a256490a463ca8d2b7e83524b8fa32bba1fd2a`.
+- 운영 `/api/admin/check`, `/api/openrouter-usage`, `/api/generate-image` 결과 복구 GET은 미인증 요청에 401 JSON으로 응답했다. 생성 POST와 유료 공급자 요청은 0회다.
+- 운영 스토리보드 PC·390px·키보드 메뉴·엄격한 콘솔 검사 PASS. 운영 네 사이트 PC·390px의 가로 넘침·페이지 오류·선정 접근성 규칙 검사 PASS.
+- [운영 스토리보드](https://propig-63524.web.app/admin/storyboard). 3002 개발 서버·CY 3000·Office 실제 데이터와 기존 서버는 종료하거나 교체하지 않았다.
