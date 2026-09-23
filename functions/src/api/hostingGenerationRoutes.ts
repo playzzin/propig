@@ -50,6 +50,7 @@ const GenerateImageSchema = z.object({
     resourceMode: z.enum(['efficient', 'balanced', 'premium']).default('premium'),
     provider: z.literal('openrouter').optional().default('openrouter'),
     model: z.enum(STUDIO_IMAGE_MODELS).optional(),
+    strictModel: z.boolean().optional(),
     quality: z.enum(['low', 'high']).optional(),
 });
 
@@ -110,6 +111,7 @@ const IMAGE_RESERVED_USD_PER_OUTPUT = Math.min(10, Math.max(0.01, Number(process
 let cachedImageModels: { expiresAt: number; models: OpenRouterImageModel[] } | null = null;
 type ImageGenerationResponse = Record<string, unknown>;
 const completedImageResults = new Map<string, { expiresAt: number; response: ImageGenerationResponse }>();
+class ImageModelUnavailableError extends Error {}
 
 function imageOperationKey(uid: string, operationId: string): string {
     return createHash('sha256').update(`${uid}:image-generation:${operationId}`).digest('hex');
@@ -125,6 +127,49 @@ function imageBudgetKey(uid: string, date: string): string {
 
 function imageRequestFingerprint(payload: z.infer<typeof GenerateImageSchema>): string {
     return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+async function readImageOperation(uid: string, operationId: string) {
+    const key = imageOperationKey(uid, operationId);
+    const reference = db.collection('aiOperationReservations').doc(key);
+    const snapshot = await reference.get();
+    if (!snapshot.exists) return { success: true, status: 'not-found' as const };
+    const data = snapshot.data() || {};
+    if (data.uid !== uid || data.operation !== 'image-generation' || data.operationId !== operationId) {
+        throw new ApiError(409, '이미지 작업의 소유 정보를 확인할 수 없습니다.');
+    }
+    if (data.status !== 'completed') {
+        const status = data.status === 'pending' || data.status === 'failed' ? data.status : 'uncertain';
+        return { success: true, status };
+    }
+    let result: unknown = data.result;
+    let serialized: Buffer | null = null;
+    if (!result && data.resultChunkCount !== undefined) {
+        const count = data.resultChunkCount;
+        const maxChunks = Math.ceil(Math.ceil(IMAGE_DURABLE_CHUNKED_MAX_BYTES / 3) * 4 / IMAGE_DURABLE_CHUNK_BYTES);
+        if (!Number.isSafeInteger(count) || count < 1 || count > maxChunks) throw new ApiError(409, '보관된 이미지 조각 수가 올바르지 않습니다.');
+        const chunks = await Promise.all(Array.from({ length: count }, (_, index) => reference.collection('resultChunks').doc(String(index).padStart(3, '0')).get()));
+        const encoded = chunks.map((chunk, index) => {
+            const item = chunk.data();
+            if (!chunk.exists || item?.index !== index || typeof item.data !== 'string' || !item.data.length || item.data.length > IMAGE_DURABLE_CHUNK_BYTES || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.data)) throw new ApiError(409, '보관된 이미지 조각이 누락되거나 손상되었습니다.');
+            return item.data;
+        }).join('');
+        serialized = Buffer.from(encoded, 'base64');
+        if (serialized.toString('base64') !== encoded || serialized.byteLength > IMAGE_DURABLE_CHUNKED_MAX_BYTES) throw new ApiError(409, '보관된 이미지 조각이 손상되었습니다.');
+    } else if (!result && data.resultStoragePath) {
+        const expectedPath = `ai-operation-results/${createHash('sha256').update(key).digest('hex')}.json.gz`;
+        if (data.resultStoragePath !== expectedPath || typeof data.resultSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(data.resultSha256)) throw new ApiError(409, '보관된 이미지 경로를 확인할 수 없습니다.');
+        const [compressed] = await admin.storage().bucket().file(expectedPath).download();
+        if (compressed.byteLength > IMAGE_DURABLE_STORAGE_MAX_BYTES) throw new ApiError(409, '보관된 이미지 크기가 올바르지 않습니다.');
+        serialized = gunzipSync(compressed, { maxOutputLength: IMAGE_DURABLE_STORAGE_MAX_BYTES });
+    }
+    if (serialized) {
+        if (data.resultSha256 !== undefined && (typeof data.resultSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(data.resultSha256) || createHash('sha256').update(serialized).digest('hex') !== data.resultSha256)) throw new ApiError(409, '완료된 이미지 결과의 무결성을 확인하지 못했습니다.');
+        result = JSON.parse(serialized.toString('utf8')) as unknown;
+    }
+    const parsed = z.object({ success: z.literal(true), images: z.array(z.object({ url: z.string().min(1) }).passthrough()).min(1).max(4) }).passthrough().safeParse(result);
+    if (!parsed.success) throw new ApiError(409, '완료된 이미지 결과를 복구하지 못했습니다. 새로 생성하기 전에 작업 상태를 확인해 주세요.');
+    return { success: true, status: 'completed' as const, result: parsed.data };
 }
 
 function readTimestampMillis(value: unknown): number {
@@ -273,6 +318,7 @@ async function finishImageOperation(key: string, status: 'completed' | 'failed' 
         chunks.forEach((chunk, index) => batch.set(chunkCollection.doc(String(index).padStart(3, '0')), { data: chunk, index, updatedAt: new Date(), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }));
         await batch.commit();
         resultChunkCount = chunks.length;
+        resultSha256 = createHash('sha256').update(serializedResponse!).digest('hex');
     }
     if (status === 'completed' && serializedResponse && responseBytes > IMAGE_DURABLE_CHUNKED_MAX_BYTES && responseBytes <= IMAGE_DURABLE_STORAGE_MAX_BYTES) {
         resultSha256 = createHash('sha256').update(serializedResponse).digest('hex');
@@ -297,7 +343,7 @@ async function finishImageOperation(key: string, status: 'completed' | 'failed' 
         // An old finisher may arrive after manual review; never overwrite that terminal fence.
         if (operation.status === 'reconciled' || operation.costReconciliation) return;
         if (operation.budgetSettled) {
-            transaction.set(operationReference, { status, ...(durableResult ? { result: durableResult } : {}), ...(resultChunkCount ? { resultChunkCount } : {}), ...(resultStoragePath ? { resultStoragePath, resultSha256 } : {}), ...(resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {}), updatedAt: new Date() }, { merge: true });
+            transaction.set(operationReference, { status, ...(durableResult ? { result: durableResult } : {}), ...(resultChunkCount ? { resultChunkCount, resultSha256 } : {}), ...(resultStoragePath ? { resultStoragePath, resultSha256 } : {}), ...(resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {}), updatedAt: new Date() }, { merge: true });
             return;
         }
         const reservedUsd = Math.max(0, Number(operation.reservedUsd) || 0);
@@ -321,7 +367,7 @@ async function finishImageOperation(key: string, status: 'completed' | 'failed' 
         transaction.set(operationReference, {
             status,
             ...(durableResult ? { result: durableResult } : {}),
-            ...(resultChunkCount ? { resultChunkCount } : {}),
+            ...(resultChunkCount ? { resultChunkCount, resultSha256 } : {}),
             ...(resultStoragePath ? { resultStoragePath, resultSha256 } : {}),
             ...(resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {}),
             budgetSettled: true,
@@ -530,6 +576,11 @@ async function selectOpenRouterImageModel(params: {
         const compatibleModels = models.filter(
             (model) => supportsRequestedImageInput(model, params.payload, params.references),
         );
+        if (params.payload.strictModel) {
+            const requested = compatibleModels.find((model) => model.id === params.payload.model);
+            if (!requested) throw new ImageModelUnavailableError('선택한 모델의 이미지 생성·참조 이미지 지원을 확인할 수 없습니다. 모델을 다시 선택해 주세요.');
+            return { id: requested.id, supportedParameters: new Set(Object.keys(requested.supported_parameters || {})), selectionSource: 'requested' };
+        }
         const efficientModel = params.payload.resourceMode === 'efficient'
             ? compatibleModels.find((model) => model.id === EFFICIENT_STORYBOARD_IMAGE_MODEL)
             : null;
@@ -568,6 +619,7 @@ async function selectOpenRouterImageModel(params: {
             };
         }
     } catch (error) {
+        if (params.payload.strictModel) throw new ImageModelUnavailableError(error instanceof ImageModelUnavailableError ? error.message : '모델 연결을 확인하지 못해 생성하지 않았습니다. 연결을 다시 확인해 주세요.');
         console.warn('[hostingApi] OpenRouter image model discovery failed; using the compatibility fallback.', error);
     }
 
@@ -667,32 +719,58 @@ function canRetryWithoutPresentationOptions(error: unknown): boolean {
 }
 
 export async function handleGenerateImage(req: Request, res: Response): Promise<void> {
+    if (req.method === 'GET') {
+        res.set('Cache-Control', 'private, no-store');
+        const auth = await requireAccess(req, 'photoManagement');
+        const parsed = z.string().uuid().safeParse(req.query.operationId);
+        if (!parsed.success) throw new ApiError(400, '작업 ID를 확인해 주세요.');
+        try {
+            res.status(200).json(await readImageOperation(auth.uid, parsed.data));
+        } catch {
+            res.status(503).json({ success: false, code: 'RECOVERY_UNAVAILABLE', error: '이미지 작업 결과를 확인하지 못했습니다. 새로 생성하지 말고 잠시 후 다시 확인해 주세요.' });
+        }
+        return;
+    }
     requireMethod(req, 'POST');
-    const auth = await requireAccess(req, 'photoManagement');
-    const rateLimit = await enforceSharedImageRateLimit({
-        namespace: 'generate-image-minute',
-        uid: auth.uid,
-        maxRequests: 12,
-        windowMs: 60_000,
-    });
-    if (!rateLimit.allowed) {
-        res.set('Retry-After', String(rateLimit.retryAfterSeconds));
-        throw new ApiError(429, `${rateLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+    let auth: Awaited<ReturnType<typeof requireAccess>>;
+    let payload: z.infer<typeof GenerateImageSchema>;
+    let runtime: Awaited<ReturnType<typeof getHostingAiRuntime>>;
+    try {
+        auth = await requireAccess(req, 'photoManagement');
+        const rateLimit = await enforceSharedImageRateLimit({
+            namespace: 'generate-image-minute',
+            uid: auth.uid,
+            maxRequests: 12,
+            windowMs: 60_000,
+        });
+        if (!rateLimit.allowed) {
+            res.set('Retry-After', String(rateLimit.retryAfterSeconds));
+            throw new ApiError(429, `${rateLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+        }
+        const dailyLimit = await enforceSharedImageRateLimit({
+            namespace: 'generate-image-day',
+            uid: auth.uid,
+            maxRequests: 48,
+            windowMs: 24 * 60 * 60 * 1000,
+        });
+        if (!dailyLimit.allowed) {
+            res.set('Retry-After', String(dailyLimit.retryAfterSeconds));
+            throw new ApiError(429, `${dailyLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+        }
+        payload = parseJson(req, GenerateImageSchema);
+        runtime = await getHostingAiRuntime();
+        if (!runtime.openRouterApiKey) throw new ApiError(503, 'OPENROUTER_API_KEY가 설정되지 않았습니다.');
+    } catch (error) {
+        res.status(error instanceof ApiError ? error.status : 503).json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, error: error instanceof ApiError ? error.message : '이미지 생성 요청을 전송하지 못했습니다. 입력과 연결 상태를 확인해 주세요.' });
+        return;
     }
-    const dailyLimit = await enforceSharedImageRateLimit({
-        namespace: 'generate-image-day',
-        uid: auth.uid,
-        maxRequests: 48,
-        windowMs: 24 * 60 * 60 * 1000,
-    });
-    if (!dailyLimit.allowed) {
-        res.set('Retry-After', String(dailyLimit.retryAfterSeconds));
-        throw new ApiError(429, `${dailyLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+    let reservation: Awaited<ReturnType<typeof reserveImageOperation>>;
+    try { reservation = await reserveImageOperation(auth.uid, payload); }
+    catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 402) throw error;
+        res.status(402).json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, reasonCode: 'budget_exceeded', error: error.message });
+        return;
     }
-    const payload = parseJson(req, GenerateImageSchema);
-    const runtime = await getHostingAiRuntime();
-    if (!runtime.openRouterApiKey) throw new ApiError(503, 'OPENROUTER_API_KEY가 설정되지 않았습니다.');
-    const reservation = await reserveImageOperation(auth.uid, payload);
     if (reservation.cached) {
         res.status(200).json(reservation.cached);
         return;
@@ -761,6 +839,10 @@ export async function handleGenerateImage(req: Request, res: Response): Promise<
         res.status(200).json(responseBody);
     } catch (error) {
         await finishImageOperation(reservation.key, providerAttempted ? 'uncertain' : 'failed').catch(() => undefined);
+        if (error instanceof ImageModelUnavailableError) {
+            res.status(503).json({ success: false, code: 'MODEL_UNAVAILABLE', reasonCode: 'model_unavailable', error: error.message });
+            return;
+        }
         if (error instanceof ApiError) throw error;
         const rawMessage = error instanceof Error ? error.message : String(error);
         const hint = imageInfraHint(rawMessage);

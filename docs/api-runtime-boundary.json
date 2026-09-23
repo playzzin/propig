@@ -1,4 +1,12 @@
 {
+  "standaloneClients": [
+    {
+      "directory": "src/components/admin/hermes-office",
+      "entryPoint": "src/components/admin/hermes-office/main.tsx",
+      "buildScript": "scripts/hermes-office/build.mjs",
+      "notes": "Separate loopback application served by scripts/hermes-office/server.py, not the Next/Firebase website. Exclusion requires an explicit standalone entry and no imports from website source."
+    }
+  ],
   "routes": {
     "/api/ai-config": {
       "classification": "firebase-hosting-rewrite",

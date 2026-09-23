@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { ApiError, db, parseJson, requireAccess, requireMethod } from './hostingCommon';
 import { enforceUserRateLimit } from './security';
 import { getHostingAiRuntime, runOpenRouterText } from './hostingAiRuntime';
+import { defaultImageBudgetLimit, imageDailyBudgetKey, readImageBudgetLimit } from './imageBudgetOperations';
 
 const EMOTICON_STUDIO_IMAGE_MODEL = 'openai/gpt-image-2';
 const STUDIO_IMAGE_MODEL_IDS = ['openai/gpt-image-2', 'google/gemini-3.1-flash-lite-image', 'google/gemini-3.1-flash-image', 'x-ai/grok-imagine-image-2.0'] as const;
@@ -72,7 +73,42 @@ const RequestSchema = z.object({
 
 type PlanInput = z.infer<typeof RequestSchema>;
 type Preset = z.infer<typeof PresetSchema>;
-const OPERATION_TTL_MS = 10 * 60 * 1000;
+
+async function readStudioImageBudget(uid: string) {
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const limitUsd = await readImageBudgetLimit(transaction, db, uid, defaultImageBudgetLimit());
+      const date = new Date().toISOString().slice(0, 10);
+      const snapshot = await transaction.get(db.collection('aiDailyBudgets').doc(imageDailyBudgetKey(uid, date)));
+      const data = snapshot.data();
+      if (snapshot.exists && (!data || data.uid !== uid || data.date !== date || ![data.spentUsd, data.reservedUsd].every((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0))) return null;
+      const spentUsd = snapshot.exists ? data!.spentUsd as number : 0;
+      const reservedUsd = snapshot.exists ? data!.reservedUsd as number : 0;
+      if (!Number.isFinite(spentUsd + reservedUsd)) return null;
+      return { limitUsd, spentUsd, reservedUsd, remainingUsd: Math.max(0, limitUsd - spentUsd - reservedUsd) };
+    });
+  } catch { return null; }
+}
+
+function planSuccess(preset: Preset, metadata: Record<string, unknown>, cached: boolean) {
+  const costUsd = typeof metadata.costUsd === 'number' && Number.isFinite(metadata.costUsd) && metadata.costUsd >= 0 ? metadata.costUsd : null;
+  const modelUsed = typeof metadata.modelUsed === 'string' ? metadata.modelUsed : null;
+  return { success: true as const, preset, provider: 'openrouter', model: modelUsed, modelUsed, costUsd, cached };
+}
+
+async function readPlanOperation(uid: string, operationId: string) {
+  const snapshot = await operationRef(uid, operationId).get();
+  if (!snapshot.exists) return { success: true, status: 'not-found' as const };
+  const data = snapshot.data() || {};
+  if (data.uid !== uid || data.operation !== 'emoticon-animation-plan' || data.operationId !== operationId) throw new Error('OPERATION_IDENTITY_CONFLICT');
+  if (data.status === 'completed') {
+    const preset = PresetSchema.safeParse(data.result);
+    if (!preset.success) throw new Error('OPERATION_RESULT_INVALID');
+    return { success: true, status: 'completed' as const, result: planSuccess(preset.data, data, true) };
+  }
+  const status = data.status === 'pending' || data.status === 'failed' ? data.status : 'uncertain';
+  return { success: true, status };
+}
 
 function systemPrompt(input: PlanInput, correction = ''): string {
     return [
@@ -111,19 +147,21 @@ function operationRef(uid: string, operationId: string) {
     return db.collection('aiOperationReservations').doc(id);
 }
 
-async function reserve(uid: string, operationId: string, requestFingerprint: string): Promise<Preset | null> {
+async function reserve(uid: string, operationId: string, requestFingerprint: string): Promise<ReturnType<typeof planSuccess> | null> {
     const ref = operationRef(uid, operationId);
     return db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(ref);
         const data = snapshot.data() || {};
+        if (snapshot.exists && (data.uid !== uid || data.operation !== 'emoticon-animation-plan' || data.operationId !== operationId)) throw new ApiError(409, '기획 작업의 소유 정보를 확인할 수 없습니다.');
         if (data.requestFingerprint && data.requestFingerprint !== requestFingerprint) throw new ApiError(409, '같은 작업 ID에 다른 요청을 사용할 수 없습니다.');
         if (data.status === 'uncertain') throw new ApiError(409, '이전 기획 요청의 비용 상태를 확인 중입니다. 자동 재실행하지 않습니다.');
         if (data.status === 'completed') {
             const parsed = PresetSchema.safeParse(data.result);
-            if (parsed.success) return parsed.data;
+            if (parsed.success) return planSuccess(parsed.data, data, true);
+            throw new ApiError(409, '완료된 기획 결과를 확인해야 합니다. 자동 재실행하지 않습니다.');
         }
-        const updatedAt = data.updatedAt instanceof admin.firestore.Timestamp ? data.updatedAt.toMillis() : 0;
-        if (data.status === 'pending' && Date.now() - updatedAt < OPERATION_TTL_MS) throw new ApiError(409, '같은 기획 요청이 처리 중입니다.');
+        // Elapsed time cannot prove that an earlier paid request did not run.
+        if (data.status === 'pending') throw new ApiError(409, '같은 기획 요청이 처리 중입니다.');
         transaction.set(ref, {
             uid,
             operation: 'emoticon-animation-plan',
@@ -137,23 +175,38 @@ async function reserve(uid: string, operationId: string, requestFingerprint: str
     });
 }
 
-async function finish(uid: string, operationId: string, status: 'completed' | 'failed' | 'uncertain', result?: Preset) {
-    await operationRef(uid, operationId).set({ status, ...(result ? { result } : {}), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+async function finish(uid: string, operationId: string, status: 'completed' | 'failed' | 'uncertain', result?: Preset, metadata?: { costUsd: number | null; modelUsed: string }) {
+    await operationRef(uid, operationId).set({ status, ...(result ? { result } : {}), ...(metadata || {}), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
 }
 
 export async function handleEmoticonAnimationPlan(req: Request, res: Response): Promise<void> {
     if (req.method === 'GET') {
-        await requireAccess(req, 'photoManagement');
-        const runtime = await getHostingAiRuntime();
+        res.set('Cache-Control', 'private, no-store');
+        const auth = await requireAccess(req, 'photoManagement');
+        if (Object.prototype.hasOwnProperty.call(req.query, 'operationId')) {
+            const parsed = z.string().uuid().safeParse(req.query.operationId);
+            if (!parsed.success) throw new ApiError(400, '작업 ID를 확인해 주세요.');
+            try { res.status(200).json(await readPlanOperation(auth.uid, parsed.data)); }
+            catch { res.status(503).json({ success: false, code: 'RECOVERY_UNAVAILABLE', error: '기획 작업 결과를 확인하지 못했습니다. 새로 생성하지 말고 잠시 후 다시 확인해 주세요.' }); }
+            return;
+        }
+        const [runtime, budget] = await Promise.all([getHostingAiRuntime(), readStudioImageBudget(auth.uid)]);
         const imageCapabilities = runtime.openRouterApiKey ? await getImageModelCapabilities(runtime.openRouterApiKey) : { catalogStatus: 'not-configured', checkedAt: new Date().toISOString(), models: [] };
-        res.status(200).json({ success: true, textModel: runtime.model, imageModel: EMOTICON_STUDIO_IMAGE_MODEL, configured: Boolean(runtime.openRouterApiKey), imageCapabilities });
+        res.status(200).json({ success: true, textModel: runtime.model, imageModel: EMOTICON_STUDIO_IMAGE_MODEL, configured: Boolean(runtime.openRouterApiKey), imageCapabilities, budget });
         return;
     }
     requireMethod(req, 'POST');
-    const auth = await requireAccess(req, 'photoManagement');
-    const input = parseJson(req, RequestSchema, '동작 설명, 프레임 수, FPS를 확인해 주세요.');
+    let auth: Awaited<ReturnType<typeof requireAccess>>;
+    let input: PlanInput;
+    try {
+        auth = await requireAccess(req, 'photoManagement');
+        input = parseJson(req, RequestSchema, '동작 설명, 프레임 수, FPS를 확인해 주세요.');
+    } catch (error) {
+        res.status(error instanceof ApiError ? error.status : 503).json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, error: error instanceof ApiError ? error.message : '기획 요청을 전송하지 못했습니다. 입력과 연결 상태를 확인해 주세요.' });
+        return;
+    }
     const requestFingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-    let cached: Preset | null;
+    let cached: ReturnType<typeof planSuccess> | null;
     try {
         cached = await reserve(auth.uid, input.operationId, requestFingerprint);
     } catch (error) {
@@ -161,7 +214,7 @@ export async function handleEmoticonAnimationPlan(req: Request, res: Response): 
         throw error;
     }
     if (cached) {
-        res.status(200).json({ success: true, preset: cached, cached: true });
+        res.status(200).json(cached);
         return;
     }
     let providerSubmitted = false;
@@ -187,14 +240,19 @@ export async function handleEmoticonAnimationPlan(req: Request, res: Response): 
         });
         providerSubmitted = true;
         let result = await requestPlan();
+        const readCost = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+        let costUsd = readCost(result.usage?.cost);
         let preset = parsePreset(result.content);
         if (!preset || preset.frames.length !== input.frameCount) {
             result = await requestPlan(`요청한 ${input.frameCount}프레임과 JSON schema를 정확히 맞추세요`);
+            const correctionCost = readCost(result.usage?.cost);
+            costUsd = costUsd !== null && correctionCost !== null ? readCost(costUsd + correctionCost) : null;
             preset = parsePreset(result.content);
         }
         if (!preset || preset.frames.length !== input.frameCount) throw new ApiError(422, 'AI 기획 결과가 움짤 프리셋 형식과 맞지 않았습니다.');
-        await finish(auth.uid, input.operationId, 'completed', preset);
-        res.status(200).json({ success: true, preset, provider: 'openrouter', model: result.model, cached: false });
+        const metadata = { costUsd, modelUsed: result.model };
+        await finish(auth.uid, input.operationId, 'completed', preset, metadata);
+        res.status(200).json(planSuccess(preset, metadata, false));
     } catch (error) {
         await finish(auth.uid, input.operationId, providerSubmitted ? 'uncertain' : 'failed').catch(() => undefined);
         throw error;

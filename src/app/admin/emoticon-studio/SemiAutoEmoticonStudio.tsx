@@ -24,7 +24,6 @@ import {
   LoaderCircle,
   MessageSquareText,
   Maximize2,
-  MonitorUp,
   Pause,
   Play,
   Plus,
@@ -44,18 +43,28 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import styled from 'styled-components';
-import { toast } from 'sonner';
+import { Toaster, toast as notification } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { parseEmoticonAnimationPresetJson, type EmoticonAnimationPresetPlan } from '@/schemas/emoticonAnimationPreset';
+import StudioProductionPanel from './StudioProductionPanel';
+import { remapStudioOperations, operationMatchesSlot, operationNeedsRecovery, readStudioOperations, writeStudioOperations, withStudioOperationLock, type StudioImageResult, type StudioOperation, type StudioOperationResult } from './studio-operation-journal';
 
 const DRAFT_KEY = 'propig:semi-auto-emoticon-studio:v1';
 const DRAFT_RECOVERY_PREFIX = 'propig:semi-auto-emoticon-studio:recovery:';
+const ARCHIVES_KEY = 'propig:emoticon-projects:v1';
 const DATABASE_NAME = 'propig-semi-auto-emoticon-studio';
 const DATABASE_VERSION = 1;
 const ASSET_STORE = 'assets';
 const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_FRAME_COUNT = 48;
+const MIN_FRAME_DURATION_MS = 60;
 const ACCEPTED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const STUDIO_TOASTER_ID = 'emoticon-studio';
+const toast = Object.assign((message: ReactNode) => notification(message, { toasterId: STUDIO_TOASTER_ID }), {
+  success: (message: ReactNode) => notification.success(message, { toasterId: STUDIO_TOASTER_ID }),
+  error: (message: ReactNode) => notification.error(message, { toasterId: STUDIO_TOASTER_ID }),
+  warning: (message: ReactNode) => notification.warning(message, { toasterId: STUDIO_TOASTER_ID }),
+});
 
 type KeyframePlan = { id: string; pose: string; caption: string; durationMs: number; imagePrompt?: string };
 type AnimationPreset = { id: string; title: string; summary: string; dialogue: string; loopGuide: string; frames: KeyframePlan[] };
@@ -118,7 +127,7 @@ type Platform = 'kakao' | 'naver' | 'line' | 'telegram' | 'custom';
 type GenerationMode = 'fast' | 'quality';
 type GenerationProvider = 'auto' | 'openai' | 'google' | 'xai';
 type ImageModelCapability = { id: string; available: boolean; imageOutput: boolean; referenceInput: boolean; pricing: { image: string | null; prompt: string | null; completion: string | null } | null };
-type ImageModelPreflight = { catalogStatus: 'available' | 'unavailable' | 'not-configured' | 'loading'; checkedAt: string; models: ImageModelCapability[] };
+type ImageModelPreflight = { catalogStatus: 'available' | 'unavailable' | 'not-configured' | 'loading' | 'signed-out' | 'forbidden'; checkedAt: string; models: ImageModelCapability[] };
 
 type LayerTransform = { x: number; y: number; width: number; rotation: number; opacity: number };
 type FrameLayer = {
@@ -184,6 +193,8 @@ type Draft = {
   presets: AnimationPreset[];
   selectedSceneIds: SceneId[];
   sourceName: string;
+  sourceRevision?: string;
+  recentSceneIds?: string[];
   frameMeta: Array<{
     id: string;
     sceneId: SceneId | null;
@@ -206,6 +217,7 @@ type StoredAsset = {
   blob: Blob;
   fileName: string;
   updatedAt: number;
+  frameMeta?: Draft['frameMeta'][number];
 };
 
 type StudioFrame = Draft['frameMeta'][number] & {
@@ -219,12 +231,10 @@ type LayerSelection = 'base' | 'caption' | string;
 type ApiGenerationState = { label: string; status: 'queued' | 'generating' | 'completed' | 'failed' | 'cancelled' };
 
 const STEP_ITEMS: Array<{ id: string; target: StepId; label: string; eyebrow: string; icon: ReactNode }> = [
-  { id: 'project', target: 'project', label: '프로젝트', eyebrow: '1', icon: <FileText size={19} /> },
-  { id: 'character', target: 'character', label: '캐릭터', eyebrow: '2', icon: <Images size={19} /> },
-  { id: 'plan', target: 'plan', label: '기획', eyebrow: '3', icon: <FileText size={19} /> },
-  { id: 'images', target: 'import', label: '이미지 제작', eyebrow: '4', icon: <Sparkles size={19} /> },
-  { id: 'animation', target: 'edit', label: '움직임 제작', eyebrow: '5', icon: <Play size={19} /> },
-  { id: 'export', target: 'export', label: '검수·내보내기', eyebrow: '6', icon: <CheckCircle2 size={19} /> },
+  { id: 'prepare', target: 'character', label: '준비하기', eyebrow: '1', icon: <Images size={19} /> },
+  { id: 'plan', target: 'plan', label: '장면 고르기', eyebrow: '2', icon: <FileText size={19} /> },
+  { id: 'make', target: 'import', label: '만들고 다듬기', eyebrow: '3', icon: <Sparkles size={19} /> },
+  { id: 'export', target: 'export', label: '검수하고 받기', eyebrow: '4', icon: <CheckCircle2 size={19} /> },
 ];
 
 const PLATFORM_LABELS: Record<Platform, string> = {
@@ -232,23 +242,23 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   naver: '네이버 OGQ',
   line: 'LINE',
   telegram: 'Telegram',
-  custom: '직접 설정',
+  custom: '자유 캔버스',
 };
 
 const SUBMISSION_PROFILES: Record<Platform, { width: number; height: number; title: string; summary: string }> = {
   kakao: { width: 360, height: 360, title: '카카오톡 작업 프리셋', summary: '360×360 투명 캔버스를 기준으로 합성 결과와 반복 동작을 점검합니다.' },
   naver: { width: 740, height: 640, title: '네이버 OGQ 작업 프리셋', summary: '740×640 작업 캔버스를 기준으로 여백과 말풍선 안전 영역을 점검합니다.' },
-  line: { width: 370, height: 320, title: 'LINE 작업 프리셋', summary: '370×320 작업 캔버스에서 캐릭터가 잘리지 않는지 점검합니다.' },
+  line: { width: 320, height: 270, title: 'LINE 애니메이션 작업 프리셋', summary: '320×270 캔버스에서 점검합니다. 최종 제출에는 APNG 변환이 필요해요.' },
   telegram: { width: 512, height: 512, title: 'Telegram 작업 프리셋', summary: '512×512 정사각 캔버스에서 투명 배경과 반복 동작을 점검합니다.' },
-  custom: { width: 500, height: 500, title: '직접 설정 작업 프리셋', summary: '500×500 비파괴 편집 캔버스에서 레이어 배치를 점검합니다.' },
+  custom: { width: 500, height: 500, title: '자유 작업 프리셋', summary: '500×500 비파괴 편집 캔버스입니다. 특정 플랫폼 제출 규격은 적용하지 않아요.' },
 };
 
 const OFFICIAL_GUIDES: Record<Platform, { checkedAt: string; summary: string; url: string }> = {
-  kakao: { checkedAt: '2026-08-28', summary: '움직이는 일반 이모티콘: 360×360px · 제안 24개 중 WebP 3개 필수 · WebP당 24프레임 이하 · 4회 반복. GIF는 검수용이며 최종 WebP는 카카오 공식 WebPAnimator로 변환해야 합니다.', url: 'https://kakaoemoticonstudio.notion.site/animated-emoticon' },
-  naver: { checkedAt: '2026-08-28', summary: 'OGQ 애니메이션 스티커 세트: 메인 1개(240×240) · GIF 스티커 24개(740×640) · 탭 1개(96×74). 각 1MB 이하, GIF당 100프레임·3초 이하입니다.', url: 'https://creators.ogq.me/guides/contents/animated-sticker' },
-  line: { checkedAt: '제출 시 재확인', summary: 'LINE 작업 캔버스 참고값입니다. 실제 상품 유형과 최신 공식 업로드 조건을 제출 시 확인하세요.', url: 'https://creator.line.me/' },
-  telegram: { checkedAt: '제출 시 재확인', summary: 'Telegram 작업 캔버스 참고값입니다. 실제 스티커 유형과 최신 공식 조건을 제출 시 확인하세요.', url: 'https://core.telegram.org/stickers' },
-  custom: { checkedAt: '사용자 설정', summary: '직접 설정한 작업 캔버스입니다. 제출 대상 서비스의 공식 조건을 별도로 확인하세요.', url: 'https://propig-63524.web.app/admin/emoticon-studio' },
+  kakao: { checkedAt: '2026-09-24', summary: '움직이는 일반 이모티콘: 360×360px · 제안 24개 중 WebP 3개 필수 · WebP당 650KB·24프레임 이하 · 4회 반복. 아이콘 PNG 78×78px·16KB 이하가 별도로 필요해요. GIF는 검수용이며 최종 WebP는 카카오 공식 WebPAnimator로 변환해야 합니다.', url: 'https://kakaoemoticonstudio.notion.site/animated-emoticon' },
+  naver: { checkedAt: '2026-09-24', summary: 'OGQ 애니메이션 스티커 세트: 메인 1개(240×240) · GIF 스티커 24개(740×640) · 탭 1개(96×74). 각 1MB·100프레임 이하이며 첫·마지막 프레임을 같게 준비하세요. 3초는 기존 작업 참고값입니다.', url: 'https://supportogq.zendesk.com/hc/ko-kr/articles/51412318704921' },
+  line: { checkedAt: '2026-09-24', summary: '움직이는 스티커는 최대 320×270px APNG, 5~20프레임, 1~4회 반복·전체 4초 이하·각 1MB 이하입니다. 이 스튜디오의 GIF는 미리보기용이며 APNG 변환은 별도로 필요해요.', url: 'https://creator.line.me/en/guideline/animationsticker/' },
+  telegram: { checkedAt: '2026-09-24', summary: '정적 스티커는 PNG/WebP이며 한 변이 512px입니다. 움직이는 스티커는 TGS 또는 VP9 WebM 변환이 필요해요. 이 스튜디오의 GIF는 검수용입니다.', url: 'https://core.telegram.org/stickers' },
+  custom: { checkedAt: '자유 작업', summary: '500×500 작업 캔버스입니다. 제출 대상 서비스의 조건은 별도로 확인해 주세요.', url: 'https://propig-63524.web.app/admin/emoticon-studio' },
 };
 
 function createInitialDraft(initialProjectId?: string): Draft {
@@ -272,6 +282,8 @@ function createInitialDraft(initialProjectId?: string): Draft {
 function parseAndNormalizeDraft(rawJson: string): Draft {
   const parsed = JSON.parse(rawJson) as (Partial<Draft> & { version?: number }) | null;
   if (!parsed || typeof parsed.projectId !== 'string' || !parsed.projectId.trim()) throw new Error('invalid project id');
+  if (Array.isArray(parsed.frameMeta) && parsed.frameMeta.length > MAX_FRAME_COUNT) throw new Error('원본 프레임이 48개를 넘습니다. 원본을 보존하고 프로젝트를 나눠 주세요.');
+  if (Array.isArray(parsed.presets) && parsed.presets.some((preset) => Array.isArray(preset?.frames) && preset.frames.length > 16)) throw new Error('장면별 프레임은 16개까지 지원합니다. 원본 기획을 보존해 주세요.');
   const presets = Array.isArray(parsed.presets) && parsed.presets.length
     ? parsed.presets.flatMap((preset) => {
       if (!preset || typeof preset.id !== 'string' || !preset.id.trim() || typeof preset.title !== 'string' || !Array.isArray(preset.frames)) return [];
@@ -281,10 +293,10 @@ function parseAndNormalizeDraft(rawJson: string): Draft {
           id: typeof item.id === 'string' && item.id.trim() ? item.id.slice(0, 120) : `${preset.id}-${index + 1}`,
           pose: item.pose.slice(0, 1200),
           caption: typeof item.caption === 'string' ? item.caption.slice(0, 80) : '',
-          durationMs: clamp(Number(item.durationMs) || 160, 100, 3000),
+          durationMs: clamp(Number(item.durationMs) || 160, MIN_FRAME_DURATION_MS, 3000),
           ...(typeof item.imagePrompt === 'string' ? { imagePrompt: item.imagePrompt.slice(0, 4000) } : {}),
         }];
-      }).slice(0, 16);
+      });
       if (frames.length < 2) return [];
       return [{
         id: preset.id.slice(0, 120),
@@ -294,12 +306,12 @@ function parseAndNormalizeDraft(rawJson: string): Draft {
         loopGuide: typeof preset.loopGuide === 'string' ? preset.loopGuide.slice(0, 1200) : '',
         frames,
       } satisfies AnimationPreset];
-    }).slice(0, 30)
+    })
     : structuredClone(DEFAULT_PRESETS);
   if (!presets.length) presets.push(...structuredClone(DEFAULT_PRESETS));
   const validIds = new Set<SceneId>(presets.map((preset) => preset.id));
   const selectedSceneIds = Array.isArray(parsed.selectedSceneIds)
-    ? parsed.selectedSceneIds.filter((id): id is SceneId => typeof id === 'string' && validIds.has(id)).slice(0, 12)
+    ? [...new Set(parsed.selectedSceneIds.filter((id): id is SceneId => typeof id === 'string' && validIds.has(id)))]
     : [];
   return {
     ...createInitialDraft(),
@@ -310,8 +322,10 @@ function parseAndNormalizeDraft(rawJson: string): Draft {
     characterDescription: typeof parsed.characterDescription === 'string' ? parsed.characterDescription.slice(0, 2000) : '',
     platform: typeof parsed.platform === 'string' && parsed.platform in SUBMISSION_PROFILES ? parsed.platform as Platform : 'kakao',
     sourceName: typeof parsed.sourceName === 'string' ? parsed.sourceName.slice(0, 240) : '',
+    sourceRevision: typeof parsed.sourceRevision === 'string' ? parsed.sourceRevision.slice(0, 120) : '',
+    recentSceneIds: Array.isArray(parsed.recentSceneIds) ? parsed.recentSceneIds.filter((id) => typeof id === 'string' && validIds.has(id)).slice(0, 8) : [],
     presets,
-    selectedSceneIds: selectedSceneIds.length ? selectedSceneIds : [presets[0]?.id || 'hello-wave'],
+    selectedSceneIds: Array.isArray(parsed.selectedSceneIds) ? selectedSceneIds : [presets[0]?.id || 'hello-wave'],
     frameMeta: Array.isArray(parsed.frameMeta)
       ? parsed.frameMeta.filter((item) => item && typeof item.id === 'string' && item.id.trim()).slice(0, MAX_FRAME_COUNT).map((item) => {
         const sceneId = typeof item.sceneId === 'string' && validIds.has(item.sceneId) ? item.sceneId : null;
@@ -328,7 +342,7 @@ function parseAndNormalizeDraft(rawJson: string): Draft {
           keyframeIndex,
           keyframeId: scene && keyframeIndex !== null ? scene.frames[keyframeIndex].id : null,
           fileName: typeof item.fileName === 'string' ? item.fileName.slice(0, 240) : 'frame.png',
-          durationMs: clamp(Number(item.durationMs) || 160, 100, 3000),
+          durationMs: clamp(Number(item.durationMs) || 160, MIN_FRAME_DURATION_MS, 3000),
           caption: typeof item.caption === 'string' ? item.caption.slice(0, 80) : '',
           imageTransform: normalizeTransform(item.imageTransform, DEFAULT_IMAGE_TRANSFORM),
           captionTransform: normalizeTransform(item.captionTransform, DEFAULT_CAPTION_TRANSFORM),
@@ -350,9 +364,8 @@ function readDraft(): Draft {
   } catch {
     try {
       window.localStorage.setItem(`${DRAFT_RECOVERY_PREFIX}${Date.now()}`, raw);
-      window.localStorage.removeItem(DRAFT_KEY);
     } catch { /* best-effort recovery backup */ }
-    return createInitialDraft();
+    throw new Error('저장된 프로젝트를 읽지 못했습니다. 원본은 유지했습니다. 다시 시도하거나 작업 백업을 불러와 주세요.');
   }
 }
 
@@ -438,10 +451,15 @@ function buildFrameSlots(draft: Draft) {
   return draft.selectedSceneIds.flatMap((sceneId) => {
     const preset = sceneById(sceneId, draft.presets || DEFAULT_PRESETS);
     return preset ? preset.frames.map((keyframe, keyframeIndex) => ({ sceneId, preset, keyframe, keyframeIndex })) : [];
-  }).slice(0, MAX_FRAME_COUNT);
+  });
 }
 
 type FrameSlot = ReturnType<typeof buildFrameSlots>[number];
+function getFrameSlotPatch(slot: FrameSlot | undefined) {
+  return slot
+    ? { sceneId: slot.sceneId, keyframeIndex: slot.keyframeIndex, keyframeId: slot.keyframe.id, caption: slot.keyframe.caption, durationMs: slot.keyframe.durationMs }
+    : { sceneId: null, keyframeIndex: null, keyframeId: null };
+}
 const frameSlotKey = (sceneId: SceneId, keyframeIndex: number, keyframeId?: string | null) => `${sceneId}:${keyframeId || `legacy-${keyframeIndex}`}`;
 
 function frameLabel(meta: Pick<Draft['frameMeta'][number], 'sceneId' | 'keyframeIndex'>, presets: AnimationPreset[]) {
@@ -991,7 +1009,7 @@ export default function SemiAutoEmoticonStudio() {
   const { currentUser } = useAuth();
   const [draft, setDraft] = useState<Draft>(() => createInitialDraft('initial-project'));
   const [hydrated, setHydrated] = useState(false);
-  const [step, setStep] = useState<StepId>('project');
+  const [step, setStep] = useState<StepId>('character');
   const [sourceUrl, setSourceUrl] = useState('');
   const [frames, setFrames] = useState<StudioFrame[]>([]);
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
@@ -999,6 +1017,11 @@ export default function SemiAutoEmoticonStudio() {
   const [inspectorTab, setInspectorTab] = useState<'frame' | 'layers'>('frame');
   const [layerAssetUrls, setLayerAssetUrls] = useState<Record<string, string>>({});
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [savedDraftJson, setSavedDraftJson] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const [assetReady, setAssetReady] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [gifPreviewUrl, setGifPreviewUrl] = useState('');
@@ -1017,11 +1040,16 @@ export default function SemiAutoEmoticonStudio() {
   const [planningJson, setPlanningJson] = useState('');
   const [apiConsent, setApiConsent] = useState(false);
   const [acceptedConsentFingerprint, setAcceptedConsentFingerprint] = useState('');
-  const [sessionCostUsd, setSessionCostUsd] = useState(0);
+  const [operations, setOperations] = useState<StudioOperation[]>([]);
+  const [journalError, setJournalError] = useState('');
+  const [journalReady, setJournalReady] = useState(false);
+  const [recoveringOperations, setRecoveringOperations] = useState(false);
+  const [modelRefresh, setModelRefresh] = useState(0);
+  const [imageBudget, setImageBudget] = useState<{ limitUsd: number; spentUsd: number; reservedUsd: number; remainingUsd: number } | null>(null);
   const [planning, setPlanning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState('');
-  const [generationStates, setGenerationStates] = useState<ApiGenerationState[]>([]);
+  const [, setGenerationStates] = useState<ApiGenerationState[]>([]);
   const [aiModels, setAiModels] = useState({ text: '관리자 설정 모델', image: 'openai/gpt-image-2' });
   const [imageModelPreflight, setImageModelPreflight] = useState<ImageModelPreflight>({ catalogStatus: 'loading', checkedAt: '', models: [] });
   const [canvasZoom, setCanvasZoom] = useState(100);
@@ -1030,15 +1058,38 @@ export default function SemiAutoEmoticonStudio() {
   const [generationBatchSize, setGenerationBatchSize] = useState(4);
   const [generationMode, setGenerationMode] = useState<GenerationMode>('quality');
   const [generationProvider, setGenerationProvider] = useState<GenerationProvider>('auto');
+  const [productionMethod, setProductionMethod] = useState<'manual' | 'ai'>('manual');
+  const [sceneQuery, setSceneQuery] = useState('');
+  const [recentOnly, setRecentOnly] = useState(false);
+  const [slotFilter, setSlotFilter] = useState<'all' | 'missing' | 'failed'>('all');
+  const [selectedFrameIds, setSelectedFrameIds] = useState<string[]>([]);
+  const [bulkDuration, setBulkDuration] = useState(140);
+  const [reviewSceneId, setReviewSceneId] = useState('all');
+  const [importing, setImporting] = useState(false);
+  const assetMutationRef = useRef(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [storageConflict, setStorageConflict] = useState(false);
+  const storageConflictRef = useRef(false);
+  const [navigationReady, setNavigationReady] = useState(false);
+  const navigationRef = useRef('');
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [archivedProjects, setArchivedProjects] = useState<Draft[]>([]);
   const generationAbortRef = useRef<AbortController | null>(null);
   const generationRunRef = useRef('');
   const planningAbortRef = useRef<AbortController | null>(null);
   const planningRunRef = useRef('');
   const gifAbortRef = useRef<AbortController | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
+  const webpAbortRef = useRef<AbortController | null>(null);
+  const previewRevisionRef = useRef('');
+  const operationsRef = useRef<StudioOperation[]>([]);
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
   const studioRootRef = useRef<HTMLElement>(null);
   const sourceInputRef = useRef<HTMLInputElement>(null);
   const frameInputRef = useRef<HTMLInputElement>(null);
+  const importSlotRef = useRef<FrameSlot | null>(null);
+  const openFramePicker = (slot?: FrameSlot) => { importSlotRef.current = slot || null; frameInputRef.current?.click(); };
   const layerInputRef = useRef<HTMLInputElement>(null);
   const projectInputRef = useRef<HTMLInputElement>(null);
   const objectUrlsRef = useRef(new Set<string>());
@@ -1060,33 +1111,75 @@ export default function SemiAutoEmoticonStudio() {
     return url;
   }, []);
 
+  const runAssetMutation = async (action: () => Promise<void>) => {
+    if (storageConflictRef.current || assetMutationRef.current || generating || planning || exporting || recoveringOperations) return toast('진행 중인 작업이 끝난 뒤 파일을 가져와 주세요.');
+    assetMutationRef.current = true;
+    setImporting(true);
+    try { await action(); }
+    catch (error) { toast.error(error instanceof Error ? error.message : '파일을 처리하지 못했습니다. 기존 작업은 유지됩니다.'); }
+    finally { assetMutationRef.current = false; setImporting(false); }
+  };
+
   useEffect(() => {
-    setDraft(readDraft());
-    if (Object.keys(window.localStorage).some((key) => key.startsWith(DRAFT_RECOVERY_PREFIX))) {
-      toast.warning('손상된 Studio 저장값을 별도로 보관하고 안전한 작업을 열었습니다.');
+    if (draftLoaded) return;
+    try {
+      const restored = readDraft();
+      draftRef.current = restored;
+      setDraft(restored);
+      setDraftLoaded(true);
+      setRecoveryError('');
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : '저장소를 읽지 못했습니다. 원본은 유지됩니다.');
     }
     setHydrated(true);
-  }, []);
+  }, [draftLoaded, recoveryAttempt]);
 
   useEffect(() => { draftRef.current = draft; }, [draft]);
+  useEffect(() => {
+    setJournalReady(false);
+    setJournalError('');
+    operationsRef.current = [];
+    setOperations([]);
+    if (!currentUser || !draftLoaded) return;
+    try {
+      const records = readStudioOperations(currentUser.uid, draft.projectId);
+      operationsRef.current = records;
+      setOperations(records);
+      setJournalReady(true);
+    } catch {
+      setJournalError('AI 작업 기록을 읽지 못했습니다. 중복 요청을 막기 위해 새 생성을 멈췄습니다. 저장소를 확인한 뒤 다시 시도해 주세요.');
+    }
+  }, [currentUser, draft.projectId, draftLoaded, recoveryAttempt]);
+
+  useEffect(() => {
+    try {
+      const raw: unknown = JSON.parse(localStorage.getItem(ARCHIVES_KEY) || '[]');
+      if (Array.isArray(raw)) setArchivedProjects(raw.map((item) => parseAndNormalizeDraft(JSON.stringify(item))));
+    } catch { setSaveError('이전 프로젝트 목록을 읽지 못했습니다. 현재 작업과 원본은 보존됩니다.'); }
+  }, []);
   useEffect(() => {
     framesRef.current = frames;
     frames.forEach((frame) => frameAssetCacheRef.current.set(frame.id, { file: frame.file, url: frame.url }));
   }, [frames]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !draftLoaded) return;
     let active = true;
+    setAssetReady(false);
+    setRecoveryError('');
     readProjectAssets(draft.projectId)
       .then((assets) => {
         if (!active) return;
         const source = assets.find((asset) => asset.kind === 'source');
+        if (draftRef.current.sourceName && !source) throw new Error('기준 이미지 원본을 찾지 못했어요. 저장 정보를 보존했습니다.');
         if (source) setSourceUrl(registerObjectUrl(source.blob));
         const assetsById = new Map(assets.filter((asset) => asset.kind === 'frame').map((asset) => [asset.assetId, asset]));
         const nextLayerUrls: Record<string, string> = {};
         assets.filter((asset) => asset.kind === 'layer').forEach((asset) => {
           nextLayerUrls[asset.assetId] = registerObjectUrl(asset.blob);
         });
+        const missingLayers = draftRef.current.frameMeta.flatMap((meta) => meta.layers).filter((layer) => layer.type === 'image' && layer.assetId && !nextLayerUrls[layer.assetId]);
+        if (missingLayers.length) throw new Error(`추가 이미지 원본 ${missingLayers.length}개를 찾지 못했어요. 저장 정보를 보존했습니다.`);
         const storedFrameIds = new Set(draftRef.current.frameMeta.map((meta) => meta.id));
         const restored = draftRef.current.frameMeta.flatMap((meta) => {
           const asset = assetsById.get(meta.id);
@@ -1096,11 +1189,13 @@ export default function SemiAutoEmoticonStudio() {
         });
         const recoveredOrphans = assets.filter((asset) => asset.kind === 'frame' && !storedFrameIds.has(asset.assetId)).slice(0, Math.max(0, MAX_FRAME_COUNT - restored.length)).map((asset) => {
           const file = new File([asset.blob], asset.fileName, { type: asset.blob.type || 'image/png' });
-          return { id: asset.assetId, sceneId: null, keyframeIndex: null, keyframeId: null, fileName: asset.fileName, caption: '', durationMs: 500, imageTransform: { ...DEFAULT_IMAGE_TRANSFORM }, captionTransform: { ...DEFAULT_CAPTION_TRANSFORM }, layers: [], file, url: registerObjectUrl(asset.blob) } satisfies StudioFrame;
+          const recoveredMeta = asset.frameMeta ? parseAndNormalizeDraft(JSON.stringify({ ...draftRef.current, frameMeta: [asset.frameMeta] })).frameMeta[0] : null;
+          return { id: asset.assetId, sceneId: null, keyframeIndex: null, keyframeId: null, fileName: asset.fileName, caption: '', durationMs: 500, imageTransform: { ...DEFAULT_IMAGE_TRANSFORM }, captionTransform: { ...DEFAULT_CAPTION_TRANSFORM }, layers: [], ...recoveredMeta, file, url: registerObjectUrl(asset.blob) } satisfies StudioFrame;
         });
         const reconciled = [...restored, ...recoveredOrphans];
         const missingAssetCount = draftRef.current.frameMeta.length - restored.length;
-        if (missingAssetCount || recoveredOrphans.length) {
+        if (missingAssetCount) throw new Error(`원본 이미지 ${missingAssetCount}개를 찾지 못했습니다. 저장 정보를 보존했습니다. 저장소를 다시 확인하거나 백업 ZIP을 불러와 주세요.`);
+        if (recoveredOrphans.length) {
           const reconciledDraft = { ...draftRef.current, frameMeta: frameMetaFromFrames(reconciled) };
           window.localStorage.setItem(DRAFT_KEY, JSON.stringify(reconciledDraft));
           draftRef.current = reconciledDraft;
@@ -1111,19 +1206,22 @@ export default function SemiAutoEmoticonStudio() {
         framesRef.current = reconciled;
         setLayerAssetUrls(nextLayerUrls);
         setSelectedFrameId((current) => current || reconciled[0]?.id || null);
+        setAssetReady(true);
       })
-      .catch(() => toast.error('브라우저에 저장된 작업 이미지를 복구하지 못했습니다.'))
-      .finally(() => active && setAssetReady(true));
+      .catch((error) => {
+        if (active) setRecoveryError(error instanceof Error ? error.message : '브라우저에 저장된 작업 이미지를 복구하지 못했습니다.');
+      });
     return () => {
       active = false;
     };
-  }, [draft.projectId, hydrated, registerObjectUrl]);
+  }, [draft.projectId, draftLoaded, hydrated, recoveryAttempt, registerObjectUrl]);
 
   useEffect(() => () => {
     planningAbortRef.current?.abort();
     generationAbortRef.current?.abort();
     gifAbortRef.current?.abort();
     exportAbortRef.current?.abort();
+    webpAbortRef.current?.abort();
     if (dragAnimationRef.current !== null) cancelAnimationFrame(dragAnimationRef.current);
     transformHandleCleanupRef.current?.();
     for (const url of objectUrlsRef.current) URL.revokeObjectURL(url);
@@ -1131,6 +1229,8 @@ export default function SemiAutoEmoticonStudio() {
   }, []);
 
   useEffect(() => {
+    gifAbortRef.current?.abort();
+    webpAbortRef.current?.abort();
     setGifPreviewUrl((current) => {
       if (current) {
         URL.revokeObjectURL(current);
@@ -1140,24 +1240,30 @@ export default function SemiAutoEmoticonStudio() {
     });
     setGifPreviewBlob(null);
     setWebpPreviewBlob(null);
-  }, [draft.frameMeta, draft.platform, draft.selectedSceneIds]);
+  }, [draft.projectId, draft.frameMeta, draft.platform, draft.selectedSceneIds, reviewSceneId]);
 
   useEffect(() => {
-    if (!hydrated || !assetReady) return;
+    if (!hydrated || !assetReady || recoveryError || storageConflict) return;
     const handle = window.setTimeout(() => {
       try {
-        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        if (storageConflictRef.current) return;
+        const json = JSON.stringify(draft);
+        window.localStorage.setItem(DRAFT_KEY, json);
+        setSavedDraftJson(json);
         setSavedAt(new Date());
+        setSaveError('');
       } catch {
+        setSaveError('이 기기에 저장하지 못했어요. 저장 공간을 확인하거나 작업 백업을 받아 주세요.');
         toast.error('프로젝트 설정을 자동 저장하지 못했습니다.');
       }
     }, 250);
     return () => window.clearTimeout(handle);
-  }, [assetReady, draft, hydrated]);
+  }, [assetReady, draft, hydrated, recoveryError, recoveryAttempt, storageConflict]);
 
   useEffect(() => {
     if (!hydrated || !assetReady) return;
     const flushDraft = () => {
+      if (storageConflictRef.current) return;
       try {
         window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draftRef.current));
       } catch {
@@ -1174,57 +1280,137 @@ export default function SemiAutoEmoticonStudio() {
   }, [assetReady, hydrated]);
 
   useEffect(() => {
-    if ((!aiToolOpen && step !== 'import') || !currentUser) return;
+    if (!aiToolOpen && step !== 'import' && step !== 'edit') return;
+    if (!currentUser) {
+      setImageModelPreflight({ catalogStatus: 'signed-out', checkedAt: '', models: [] });
+      setImageBudget(null);
+      return;
+    }
     let active = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20000);
+    setImageModelPreflight({ catalogStatus: 'loading', checkedAt: '', models: [] });
     void currentUser.getIdToken()
-      .then((token) => fetch('/api/emoticon-studio/plan', { headers: { Authorization: `Bearer ${token}` } }))
-      .then((response) => response.ok ? response.json() : null)
-      .then((payload: { textModel?: string; imageModel?: string; imageCapabilities?: ImageModelPreflight } | null) => {
+      .then((token) => fetch('/api/emoticon-studio/plan', { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }))
+      .then((response) => {
+        if (!response.ok) throw new Error(response.status === 401 ? 'signed-out' : response.status === 403 ? 'forbidden' : 'unavailable');
+        return response.json();
+      })
+      .then((payload: { textModel?: string; imageModel?: string; imageCapabilities?: ImageModelPreflight; budget?: typeof imageBudget } | null) => {
         if (active && payload) {
           setAiModels({ text: payload.textModel || '관리자 설정 모델', image: payload.imageModel || '이미지 지원 모델 자동 선택' });
-          if (payload.imageCapabilities) setImageModelPreflight(payload.imageCapabilities);
+          setImageModelPreflight(payload.imageCapabilities || { catalogStatus: 'unavailable', checkedAt: '', models: [] });
+          setImageBudget(payload.budget || null);
         }
       })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, [aiToolOpen, currentUser, step]);
+      .catch((error) => {
+        if (active) {
+          const status = error instanceof Error && (error.message === 'signed-out' || error.message === 'forbidden') ? error.message : 'unavailable';
+          setImageModelPreflight({ catalogStatus: status, checkedAt: '', models: [] });
+          setImageBudget(null);
+        }
+      }).finally(() => window.clearTimeout(timeout));
+    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
+  }, [aiToolOpen, currentUser, step, modelRefresh]);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== DRAFT_KEY || event.newValue === JSON.stringify(draftRef.current)) return;
+      storageConflictRef.current = true;
+      setStorageConflict(true);
+      generationAbortRef.current?.abort();
+      planningAbortRef.current?.abort();
+    };
+    const onViewport = () => setKeyboardOpen(Boolean(window.visualViewport && window.innerHeight - window.visualViewport.height > 160));
+    window.addEventListener('storage', onStorage);
+    window.visualViewport?.addEventListener('resize', onViewport);
+    return () => { window.removeEventListener('storage', onStorage); window.visualViewport?.removeEventListener('resize', onViewport); };
+  }, []);
+
+  useEffect(() => {
+    const restoreNavigation = () => {
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get('studioStep');
+      if (next && ['character', 'plan', 'import', 'edit', 'export'].includes(next)) setStep(next as StepId);
+      setSelectedFrameId(params.get('studioFrame'));
+      setReviewSceneId(params.get('studioScene') || 'all');
+      navigationRef.current = window.location.search;
+      setNavigationReady(true);
+    };
+    restoreNavigation();
+    window.addEventListener('popstate', restoreNavigation);
+    return () => window.removeEventListener('popstate', restoreNavigation);
+  }, []);
+
+  useEffect(() => {
+    if (!navigationReady) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('studioStep', step === 'project' ? 'character' : step);
+    if (selectedFrameId) url.searchParams.set('studioFrame', selectedFrameId); else url.searchParams.delete('studioFrame');
+    if (reviewSceneId !== 'all') url.searchParams.set('studioScene', reviewSceneId); else url.searchParams.delete('studioScene');
+    if (navigationRef.current === url.search) return;
+    const previous = new URLSearchParams(navigationRef.current).get('studioStep');
+    if (previous && previous !== step) window.history.pushState(window.history.state, '', url);
+    else window.history.replaceState(window.history.state, '', url);
+    navigationRef.current = url.search;
+  }, [navigationReady, step, selectedFrameId, reviewSceneId]);
 
   const promptBundle = useMemo(() => buildPromptBundle(draft), [draft]);
   const expectedSlots = useMemo(() => buildFrameSlots(draft), [draft]);
+  const filteredPresets = useMemo(() => draft.presets.filter((preset) => (!recentOnly || draft.recentSceneIds?.includes(preset.id)) && `${preset.title} ${preset.summary} ${preset.dialogue}`.toLocaleLowerCase().includes(sceneQuery.trim().toLocaleLowerCase())), [draft.presets, draft.recentSceneIds, recentOnly, sceneQuery]);
+  const frameLimitExceeded = expectedSlots.length > MAX_FRAME_COUNT;
+  const saveStatus = storageConflict ? '다른 탭 변경 확인 필요' : recoveryError ? '복구 실패' : !assetReady ? '복구 중…' : saveError ? '저장 실패' : savedDraftJson === JSON.stringify(draft) ? '저장됨' : '저장 중…';
   const occupiedSlotKeys = useMemo(() => new Set(frames.flatMap((frameItem) => frameItem.sceneId !== null && frameItem.keyframeIndex !== null
     ? [frameSlotKey(frameItem.sceneId, frameItem.keyframeIndex, frameItem.keyframeId)]
     : [])), [frames]);
   const missingSlots = useMemo(() => expectedSlots.filter((slot) => !occupiedSlotKeys.has(frameSlotKey(slot.sceneId, slot.keyframeIndex, slot.keyframe.id))), [expectedSlots, occupiedSlotKeys]);
   const reviewFrames = useMemo(() => frames.filter((frameItem) => frameItem.sceneId === null || draft.selectedSceneIds.includes(frameItem.sceneId)), [draft.selectedSceneIds, frames]);
+  const previewFrames = useMemo(() => reviewSceneId === 'all' ? reviewFrames : reviewFrames.filter((item) => (item.sceneId || 'unassigned') === reviewSceneId), [reviewFrames, reviewSceneId]);
+  const previewRevision = JSON.stringify([draft.projectId, draft.platform, draft.frameMeta, draft.selectedSceneIds, reviewSceneId]);
+  previewRevisionRef.current = previewRevision;
   const selectedFrame = frames.find((frame) => frame.id === selectedFrameId) || frames[0] || null;
   const canUndoFrameEdit = historyVersion >= 0 && undoHistoryRef.current.length > 0;
   const canRedoFrameEdit = historyVersion >= 0 && redoHistoryRef.current.length > 0;
   const selectedSlot = selectedFrame && selectedFrame.sceneId !== null && selectedFrame.keyframeIndex !== null
     ? expectedSlots.find((slot) => slot.sceneId === selectedFrame.sceneId && (selectedFrame.keyframeId ? slot.keyframe.id === selectedFrame.keyframeId : slot.keyframeIndex === selectedFrame.keyframeIndex)) || null
     : null;
-  const activeRailId = step === 'project' ? 'project' : step === 'character' ? 'character' : step === 'plan' ? 'plan' : step === 'import' ? 'images' : step === 'edit' ? 'animation' : 'export';
+  const activeRailId = step === 'project' || step === 'character' ? 'prepare' : step === 'plan' ? 'plan' : step === 'import' || step === 'edit' ? 'make' : 'export';
 
-  const canPlan = Boolean(draft.sourceName && draft.characterName.trim());
+  const canPlan = Boolean(sourceUrl && draft.characterName.trim());
   const canImport = canPlan && draft.selectedSceneIds.length > 0;
   const canEdit = frames.length > 0;
   const completeCount = expectedSlots.length - missingSlots.length;
   const selectedGenerationModel = GENERATION_MODELS[generationProvider][generationMode];
   const selectedModelCapability = imageModelPreflight.models.find((model) => model.id === selectedGenerationModel) || null;
+  const modelReady = imageModelPreflight.catalogStatus === 'available' && Boolean(selectedModelCapability?.available && selectedModelCapability.imageOutput && selectedModelCapability.referenceInput);
+  const modelStatusLabel = modelReady ? '이 모델로 기준 이미지를 참고해 생성할 수 있어요.' : imageModelPreflight.catalogStatus === 'loading' ? '연결을 확인하고 있어요…' : imageModelPreflight.catalogStatus === 'signed-out' ? '로그인이 필요해요.' : imageModelPreflight.catalogStatus === 'forbidden' ? '이 계정에는 이미지 제작 권한이 없어요.' : imageModelPreflight.catalogStatus === 'not-configured' ? '관리자 API 설정이 필요해요.' : '이 모델의 사용 가능 여부를 확인하지 못했어요. 다른 모델을 선택하거나 다시 확인해 주세요.';
+  const sessionCostUsd = operations.reduce((sum, item) => sum + (item.costUsd || 0), 0);
+  const unknownCostCount = operations.filter((item) => item.costUsd === null).length;
+  const pendingOperations = operations.filter(operationNeedsRecovery);
   const consentFingerprint = JSON.stringify({
     provider: generationProvider,
     mode: generationMode,
     model: selectedGenerationModel,
     batch: generationBatchSize,
     sourceName: draft.sourceName,
-    sourceAsset: draft.sourceName,
+    sourceAsset: draft.sourceRevision || draft.sourceName,
     characterDescription: draft.characterDescription,
     selectedSceneIds: draft.selectedSceneIds,
     selectedPresets: draft.presets.filter((preset) => draft.selectedSceneIds.includes(preset.id)),
     actionDescription,
     plannerDialogue,
+    plannerFrameCount,
+    plannerFps,
+    plannerLoop,
+    textModel: aiModels.text,
   });
   const currentConsentFingerprint = stableFingerprint(consentFingerprint);
   const hasApiConsent = apiConsent && acceptedConsentFingerprint === currentConsentFingerprint;
+  const generationBlockedReason = storageConflict ? '다른 탭의 변경을 먼저 불러와 주세요.' : !assetReady ? '저장한 원본을 먼저 복구해 주세요.' : frameLimitExceeded ? `${expectedSlots.length - MAX_FRAME_COUNT}프레임 초과: 장면을 줄여 주세요.` : !currentUser ? '로그인 후 AI 생성을 사용할 수 있어요.' : !journalReady ? journalError || 'AI 작업 기록을 확인하고 있어요.' : !sourceUrl ? '기준 이미지를 먼저 선택해 주세요.' : !modelReady ? '사용 가능한 모델을 확인해 주세요.' : !missingSlots.length ? '선택한 장면에 빈 프레임이 없어요.' : pendingOperations.some((item) => item.kind === 'image') ? '이전 생성 결과를 먼저 확인해 주세요.' : !hasApiConsent ? '실행 모델·수량과 별도 과금을 확인해 주세요.' : '';
+  useEffect(() => {
+    if (assetReady && reviewSceneId !== 'all' && !reviewFrames.some((item) => (item.sceneId || 'unassigned') === reviewSceneId)) setReviewSceneId('all');
+  }, [assetReady, reviewSceneId, reviewFrames]);
+
   const submissionProfile = SUBMISSION_PROFILES[draft.platform];
   const officialGuide = OFFICIAL_GUIDES[draft.platform];
   const sceneAnimationStats = frames.reduce((stats, frameItem) => {
@@ -1239,6 +1425,8 @@ export default function SemiAutoEmoticonStudio() {
 
   useEffect(() => {
     if (apiConsent && consentFingerprintRef.current && consentFingerprintRef.current !== consentFingerprint) {
+      generationAbortRef.current?.abort();
+      planningAbortRef.current?.abort();
       setApiConsent(false);
       setAcceptedConsentFingerprint('');
       toast('전송 내용·모델·수량이 바뀌어 OpenRouter 동의를 다시 확인해 주세요.');
@@ -1247,6 +1435,7 @@ export default function SemiAutoEmoticonStudio() {
   }, [apiConsent, consentFingerprint]);
 
   const updateApiConsent = (checked: boolean) => {
+    if (!checked) { generationAbortRef.current?.abort(); planningAbortRef.current?.abort(); }
     setApiConsent(checked);
     setAcceptedConsentFingerprint(checked ? currentConsentFingerprint : '');
   };
@@ -1355,7 +1544,7 @@ export default function SemiAutoEmoticonStudio() {
         objectUrlsRef.current.delete(sourceUrl);
       }
       setSourceUrl(registerObjectUrl(file));
-      updateDraft('sourceName', file.name);
+      setDraft((current) => ({ ...current, sourceName: file.name, sourceRevision: crypto.randomUUID() }));
       toast.success('캐릭터 기준 이미지를 브라우저에 저장했습니다.');
     } catch {
       toast.error('캐릭터 이미지를 저장하지 못했습니다.');
@@ -1376,6 +1565,7 @@ export default function SemiAutoEmoticonStudio() {
         selectedSceneIds: selected
           ? current.selectedSceneIds.filter((id) => id !== sceneId)
           : [...current.selectedSceneIds, sceneId],
+        recentSceneIds: selected ? current.recentSceneIds : [sceneId, ...(current.recentSceneIds || []).filter((id) => id !== sceneId)].slice(0, 8),
       };
     });
   };
@@ -1412,7 +1602,7 @@ export default function SemiAutoEmoticonStudio() {
       : [...draft.selectedSceneIds, editingPreset.id];
     const candidate = { ...draft, presets, selectedSceneIds };
     if (buildFrameSlots(candidate).length > MAX_FRAME_COUNT) {
-      toast.error(`저장하면 총 프레임이 ${MAX_FRAME_COUNT}장을 넘습니다. 다른 연출 선택을 먼저 해제해 주세요.`);
+      toast.error(`${buildFrameSlots(candidate).length - MAX_FRAME_COUNT}프레임 초과: 다른 장면 선택을 해제하거나 프레임을 줄여 주세요.`);
       return;
     }
 
@@ -1514,184 +1704,228 @@ export default function SemiAutoEmoticonStudio() {
     }
   };
 
+  const persistOperation = (operation: StudioOperation) => {
+    const records = readStudioOperations(operation.ownerId, operation.projectId);
+    const next = [...records.filter((item) => item.id !== operation.id), operation];
+    writeStudioOperations(operation.ownerId, operation.projectId, next);
+    if (currentUserRef.current?.uid === operation.ownerId && draftRef.current.projectId === operation.projectId) {
+      operationsRef.current = next;
+      setOperations(next);
+    }
+  };
+
+  const applyGeneratedImage = async (operation: StudioOperation, payload: StudioImageResult, signal?: AbortSignal) => {
+    const imageUrl = payload.images?.[0]?.url;
+    if (!payload.success || !imageUrl || !operation.slot || !operation.frameId) throw new Error('완료된 이미지 정보를 확인하지 못했습니다. 결과 확인으로 다시 불러와 주세요.');
+    const completed: StudioOperation = { ...operation, state: 'completed', costUsd: typeof payload.metadata?.costUsd === 'number' ? payload.metadata.costUsd : null, modelUsed: payload.metadata?.modelUsed || operation.modelUsed };
+    persistOperation(completed);
+    if (draftRef.current.projectId !== operation.projectId || currentUserRef.current?.uid !== operation.ownerId) return;
+    if (storageConflictRef.current) throw new Error('다른 탭의 변경을 먼저 불러온 후 결과를 확인해 주세요.');
+    if (framesRef.current.some((item) => item.id === operation.frameId)) {
+      const snapshot = { ...draftRef.current, frameMeta: frameMetaFromFrames(framesRef.current) };
+      const json = JSON.stringify(snapshot);
+      localStorage.setItem(DRAFT_KEY, json);
+      setSavedDraftJson(json);
+      setSaveError('');
+      persistOperation({ ...completed, applied: true });
+      return;
+    }
+    const response = await fetch(imageUrl, { signal });
+    if (!response.ok) throw new Error('생성 이미지를 내려받지 못했습니다. 새 생성 없이 결과 확인으로 복구할 수 있어요.');
+    const blob = await response.blob();
+    const file = new File([blob], `openrouter-${operation.frameId}.png`, { type: blob.type || 'image/png' });
+    const validation = await validateDecodedImage(file);
+    if (validation) throw new Error(validation);
+    if (storageConflictRef.current || signal?.aborted || draftRef.current.projectId !== operation.projectId || currentUserRef.current?.uid !== operation.ownerId) return;
+    const current = framesRef.current;
+    const sameSource = !operation.sourceRevision || operation.sourceRevision === (draftRef.current.sourceRevision || draftRef.current.sourceName);
+    const previous = sameSource && operation.replaceFrameId ? current.find((item) => item.id === operation.replaceFrameId) : undefined;
+    if (!previous && current.length >= MAX_FRAME_COUNT) throw new Error('프레임이 48개입니다. 공간을 확보한 후 결과 확인을 눌러 주세요. 생성 결과는 서버에 보관돼요.');
+    const slot = sameSource ? buildFrameSlots(draftRef.current).find((item) => item.sceneId === operation.slot?.sceneId && item.keyframe.id === operation.slot.keyframeId) : undefined;
+    const occupied = current.some((item) => item.id !== previous?.id && item.sceneId === slot?.sceneId && item.keyframeId === slot?.keyframe.id);
+    const generated: StudioFrame = {
+      id: operation.frameId, ...getFrameSlotPatch(occupied ? undefined : slot), fileName: file.name,
+      durationMs: previous?.durationMs || operation.slot.durationMs, caption: previous?.caption ?? operation.slot.caption,
+      imageTransform: previous?.imageTransform || { ...DEFAULT_IMAGE_TRANSFORM }, captionTransform: previous?.captionTransform || { ...DEFAULT_CAPTION_TRANSFORM },
+      layers: previous?.layers || [], file, url: registerObjectUrl(file),
+    };
+    await putAsset({ key: `${operation.projectId}:${operation.frameId}`, projectId: operation.projectId, assetId: operation.frameId, kind: 'frame', blob: file, fileName: file.name, frameMeta: frameMetaFromFrames([generated])[0], updatedAt: Date.now() });
+    if (storageConflictRef.current || signal?.aborted || draftRef.current.projectId !== operation.projectId || currentUserRef.current?.uid !== operation.ownerId) return;
+    const next = previous ? framesRef.current.map((item) => item.id === previous.id ? generated : item) : [...framesRef.current, generated];
+    const snapshot = { ...draftRef.current, frameMeta: frameMetaFromFrames(next) };
+    framesRef.current = next;
+    draftRef.current = snapshot;
+    setFrames(next);
+    setDraft(snapshot);
+    setSelectedFrameId(generated.id);
+    try {
+      const json = JSON.stringify(snapshot);
+      localStorage.setItem(DRAFT_KEY, json);
+      setSavedDraftJson(json);
+      setSavedAt(new Date());
+      setSaveError('');
+    } catch {
+      setSaveError('결과 이미지는 보관했지만 편집 정보를 저장하지 못했어요. 작업 백업을 받아 주세요.');
+      throw new Error('편집 정보 저장 실패. 생성 결과를 다시 요청하지 말고 결과 확인 또는 백업을 사용해 주세요.');
+    }
+    persistOperation({ ...completed, applied: true });
+    if (previous) await deleteAsset(operation.projectId, previous.id).catch(() => undefined);
+  };
+
+  const applyGeneratedPlan = (operation: StudioOperation, payload: { preset?: EmoticonAnimationPresetPlan; costUsd?: number | null; modelUsed?: string; model?: string }) => {
+    if (!payload.preset) throw new Error('완료된 기획 결과를 확인하지 못했습니다.');
+    const preset = importedPresetToAnimationPreset(parseEmoticonAnimationPresetJson(JSON.stringify(payload.preset)));
+    preset.id = `plan-${operation.id}`;
+    preset.frames = preset.frames.map((item, index) => ({ ...item, id: `${preset.id}-${index + 1}` }));
+    const completed: StudioOperation = { ...operation, state: 'completed', costUsd: typeof payload.costUsd === 'number' ? payload.costUsd : null, modelUsed: payload.modelUsed || payload.model || operation.modelUsed };
+    persistOperation(completed);
+    if (draftRef.current.projectId !== operation.projectId || currentUserRef.current?.uid !== operation.ownerId) return;
+    if (storageConflictRef.current) throw new Error('다른 탭의 변경을 먼저 불러온 후 결과를 확인해 주세요.');
+    const current = draftRef.current;
+    if (!current.presets.some((item) => item.id === preset.id)) {
+      const canSelect = buildFrameSlots(current).length + preset.frames.length <= MAX_FRAME_COUNT;
+      const next = { ...current, presets: [...current.presets, preset], selectedSceneIds: canSelect ? [...current.selectedSceneIds, preset.id] : current.selectedSceneIds };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+      draftRef.current = next;
+      setDraft(next);
+      setEditingPreset(preset);
+    }
+    persistOperation({ ...completed, applied: true });
+    setAiToolOpen(false);
+  };
+
+  const recoverOperationResults = async () => {
+    if (storageConflict || importing || assetMutationRef.current || generating || planning || !currentUser || recoveringOperations || !journalReady || !assetReady) return;
+    const ownerId = currentUser.uid;
+    const projectId = draft.projectId;
+    setRecoveringOperations(true);
+    try {
+      await withStudioOperationLock(ownerId, projectId, async () => {
+        const token = await currentUser.getIdToken();
+        for (const operation of readStudioOperations(ownerId, projectId).filter(operationNeedsRecovery)) {
+          if (draftRef.current.projectId !== projectId || currentUserRef.current?.uid !== ownerId) break;
+          const path = operation.kind === 'image' ? '/api/generate-image' : '/api/emoticon-studio/plan';
+          const response = await fetch(`${path}?operationId=${encodeURIComponent(operation.id)}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) });
+          const payload = await response.json() as StudioOperationResult<StudioImageResult & { preset?: EmoticonAnimationPresetPlan; costUsd?: number | null; modelUsed?: string }>;
+          if (!response.ok || !payload.success) throw new Error(payload.error || '작업 결과를 확인하지 못했습니다. 새 생성 없이 다시 확인해 주세요.');
+          if (payload.status === 'completed' && payload.result) {
+            if (operation.kind === 'image') await applyGeneratedImage(operation, payload.result);
+            else applyGeneratedPlan(operation, payload.result);
+          } else {
+            persistOperation({ ...operation, state: payload.status === 'failed' ? 'failed' : payload.status === 'pending' ? 'pending' : 'uncertain', message: payload.status === 'failed' ? '실패가 확인됐어요. 새로 생성할 수 있습니다.' : '이미 전송한 작업을 확인 중입니다. 추가 과금 없이 다시 확인해 주세요.' });
+          }
+        }
+      });
+      toast('작업 결과를 확인했습니다. 확인 중인 항목은 새 요청을 보내지 않습니다.');
+    } catch (error) { toast.error(error instanceof Error ? error.message : '작업 결과 확인에 실패했습니다.'); }
+    finally { setRecoveringOperations(false); setModelRefresh((value) => value + 1); }
+  };
+
   const requestOpenRouterPlan = async () => {
-    if (!currentUser) return toast.error('OpenRouter 자동 기획은 로그인이 필요합니다.');
-    if (!actionDescription.trim()) return toast.error('기획할 동작을 입력해 주세요.');
-    if (!hasApiConsent) return toast.error('OpenRouter 별도 과금과 외부 전송 내용을 확인해 주세요.');
-    setPlanning(true);
+    if (storageConflict || !assetReady || importing || !currentUser || !hasApiConsent || !journalReady || planning || !actionDescription.trim()) return;
+    const ownerId = currentUser.uid;
     const runProjectId = draft.projectId;
     const runId = crypto.randomUUID();
-    const operationId = crypto.randomUUID();
-    const abortController = new AbortController();
+    const controller = new AbortController();
+    planningAbortRef.current = controller;
     planningRunRef.current = runId;
-    planningAbortRef.current = abortController;
+    setPlanning(true);
+    let operation: StudioOperation | null = null;
     try {
-      const token = await currentUser.getIdToken();
-      const requestBody = JSON.stringify({
-        operationId,
-        consentFingerprint: stableFingerprint(consentFingerprint),
-        actionDescription,
-        characterDescription: draft.characterDescription,
-        frameCount: plannerFrameCount,
-        fps: plannerFps,
-        loop: plannerLoop,
-        camera: '고정 카메라, 캐릭터 전신과 발 기준선이 유지되는 정사각형 구도',
-        background: '투명 또는 단순한 단색 배경',
-        dialogue: plannerDialogue,
+      await withStudioOperationLock(ownerId, runProjectId, async () => {
+        if (storageConflictRef.current) throw new Error('다른 탭의 변경을 먼저 불러와 주세요.');
+        if (readStudioOperations(ownerId, runProjectId).some((item) => item.kind === 'plan' && operationNeedsRecovery(item))) throw new Error('이전 기획의 결과를 먼저 확인해 주세요. 새 유료 요청은 보내지 않았습니다.');
+        const token = await currentUser.getIdToken();
+        if (controller.signal.aborted || storageConflictRef.current || draftRef.current.projectId !== runProjectId || currentUserRef.current?.uid !== ownerId) return;
+        const operationId = crypto.randomUUID();
+        operation = { id: operationId, ownerId, projectId: runProjectId, kind: 'plan', state: 'submitted', applied: false, costUsd: null, modelUsed: aiModels.text, createdAt: Date.now() };
+        persistOperation(operation);
+        const response = await fetch('/api/emoticon-studio/plan', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, signal: controller.signal,
+          body: JSON.stringify({ operationId, consentFingerprint: currentConsentFingerprint, actionDescription, characterDescription: draft.characterDescription, frameCount: plannerFrameCount, fps: plannerFps, loop: plannerLoop, dialogue: plannerDialogue }),
+        });
+        const payload = await response.json() as { success?: boolean; preset?: EmoticonAnimationPresetPlan; error?: string; costUsd?: number | null; modelUsed?: string; requestSubmitted?: boolean };
+        if (!response.ok || !payload.success) { if (payload.requestSubmitted === false) persistOperation({ ...operation, state: 'failed', costUsd: 0, message: payload.error || '요청이 전송되지 않았어요.' }); throw new Error(payload.error || '기획 결과를 확인하지 못했습니다.'); }
+        applyGeneratedPlan(operation, payload);
+        toast.success('AI 기획을 장면 목록에 저장했습니다.');
       });
-      const sendPlanRequest = () => fetch('/api/emoticon-studio/plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: requestBody,
-        signal: abortController.signal,
-      });
-      let response: Response;
-      try {
-        response = await sendPlanRequest();
-      } catch (error) {
-        if (abortController.signal.aborted || !(error instanceof TypeError)) throw error;
-        response = await sendPlanRequest();
-      }
-      const payload = await response.json() as { success?: boolean; preset?: unknown; error?: string };
-      if (!response.ok || !payload.success || !payload.preset) throw new Error(payload.error || 'OpenRouter 기획에 실패했습니다.');
-      if (planningRunRef.current !== runId || draftRef.current.projectId !== runProjectId) throw new DOMException('프로젝트가 바뀌어 기획 결과를 적용하지 않았습니다.', 'AbortError');
-      const plan = parseEmoticonAnimationPresetJson(JSON.stringify(payload.preset));
-      addPlannedPreset(plan, 'OpenRouter');
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') toast('자동 기획을 취소했습니다.');
-      else toast.error(error instanceof Error ? error.message : 'OpenRouter 기획을 완료하지 못했습니다.');
+      if (operation) {
+        const submitted = operation as StudioOperation;
+        try { const saved = readStudioOperations(ownerId, runProjectId).find((item) => item.id === submitted.id) || submitted; persistOperation({ ...saved, state: saved.state === 'completed' || saved.state === 'failed' ? saved.state : 'uncertain', message: saved.state === 'failed' ? saved.message : '기획 결과 확인이 필요합니다.' }); } catch { setJournalError('AI 작업 기록 저장에 실패했습니다. 새 생성 없이 저장소를 먼저 확인해 주세요.'); }
+      }
+      toast.error(error instanceof Error && error.name !== 'AbortError' ? error.message : '추가 기획을 중지했습니다. 이미 전송한 작업은 결과 확인으로 복구해 주세요.');
     } finally {
-      if (planningAbortRef.current === abortController) planningAbortRef.current = null;
-      setPlanning(false);
+      if (planningRunRef.current === runId) { setPlanning(false); planningAbortRef.current = null; }
+      setModelRefresh((value) => value + 1);
     }
   };
 
   const generateFramesWithOpenRouter = async (requestedSlots?: FrameSlot[], replaceFrameId?: string) => {
-    if (!currentUser) return toast.error('OpenRouter 이미지 생성은 로그인이 필요합니다.');
-    if (!hasApiConsent) return toast.error('OpenRouter 별도 과금과 외부 전송 내용을 확인해 주세요.');
+    if (storageConflict || importing || !currentUser || !assetReady || !hasApiConsent || !journalReady || !modelReady || frameLimitExceeded || generating) return;
+    if (!sourceUrl) return toast.error('기준 이미지를 먼저 선택해 주세요.');
     const slots = (requestedSlots || missingSlots.slice(0, generationBatchSize)).slice(0, 8);
-    if (!slots.length) return toast.error('생성할 미완성 프레임이 없습니다.');
-    setGenerating(true);
+    if (!slots.length) return;
+    const ownerId = currentUser.uid;
     const runProjectId = draft.projectId;
     const runId = crypto.randomUUID();
     generationRunRef.current = runId;
-    const abortController = new AbortController();
-    generationAbortRef.current = abortController;
+    const controller = new AbortController();
+    generationAbortRef.current = controller;
+    setGenerating(true);
     setGenerationStates(slots.map((slot) => ({ label: `${slot.preset.title} · ${slot.keyframeIndex + 1}/${slot.preset.frames.length}`, status: 'queued' })));
-    const generated: StudioFrame[] = [];
     try {
-      const sourceAsset = (await readProjectAssets(runProjectId)).find((asset) => asset.kind === 'source');
-      if (!sourceAsset) throw new Error('캐릭터 기준 이미지를 다시 선택해 주세요.');
-      const [token, referenceImage] = await Promise.all([currentUser.getIdToken(), fileToDataUrl(sourceAsset.blob)]);
-      for (const [index, slot] of slots.entries()) {
-        if (abortController.signal.aborted) throw new DOMException('생성이 취소되었습니다.', 'AbortError');
-        setGenerationProgress(`${index + 1}/${slots.length} · ${slot.preset.title} ${slot.keyframeIndex + 1}/${slot.preset.frames.length}`);
-        setGenerationStates((current) => current.map((state, stateIndex) => stateIndex === index ? { ...state, status: 'generating' } : state));
-        const prompt = slot.keyframe.imagePrompt || [
-          `Create one polished square 2D character animation frame for ${slot.preset.title}.`,
-          `Exact pose and motion: ${slot.keyframe.pose}.`,
-          `Character identity: ${draft.characterDescription || 'preserve the supplied character reference exactly'}.`,
-          'Use the reference image as the identity source of truth. Preserve face, proportions, costume, palette, line art, camera, scale, ground line, and background.',
-          'Full body, centered, isolated simple background, no readable text, no watermark, no extra limbs, no collage.',
-        ].join(' ');
-        const operationId = crypto.randomUUID();
-        const requestBody = JSON.stringify({
-          operationId,
-          consentFingerprint: stableFingerprint(consentFingerprint),
-          prompt,
-          negativePrompt: 'different character, changed costume, extra limbs, cropped body, camera jump, readable text, watermark, collage',
-          aspectRatio: '1:1',
-          referenceImages: [{ role: 'character', image: referenceImage }],
-          numberOfImages: 1,
-          resourceMode: generationMode === 'fast' ? 'balanced' : 'premium',
-          provider: 'openrouter',
-          model: selectedGenerationModel,
-          quality: generationMode === 'fast' ? 'low' : 'high',
-        });
-        const sendGenerationRequest = () => fetch('/api/generate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: requestBody,
-          signal: abortController.signal,
-        });
-        let response: Response;
-        try {
-          response = await sendGenerationRequest();
-        } catch (error) {
-          if (abortController.signal.aborted || !(error instanceof TypeError)) throw error;
-          response = await sendGenerationRequest();
+      await withStudioOperationLock(ownerId, runProjectId, async () => {
+        if (storageConflictRef.current) throw new Error('다른 탭의 변경을 먼저 불러와 주세요.');
+        const sourceAsset = (await readProjectAssets(runProjectId)).find((asset) => asset.kind === 'source');
+        if (!sourceAsset) throw new Error('캐릭터 기준 이미지를 다시 선택해 주세요.');
+        const [token, referenceImage] = await Promise.all([currentUser.getIdToken(), fileToDataUrl(sourceAsset.blob)]);
+        for (const [index, slot] of slots.entries()) {
+          if (controller.signal.aborted || draftRef.current.projectId !== runProjectId || currentUserRef.current?.uid !== ownerId) break;
+          const persisted = parseAndNormalizeDraft(localStorage.getItem(DRAFT_KEY) || '{}');
+          if (persisted.projectId !== runProjectId || storageConflictRef.current) throw new Error('다른 탭의 프로젝트를 먼저 불러와 주세요.');
+          if (!replaceFrameId && persisted.frameMeta.some((item) => item.sceneId === slot.sceneId && item.keyframeId === slot.keyframe.id)) throw new Error('이 프레임은 이미 다른 작업에서 완료됐어요. 최신 프로젝트를 불러와 주세요.');
+          const existing = readStudioOperations(ownerId, runProjectId).find((item) => operationMatchesSlot(item, slot.sceneId, slot.keyframe.id));
+          if (existing) throw new Error('이 프레임의 이전 결과를 먼저 확인해 주세요. 새 유료 요청은 보내지 않았습니다.');
+          const operationId = crypto.randomUUID();
+          const operation: StudioOperation = { id: operationId, ownerId, projectId: runProjectId, kind: 'image', sourceRevision: draftRef.current.sourceRevision || draftRef.current.sourceName, state: 'submitted', applied: false, costUsd: null, modelUsed: selectedGenerationModel, createdAt: Date.now(), frameId: crypto.randomUUID(), ...(replaceFrameId ? { replaceFrameId } : {}), slot: { sceneId: slot.sceneId, keyframeId: slot.keyframe.id, keyframeIndex: slot.keyframeIndex, caption: slot.keyframe.caption, durationMs: slot.keyframe.durationMs } };
+          persistOperation(operation);
+          setGenerationProgress(`${index + 1}/${slots.length} · ${slot.preset.title}`);
+          setGenerationStates((current) => current.map((item, position) => position === index ? { ...item, status: 'generating' } : item));
+          const prompt = slot.keyframe.imagePrompt || [
+            `Create one polished square 2D character animation frame for ${slot.preset.title}.`,
+            `Exact pose and motion: ${slot.keyframe.pose}.`,
+            `Character identity: ${draft.characterDescription || 'preserve the supplied character reference exactly'}.`,
+            'Preserve the reference face, proportions, costume, palette, line art, camera, scale, ground line and background.',
+            'Full body, centered, simple background, no readable text, no watermark, no extra limbs, no collage.',
+          ].join(' ');
+          try {
+            const response = await fetch('/api/generate-image', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, signal: controller.signal,
+              body: JSON.stringify({ operationId, prompt, negativePrompt: 'different character, changed costume, extra limbs, cropped body, camera jump, readable text, watermark, collage', aspectRatio: '1:1', referenceImages: [{ role: 'character', image: referenceImage }], numberOfImages: 1, resourceMode: generationMode === 'fast' ? 'balanced' : 'premium', provider: 'openrouter', model: selectedGenerationModel, strictModel: true, quality: generationMode === 'fast' ? 'low' : 'high' }),
+            });
+            const payload = await response.json() as StudioImageResult;
+            if (!response.ok || !payload.success) { if (payload.requestSubmitted === false) persistOperation({ ...operation, state: 'failed', costUsd: 0, message: payload.error || '요청이 전송되지 않았어요.' }); throw new Error(payload.error || '이미지 결과를 확인하지 못했습니다.'); }
+            await applyGeneratedImage(operation, payload, controller.signal);
+            setGenerationStates((current) => current.map((item, position) => position === index ? { ...item, status: 'completed' } : item));
+          } catch (error) {
+            const saved = readStudioOperations(ownerId, runProjectId).find((item) => item.id === operation.id) || operation;
+            persistOperation({ ...saved, state: saved.state === 'completed' || saved.state === 'failed' ? saved.state : 'uncertain', message: '전송한 작업의 결과 확인이 필요합니다.' });
+            setGenerationStates((current) => current.map((item, position) => position === index ? { ...item, status: controller.signal.aborted ? 'cancelled' : 'failed' } : item));
+            throw error;
+          }
         }
-        const payload = await response.json() as { success?: boolean; images?: Array<{ url?: string }>; error?: string; metadata?: { costUsd?: number } };
-        const imageUrl = payload.images?.[0]?.url;
-        if (!response.ok || !payload.success || !imageUrl) throw new Error(payload.error || `${index + 1}번 프레임 생성에 실패했습니다.`);
-        if (typeof payload.metadata?.costUsd === 'number' && Number.isFinite(payload.metadata.costUsd)) {
-          setSessionCostUsd((current) => current + Math.max(0, payload.metadata?.costUsd || 0));
-        }
-        const blob = await fetch(imageUrl, { signal: abortController.signal }).then((result) => {
-          if (!result.ok) throw new Error('생성 이미지를 불러오지 못했습니다.');
-          return result.blob();
-        });
-        const slotOrder = expectedSlots.findIndex((candidate) => frameSlotKey(candidate.sceneId, candidate.keyframeIndex, candidate.keyframe.id) === frameSlotKey(slot.sceneId, slot.keyframeIndex, slot.keyframe.id));
-        const file = new File([blob], `openrouter-${String(Math.max(0, slotOrder) + 1).padStart(2, '0')}.png`, { type: blob.type || 'image/png' });
-        const validation = await validateDecodedImage(file);
-        if (validation) throw new Error(validation);
-        const id = crypto.randomUUID();
-        await putAsset({ key: `${runProjectId}:${id}`, projectId: runProjectId, assetId: id, kind: 'frame', blob: file, fileName: file.name, updatedAt: Date.now() });
-        generated.push({ id, sceneId: slot.sceneId, keyframeIndex: slot.keyframeIndex, keyframeId: slot.keyframe.id, fileName: file.name, durationMs: slot.keyframe.durationMs, caption: slot.keyframe.caption, imageTransform: { ...DEFAULT_IMAGE_TRANSFORM }, captionTransform: { ...DEFAULT_CAPTION_TRANSFORM }, layers: [], file, url: registerObjectUrl(file) });
-        setGenerationStates((current) => current.map((state, stateIndex) => stateIndex === index ? { ...state, status: 'completed' } : state));
-      }
-      toast.success(`OpenRouter로 ${generated.length}개 프레임을 생성했습니다.`);
+        if (!controller.signal.aborted) toast.success('완료된 이미지를 프레임 보드에 저장했습니다.');
+      });
     } catch (error) {
-      const cancelled = error instanceof DOMException && error.name === 'AbortError';
-      setGenerationStates((current) => current.map((state) => state.status === 'generating' || state.status === 'queued' ? { ...state, status: cancelled ? 'cancelled' : 'failed' } : state));
-      if (cancelled) toast('이미지 생성을 취소했습니다. 완료된 프레임은 유지됩니다.');
-      else toast.error(error instanceof Error ? `${error.message} 생성 완료된 프레임은 유지됩니다.` : '이미지 생성에 실패했습니다.');
+      toast.error(error instanceof Error && error.name !== 'AbortError' ? error.message : '추가 생성을 중지했습니다. 이미 전송한 작업은 결과 확인으로 복구해 주세요.');
     } finally {
-      if (generated.length && generationRunRef.current === runId && draftRef.current.projectId === runProjectId) {
-        const currentFrames = framesRef.current;
-        let next: StudioFrame[];
-        let previous: StudioFrame | undefined;
-        if (replaceFrameId && generated[0]) {
-          previous = currentFrames.find((frameItem) => frameItem.id === replaceFrameId);
-          next = previous
-            ? currentFrames.map((frameItem) => frameItem.id === replaceFrameId ? { ...generated[0], imageTransform: frameItem.imageTransform, captionTransform: frameItem.captionTransform, caption: frameItem.caption, layers: frameItem.layers } : frameItem)
-            : [...currentFrames, generated[0]];
-        } else {
-          const currentSlots = new Set(currentFrames.flatMap((item) => item.sceneId !== null && item.keyframeIndex !== null ? [frameSlotKey(item.sceneId, item.keyframeIndex, item.keyframeId)] : []));
-          const accepted = generated.filter((item) => item.sceneId === null || item.keyframeIndex === null || !currentSlots.has(frameSlotKey(item.sceneId, item.keyframeIndex, item.keyframeId)));
-          const rejected = generated.filter((item) => !accepted.includes(item));
-          await Promise.all(rejected.map((item) => deleteAsset(runProjectId, item.id).catch(() => undefined)));
-          rejected.forEach((item) => {
-            URL.revokeObjectURL(item.url);
-            objectUrlsRef.current.delete(item.url);
-          });
-          next = [...currentFrames, ...accepted];
-        }
-
-        const snapshot: Draft = { ...draftRef.current, frameMeta: frameMetaFromFrames(next) };
-        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot));
-        draftRef.current = snapshot;
-        framesRef.current = next;
-        setDraft(snapshot);
-        setFrames(next);
-
-        if (previous) {
-          await deleteAsset(snapshot.projectId, previous.id).catch(() => undefined);
-          URL.revokeObjectURL(previous.url);
-          objectUrlsRef.current.delete(previous.url);
-        }
-        setSelectedFrameId(next.some((item) => item.id === generated[0].id) ? generated[0].id : (current) => current || next[0]?.id || null);
-      } else if (generated.length) {
-        await Promise.all(generated.map((item) => deleteAsset(runProjectId, item.id).catch(() => undefined)));
-        generated.forEach((item) => {
-          URL.revokeObjectURL(item.url);
-          objectUrlsRef.current.delete(item.url);
-        });
-        toast.warning('프로젝트가 바뀌어 이전 생성 결과를 현재 프로젝트에 연결하지 않았습니다.');
+      if (generationRunRef.current === runId) {
+        setGenerating(false);
+        setGenerationProgress('');
+        generationAbortRef.current = null;
       }
-      if (generationRunRef.current === runId) setGenerating(false);
-      setGenerationProgress('');
-      generationAbortRef.current = null;
+      setModelRefresh((value) => value + 1);
     }
   };
 
@@ -1720,11 +1954,14 @@ export default function SemiAutoEmoticonStudio() {
     const accepted = sorted.filter((_, index) => !validations[index]).slice(0, available);
     if (errors.length) toast.error(errors[0]);
     if (!accepted.length) return;
+    const preferred = importSlotRef.current;
+    importSlotRef.current = null;
+    const orderedSlots = preferred && missingSlots.some((item) => item.sceneId === preferred.sceneId && item.keyframe.id === preferred.keyframe.id) ? [preferred, ...missingSlots.filter((item) => item.sceneId !== preferred.sceneId || item.keyframe.id !== preferred.keyframe.id)] : missingSlots;
     const newFrames: StudioFrame[] = [];
     try {
       for (const [index, file] of accepted.entries()) {
         const id = crypto.randomUUID();
-        const slot = missingSlots[index];
+        const slot = orderedSlots[index];
         const sceneId = slot?.sceneId || null;
         await putAsset({
           key: `${draft.projectId}:${id}`,
@@ -1809,7 +2046,7 @@ export default function SemiAutoEmoticonStudio() {
     updateFrameMeta(next);
   };
 
-  const updateSelectedFrame = (patch: Partial<Pick<StudioFrame, 'durationMs' | 'caption' | 'sceneId' | 'keyframeIndex' | 'imageTransform' | 'captionTransform' | 'layers'>>, recordHistory = true) => {
+  const updateSelectedFrame = (patch: Partial<Pick<StudioFrame, 'durationMs' | 'caption' | 'sceneId' | 'keyframeIndex' | 'keyframeId' | 'imageTransform' | 'captionTransform' | 'layers'>>, recordHistory = true) => {
     if (!selectedFrame) return;
     updateFrameMeta(frames.map((frame) => frame.id === selectedFrame.id ? { ...frame, ...patch } : frame), recordHistory);
   };
@@ -2061,7 +2298,8 @@ export default function SemiAutoEmoticonStudio() {
   };
 
   const createGifPreview = async () => {
-    if (!reviewFrames.length || previewEncoding) return;
+    if (!previewFrames.length || previewEncoding) return;
+    const revision = previewRevisionRef.current;
     setPreviewEncoding(true);
     const controller = new AbortController();
     gifAbortRef.current = controller;
@@ -2070,10 +2308,10 @@ export default function SemiAutoEmoticonStudio() {
     try {
       stream = await createGifStreamEncoder({
         signal: controller.signal,
-        total: reviewFrames.length,
-        onProgress: (completed, total) => setGifEncodingProgress(`Worker 스트리밍 ${completed}/${total}`),
+        total: previewFrames.length,
+        onProgress: (completed, total) => setGifEncodingProgress(`프레임 처리 ${completed}/${total}`),
       });
-      for (const frameItem of reviewFrames) {
+      for (const frameItem of previewFrames) {
         if (controller.signal.aborted) throw new DOMException('GIF 인코딩을 취소했습니다.', 'AbortError');
         const canvas = await renderComposedFrame(frameItem, submissionProfile, layerAssetUrls);
         try {
@@ -2085,6 +2323,7 @@ export default function SemiAutoEmoticonStudio() {
       }
       const blob = await stream.finish();
       stream = null;
+      if (controller.signal.aborted || revision !== previewRevisionRef.current) throw new DOMException('편집 내용이 변경됐습니다.', 'AbortError');
       if (gifPreviewUrl) {
         URL.revokeObjectURL(gifPreviewUrl);
         objectUrlsRef.current.delete(gifPreviewUrl);
@@ -2098,28 +2337,34 @@ export default function SemiAutoEmoticonStudio() {
       if (error instanceof DOMException && error.name === 'AbortError') toast('GIF 인코딩을 취소했습니다.');
       else toast.error('GIF 미리보기를 만들지 못했습니다. 프레임 이미지를 다시 확인해 주세요.');
     } finally {
-      gifAbortRef.current = null;
-      setGifEncodingProgress('');
-      setPreviewEncoding(false);
+      if (gifAbortRef.current === controller) {
+        gifAbortRef.current = null;
+        setGifEncodingProgress('');
+        setPreviewEncoding(false);
+      }
     }
   };
 
   const createWebpPreview = async () => {
     if (!gifPreviewBlob || webpEncoding) return;
     if (!currentUser) return toast.error('animated WebP 자동 변환은 로그인 후 사용할 수 있습니다.');
+    const revision = previewRevisionRef.current;
+    const controller = new AbortController();
+    webpAbortRef.current = controller;
     setWebpEncoding(true);
     try {
       const token = await currentUser.getIdToken();
-      const result = await convertGifToAnimatedWebp(gifPreviewBlob, token);
-      if (reviewFrames.length > 1 && (!result.animated || result.pages !== reviewFrames.length)) {
-        throw new Error(`WebP 프레임 검증 실패 (${result.pages}/${reviewFrames.length})`);
+      const result = await convertGifToAnimatedWebp(gifPreviewBlob, token, controller.signal);
+      if (previewFrames.length > 1 && (!result.animated || result.pages !== previewFrames.length)) {
+        throw new Error(`WebP 프레임 검증 실패 (${result.pages}/${previewFrames.length})`);
       }
+      if (controller.signal.aborted || revision !== previewRevisionRef.current) return;
       setWebpPreviewBlob(result.blob);
       toast.success(`animated WebP ${result.pages}프레임 · ${result.width}×${result.height}px 변환을 완료했습니다.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'animated WebP 변환에 실패했습니다.');
+      if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : 'WebP 변환에 실패했습니다.');
     } finally {
-      setWebpEncoding(false);
+      if (webpAbortRef.current === controller) { webpAbortRef.current = null; setWebpEncoding(false); }
     }
   };
 
@@ -2288,6 +2533,7 @@ export default function SemiAutoEmoticonStudio() {
           sceneId: frame.sceneId,
           sceneTitle: sceneById(frame.sceneId, draft.presets)?.title || null,
           keyframeIndex: frame.keyframeIndex,
+          keyframeId: frame.keyframeId,
           keyframePose: frame.sceneId !== null && frame.keyframeIndex !== null
             ? sceneById(frame.sceneId, draft.presets)?.frames[frame.keyframeIndex]?.pose || null
             : null,
@@ -2359,6 +2605,8 @@ export default function SemiAutoEmoticonStudio() {
         platform: projectData.platform,
         presets: projectData.animationPresets,
         selectedSceneIds: projectData.selectedSceneIds,
+        recentSceneIds: projectData.recentSceneIds,
+        sourceRevision: typeof projectData.sourceRevision === 'string' ? projectData.sourceRevision : crypto.randomUUID(),
         sourceName: '',
         frameMeta: projectData.frames.map((value, index) => ({ ...(typeof value === 'object' && value ? value : {}), id: crypto.randomUUID(), fileName: frameEntries[index].name.split('/').pop() || `frame-${index + 1}.png` })),
       };
@@ -2383,7 +2631,7 @@ export default function SemiAutoEmoticonStudio() {
       for (const assetId of layerAssetIds) {
         const safeAssetId = safeArchiveSegment(assetId);
         const entry = Object.values(zip.files).find((candidate) => !candidate.dir && candidate.name.startsWith(`layers/${safeAssetId}-`));
-        if (!entry) continue;
+        if (!entry) throw new Error('추가 이미지 원본이 빠진 ZIP입니다. 기존 프로젝트는 유지됩니다.');
         const blob = await entry.async('blob');
         const fileName = entry.name.split('/').pop()?.replace(`${safeAssetId}-`, '') || 'layer.png';
         const type = /\.jpe?g$/i.test(fileName) ? 'image/jpeg' : /\.webp$/i.test(fileName) ? 'image/webp' : 'image/png';
@@ -2408,6 +2656,11 @@ export default function SemiAutoEmoticonStudio() {
         nextSourceUrl = registerObjectUrl(imageFile);
       }
 
+      const frameIds = new Map((projectData.frames as Array<{ id?: string }>).flatMap((item, index) => item.id ? [[item.id, importedDraft.frameMeta[index].id] as [string, string]] : []));
+      const importedOperations = remapStudioOperations(projectData.aiOperations || [], importedProjectId, frameIds);
+      for (const ownerId of new Set(importedOperations.map((item) => item.ownerId))) writeStudioOperations(ownerId, importedProjectId, importedOperations.filter((item) => item.ownerId === ownerId));
+      if (storageConflictRef.current) throw new Error('다른 탭의 변경을 먼저 불러온 후 ZIP을 가져와 주세요.');
+      if (assetReady) archiveCurrentProject();
       window.localStorage.setItem(DRAFT_KEY, JSON.stringify(importedDraft));
       previousObjectUrls.forEach((url) => {
         URL.revokeObjectURL(url);
@@ -2425,8 +2678,12 @@ export default function SemiAutoEmoticonStudio() {
       setLayerAssetUrls(nextLayerUrls);
       setSourceUrl(nextSourceUrl);
       setSelectedFrameId(nextFrames[0]?.id || null);
-      setStep('project');
-      toast.success(`프로젝트 ZIP에서 ${nextFrames.length}개 프레임과 편집 manifest를 복원했습니다.`);
+      setDraftLoaded(true);
+      setRecoveryError('');
+      setAssetReady(false);
+      setStep('character');
+      toast.success(`프로젝트 ZIP에서 ${nextFrames.length}개 프레임과 편집 정보를 복원했습니다.`);
+      if (importedOperations.some((item) => item.ownerId !== currentUser?.uid)) toast('백업의 AI 결과를 복구하려면 생성했던 계정으로 로그인해 주세요.');
     } catch (error) {
       if (importedProjectId) {
         const assets = await readProjectAssets(importedProjectId).catch(() => []);
@@ -2441,35 +2698,92 @@ export default function SemiAutoEmoticonStudio() {
     }
   };
 
-  const resetProject = async () => {
-    if (!window.confirm('현재 프로젝트 설정과 브라우저에 저장한 이미지를 모두 지울까요?')) return;
-    planningAbortRef.current?.abort();
-    planningRunRef.current = crypto.randomUUID();
-    generationAbortRef.current?.abort();
-    gifAbortRef.current?.abort();
-    exportAbortRef.current?.abort();
-    generationRunRef.current = crypto.randomUUID();
-    const assets = await readProjectAssets(draft.projectId).catch(() => []);
-    await Promise.all(assets.map((asset) => deleteAsset(draft.projectId, asset.assetId).catch(() => undefined)));
-    for (const url of objectUrlsRef.current) URL.revokeObjectURL(url);
-    objectUrlsRef.current.clear();
-    frameAssetCacheRef.current.clear();
-    undoHistoryRef.current = [];
-    redoHistoryRef.current = [];
-    setHistoryVersion((value) => value + 1);
-    const next = createInitialDraft();
-    window.localStorage.removeItem(DRAFT_KEY);
-    draftRef.current = next;
-    framesRef.current = [];
-    setDraft(next);
-    setFrames([]);
-    setLayerAssetUrls({});
-    setSourceUrl('');
-    setSessionCostUsd(0);
-    setSelectedFrameId(null);
-    setStep('project');
-    toast.success('새 프로젝트를 시작했습니다.');
+  const exportRecoveryBackup = async () => {
+    if (exporting) return;
+    setExporting(true);
+    const controller = new AbortController();
+    let zip: AbortableZipBuilder | null = null;
+    try {
+      zip = await createAbortableZipBuilder(controller.signal);
+      zip.file('saved-project.json', localStorage.getItem(DRAFT_KEY) || '{}');
+      const assets = await readProjectAssets(draftRef.current.projectId);
+      assets.forEach((item) => zip?.file(`available-originals/${item.kind}/${safeArchiveSegment(item.assetId)}-${safeArchiveSegment(item.fileName)}`, item.blob));
+      zip.file('README.txt', '복구용 보관 파일입니다. 현재 읽을 수 있는 원본과 저장 정보를 포함합니다. 정상 작업 ZIP과 다르며 누락된 원본은 포함되지 않습니다.');
+      downloadBlob(await zip.generateAsync(), 'emoticon-recovery-originals.zip');
+      toast.success(`읽을 수 있는 원본 ${assets.length}개와 저장 정보를 보관했습니다.`);
+    } catch { zip?.cancel(); toast.error('원본 보관 파일을 만들지 못했습니다. 저장 정보 JSON을 따로 받아 주세요.'); }
+    finally { setExporting(false); }
   };
+
+  const exportWorkingBackup = async () => {
+    if (exporting || importing || !assetReady) return;
+    const snapshot = draftRef.current;
+    const sourceFrames = [...framesRef.current];
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExporting(true);
+    let zip: AbortableZipBuilder | null = null;
+    try {
+      zip = await createAbortableZipBuilder(controller.signal);
+      const assets = await readProjectAssets(snapshot.projectId);
+      assets.filter((item) => item.kind === 'source').forEach((item) => zip?.file(`source/${safeArchiveSegment(item.fileName)}`, item.blob));
+      assets.filter((item) => item.kind === 'layer').forEach((item) => zip?.file(`layers/${safeArchiveSegment(item.assetId)}-${safeArchiveSegment(item.fileName)}`, item.blob));
+      sourceFrames.forEach((item, index) => zip?.file(`frames/${String(index + 1).padStart(2, '0')}-${safeArchiveSegment(item.fileName)}`, item.file));
+      zip.file('project.json', JSON.stringify({ schemaVersion: 3, exportType: 'propig-semi-auto-emoticon-project', projectName: snapshot.projectName, characterName: snapshot.characterName, characterDescription: snapshot.characterDescription, platform: snapshot.platform, animationPresets: snapshot.presets, selectedSceneIds: snapshot.selectedSceneIds, recentSceneIds: snapshot.recentSceneIds, sourceRevision: snapshot.sourceRevision, aiOperations: currentUser ? readStudioOperations(currentUser.uid, snapshot.projectId) : [], frames: frameMetaFromFrames(sourceFrames), backup: true, exportedAt: new Date().toISOString() }, null, 2));
+      zip.file('prompts.txt', buildPromptBundle(snapshot));
+      const blob = await zip.generateAsync();
+      if (controller.signal.aborted) return;
+      downloadBlob(blob, `${safeArchiveSegment(snapshot.projectName || 'propig-emoticon')}-backup.zip`);
+      toast.success('모든 원본·편집 정보와 현재 계정의 AI 작업 기록을 백업했습니다. AI 결과는 같은 계정으로 복구할 수 있어요.');
+    } catch (error) {
+      zip?.cancel();
+      toast.error(error instanceof Error && error.name !== 'AbortError' ? error.message : '백업 만들기를 취소했습니다.');
+    } finally { setExporting(false); exportAbortRef.current = null; }
+  };
+
+  const archiveCurrentProject = () => {
+    const raw: unknown = JSON.parse(localStorage.getItem(ARCHIVES_KEY) || '[]');
+    if (!Array.isArray(raw)) throw new Error('이전 프로젝트 목록을 읽지 못했습니다. 먼저 백업을 받아 주세요.');
+    const existing = raw.map((item) => parseAndNormalizeDraft(JSON.stringify(item)));
+    const next = [draftRef.current, ...existing.filter((item) => item.projectId !== draftRef.current.projectId)];
+    localStorage.setItem(ARCHIVES_KEY, JSON.stringify(next));
+    setArchivedProjects(next);
+  };
+
+  const openProject = (next: Draft) => {
+    if (storageConflictRef.current || importing || generating || planning || exporting || previewEncoding || webpEncoding || recoveringOperations || !assetReady) return;
+    try {
+      archiveCurrentProject();
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+      planningAbortRef.current?.abort();
+      generationAbortRef.current?.abort();
+      gifAbortRef.current?.abort();
+      webpAbortRef.current?.abort();
+      for (const url of objectUrlsRef.current) URL.revokeObjectURL(url);
+      objectUrlsRef.current.clear();
+      frameAssetCacheRef.current.clear();
+      undoHistoryRef.current = [];
+      redoHistoryRef.current = [];
+      setHistoryVersion((value) => value + 1);
+      setAssetReady(false);
+      setDraftLoaded(true);
+      draftRef.current = next;
+      framesRef.current = [];
+      setDraft(next);
+      setFrames([]);
+      setLayerAssetUrls({});
+      setSourceUrl('');
+      setSelectedFrameId(null);
+      setSelectedFrameIds([]);
+      setReviewSceneId('all');
+      setProjectMenuOpen(false);
+      setStep('character');
+      setGenerationStates([]);
+      toast.success('이전 프로젝트와 원본은 보관했습니다.');
+    } catch { toast.error('현재 프로젝트를 보관하지 못해 전환하지 않았습니다. 먼저 작업 백업을 받아 주세요.'); }
+  };
+
+  const resetProject = () => openProject(createInitialDraft());
 
   const goToStep = (next: StepId) => {
     setStep(next);
@@ -2490,7 +2804,8 @@ export default function SemiAutoEmoticonStudio() {
   ) : null;
 
   return (
-    <StudioRoot ref={studioRootRef} data-studio-ready={hydrated ? 'true' : 'false'}>
+    <StudioRoot ref={studioRootRef} data-studio-ready={hydrated && assetReady ? 'true' : 'false'}>
+      <Toaster id={STUDIO_TOASTER_ID} richColors closeButton position="bottom-right" offset={24} mobileOffset={{ bottom: 96, left: 16, right: 16 }} containerAriaLabel="이모티콘 작업 알림" hotkey={['altKey', 'KeyE']} toastOptions={{ closeButtonAriaLabel: '알림 닫기' }} />
       <TopBar>
         <TopStart>
           <AdminHomeLink href="/admin" aria-label="관리자 홈으로 돌아가기">
@@ -2501,25 +2816,27 @@ export default function SemiAutoEmoticonStudio() {
             <div><strong>이모티콘 스튜디오</strong><span>PROPIG</span></div>
           </BrandBlock>
         </TopStart>
-        <ProjectIdentity><ProjectNameInput aria-label="프로젝트 이름" value={draft.projectName} maxLength={80} onChange={(event) => updateDraft('projectName', event.target.value)} /><small>프로젝트 이름은 자동 저장돼요</small></ProjectIdentity>
+        <ProjectIdentity><ProjectNameInput aria-label="프로젝트 이름" disabled={!assetReady || storageConflict} value={draft.projectName} maxLength={80} onChange={(event) => updateDraft('projectName', event.target.value)} /><small>프로젝트 이름은 자동 저장돼요</small></ProjectIdentity>
         <TopPlatforms aria-label="빠른 제출 플랫폼 선택"><button type="button" aria-pressed={draft.platform === 'kakao'} onClick={() => updateDraft('platform', 'kakao')}><b>💬</b> 카카오톡</button><button type="button" aria-pressed={draft.platform === 'naver'} onClick={() => updateDraft('platform', 'naver')}><b>N</b> 네이버 OGQ</button></TopPlatforms>
-        <ProductionMode title="ChatGPT 수동 · OpenRouter API 선택"><Sparkles size={15} /><span>{generationMode === 'fast' ? '빠른 제작' : '균형 제작'}</span></ProductionMode>
+        <ProductionMode title="ChatGPT 수동 · OpenRouter API 선택"><Sparkles size={15} /><span>{generationMode === 'fast' ? '빠른 제작' : '고품질 제작'}</span></ProductionMode>
         <TopMeta>
-          <SaveState role="status" aria-live="polite"><Check size={14} /> {savedAt ? '자동 저장됨' : '복구 준비 중'}</SaveState>
-          <BudgetMeta><small>서버 일일 예산 적용 · 이번 세션</small><strong>{sessionCostUsd > 0 ? `$${sessionCostUsd.toFixed(4)} 누적` : '실행 전 $0 · 모델별 과금'}</strong></BudgetMeta>
-          <SecondaryButton className="mobile-hide" type="button" disabled={planning || generating || exporting || previewEncoding} onClick={resetProject}><RotateCcw size={15} /> 새 프로젝트</SecondaryButton>
-          <PrimaryButton className="top-export" type="button" onClick={exportProject} disabled={!reviewFrames.length || exporting}><Upload size={16} /> {exporting ? '내보내는 중…' : '내보내기'}</PrimaryButton>
+          <SaveState role="status" aria-live="polite" data-error={Boolean(saveError || recoveryError)} title={savedAt ? `마지막 저장 ${savedAt.toLocaleTimeString('ko-KR')}` : undefined}><Check size={14} /> {saveStatus}</SaveState>
+          <BudgetMeta><small>이 프로젝트 · 확인된 AI 비용</small><strong>{`$${sessionCostUsd.toFixed(4)}${unknownCostCount ? ` · ${unknownCostCount}건 확인 중` : ''}`}</strong></BudgetMeta>
+          <SecondaryButton type="button" aria-expanded={projectMenuOpen} onClick={() => setProjectMenuOpen((value) => !value)}><FileArchive size={15} /> 프로젝트</SecondaryButton>
+          <PrimaryButton className="top-export" type="button" onClick={exportWorkingBackup} disabled={!assetReady || exporting}><Upload size={16} /> {exporting ? '백업 중…' : '작업 백업'}</PrimaryButton>
         </TopMeta>
       </TopBar>
-      <input ref={frameInputRef} hidden multiple type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { void importFrames(Array.from(event.target.files || [])); event.currentTarget.value = ''; }} />
-      <input ref={layerInputRef} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { void addImageLayer(event.target.files?.[0]); event.currentTarget.value = ''; }} />
-      <input ref={projectInputRef} hidden type="file" accept="application/zip,.zip" onChange={(event) => { void importProjectPackage(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+      {projectMenuOpen ? <ProjectMenu aria-label="프로젝트 보관함"><div><strong>이 기기의 프로젝트</strong><IconButton type="button" aria-label="프로젝트 메뉴 닫기" onClick={() => setProjectMenuOpen(false)}><X size={18} /></IconButton></div><p>새 프로젝트를 열어도 현재 작업과 원본을 보관합니다.</p><PromptActions><SecondaryButton type="button" disabled={!assetReady || importing || generating || planning || exporting || storageConflict} onClick={resetProject}><Plus size={16} />새 프로젝트</SecondaryButton><SecondaryButton type="button" disabled={importing || generating || planning || exporting || storageConflict} onClick={() => projectInputRef.current?.click()}><Upload size={16} />작업 ZIP 불러오기</SecondaryButton></PromptActions>{archivedProjects.filter((item) => item.projectId !== draft.projectId).map((item) => <button type="button" key={item.projectId} disabled={!assetReady || importing || generating || planning || exporting || storageConflict} onClick={() => openProject(item)}>{item.projectName} · {item.frameMeta.length}프레임</button>)}</ProjectMenu> : null}
+      <input ref={sourceInputRef} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; void runAssetMutation(() => handleSource(file)); event.currentTarget.value = ''; }} />
+      <input ref={frameInputRef} hidden multiple type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const files = Array.from(event.target.files || []); void runAssetMutation(() => importFrames(files)); event.currentTarget.value = ''; }} />
+      <input ref={layerInputRef} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; void runAssetMutation(() => addImageLayer(file)); event.currentTarget.value = ''; }} />
+      <input ref={projectInputRef} hidden type="file" accept="application/zip,.zip" onChange={(event) => { const file = event.target.files?.[0]; void runAssetMutation(() => importProjectPackage(file)); event.currentTarget.value = ''; }} />
 
       <StudioBody>
         <StepRail aria-label="제작 단계">
           {STEP_ITEMS.map((item) => {
             const active = item.id === activeRailId;
-            const done = (item.id === 'project' && Boolean(draft.projectName.trim())) || (item.id === 'character' && canPlan) || (item.id === 'plan' && canImport) || ((item.id === 'images' || item.id === 'animation') && canEdit) || (item.id === 'export' && Boolean(gifPreviewUrl));
+            const done = (item.id === 'prepare' && canPlan) || (item.id === 'plan' && draft.selectedSceneIds.length > 0 && !frameLimitExceeded) || (item.id === 'make' && canEdit && !missingSlots.length) || (item.id === 'export' && Boolean(gifPreviewUrl));
             return (
               <StepButton key={item.id} type="button" $active={active} $done={done} aria-current={active ? 'step' : undefined} onClick={() => goToStep(item.target)}>
                 <i>{item.icon}<b>{done && !active ? <Check size={10} /> : item.eyebrow}</b></i>
@@ -2536,47 +2853,36 @@ export default function SemiAutoEmoticonStudio() {
 
         <Workspace>
           <MobileProgress aria-label="모바일 제작 단계 자유 탐색">
-            <small>현재 {STEP_ITEMS.findIndex((item) => item.id === activeRailId) + 1}/6 · 옆으로 밀어 모든 단계를 볼 수 있어요</small>
+            <small>현재 {STEP_ITEMS.findIndex((item) => item.id === activeRailId) + 1}/4 · {saveStatus}</small><div>
             {STEP_ITEMS.map((item, index) => <button key={item.id} type="button" aria-current={item.id === activeRailId ? 'step' : undefined} onClick={() => goToStep(item.target)}><span>{index + 1}</span>{item.label}</button>)}
-          </MobileProgress>
+          </div></MobileProgress>
 
-          {step === 'project' ? (
+          {storageConflict ? <StatusBanner role="alert"><strong>다른 탭에서 프로젝트가 변경됐어요</strong><span>겹쳐 저장하지 않도록 편집을 잠시 멈췄어요. 현재 화면을 백업하거나 최신 작업을 불러오세요.</span><PromptActions><SecondaryButton type="button" onClick={exportWorkingBackup}>현재 화면 백업</SecondaryButton><PrimaryButton type="button" onClick={() => window.location.reload()}>최신 작업 불러오기</PrimaryButton></PromptActions></StatusBanner> : recoveryError ? <StatusBanner role="alert"><strong>저장한 작업을 복구하지 못했어요</strong><span>{recoveryError}</span><PromptActions><SecondaryButton type="button" onClick={() => setRecoveryAttempt((value) => value + 1)}>복구 다시 시도</SecondaryButton><SecondaryButton type="button" onClick={() => downloadBlob(new Blob([localStorage.getItem(DRAFT_KEY) || '{}'], { type: 'application/json' }), 'emoticon-recovery.json')}>저장 정보 보관</SecondaryButton><SecondaryButton type="button" disabled={exporting || !draftLoaded} onClick={exportRecoveryBackup}>읽을 수 있는 원본 보관</SecondaryButton><SecondaryButton type="button" onClick={() => projectInputRef.current?.click()}>작업 ZIP 불러오기</SecondaryButton></PromptActions></StatusBanner> : !assetReady ? <StatusBanner role="status">저장한 원본을 확인하고 있어요…</StatusBanner> : null}
+          {saveError ? <StatusBanner role="alert"><strong>저장 실패</strong><span>{saveError}</span><PromptActions><SecondaryButton type="button" onClick={() => setDraft((value) => ({ ...value }))}>저장 다시 시도</SecondaryButton><SecondaryButton type="button" onClick={exportWorkingBackup}>작업 백업 받기</SecondaryButton></PromptActions></StatusBanner> : null}
+          {journalError || pendingOperations.length ? <StatusBanner role="status"><strong>{journalError || `${pendingOperations.length}건의 AI 작업 결과 확인이 필요해요`}</strong><span>이미 전송한 작업은 다시 결제 요청을 보내지 않고 결과를 확인합니다.</span><SecondaryButton type="button" disabled={recoveringOperations || generating || planning || !assetReady || storageConflict} onClick={() => journalError ? setRecoveryAttempt((value) => value + 1) : void recoverOperationResults()}>{recoveringOperations ? '결과 확인 중…' : '이전 결과 확인'}</SecondaryButton></StatusBanner> : null}
+          {operations.length ? <OperationSummary><summary>AI 작업 기록 · 확인된 비용 ${sessionCostUsd.toFixed(4)}{unknownCostCount ? ` · ${unknownCostCount}건 비용 미확정` : ''}</summary>{operations.map((item) => <p key={item.id}>{item.kind === 'plan' ? '장면 기획' : '프레임 생성'} · {item.applied ? '반영 완료' : item.state === 'failed' ? '실패 확인' : '결과 확인 필요'} · {item.state === 'completed' ? '실제 모델' : '요청 모델'} {item.modelUsed || '확인 중'} · {item.costUsd === null ? '비용 확인 중' : `$${item.costUsd.toFixed(4)}`}{item.message ? ` · ${item.message}` : ''}</p>)}</OperationSummary> : null}
+          <WorkArea disabled={!assetReady || storageConflict}>
+          {activeRailId === 'make' ? <MakeTabs aria-label="제작·편집 화면"><button type="button" aria-pressed={step === 'import'} onClick={() => setStep('import')}>이미지 만들기</button><button type="button" aria-pressed={step === 'edit'} onClick={() => setStep('edit')}>프레임 편집</button></MakeTabs> : null}
+          {step === 'character' || step === 'project' ? (
             <StepContent>
-              <SectionHeading><span>STEP 01</span><h1>프로젝트와 제출 대상을 먼저 정해요</h1><p>모든 단계는 필요한 순서대로 자유롭게 열 수 있어요. 여기서 정한 이름과 플랫폼은 저장·미리보기·ZIP 구조에 공통으로 반영됩니다.</p></SectionHeading>
-              <FlowGuide aria-label="반자동 이모티콘 제작 방법"><strong>필요한 화면부터 자유롭게 확인하세요</strong><ol><li><b>1</b><span>프로젝트<small>이름과 제출 대상을 정해요.</small></span></li><li><b>2</b><span>캐릭터<small>기준 이미지와 특징을 고정해요.</small></span></li><li><b>3</b><span>움직임 기획<small>키프레임과 노출 시간을 정해요.</small></span></li><li><b>4</b><span>이미지 제작<small>AI 생성 또는 파일 가져오기를 사용해요.</small></span></li><li><b>5</b><span>움직임 제작<small>레이어와 재생 시간을 편집해요.</small></span></li><li><b>6</b><span>검수·내보내기<small>GIF·WebP·작업 ZIP을 확인해요.</small></span></li></ol></FlowGuide>
-              <ProjectGrid>
-                <ProjectOverview><BrandMark><WandSparkles size={24} /></BrandMark><span>PROPIG CREATION WORKSPACE</span><h2>{draft.projectName || '새 이모티콘 프로젝트'}</h2><p>자동 저장되는 하나의 작업 공간에서 기획·프레임·레이어·GIF·제출 정보를 함께 관리해요.</p><ul><li><CheckCircle2 /> 단계 화면 자유 탐색</li><li><CheckCircle2 /> IndexedDB 원본 복구</li><li><CheckCircle2 /> 카카오·네이버 작업 규격</li></ul></ProjectOverview>
-                <FormCard>
-                  <Field><span>프로젝트 이름</span><input value={draft.projectName} maxLength={80} placeholder="예: 프로피의 오늘도 최고!" onChange={(event) => updateDraft('projectName', event.target.value)} /></Field>
-                  <Field as="div"><span>주요 제출 플랫폼</span><Segmented>{(Object.keys(PLATFORM_LABELS) as Platform[]).map((platform) => <button key={platform} type="button" aria-pressed={draft.platform === platform} onClick={() => updateDraft('platform', platform)}>{PLATFORM_LABELS[platform]}</button>)}</Segmented></Field>
-                  <PlatformGuide data-platform={draft.platform}><ShieldCheck size={19} /><div><strong>{submissionProfile.title}</strong><span>{submissionProfile.summary}</span><small>{officialGuide.checkedAt} 공식 가이드 기준 · 제출 직전 재확인 필요</small><a href={officialGuide.url} target="_blank" rel="noreferrer">공식 가이드 열기 <ExternalLink size={13} /></a></div></PlatformGuide>
-                  <Readiness aria-label="프로젝트 준비 상태"><li data-done={Boolean(draft.projectName.trim())}>{draft.projectName.trim() ? <CheckCircle2 /> : <span />} 프로젝트 이름</li><li data-done><CheckCircle2 /> {PLATFORM_LABELS[draft.platform]} 작업 프리셋</li><li data-done={hydrated}>{hydrated ? <CheckCircle2 /> : <span />} 브라우저 자동 저장 준비</li></Readiness>
-                  <PrimaryButton type="button" onClick={() => setStep('character')}>캐릭터 준비하기 <ArrowRight size={16} /></PrimaryButton>
-                </FormCard>
-              </ProjectGrid>
-            </StepContent>
-          ) : null}
-
-          {step === 'character' ? (
-            <StepContent>
-              <SectionHeading><span>STEP 02</span><h1>캐릭터 기준을 먼저 고정해요</h1><p>ChatGPT에서 포즈가 바뀌어도 같은 캐릭터로 보이도록 대표 이미지와 핵심 특징을 정리합니다.</p></SectionHeading>
+              <SectionHeading><span>01 · 준비하기</span><h1>캐릭터와 제출 대상을 준비해요</h1><p>캐릭터를 한 번 정하면 모든 장면에 이어서 사용해요. 이미 만든 이미지가 있다면 바로 가져올 수도 있어요.</p></SectionHeading>
               <CharacterGrid>
                 <UploadCard type="button" onClick={() => sourceInputRef.current?.click()}>
                   {sourceUrl ? <img src={sourceUrl} alt={`${draft.characterName || '캐릭터'} 기준 이미지`} /> : <><ImagePlus size={34} /><strong>캐릭터 이미지 선택</strong><span>PNG, JPG, WebP · 8MB 이하</span></>}
                   {sourceUrl ? <UploadOverlay><Upload size={18} /> 이미지 교체</UploadOverlay> : null}
                 </UploadCard>
-                <input ref={sourceInputRef} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleSource(event.target.files?.[0])} />
+
                 <FormCard>
-                  <Field><span>캐릭터 이름</span><input value={draft.characterName} maxLength={60} placeholder="예: 프로피" onChange={(event) => updateDraft('characterName', event.target.value)} /></Field>
-                  <Field><span>반드시 유지할 특징</span><textarea value={draft.characterDescription} maxLength={800} placeholder="예: 둥근 분홍색 돼지, 흰색 배, 짧은 팔다리, 굵고 부드러운 외곽선" onChange={(event) => updateDraft('characterDescription', event.target.value)} /></Field>
+                  <Field><span>캐릭터 이름</span><input value={draft.characterName} maxLength={60} placeholder="예: 프로피" onChange={(event) => { const value = event.target.value; setDraft((current) => ({ ...current, characterName: value, projectName: current.projectName === '새 이모티콘 프로젝트' || current.projectName === `${current.characterName}의 이모티콘` ? value.trim() ? `${value}의 이모티콘` : '새 이모티콘 프로젝트' : current.projectName })); }} /></Field>
+                  <details><summary>캐릭터 특징·프로젝트 이름</summary><Field><span>프로젝트 이름</span><input value={draft.projectName} maxLength={80} onChange={(event) => updateDraft('projectName', event.target.value)} /></Field><Field><span>반드시 유지할 특징</span><textarea value={draft.characterDescription} maxLength={800} placeholder="예: 둥근 분홍색 돼지, 흰색 배, 짧은 팔다리, 굵고 부드러운 외곽선" onChange={(event) => updateDraft('characterDescription', event.target.value)} /></Field></details>
                   <Field as="div"><span>내보낼 플랫폼</span><Segmented>{(Object.keys(PLATFORM_LABELS) as Platform[]).map((platform) => <button key={platform} type="button" aria-pressed={draft.platform === platform} onClick={() => updateDraft('platform', platform)}>{PLATFORM_LABELS[platform]}</button>)}</Segmented></Field>
-                  <PlatformGuide data-platform={draft.platform}><ShieldCheck size={19} /><div><strong>{submissionProfile.title}</strong><span>{submissionProfile.summary}</span><small>{officialGuide.checkedAt} 공식 가이드 기준 · {officialGuide.summary}</small><a href={officialGuide.url} target="_blank" rel="noreferrer">공식 가이드 열기 <ExternalLink size={13} /></a></div></PlatformGuide>
+                  <PlatformGuide data-platform={draft.platform}><ShieldCheck size={19} /><div><strong>{submissionProfile.title}</strong><span>{submissionProfile.summary}</span><details><summary>규격과 공식 안내</summary><small>{officialGuide.checkedAt} 기준 · {officialGuide.summary}</small></details><a href={officialGuide.url} target="_blank" rel="noreferrer">공식 가이드 열기 <ExternalLink size={13} /></a></div></PlatformGuide>
                   <Readiness aria-label="준비 상태">
                     <li data-done={Boolean(draft.sourceName)}>{draft.sourceName ? <CheckCircle2 /> : <span />} 기준 이미지</li>
                     <li data-done={Boolean(draft.characterName.trim())}>{draft.characterName.trim() ? <CheckCircle2 /> : <span />} 캐릭터 이름</li>
                     <li data-done={Boolean(draft.characterDescription.trim())}>{draft.characterDescription.trim() ? <CheckCircle2 /> : <span />} 특징 설명 <em>권장</em></li>
                   </Readiness>
-                  <PrimaryButton type="button" disabled={!canPlan} onClick={() => setStep('plan')}>장면 기획하기 <ArrowRight size={16} /></PrimaryButton>
+                  <PrimaryButton type="button" onClick={() => setStep('plan')}>장면 고르기 <ArrowRight size={16} /></PrimaryButton><SecondaryButton type="button" onClick={() => setStep('import')}>이미지가 있어요 · 바로 가져오기</SecondaryButton>
                 </FormCard>
               </CharacterGrid>
             </StepContent>
@@ -2584,7 +2890,7 @@ export default function SemiAutoEmoticonStudio() {
 
           {step === 'plan' ? (
             <StepContent>
-              <SectionHeading><span>STEP 03</span><h1>움짤의 움직임을 프레임으로 연출해요</h1><p>한 장면을 한 이미지로 끝내지 않고 준비·동작·강조·마무리 자세로 나눕니다. 각 프레임은 ChatGPT에서 따로 만든 뒤 순서대로 연결합니다.</p></SectionHeading>
+              <SectionHeading><span>02 · 장면 고르기</span><h1>만들 장면을 골라 주세요</h1><p>인사, 감사, 응원처럼 필요한 움직임을 고르세요. 자세와 재생 시간은 선택한 뒤 다듬을 수 있어요.</p></SectionHeading>
               <PlanToolbar>
                 <div><strong>움짤 연출 프리셋</strong><span>선택한 연출의 모든 키프레임이 제작 지시서에 포함돼요.</span></div>
                 <PromptActions><SecondaryButton type="button" onClick={resetPresets}><RotateCcw size={15} /> 기본값 복원</SecondaryButton><SecondaryButton type="button" onClick={() => setAiToolOpen((open) => !open)}><Bot size={16} /> AI로 기획</SecondaryButton><PrimaryButton type="button" onClick={startNewPreset}><Plus size={16} /> 연출 추가</PrimaryButton></PromptActions>
@@ -2607,7 +2913,7 @@ export default function SemiAutoEmoticonStudio() {
                     <AiModeCard $api><i><Zap /></i><span>OPENROUTER API</span><strong>ProPig에서 자동 기획</strong><p>모델 {aiModels.text} · 최대 2회 요청(최초 1회 + 형식 오류 시 교정 1회) · 별도 API 사용료가 발생할 수 있어요.</p><PrimaryButton type="button" disabled={!currentUser || planning || !actionDescription.trim() || !hasApiConsent} onClick={() => void requestOpenRouterPlan()}>{planning ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />} {!currentUser ? '로그인 후 자동 기획' : planning ? '기획 중…' : 'OpenRouter로 기획'}</PrimaryButton></AiModeCard>
                   </AiModeGrid>
                   <ConsentBox><input id="openrouter-consent" type="checkbox" checked={hasApiConsent} onChange={(event) => updateApiConsent(event.target.checked)} /><label htmlFor="openrouter-consent"><ShieldCheck size={18} /><span><strong>OpenRouter API 별도 과금과 외부 전송을 확인했습니다.</strong><small>캐릭터 설명·동작·대사·선택 프리셋·프레임 prompt는 기획·이미지 모델에, 이미지 자동 생성 시 기준 이미지는 이미지 모델에 전송됩니다. 모델·품질·수량·전송 이미지나 prompt가 바뀌면 다시 확인해야 합니다. ChatGPT 구독에 포함되지 않으며 취소 전 전송된 요청은 과금될 수 있습니다.</small></span></label></ConsentBox>
-                  <JsonImporter><div><strong>ChatGPT 기획 JSON 가져오기</strong><span>markdown code fence가 있어도 제거한 뒤 엄격한 schema로 검사합니다.</span></div><textarea aria-label="ChatGPT 장면 기획 JSON" value={planningJson} maxLength={40000} placeholder='{"name":"손 흔들며 안녕", ...}' onChange={(event) => setPlanningJson(event.target.value)} /><SecondaryButton type="button" disabled={!planningJson.trim()} onClick={importPlanningJson}><Download size={16} /> JSON을 프리셋으로 저장</SecondaryButton></JsonImporter>
+                  <JsonImporter><div><strong>ChatGPT 기획 JSON 가져오기</strong><span>ChatGPT에서 받은 기획 내용을 붙여 넣으면 형식과 프레임 정보를 확인해요.</span></div><textarea aria-label="ChatGPT 장면 기획 JSON" value={planningJson} maxLength={40000} placeholder='{"name":"손 흔들며 안녕", ...}' onChange={(event) => setPlanningJson(event.target.value)} /><SecondaryButton type="button" disabled={!planningJson.trim()} onClick={importPlanningJson}><Download size={16} /> JSON을 프리셋으로 저장</SecondaryButton></JsonImporter>
                 </AiPlanner>
               ) : null}
               {editingPreset ? (
@@ -2632,10 +2938,13 @@ export default function SemiAutoEmoticonStudio() {
                   <PresetEditorFooter><span>총 {editingPreset.frames.length}프레임 · {(editingPreset.frames.reduce((sum, item) => sum + item.durationMs, 0) / 1000).toFixed(2)}초</span><div><SecondaryButton type="button" onClick={() => setEditingPreset(null)}>취소</SecondaryButton><PrimaryButton type="button" onClick={savePreset}><Save size={16} /> 프리셋 저장</PrimaryButton></div></PresetEditorFooter>
                 </PresetEditor>
               ) : null}
-              <SceneGrid>{draft.presets.map((preset) => {
+              <FilterBar><Field><span>장면 검색</span><input type="search" value={sceneQuery} placeholder="예: 인사, 응원" onChange={(event) => setSceneQuery(event.target.value)} /></Field><button type="button" aria-pressed={recentOnly} onClick={() => setRecentOnly((value) => !value)}>최근 사용</button></FilterBar>
+              {frameLimitExceeded ? <StatusBanner role="alert"><strong>{expectedSlots.length - MAX_FRAME_COUNT}프레임 초과</strong><span>전체 {expectedSlots.length}프레임입니다. 장면을 해제하거나 프레임 수를 줄여 주세요.</span></StatusBanner> : null}
+              {!filteredPresets.length ? <p role="status">조건에 맞는 장면이 없어요. 검색어나 최근 사용 필터를 바꿔 보세요.</p> : null}
+              <SceneGrid>{filteredPresets.map((preset) => {
                 const selected = draft.selectedSceneIds.includes(preset.id);
                 return <SceneCard as="article" key={preset.id} data-preset-id={preset.id} $selected={selected}>
-                  <PresetSelect type="button" aria-pressed={selected} onClick={() => toggleScene(preset.id)}><i>{selected ? <Check size={14} /> : <Plus size={14} />}</i><div><strong>{preset.title}</strong><span>{preset.summary}</span><em>{preset.frames.length}프레임 · {preset.dialogue || '대사 없음'}</em></div></PresetSelect>
+                  <PresetSelect type="button" aria-pressed={selected} onClick={() => toggleScene(preset.id)}><i>{selected ? <Check size={14} /> : <Plus size={14} />}</i><SceneThumbnail aria-hidden="true">{frames.find((item) => item.sceneId === preset.id) ? <img src={frames.find((item) => item.sceneId === preset.id)?.url} alt="" /> : /인사|안녕/.test(preset.title) ? '👋' : /감사|고마/.test(preset.title) ? '🙏' : /응원|힘/.test(preset.title) ? '💪' : /발차기|회전/.test(preset.title) ? '🌀' : '✨'}</SceneThumbnail><div><strong>{preset.title}</strong><span>{preset.summary}</span><em>{preset.frames.length}프레임 · {preset.dialogue || '대사 없음'}</em></div></PresetSelect>
                   <MiniFrames>{preset.frames.map((item, index) => <span key={item.id} title={item.pose}>{index + 1}</span>)}</MiniFrames>
                   <PresetCardActions><button type="button" onClick={() => setEditingPreset(structuredClone(preset))}>수정</button><button type="button" onClick={() => duplicatePreset(preset)}>복제</button><button type="button" onClick={() => deletePreset(preset.id)}>삭제</button></PresetCardActions>
                 </SceneCard>;
@@ -2644,42 +2953,26 @@ export default function SemiAutoEmoticonStudio() {
                 <div><span>CHATGPT ANIMATION PROMPT PACK</span><strong>{draft.selectedSceneIds.length}개 연출 · {expectedSlots.length}개 프레임 지시서 준비됨</strong><p>캐릭터 이미지와 함께 붙여 넣고 각 키프레임을 독립 이미지로 순서대로 생성해 달라고 요청하세요.</p></div>
                 <PromptActions><SecondaryButton type="button" onClick={downloadPrompts}><FileText size={16} /> TXT 받기</SecondaryButton><PrimaryButton type="button" disabled={!canImport} onClick={copyPrompts}><ClipboardCopy size={16} /> 전체 프롬프트 복사</PrimaryButton></PromptActions>
               </PromptPreview>
-              <StepFooter><SecondaryButton type="button" onClick={() => setStep('character')}><ArrowLeft size={16} /> 이전</SecondaryButton><PrimaryButton type="button" disabled={!canImport} onClick={() => setStep('import')}>ChatGPT에서 프레임 만들기 <ExternalLink size={16} /></PrimaryButton></StepFooter>
+              <StepFooter><SecondaryButton type="button" onClick={() => setStep('character')}><ArrowLeft size={16} /> 이전</SecondaryButton><PrimaryButton type="button" disabled={!draft.selectedSceneIds.length || frameLimitExceeded} onClick={() => setStep('import')}>이 장면으로 만들기 <ArrowRight size={16} /></PrimaryButton></StepFooter>
             </StepContent>
           ) : null}
 
           {step === 'import' ? (
             <StepContent>
-              <SectionHeading><span>STEP 04</span><h1>연출 순서대로 프레임을 가져와요</h1><p>프롬프트의 파일 순서대로 내려받은 이미지를 선택하면 각 연출의 1/N 키프레임에 자연 정렬해 연결합니다.</p></SectionHeading>
-              <GenerationOverview aria-label="프레임 제작 현황">
-                <div><span>기획 프레임</span><strong>{expectedSlots.length}</strong><small>선택한 연출의 전체 키프레임</small></div>
-                <div><span>완성</span><strong>{expectedSlots.length - missingSlots.length}</strong><small>정확한 연출 슬롯에 연결됨</small></div>
-                <div><span>남은 프레임</span><strong>{missingSlots.length}</strong><small>OpenRouter 또는 직접 가져오기</small></div>
-                <div><span>이번 자동 생성</span><strong>{Math.min(generationBatchSize, missingSlots.length)}</strong><small>한 장당 API 요청 1회</small></div>
-              </GenerationOverview>
-              {!missingSlots.length && expectedSlots.length ? <CompletionBanner><CheckCircle2 size={22} /><div><strong>모든 기획 프레임이 준비됐어요</strong><span>제작 보드에서 순서를 확인한 뒤 편집기에서 문구·노출 시간·반복 흐름을 다듬으세요.</span></div><PrimaryButton type="button" onClick={() => setStep('edit')}>프레임 편집 시작 <ArrowRight size={16} /></PrimaryButton></CompletionBanner> : null}
-              <GenerationChoice>
-                <GenerationChoiceCard><i><MessageSquareText /></i><div><span>CHATGPT 구독 · 직접 생성</span><strong>프롬프트 복사 → ChatGPT에서 이미지 생성 → 아래에서 파일 선택</strong><p>제품 API 과금 없음 · 파일명 순서대로 빈 프레임에 자동 연결</p></div><SecondaryButton type="button" onClick={copyPrompts}><ClipboardCopy size={16} /> 프롬프트 복사</SecondaryButton></GenerationChoiceCard>
-                <GenerationChoiceCard $api><i><Zap /></i><div><span>OPENROUTER API · 자동 생성</span><strong>빈 키프레임을 순서대로 한 장씩 생성</strong><p>{generationMode === 'fast' ? '가성비·빠른 모드' : '퀄리티·고급 모드'} · {selectedGenerationModel} · 한 장당 요청 1회</p></div><ModePicker aria-label="이미지 생성 품질 모드"><button type="button" aria-pressed={generationMode === 'fast'} onClick={() => setGenerationMode('fast')}><Zap size={14} /><span>가성비·빠른</span><small>Gemini Lite 우선 · low</small></button><button type="button" aria-pressed={generationMode === 'quality'} onClick={() => setGenerationMode('quality')}><Sparkles size={14} /><span>퀄리티·고급</span><small>GPT Image 2 우선 · high</small></button></ModePicker><ModelPicker><label htmlFor="studio-image-provider">이미지 모델</label><select id="studio-image-provider" value={generationProvider} onChange={(event) => setGenerationProvider(event.target.value as GenerationProvider)}><option value="auto">모드에 맞게 자동 선택</option><option value="openai">OpenAI · GPT Image 2</option><option value="google">Google · 최신 Gemini Image</option><option value="xai">xAI · Grok Imagine Image 2.0</option></select><small>요청 모델: {selectedGenerationModel}</small><small data-model-preflight={imageModelPreflight.catalogStatus}>{imageModelPreflight.catalogStatus === 'loading' ? 'OpenRouter catalog 확인 중…' : imageModelPreflight.catalogStatus === 'available' ? selectedModelCapability?.available && selectedModelCapability.imageOutput && selectedModelCapability.referenceInput ? `Catalog 확인: image 출력·reference 입력 광고됨${selectedModelCapability.pricing?.image ? ` · image 가격 원문 ${selectedModelCapability.pricing.image}` : ' · image 단가 미공개'}` : '선택 모델의 image/reference capability가 catalog에서 확인되지 않음 · 서버 자동 대체 가능' : imageModelPreflight.catalogStatus === 'not-configured' ? 'OpenRouter 키가 설정되지 않아 catalog 확인 불가' : 'Catalog 조회 실패 · 실제 생성 전 재확인 필요'}{imageModelPreflight.checkedAt ? ` · ${new Date(imageModelPreflight.checkedAt).toLocaleString('ko-KR')}` : ''}</small></ModelPicker><BatchPicker aria-label="이번 자동 생성 수량">{[1,2,4,8].map((count) => <button key={count} type="button" aria-pressed={generationBatchSize === count} disabled={count > Math.max(1, missingSlots.length)} onClick={() => setGenerationBatchSize(count)}>{count}장</button>)}</BatchPicker>{generating ? <SecondaryButton type="button" onClick={() => generationAbortRef.current?.abort()}><X size={16} /> 생성 취소</SecondaryButton> : <PrimaryButton type="button" disabled={!missingSlots.length || !hasApiConsent || !currentUser} onClick={() => void generateFramesWithOpenRouter()}><Sparkles size={16} /> {!currentUser ? '로그인 후 자동 생성' : generationStates.some((state) => state.status === 'failed' || state.status === 'cancelled') ? '미완성 프레임 이어 생성' : `${Math.min(generationBatchSize, missingSlots.length)}장 자동 생성`}</PrimaryButton>}</GenerationChoiceCard>
-              </GenerationChoice>
-              {generationStates.length ? <GenerationStates aria-live="polite"><strong>{generationProgress || '최근 OpenRouter 프레임 생성 결과'}</strong>{generationStates.map((state) => <li key={state.label} data-status={state.status}><span>{state.label}</span><b>{state.status === 'queued' ? '대기' : state.status === 'generating' ? '생성 중' : state.status === 'completed' ? '완료' : state.status === 'cancelled' ? '취소' : '실패'}</b></li>)}</GenerationStates> : null}
-              {!hasApiConsent ? <InlineConsent><input id="import-openrouter-consent" type="checkbox" checked={hasApiConsent} onChange={(event) => updateApiConsent(event.target.checked)} /><label htmlFor="import-openrouter-consent">OpenRouter 별도 과금과 캐릭터 이미지 외부 전송을 확인했습니다.</label></InlineConsent> : null}
-              <BridgeGrid>
-                <BridgeCard><i><ClipboardCopy /></i><span>1</span><strong>프롬프트 복사</strong><p>{draft.selectedSceneIds.length}개 연출과 {expectedSlots.length}개 키프레임 지시를 복사합니다.</p><SecondaryButton type="button" onClick={copyPrompts}><ClipboardCopy size={16} /> 프롬프트 복사</SecondaryButton></BridgeCard>
-                <BridgeArrow><ArrowRight /></BridgeArrow>
-                <BridgeCard><i><Sparkles /></i><span>2</span><strong>ChatGPT에서 생성</strong><p>기준 이미지를 첨부하고 키프레임별 독립 이미지로 순서대로 만들어 달라고 요청합니다.</p><a href="https://chatgpt.com/" target="_blank" rel="noreferrer">ChatGPT 열기 <ExternalLink size={15} /></a></BridgeCard>
-                <BridgeArrow><ArrowRight /></BridgeArrow>
-                <BridgeCard><i><MonitorUp /></i><span>3</span><strong>결과 가져오기</strong><p>다운로드한 PNG·JPG·WebP를 여러 장 선택하세요.</p><PrimaryButton type="button" onClick={() => frameInputRef.current?.click()}><Images size={16} /> 이미지 여러 장 선택</PrimaryButton></BridgeCard>
-              </BridgeGrid>
-
-              <ImportSummary>
-                <div><strong>{completeCount}/{expectedSlots.length}</strong><span>움짤 프레임 가져옴</span></div>
-                <progress max={Math.max(1, expectedSlots.length)} value={completeCount} />
-                <p>{frames.length ? '가져온 이미지는 브라우저에 자동 저장됐어요. 추가 선택하면 뒤에 이어 붙습니다.' : '아직 가져온 이미지가 없습니다.'}</p>
-              </ImportSummary>
-              <SlotSection><SlotHeader><div><span>FRAME PRODUCTION BOARD</span><strong>어디까지 만들어졌는지 확인하세요</strong></div><small>빈 칸은 다음 자동 생성 또는 파일 가져오기 대상이에요.</small></SlotHeader><SlotBoard>{expectedSlots.map((slot, index) => { const connected = frames.find((frameItem) => frameItem.sceneId === slot.sceneId && (frameItem.keyframeId ? frameItem.keyframeId === slot.keyframe.id : frameItem.keyframeIndex === slot.keyframeIndex)); return <SlotCard key={frameSlotKey(slot.sceneId, slot.keyframeIndex, slot.keyframe.id)} type="button" data-status={connected ? 'ready' : 'missing'} $status={connected ? 'ready' : 'missing'} disabled={!connected} onClick={() => { if (!connected) return; setSelectedFrameId(connected.id); setStep('edit'); }}><b>{String(index + 1).padStart(2, '0')}</b>{connected ? <img src={connected.url} alt="" /> : <i><ImagePlus size={20} /></i>}<span>{slot.preset.title} · {slot.keyframeIndex + 1}/{slot.preset.frames.length}</span><em>{connected ? (connected.fileName.startsWith('openrouter-') ? 'OpenRouter 생성 완료' : '파일 연결 완료') : '아직 생성되지 않음'}</em></SlotCard>; })}</SlotBoard></SlotSection>
-              {frames.length ? <ThumbGrid aria-label="가져온 결과 이미지">{frames.map((frame, index) => <ThumbButton key={frame.id} type="button" onClick={() => { setSelectedFrameId(frame.id); setStep('edit'); }}><img src={frame.url} alt={`${index + 1}번 ${frameLabel(frame, draft.presets)} 이미지`} /><span>{String(index + 1).padStart(2, '0')} · {frameLabel(frame, draft.presets)}</span></ThumbButton>)}</ThumbGrid> : null}
-              <StepFooter><SecondaryButton type="button" onClick={() => setStep('plan')}><ArrowLeft size={16} /> 이전</SecondaryButton><PrimaryButton type="button" disabled={!canEdit} onClick={() => setStep('edit')}>프레임 편집 <ArrowRight size={16} /></PrimaryButton></StepFooter>
+              <SectionHeading><span>03 · 만들고 다듬기</span><h1>이미지를 준비하고 움직임을 다듬어요</h1><p>이미지가 있다면 바로 가져오세요. 새로 만들 때는 AI 방식을 선택할 수 있어요.</p></SectionHeading>
+              <StudioProductionPanel method={productionMethod} onMethod={setProductionMethod} total={expectedSlots.length} completed={completeCount} missing={missingSlots.length} frameCount={frames.length} importing={importing} generating={generating} onImport={() => openFramePicker()} onCopy={() => void copyPrompts()} onGenerate={() => void generateFramesWithOpenRouter()} onCancel={() => generationAbortRef.current?.abort()} onEdit={() => setStep('edit')} mode={generationMode} onMode={setGenerationMode} provider={generationProvider} onProvider={setGenerationProvider} model={selectedGenerationModel} modelStatus={modelStatusLabel} modelReady={modelReady} onRefresh={() => setModelRefresh((value) => value + 1)} batch={generationBatchSize} onBatch={setGenerationBatchSize} consent={hasApiConsent} onConsent={updateApiConsent} blockedReason={generationBlockedReason} remainingBudget={imageBudget?.remainingUsd ?? null} />
+              {productionMethod === 'ai' && generationBlockedReason ? <PromptActions>{!sourceUrl ? <SecondaryButton type="button" onClick={() => setStep('character')}>기준 이미지 준비하기</SecondaryButton> : null}{frameLimitExceeded ? <SecondaryButton type="button" onClick={() => setStep('plan')}>선택 장면 줄이기</SecondaryButton> : null}{pendingOperations.length ? <SecondaryButton type="button" disabled={recoveringOperations || generating} onClick={() => void recoverOperationResults()}>이전 결과 확인</SecondaryButton> : null}</PromptActions> : null}
+              {generationProgress ? <p role="status">{generationProgress}</p> : null}
+              {!missingSlots.length && expectedSlots.length ? <CompletionBanner><CheckCircle2 size={22} /><div><strong>모든 기획 프레임이 준비됐어요</strong><span>문구·재생 시간·반복 흐름을 다듬어 보세요.</span></div><PrimaryButton type="button" onClick={() => setStep('edit')}>프레임 편집 시작 <ArrowRight size={16} /></PrimaryButton></CompletionBanner> : null}
+              <SlotSection><SlotHeader><div><span>프레임 제작 보드</span><strong>장면별 진행 상황</strong></div><FilterBar aria-label="프레임 상태 필터">{([['all', '전체'], ['missing', '미완성'], ['failed', '확인 필요']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={slotFilter === value} onClick={() => setSlotFilter(value)}>{label}</button>)}</FilterBar></SlotHeader><SlotBoard>{expectedSlots.map((slot, index) => {
+                const connected = frames.find((item) => item.sceneId === slot.sceneId && (item.keyframeId ? item.keyframeId === slot.keyframe.id : item.keyframeIndex === slot.keyframeIndex));
+                const operation = [...operations].reverse().find((item) => item.slot?.sceneId === slot.sceneId && item.slot.keyframeId === slot.keyframe.id);
+                const needsAttention = Boolean(operation && !operation.applied);
+                if (slotFilter === 'missing' && connected || slotFilter === 'failed' && !needsAttention) return null;
+                return <SlotCard key={frameSlotKey(slot.sceneId, slot.keyframeIndex, slot.keyframe.id)} type="button" data-status={connected ? 'ready' : 'missing'} $status={connected ? 'ready' : 'missing'} onClick={() => { if (connected) { setSelectedFrameId(connected.id); setStep('edit'); } else if (needsAttention) { void recoverOperationResults(); } else { openFramePicker(slot); } }}><b>{String(index + 1).padStart(2, '0')}</b>{connected ? <img src={connected.url} alt="" /> : <i><ImagePlus size={20} /></i>}<span>{slot.preset.title} · {slot.keyframeIndex + 1}/{slot.preset.frames.length}</span><em>{connected ? '이미지 준비 완료' : needsAttention ? operation?.state === 'failed' ? '실패 확인됨 · 다시 만들 수 있어요' : '결과 확인 필요' : '이미지 가져오기'}</em></SlotCard>;
+              })}</SlotBoard>{slotFilter === 'failed' && !operations.some((item) => item.slot && !item.applied) ? <p role="status">확인이 필요한 프레임이 없어요.</p> : null}{!expectedSlots.length ? <p>장면을 선택하지 않아도 가져온 이미지를 편집할 수 있어요.</p> : null}</SlotSection>
+              {frames.length ? <details><summary>가져온 원본 이미지 {frames.length}장</summary><ThumbGrid aria-label="가져온 결과 이미지">{frames.map((frame, index) => <ThumbButton key={frame.id} type="button" onClick={() => { setSelectedFrameId(frame.id); setStep('edit'); }}><img src={frame.url} alt={`${index + 1}번 ${frameLabel(frame, draft.presets)} 이미지`} /><span>{String(index + 1).padStart(2, '0')} · {frameLabel(frame, draft.presets)}</span></ThumbButton>)}</ThumbGrid></details> : null}
+              <StepFooter><SecondaryButton type="button" onClick={() => setStep('plan')}><ArrowLeft size={16} /> 장면 고르기</SecondaryButton><PrimaryButton type="button" disabled={!canEdit} onClick={() => setStep('edit')}>프레임 편집 <ArrowRight size={16} /></PrimaryButton></StepFooter>
             </StepContent>
           ) : null}
 
@@ -2687,7 +2980,7 @@ export default function SemiAutoEmoticonStudio() {
             <EditorLayout aria-label="프레임 편집 워크스페이스">
               <EditorStatusBar>
                 <div><span>FRAME EDITOR</span><strong>{draft.projectName}</strong></div>
-                <EditorStatus><i /> 자동 저장됨 <b>{frames.length}개 이미지 · {completeCount}/{expectedSlots.length || frames.length} 슬롯</b></EditorStatus>
+                <EditorStatus role="status"><i /> {saveStatus} <b>{frames.length}개 이미지 · {completeCount}/{expectedSlots.length || frames.length} 슬롯</b></EditorStatus>
                 <PrimaryButton type="button" onClick={() => setStep('export')}><FileArchive size={16} /> 검수·내보내기</PrimaryButton>
               </EditorStatusBar>
               <CharacterSourcePanel>
@@ -2697,12 +2990,13 @@ export default function SemiAutoEmoticonStudio() {
                   <span><Upload size={13} /> 교체하기</span>
                 </EditorSourceButton>
                 <CharacterLocks><strong>캐릭터 고정 옵션</strong><div><span><Check /> 얼굴</span><span><Check /> 의상</span><span><Check /> 색상</span></div></CharacterLocks>
-                <SourceSettings><label>생성 수량<select value={Math.min(24, Math.max(1, expectedSlots.length || frames.length))} onChange={() => setStep('plan')}><option>{Math.min(24, Math.max(1, expectedSlots.length || frames.length))}장</option></select></label><small>현재 {frames.length}/{expectedSlots.length || frames.length}장 준비</small></SourceSettings>
+                <SourceSettings><strong>현재 {completeCount}/{expectedSlots.length}프레임 준비</strong><SecondaryButton type="button" onClick={() => setStep('plan')}>장면·프레임 구성 바꾸기</SecondaryButton></SourceSettings>
                 <PrimaryButton type="button" onClick={() => setStep('import')}><Sparkles size={15} /> 이미지 제작</PrimaryButton>
               </CharacterSourcePanel>
               <ResultSidebar>
-                <PanelTitle><div><span>GENERATED IMAGES</span><strong>생성된 이미지 <em>{frames.length}</em></strong></div><IconButton type="button" aria-label="결과 이미지 추가" onClick={() => frameInputRef.current?.click()}><Plus size={17} /></IconButton></PanelTitle>
-                <ResultList>{frames.map((frame, index) => <ResultButton key={frame.id} type="button" $active={frame.id === selectedFrame.id} aria-label={`${index + 1}번 ${frameLabel(frame, draft.presets)} 선택`} onClick={() => { setPreviewing(false); setSelectedFrameId(frame.id); }}><span>{index + 1}</span><img src={frame.url} alt="" /><strong>{frame.durationMs}ms</strong></ResultButton>)}</ResultList>
+                <PanelTitle><div><span>GENERATED IMAGES</span><strong>생성된 이미지 <em>{frames.length}</em></strong></div><IconButton type="button" aria-label="결과 이미지 추가" onClick={() => openFramePicker()}><Plus size={17} /></IconButton></PanelTitle>
+                <ResultList>{frames.map((frame, index) => <BulkFrameRow key={frame.id}><input type="checkbox" aria-label={`${index + 1}번 프레임 일괄 선택`} checked={selectedFrameIds.includes(frame.id)} onChange={(event) => setSelectedFrameIds((ids) => event.target.checked ? [...ids, frame.id] : ids.filter((id) => id !== frame.id))} /><ResultButton type="button" $active={frame.id === selectedFrame.id} aria-label={`${index + 1}번 ${frameLabel(frame, draft.presets)} 선택`} onClick={() => { setPreviewing(false); setSelectedFrameId(frame.id); }}><span>{index + 1}</span><img src={frame.url} alt="" /><strong>{frame.durationMs}ms</strong></ResultButton></BulkFrameRow>)}</ResultList>
+                <BulkControls><label>선택 프레임 시간(ms)<input aria-label="일괄 노출 시간" type="number" min={MIN_FRAME_DURATION_MS} max={3000} step={10} value={bulkDuration} onChange={(event) => setBulkDuration(Math.max(MIN_FRAME_DURATION_MS, Math.min(3000, Number(event.target.value) || 140)))} /></label><SecondaryButton type="button" disabled={!selectedFrameIds.some((id) => frames.some((item) => item.id === id))} onClick={() => { updateFrameMeta(frames.map((item) => selectedFrameIds.includes(item.id) ? { ...item, durationMs: bulkDuration } : item)); toast.success('선택한 프레임의 재생 시간을 바꿨어요. 실행 취소할 수 있어요.'); }}>선택 시간 적용</SecondaryButton><button type="button" onClick={() => setSelectedFrameIds(selectedFrameIds.length === frames.length ? [] : frames.map((item) => item.id))}>전체 선택·해제</button></BulkControls>
                 <SidebarHint>프레임을 선택하면 중앙 캔버스와 속성이 함께 바뀝니다.</SidebarHint>
               </ResultSidebar>
               <CanvasArea>
@@ -2738,9 +3032,9 @@ export default function SemiAutoEmoticonStudio() {
               <Inspector>
                 <InspectorTabs><button type="button" aria-pressed={inspectorTab === 'frame'} onClick={() => setInspectorTab('frame')}>프레임</button><button type="button" aria-pressed={inspectorTab === 'layers'} onClick={() => setInspectorTab('layers')}>레이어</button></InspectorTabs>
                 {inspectorTab === 'frame' ? <>
-                  <InspectorSection><h3>프레임 연결</h3><Field><span>연결할 연출 프레임</span><select value={selectedFrame.sceneId !== null && selectedFrame.keyframeIndex !== null ? `${selectedFrame.sceneId}:${selectedFrame.keyframeIndex}` : ''} onChange={(event) => { const slot = expectedSlots.find((item) => `${item.sceneId}:${item.keyframeIndex}` === event.target.value); updateSelectedFrame(slot ? { sceneId: slot.sceneId, keyframeIndex: slot.keyframeIndex, caption: slot.keyframe.caption, durationMs: slot.keyframe.durationMs } : { sceneId: null, keyframeIndex: null }); }}><option value="">프레임 미지정</option>{expectedSlots.map((slot) => <option key={`${slot.sceneId}:${slot.keyframeIndex}`} value={`${slot.sceneId}:${slot.keyframeIndex}`}>{slot.preset.title} · {slot.keyframeIndex + 1}/{slot.preset.frames.length}</option>)}</select></Field></InspectorSection>
+                  <InspectorSection><h3>프레임 연결</h3><Field><span>연결할 연출 프레임</span><select value={selectedFrame.sceneId !== null && selectedFrame.keyframeIndex !== null ? `${selectedFrame.sceneId}:${selectedFrame.keyframeIndex}` : ''} onChange={(event) => { const slot = expectedSlots.find((item) => `${item.sceneId}:${item.keyframeIndex}` === event.target.value); updateSelectedFrame(getFrameSlotPatch(slot)); }}><option value="">프레임 미지정</option>{expectedSlots.map((slot) => <option key={`${slot.sceneId}:${slot.keyframeIndex}`} value={`${slot.sceneId}:${slot.keyframeIndex}`}>{slot.preset.title} · {slot.keyframeIndex + 1}/{slot.preset.frames.length}</option>)}</select></Field></InspectorSection>
                   <InspectorSection><h3>기본 말풍선</h3><Field><span>표시 문구</span><input value={selectedFrame.caption} maxLength={40} placeholder="표시할 문구를 입력하세요" onChange={(event) => updateSelectedFrame({ caption: event.target.value })} /></Field></InspectorSection>
-                  <InspectorSection><h3>재생 시간</h3><Field><span>노출 시간</span><DurationValue><b>{(selectedFrame.durationMs / 1000).toFixed(2)}</b>초</DurationValue><input type="range" min="100" max="3000" step="50" value={selectedFrame.durationMs} onChange={(event) => updateSelectedFrame({ durationMs: Number(event.target.value) })} /></Field></InspectorSection>
+                  <InspectorSection><h3>재생 시간</h3><Field><span>노출 시간</span><DurationValue><b>{(selectedFrame.durationMs / 1000).toFixed(2)}</b>초</DurationValue><input type="range" min={MIN_FRAME_DURATION_MS} max="3000" step="10" value={selectedFrame.durationMs} onChange={(event) => updateSelectedFrame({ durationMs: Number(event.target.value) })} /></Field></InspectorSection>
                 </> : <>
                   <LayerAddBar><button type="button" onClick={() => layerInputRef.current?.click()}><ImagePlus size={15} /> 사진 추가</button><button type="button" onClick={addSpeechLayer}><MessageSquareText size={15} /> 말풍선 추가</button></LayerAddBar>
                   <LayerList aria-label="현재 프레임 레이어">
@@ -2754,11 +3048,11 @@ export default function SemiAutoEmoticonStudio() {
                 <InspectorNote><CheckCircle2 size={17} /><div><strong>비파괴 레이어 편집</strong><span>드래그·위치·크기·회전 값만 저장하고 원본 이미지는 덮어쓰지 않아요.</span></div></InspectorNote>
                 <PlatformPreviewSection><strong>플랫폼별 실제 비율 미리보기</strong><div>{renderPlatformPreview('kakao')}{renderPlatformPreview('naver')}</div></PlatformPreviewSection>
                 {!hasApiConsent ? <InspectorConsent><input id="editor-openrouter-consent" type="checkbox" checked={hasApiConsent} onChange={(event) => updateApiConsent(event.target.checked)} /><label htmlFor="editor-openrouter-consent">프레임 재생성의 별도 API 과금과 외부 전송을 확인했습니다.</label></InspectorConsent> : null}
-                <RegenerateButton type="button" disabled={!selectedSlot || generating || !hasApiConsent || !currentUser} onClick={() => selectedSlot && void generateFramesWithOpenRouter([selectedSlot], selectedFrame.id)}><Sparkles size={16} /> 이 프레임만 다시 생성<small>{currentUser ? 'OpenRouter 요청 1회 · 기존 이미지는 성공 후 교체' : '로그인 후 사용할 수 있어요 · 기존 이미지는 성공 후 교체'}</small></RegenerateButton>
+                <p>재생성 모델: {selectedGenerationModel} · {generationMode === 'fast' ? '빠른 제작' : '고품질'} · 1장</p><SecondaryButton type="button" onClick={() => { setProductionMethod('ai'); setStep('import'); }}>AI 설정 확인</SecondaryButton><RegenerateButton type="button" disabled={!selectedSlot || generating || importing || !hasApiConsent || !currentUser || !modelReady || !journalReady || frameLimitExceeded} onClick={() => selectedSlot && void generateFramesWithOpenRouter([selectedSlot], selectedFrame.id)}><Sparkles size={16} /> 이 프레임만 다시 생성<small>{currentUser ? 'OpenRouter 요청 1회 · 기존 이미지는 성공 후 교체' : '로그인 후 사용할 수 있어요 · 기존 이미지는 성공 후 교체'}</small></RegenerateButton>
                 <DangerButton type="button" onClick={() => void removeFrame(selectedFrame.id)}><Trash2 size={16} /> 이 프레임 제거</DangerButton>
               </Inspector>
               <Timeline>
-                <TimelineActions><SecondaryButton type="button" onClick={() => frameInputRef.current?.click()}><Plus size={16} /> 프레임 추가</SecondaryButton><PrimaryButton type="button" onClick={() => setPreviewing((value) => !value)}>{previewing ? <Pause size={16} /> : <Play size={16} />} {previewing ? '미리보기 정지' : '움짤 미리보기'}</PrimaryButton><small>드래그 대신 좌우 이동 버튼으로 순서를 안전하게 조정해요.</small></TimelineActions>
+                <TimelineActions><SecondaryButton type="button" onClick={() => openFramePicker()}><Plus size={16} /> 프레임 추가</SecondaryButton><PrimaryButton type="button" onClick={() => setPreviewing((value) => !value)}>{previewing ? <Pause size={16} /> : <Play size={16} />} {previewing ? '미리보기 정지' : '움짤 미리보기'}</PrimaryButton><small>드래그 대신 좌우 이동 버튼으로 순서를 안전하게 조정해요.</small></TimelineActions>
                 <TimelineBody><TimelineHeader><div><span>FRAME TIMELINE</span><strong>순서와 재생 시간</strong></div><span>전체 {(frames.reduce((sum, frame) => sum + frame.durationMs, 0) / 1000).toFixed(2)}초 · {previewing ? '재생 중' : '반복 재생'}</span></TimelineHeader>
                 <TimelineTrack>{frames.map((frame, index) => <TimelineItem key={frame.id} type="button" $active={frame.id === selectedFrame.id} onClick={() => { setPreviewing(false); setSelectedFrameId(frame.id); }}><span>{index + 1}</span><img src={frame.url} alt="" /><small>{(frame.durationMs / 1000).toFixed(2)}초</small></TimelineItem>)}</TimelineTrack></TimelineBody>
                 <TimelineFooter><SecondaryButton type="button" onClick={() => setStep('import')}><ArrowLeft size={16} /> 결과 가져오기</SecondaryButton><PrimaryButton type="button" onClick={() => setStep('export')}>검수·내보내기 <ArrowRight size={16} /></PrimaryButton></TimelineFooter>
@@ -2768,7 +3062,7 @@ export default function SemiAutoEmoticonStudio() {
 
           {step === 'edit' && !selectedFrame ? (
             <StepContent>
-              <SectionHeading><span>STEP 05</span><h1>프레임을 불러오면 움직임 편집기가 열려요</h1><p>편집할 이미지가 없을 때는 빈 캔버스 대신 필요한 데이터와 복구 방법을 안내합니다.</p></SectionHeading>
+              <SectionHeading><span>03 · 만들고 다듬기</span><h1>프레임을 불러오면 움직임 편집기가 열려요</h1><p>편집할 이미지가 없을 때는 빈 캔버스 대신 필요한 데이터와 복구 방법을 안내합니다.</p></SectionHeading>
               <EmptyEditorState>
                 <i><Layers3 size={32} /></i><strong role="status" aria-live="polite">아직 편집할 프레임이 없어요</strong><p>이미지 제작 화면에서 PNG·JPG·WebP를 가져오거나, 기획한 키프레임을 OpenRouter로 생성하면 기존 레이어 편집 워크스페이스가 자동으로 열립니다.</p>
                 <div><SecondaryButton type="button" onClick={() => setStep('plan')}><FileText size={16} /> 기획 화면 보기</SecondaryButton><PrimaryButton type="button" onClick={() => setStep('import')}><Images size={16} /> 이미지 제작 열기</PrimaryButton></div>
@@ -2779,28 +3073,19 @@ export default function SemiAutoEmoticonStudio() {
 
           {step === 'export' ? (
             <StepContent>
-              <SectionHeading><span>STEP 06</span><h1>원본과 작업 정보를 함께 보관해요</h1><p>반자동 Studio는 플랫폼 심사 규격을 임의로 단정하지 않고, 원본 이미지와 편집 manifest를 안전하게 묶어 전달합니다.</p></SectionHeading>
-              {!reviewFrames.length ? <EmptyEditorState><i><Images size={32} /></i><strong role="status">내보낼 프레임이 아직 없어요</strong><p>이미지를 가져오거나 생성하면 GIF·WebP 검수와 프로젝트 ZIP 내보내기가 열립니다.</p><div><SecondaryButton type="button" onClick={() => setStep('plan')}><FileText size={16} /> 기획 확인</SecondaryButton><PrimaryButton type="button" onClick={() => setStep('import')}><Images size={16} /> 이미지 제작 열기</PrimaryButton></div></EmptyEditorState> : null}
-              <ExportHero>
-                <div><FileArchive size={36} /><span>PROPIG PROJECT PACKAGE</span><h2>{draft.projectName}</h2><p>{PLATFORM_LABELS[draft.platform]} 대상 · 내보낼 이미지 {reviewFrames.length}장 · 총 재생 {(reviewFrames.reduce((sum, frame) => sum + frame.durationMs, 0) / 1000).toFixed(1)}초</p></div>
-                <ExportHeroActions><SecondaryButton type="button" disabled={planning || generating || exporting} onClick={() => projectInputRef.current?.click()}><Upload size={17} /> 프로젝트 ZIP 복원</SecondaryButton><PrimaryButton type="button" disabled={!reviewFrames.length && !exporting} onClick={exporting ? () => exportAbortRef.current?.abort() : exportProject}>{exporting ? <X size={17} /> : <Download size={17} />} {exporting ? 'ZIP 만들기 취소' : missingSlots.length ? '부분 프로젝트 ZIP 내보내기' : '프로젝트 ZIP 내보내기'}</PrimaryButton></ExportHeroActions>
-              </ExportHero>
-              <GifPreviewPanel>
-                <div><span>ACTUAL ANIMATION PREVIEW</span><h2>제출 전 실제 GIF로 확인해요</h2><p>현재 레이어 위치·크기·말풍선·프레임별 노출 시간을 브라우저에서 합성해 무한 반복 GIF로 만듭니다.</p><small>{submissionProfile.title} · {submissionProfile.width}×{submissionProfile.height}px · {reviewFrames.length}프레임</small></div>
-                <GifPreviewStage>{gifPreviewUrl ? <img src={gifPreviewUrl} alt={`${draft.projectName} 실제 GIF 미리보기`} /> : <div><Play size={30} /><strong>아직 GIF를 만들지 않았어요</strong><span>버튼을 누르면 외부 전송 없이 이 브라우저에서 인코딩합니다.</span></div>}</GifPreviewStage>
-                <GifPreviewActions><PrimaryButton type="button" disabled={!reviewFrames.length || previewEncoding} onClick={() => void createGifPreview()}>{previewEncoding ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} {previewEncoding ? gifEncodingProgress || 'GIF 만드는 중…' : gifPreviewUrl ? 'GIF 다시 만들기' : '실제 GIF 미리보기 만들기'}</PrimaryButton>{previewEncoding ? <SecondaryButton type="button" onClick={() => gifAbortRef.current?.abort()}><X size={16} /> Worker 인코딩 취소</SecondaryButton> : <SecondaryButton type="button" disabled={!gifPreviewBlob} onClick={() => gifPreviewBlob && downloadBlob(gifPreviewBlob, `${draft.projectName || 'propig-emoticon'}-preview.gif`)}><Download size={16} /> GIF만 다운로드</SecondaryButton>}{draft.platform === 'kakao' ? <SecondaryButton type="button" disabled={!gifPreviewBlob || webpEncoding || !currentUser} onClick={() => webpPreviewBlob ? downloadBlob(webpPreviewBlob, `${draft.projectName || 'propig-emoticon'}-animated.webp`) : void createWebpPreview()}>{webpEncoding ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />} {!currentUser ? '로그인 후 WebP 변환' : webpEncoding ? 'WebP 변환 중…' : webpPreviewBlob ? 'animated WebP 다운로드' : 'animated WebP 자동 변환'}</SecondaryButton> : null}</GifPreviewActions>
-              </GifPreviewPanel>
-              <ExportGrid>
-                <ExportCard><CheckCircle2 /><strong>제출용 합성 PNG</strong><span>{submissionProfile.width}×{submissionProfile.height}px로 모든 레이어를 합성한 프레임을 포함합니다.</span></ExportCard>
-                <ExportCard><CheckCircle2 /><strong>장면별 실제 GIF</strong><span>각 장면의 노출 시간을 반영한 GIF를 animations 폴더에 나눠 포함합니다. 카카오는 검수용이며 공식 WebP 변환이 필요해요.</span></ExportCard>
-                <ExportCard><CheckCircle2 /><strong>레이어 manifest v3</strong><span>사진·말풍선·위치·크기·회전·투명도와 원본 파일을 보존합니다.</span></ExportCard>
-                <ExportCard><CheckCircle2 /><strong>원본·프롬프트</strong><span>기준 캐릭터, 생성 원본과 장면별 제작 지시를 함께 보관합니다.</span></ExportCard>
-              </ExportGrid>
-              <ReviewList><li data-done={Boolean(draft.sourceName)}><span>{draft.sourceName ? <Check /> : <X />}</span> 캐릭터 기준 이미지</li><li data-done={draft.selectedSceneIds.length > 0}><span><Check /></span> 움짤 연출 {draft.selectedSceneIds.length}개 · 기획 프레임 {expectedSlots.length}장</li><li data-done={frames.length > 0}><span>{frames.length ? <Check /> : <X />}</span> 합성할 결과 이미지 {frames.length}개 · 추가 레이어 {frames.reduce((sum, item) => sum + item.layers.length, 0)}개</li><li data-done={!missingSlots.length && expectedSlots.length > 0}><span>{!missingSlots.length && expectedSlots.length > 0 ? <Check /> : <X />}</span> 기획 슬롯 {completeCount}/{expectedSlots.length} 충족</li><li data-done={platformFrameGuidePass}><span>{platformFrameGuidePass ? <Check /> : <X />}</span> {draft.platform === 'kakao' ? `카카오 장면별 프레임 참고값 최대 ${maxSceneFrameCount}/24` : draft.platform === 'naver' ? `OGQ 장면별 최대 ${(maxSceneDurationMs / 1000).toFixed(2)}/3초 · ${maxSceneFrameCount}/100프레임` : '선택 플랫폼 작업 캔버스 확인'}</li><li data-done={Boolean(gifPreviewUrl)}><span>{gifPreviewUrl ? <Check /> : <X />}</span> 실제 GIF 반복 재생 검수 {gifPreviewUrl ? '완료' : '필요'}</li></ReviewList>
-              <ExportWarning><strong>{PLATFORM_LABELS[draft.platform]} 제출 전 마지막 확인</strong><p>{officialGuide.checkedAt} 공식 가이드 기준: {officialGuide.summary} ZIP의 submission/{draft.platform} 폴더에는 합성 PNG와 장면별 GIF가 포함됩니다. 규격 참고값을 확인한 작업 패키지이며, 심사 통과나 제출 완료를 보장하지 않습니다.</p><a href={officialGuide.url} target="_blank" rel="noreferrer">현재 공식 가이드에서 다시 확인 <ExternalLink size={14} /></a></ExportWarning>
-              <StepFooter><SecondaryButton type="button" onClick={() => setStep('edit')}><ArrowLeft size={16} /> 프레임 편집</SecondaryButton><PrimaryButton type="button" disabled={!reviewFrames.length || exporting} onClick={exportProject}><FileArchive size={16} /> {missingSlots.length ? '부분 ZIP 내보내기' : 'ZIP 내보내기'}</PrimaryButton></StepFooter>
+              <SectionHeading><span>04 · 검수하고 받기</span><h1>움직임을 확인하고 파일을 받아요</h1><p>다시 편집할 작업 백업과 플랫폼용 결과를 나누어 받을 수 있어요.</p></SectionHeading>
+              {!reviewFrames.length ? <EmptyEditorState><i><Images size={32} /></i><strong role="status">내보낼 프레임이 아직 없어요</strong><p>이미지를 가져오면 장면별 재생과 결과 다운로드가 열려요. 현재 기획은 작업 백업으로 보관할 수 있어요.</p><div><SecondaryButton type="button" onClick={() => projectInputRef.current?.click()}>작업 ZIP 불러오기</SecondaryButton><PrimaryButton type="button" onClick={() => openFramePicker()}><Images size={16} /> 이미지 가져오기</PrimaryButton><SecondaryButton type="button" disabled={exporting || importing} onClick={exportWorkingBackup}>현재 기획 백업</SecondaryButton></div></EmptyEditorState> : <>
+              <ExportHero><div><FileArchive size={30} /><h2>{draft.projectName}</h2><p>{PLATFORM_LABELS[draft.platform]} · 선택한 결과 {reviewFrames.length}장</p><small>작업 백업: 모든 원본·기획·편집 정보 / 플랫폼 결과: 선택한 장면의 합성 이미지·움짤 포함</small></div><ExportHeroActions><SecondaryButton type="button" disabled={exporting || importing} onClick={exportWorkingBackup}>작업 백업 받기</SecondaryButton><PrimaryButton type="button" onClick={exporting ? () => exportAbortRef.current?.abort() : exportProject}>{exporting ? <X size={17} /> : <Download size={17} />}{exporting ? 'ZIP 만들기 취소' : missingSlots.length ? '플랫폼 부분 결과 받기' : '플랫폼 결과 받기'}</PrimaryButton></ExportHeroActions></ExportHero>
+              <ReviewProblems aria-label="검수 항목"><h2>먼저 확인해 주세요</h2>{missingSlots.length ? <div data-level="error"><strong>미완성 {missingSlots.length}프레임</strong><span>{missingSlots.slice(0, 3).map((slot) => `${slot.preset.title} ${slot.keyframeIndex + 1}번`).join(', ')}</span><SecondaryButton type="button" onClick={() => { setSlotFilter('missing'); setStep('import'); }}>미완성 위치 보기</SecondaryButton></div> : <p>선택한 장면의 모든 프레임이 연결됐어요.</p>}{reviewFrames.some((item) => item.sceneId === null) ? <div data-level="warning"><strong>장면에 연결하지 않은 이미지 {reviewFrames.filter((item) => item.sceneId === null).length}장</strong><span>플랫폼 결과에 포함되며 별도 장면으로 묶입니다.</span><SecondaryButton type="button" onClick={() => { setSelectedFrameId(reviewFrames.find((item) => item.sceneId === null)?.id || null); setStep('edit'); }}>연결 수정</SecondaryButton></div> : null}{!platformFrameGuidePass ? <div data-level="warning"><strong>장면 길이 또는 프레임 수를 확인해 주세요</strong><span>최대 {(maxSceneDurationMs / 1000).toFixed(2)}초 · {maxSceneFrameCount}프레임</span><SecondaryButton type="button" onClick={() => { const issue = reviewFrames.find((item) => { const stat = sceneAnimationStats.get(item.sceneId || 'unassigned'); return stat && (draft.platform === 'naver' ? stat.durationMs > 3000 || stat.frameCount > 100 : stat.frameCount > 24); }); setSelectedFrameId(issue?.id || null); setStep('edit'); }}>해당 장면 수정</SecondaryButton></div> : null}<div data-level="unchecked"><strong>사람의 확인이 필요한 항목</strong><span>캐릭터 일관성, 투명 배경 가장자리, 문구 가독성, 플랫폼별 파일 용량과 제출 구성</span></div></ReviewProblems>
+              <Field><span>미리 볼 장면</span><select aria-label="미리 볼 장면" value={reviewSceneId} onChange={(event) => setReviewSceneId(event.target.value)}><option value="all">선택한 장면 전체 이어 보기</option>{draft.presets.filter((preset) => reviewFrames.some((item) => item.sceneId === preset.id)).map((preset) => <option key={preset.id} value={preset.id}>{preset.title}</option>)}{reviewFrames.some((item) => item.sceneId === null) ? <option value="unassigned">연결하지 않은 이미지</option> : null}</select></Field>
+              <GifPreviewPanel><div><h2>실제 움직임 미리보기</h2><p>현재 위치·크기·말풍선·재생 시간을 반영해요.</p><small>{submissionProfile.width}×{submissionProfile.height}px · {previewFrames.length}프레임 · GIF 생성 후 눈으로 확인해 주세요.</small></div><GifPreviewStage>{gifPreviewUrl ? <img src={gifPreviewUrl} alt={`${draft.projectName} 실제 GIF 미리보기`} /> : <div><Play size={30} /><strong>움직임을 확인해 보세요</strong><span>GIF는 외부 전송 없이 이 브라우저에서 만들어요.</span></div>}</GifPreviewStage><GifPreviewActions><PrimaryButton type="button" disabled={!previewFrames.length || previewEncoding} onClick={() => void createGifPreview()}>{previewEncoding ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />}{previewEncoding ? gifEncodingProgress || 'GIF 만드는 중…' : gifPreviewUrl ? 'GIF 다시 만들기' : '실제 GIF 미리보기 만들기'}</PrimaryButton>{previewEncoding ? <SecondaryButton type="button" onClick={() => gifAbortRef.current?.abort()}>GIF 만들기 취소</SecondaryButton> : <SecondaryButton type="button" disabled={!gifPreviewBlob} onClick={() => gifPreviewBlob && downloadBlob(gifPreviewBlob, `${draft.projectName || 'propig-emoticon'}-preview.gif`)}><Download size={16} />GIF만 다운로드</SecondaryButton>}{draft.platform === 'kakao' ? <SecondaryButton type="button" disabled={!gifPreviewBlob || webpEncoding || !currentUser} onClick={() => webpPreviewBlob ? downloadBlob(webpPreviewBlob, `${draft.projectName || 'propig-emoticon'}-animated.webp`) : void createWebpPreview()}>{!currentUser ? '로그인 후 WebP 변환' : webpEncoding ? 'WebP 변환 중…' : webpPreviewBlob ? 'animated WebP 다운로드' : 'animated WebP 자동 변환'}</SecondaryButton> : null}{gifPreviewBlob ? <small>미리보기 생성됨 · {(gifPreviewBlob.size / 1024).toFixed(1)}KB · 육안 검수 필요</small> : null}</GifPreviewActions></GifPreviewPanel>
+              <details><summary>결과 파일과 규격 자세히 보기</summary><ExportGrid><ExportCard><CheckCircle2 /><strong>제출용 합성 PNG</strong><span>{submissionProfile.width}×{submissionProfile.height}px로 레이어를 합성합니다.</span></ExportCard><ExportCard><CheckCircle2 /><strong>장면별 GIF</strong><span>장면마다 재생 시간을 반영합니다. 카카오 제출 전 WebP 규격도 확인해 주세요.</span></ExportCard><ExportCard><CheckCircle2 /><strong>편집 정보·원본</strong><span>위치·크기·회전·투명도와 제작 지시를 보관합니다.</span></ExportCard></ExportGrid><ExportWarning><strong>{PLATFORM_LABELS[draft.platform]} 공식 제출 기준 확인</strong><p>{officialGuide.checkedAt} 확인한 참고값: {officialGuide.summary} 플랫폼 결과는 작업 패키지이며 제출 완료를 뜻하지 않아요.</p><a href={officialGuide.url} target="_blank" rel="noreferrer">현재 공식 가이드 열기 <ExternalLink size={14} /></a></ExportWarning></details>
+              <StepFooter><SecondaryButton type="button" onClick={() => setStep('edit')}><ArrowLeft size={16} />프레임 편집</SecondaryButton><PrimaryButton type="button" disabled={exporting} onClick={exportProject}>{missingSlots.length ? '플랫폼 부분 결과 받기' : '플랫폼 결과 받기'}</PrimaryButton></StepFooter>
+              </>}
             </StepContent>
           ) : null}
+          </WorkArea>
+          {!keyboardOpen && assetReady && !storageConflict ? <MobileAction><small>{PLATFORM_LABELS[draft.platform]} · {saveStatus}</small><PrimaryButton type="button" disabled={importing || exporting || (step === 'plan' && (!draft.selectedSceneIds.length || frameLimitExceeded)) || (step === 'import' && productionMethod === 'ai' && Boolean(generationBlockedReason) && !generating)} onClick={() => { if (step === 'project' || step === 'character') setStep('plan'); else if (step === 'plan') setStep('import'); else if (step === 'edit') setStep('export'); else if (step === 'export') { if (reviewFrames.length) void exportProject(); else openFramePicker(); } else if (productionMethod === 'ai') { if (generating) generationAbortRef.current?.abort(); else void generateFramesWithOpenRouter(); } else openFramePicker(); }}>{step === 'project' || step === 'character' ? '장면 고르기' : step === 'plan' ? '이 장면으로 만들기' : step === 'edit' ? '검수하고 받기' : step === 'export' ? reviewFrames.length ? '플랫폼 결과 받기' : '이미지 가져오기' : productionMethod === 'ai' ? generating ? '추가 생성 중지' : `${Math.min(generationBatchSize, missingSlots.length)}장 자동 생성` : '이미지 여러 장 선택'}</PrimaryButton></MobileAction> : null}
         </Workspace>
       </StudioBody>
     </StudioRoot>
@@ -2825,6 +3110,9 @@ const StudioRoot = styled.main`
   scrollbar-gutter:stable;
   background: var(--studio-bg);
   color: var(--studio-text);
+  button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid #6130c9;outline-offset:3px}
+  input,button,select,textarea,a{scroll-margin-top:100px;scroll-margin-bottom:110px}
+  @media(max-width:900px){padding-bottom:100px}
   @media(max-width:900px){
     a[href],button,input:not([type="file"]),select{min-height:44px}
     a[href]{display:inline-flex;align-items:center}
@@ -2846,7 +3134,7 @@ const TopBar = styled.header`
   box-shadow:0 1px 4px rgba(24,32,55,.05);
   @media (max-width: 1180px) { grid-template-columns: minmax(280px,auto) minmax(180px,1fr) auto auto; >:nth-child(4){display:none} }
   @media (max-width: 940px) { grid-template-columns: minmax(230px,1fr) auto; >:nth-child(2),>:nth-child(3),>:nth-child(4){display:none} }
-  @media (max-width: 720px) { min-height: auto; padding: 12px 14px; gap: 10px; }
+  @media (max-width: 720px) { position:relative;grid-template-columns:1fr;min-height:auto;padding:10px 12px;gap:8px;>div:last-child{justify-content:space-between;>button{width:auto;padding:0 10px;font-size:.78rem}} }
 `;
 const TopStart = styled.div`min-width:0;display:flex;align-items:center;gap:10px`;
 const AdminHomeLink = styled.a`min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #dcd5eb;border-radius:9px;background:#fff;padding:0 10px;color:#4f3d76;font-size:.66rem;font-weight:900;text-decoration:none;white-space:nowrap;box-shadow:0 1px 3px rgba(41,30,72,.06);&:hover{border-color:#8b5cf6;background:#f7f3ff;color:#6230cd}&:focus-visible{outline:3px solid #5b21b6;outline-offset:2px}@media(max-width:480px){padding:0 8px;span{font-size:.62rem}}`;
@@ -2857,7 +3145,7 @@ const ProjectNameInput = styled.input`min-width:0;border:0;background:transparen
 const TopPlatforms = styled.div`height:42px;display:flex;border:1px solid var(--studio-line);border-radius:8px;background:#fff;overflow:hidden;button{min-width:104px;border:0;border-right:1px solid var(--studio-line);background:#fff;color:#4e5669;padding:0 11px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:.66rem;font-weight:850;cursor:pointer}button:last-child{border-right:0}button[aria-pressed=true]{background:#f7f3ff;color:#6330d4}b{font-size:.7rem}`;
 const ProductionMode = styled.div`height:42px;border:1px solid #e4dcfb;border-radius:8px;background:#faf8ff;color:#6d35e8;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:.66rem;font-weight:900;white-space:nowrap`;
 const TopMeta = styled.div`display:flex;align-items:center;justify-content:flex-end;gap:8px;@media(max-width:720px){.desktop-only,.mobile-hide,.top-export:disabled{display:none}}`;
-const SaveState = styled.span`display:flex;align-items:center;gap:5px;color:#177a50;font-size:.62rem;font-weight:850;white-space:nowrap;@media(max-width:760px){display:none}`;
+const SaveState = styled.span`display:flex;align-items:center;gap:5px;color:#177a50;font-size:.75rem;font-weight:750;white-space:nowrap;&[data-error=true]{color:#ad2b30}`;
 const BudgetMeta = styled.div`min-width:92px;height:42px;border:1px solid var(--studio-line);border-radius:8px;padding:5px 9px;display:grid;align-content:center;gap:1px;small{color:#596174;font-size:.48rem}strong{color:#4c5364;font-size:.57rem}@media(max-width:1080px){display:none}`;
 const PrimaryButton = styled.button`min-height:44px;border:1px solid #7138d8;border-radius:9px;background:#7138d8;padding:0 15px;color:#fff;font-weight:900;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;&:hover:not(:disabled){background:#7c3aed}&:focus-visible{outline:2px solid #fff;outline-offset:2px}&:disabled{cursor:not-allowed;opacity:.42}@media(max-width:560px){width:100%}`;
 const SecondaryButton = styled.button`min-height:44px;border:1px solid var(--studio-line);border-radius:8px;background:#fff;padding:0 14px;color:#596174;font-weight:850;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;&:hover:not(:disabled){border-color:#b9a4ed;background:#faf8ff;color:#6935da}&:focus-visible{outline:2px solid #8b5cf6;outline-offset:2px}&:disabled{opacity:.4}@media(max-width:560px){width:100%}`;
@@ -2866,12 +3154,10 @@ const StepRail = styled.nav`border-right:1px solid var(--studio-line);background
 const StepButton = styled.button<{ $active:boolean;$done:boolean }>`position:relative;min-height:76px;border:0;border-radius:9px;background:${p=>p.$active?'#f4efff':'transparent'};padding:8px 4px;color:${p=>p.$active?'#6733d7':'#4e5668'};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;cursor:pointer;i{position:relative;width:31px;height:27px;display:grid;place-items:center;font-style:normal;color:${p=>p.$active?'#6733d7':'#4f586b'}}i b{position:absolute;right:-7px;top:-7px;width:17px;height:17px;border:2px solid #fff;border-radius:50%;display:grid;place-items:center;background:${p=>p.$active?'#6d35e8':'#f1f2f6'};color:${p=>p.$active?'#fff':'#50596b'};font-size:.48rem}strong{font-size:.62rem;white-space:nowrap}&:hover{background:#f7f5fc}&:focus-visible{outline:2px solid #8b5cf6}`;
 const RailGuide = styled.aside`display:none`;
 const Workspace = styled.div`min-width:0;min-height:0;overflow:visible`;
-const MobileProgress = styled.nav`display:none;@media(max-width:900px){display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--studio-line);background:linear-gradient(90deg,#fff 0,#fff calc(100% - 26px),#eee8fd 100%);position:sticky;top:60px;z-index:15;overflow-x:auto;scrollbar-width:thin;>small{flex:0 0 auto;min-height:44px;padding:0 10px;border-radius:9px;background:#f5f0ff;color:#5b2bc5;display:flex;align-items:center;font-size:.64rem;font-weight:900}button{flex:0 0 auto;min-height:44px;border:1px solid var(--studio-line);border-radius:9px;background:#fff;padding:0 11px;color:#596174;font-size:.68rem;font-weight:850;display:flex;align-items:center;gap:6px;cursor:pointer}button span{width:20px;height:20px;border-radius:50%;background:#f0f1f5;display:grid;place-items:center;font-size:.58rem}button[aria-current=step]{border-color:#6d35e8;background:#f5f0ff;color:#5322b8}button[aria-current=step] span{background:#6d35e8;color:#fff}button:focus-visible{outline:2px solid #6030c7;outline-offset:1px}}`;
+const MobileProgress = styled.nav`display:none;@media(max-width:900px){display:grid;gap:7px;padding:10px 12px;background:#fff;border-bottom:1px solid var(--studio-line);small{font-size:.76rem;color:var(--studio-muted)}div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}button{min-width:0;min-height:48px;border:1px solid var(--studio-line);border-radius:8px;background:#fff;padding:6px 3px;color:#596174;font-size:.7rem;line-height:1.35;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}button span{font-size:.65rem}button[aria-current=step]{border-color:#6d35e8;background:#f5f0ff;color:#5322b8;font-weight:800}}`;
+
 const StepContent = styled.section`width:min(1180px,100%);margin:0 auto;padding:clamp(24px,4vw,54px);@media(max-width:560px){padding:22px 14px 96px}`;
 const SectionHeading = styled.header.attrs({ tabIndex: -1, 'data-step-heading': '' })`max-width:760px;margin-bottom:28px;outline:none;span{color:#6030c7;font-size:.68rem;font-weight:950;letter-spacing:.12em}h1{margin:8px 0 0;font-size:clamp(1.65rem,3vw,2.65rem);line-height:1.13;letter-spacing:-.035em}p{margin:12px 0 0;color:#56647a;font-size:.92rem;line-height:1.65;word-break:keep-all}`;
-const FlowGuide = styled.aside`margin:-8px 0 20px;border:1px solid var(--studio-line);border-radius:14px;background:var(--studio-panel);padding:16px;display:grid;gap:12px;>strong{font-size:.78rem}ol{margin:0;padding:0;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;list-style:none}li{min-width:0;border:1px solid var(--studio-line);border-radius:9px;background:rgba(255,255,255,.025);padding:10px;display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start}b{width:23px;height:23px;border-radius:7px;background:#eee8fd;color:#5b2bc5;display:grid;place-items:center;font-size:.62rem}li span{color:var(--studio-text);font-size:.67rem;font-weight:850;display:grid;gap:4px}small{color:var(--studio-muted);font-size:.57rem;line-height:1.42;font-weight:650}@media(max-width:920px){ol{grid-template-columns:repeat(2,1fr)}li:last-child{grid-column:1/-1}}@media(max-width:520px){display:none;ol{grid-template-columns:1fr}li:last-child{grid-column:auto}}`;
-const ProjectGrid = styled.div`display:grid;grid-template-columns:minmax(280px,.82fr) minmax(360px,1.18fr);gap:20px;@media(max-width:820px){grid-template-columns:1fr}`;
-const ProjectOverview = styled.aside`min-height:410px;border:1px solid #ded3f8;border-radius:16px;background:radial-gradient(circle at 30% 25%,rgba(139,92,246,.14),transparent 35%),linear-gradient(145deg,#fbf9ff,#fff);padding:32px;display:flex;flex-direction:column;align-items:flex-start;gap:9px;>span{margin-top:14px;color:#7c4be8;font-size:.58rem;font-weight:950;letter-spacing:.11em}h2{margin:0;color:#2e3444;font-size:1.55rem;line-height:1.25}p{margin:0;color:#566174;font-size:.78rem;line-height:1.65}ul{width:100%;margin:auto 0 0;padding:16px 0 0;border-top:1px solid #e7e2f3;display:grid;gap:10px;list-style:none}li{display:flex;align-items:center;gap:8px;color:#555e72;font-size:.72rem;font-weight:850}li svg{color:#22b573}@media(max-width:820px){order:2;min-height:0;padding:22px} `;
 const CharacterGrid = styled.div`display:grid;grid-template-columns:minmax(280px,.82fr) minmax(360px,1.18fr);gap:20px;@media(max-width:820px){grid-template-columns:1fr}`;
 const UploadCard = styled.button`position:relative;min-height:430px;border:1px dashed #b9a4ed;border-radius:14px;background:radial-gradient(circle at 50% 45%,#faf7ff,transparent 58%),#fff;color:#7641df;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;img{width:100%;height:100%;position:absolute;inset:0;object-fit:contain;padding:18px}strong{color:#34394a}span{color:#566174;font-size:.78rem}&:focus-visible{outline:2px solid #8b5cf6;outline-offset:3px}`;
 const UploadOverlay = styled.i`position:absolute!important;left:50%;bottom:18px;transform:translateX(-50%);z-index:2;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(4,10,21,.78);padding:9px 13px;color:#fff;display:flex;gap:7px;align-items:center;font-size:.72rem;font-weight:900;font-style:normal;backdrop-filter:blur(10px)`;
@@ -2902,22 +3188,10 @@ const AiModeGrid = styled.div`display:grid;grid-template-columns:1fr 1fr;gap:12p
 const AiModeCard = styled.article<{ $api?:boolean }>`border:1px solid ${p=>p.$api?'rgba(167,139,250,.42)':'var(--studio-line)'};border-radius:12px;background:${p=>p.$api?'rgba(139,92,246,.08)':'rgba(255,255,255,.025)'};padding:17px;display:grid;grid-template-columns:auto 1fr;gap:6px 11px;align-items:center;i{grid-row:1/4;width:38px;height:38px;border-radius:10px;background:${p=>p.$api?'rgba(139,92,246,.16)':'rgba(52,211,153,.12)'};color:${p=>p.$api?'#6d28d9':'#047857'};display:grid;place-items:center;font-style:normal}span{font-size:.58rem;color:#74869d;font-weight:950;letter-spacing:.08em}strong{font-size:.87rem}p{grid-column:1/-1;margin:8px 0;color:#59677b;font-size:.71rem;line-height:1.55}button,a{grid-column:1/-1}a{min-height:44px;border:1px solid var(--studio-line);border-radius:8px;color:#4f46a5;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:7px;font-size:.72rem;font-weight:850}`;
 const ConsentBox = styled.div`border:1px solid rgba(245,158,11,.3);border-radius:10px;background:rgba(245,158,11,.07);padding:13px;display:flex;gap:10px;align-items:flex-start;input{margin-top:4px;width:18px;height:18px;accent-color:#8b5cf6}label{display:flex;gap:9px;color:#7a4b00;cursor:pointer;svg{flex:0 0 auto}span{display:grid;gap:4px}strong{font-size:.75rem}small{color:#6f5730;font-size:.67rem;line-height:1.45}}`;
 const JsonImporter = styled.div`border-top:1px solid var(--studio-line);padding-top:17px;display:grid;grid-template-columns:1fr auto;gap:10px;div{display:grid;gap:4px}strong{font-size:.8rem}span{color:#566174;font-size:.68rem}textarea{grid-column:1/-1;min-height:130px;border:1px solid var(--studio-line);border-radius:9px;background:#071426;color:#dce7f4;padding:12px;font:600 .7rem/1.5 monospace;resize:vertical;outline:none}button{grid-column:2}@media(max-width:560px){grid-template-columns:1fr;button{grid-column:1}}`;
-const GenerationOverview = styled.section`display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;>div{border:1px solid var(--studio-line);border-radius:12px;background:var(--studio-panel);padding:15px;display:grid;gap:5px}span{color:#566174;font-size:.62rem;font-weight:900}strong{color:var(--studio-text);font-size:1.55rem;line-height:1}small{color:#566174;font-size:.62rem;line-height:1.4}@media(max-width:760px){grid-template-columns:repeat(2,minmax(0,1fr))}`;
 const CompletionBanner = styled.section`margin:0 0 12px;border:1px solid rgba(52,211,153,.28);border-radius:12px;background:rgba(16,185,129,.08);padding:14px 16px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;color:#047857;div{display:grid;gap:3px}strong{color:#136c4b;font-size:.83rem}span{color:#315f50;font-size:.67rem;line-height:1.45}button{min-width:170px}@media(max-width:620px){grid-template-columns:auto 1fr;button{grid-column:1/-1;width:100%}}`;
-const GenerationChoice = styled.div`display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;@media(max-width:760px){grid-template-columns:1fr}`;
-const GenerationChoiceCard = styled.article<{ $api?:boolean }>`border:1px solid ${p=>p.$api?'rgba(139,92,246,.48)':'var(--studio-line)'};border-radius:13px;background:${p=>p.$api?'#f6f3ff':'var(--studio-panel)'};padding:17px;display:grid;grid-template-columns:40px 1fr;gap:11px;align-items:start;i{width:40px;height:40px;border-radius:10px;background:#e9e1fc;color:#6030c7;display:grid;place-items:center;font-style:normal}div{display:grid;gap:4px}span{color:#566174;font-size:.58rem;font-weight:950;letter-spacing:.08em}strong{font-size:.82rem}p{margin:0;color:#566174;font-size:.68rem;line-height:1.45}button{grid-column:1/-1;margin-top:5px}.spin{animation:studio-spin 1s linear infinite}@keyframes studio-spin{to{transform:rotate(360deg)}}`;
-const ModePicker = styled.div`grid-column:1/-1!important;display:grid!important;grid-template-columns:1fr 1fr;gap:7px!important;margin-top:4px;button{grid-column:auto!important;margin:0!important;min-height:54px;border:1px solid var(--studio-line);border-radius:9px;background:#fff;padding:8px 10px;color:#4f5b6f;display:grid;grid-template-columns:auto 1fr;gap:2px 7px;align-items:center;text-align:left;cursor:pointer;svg{grid-row:1/3}span{color:inherit;font-size:.68rem;letter-spacing:0}small{color:#59677b;font-size:.56rem} &[aria-pressed=true]{border-color:#6d35e8;background:#6d35e8;color:#fff} &[aria-pressed=true] small{color:#f3efff}}`;
-const ModelPicker = styled.div`grid-column:1/-1!important;display:grid!important;grid-template-columns:auto 1fr;align-items:center;gap:6px 10px!important;margin-top:3px;label{color:#566174;font-size:.62rem;font-weight:900}select{min-width:0;height:38px;border:1px solid var(--studio-line);border-radius:8px;background:var(--studio-bg);padding:0 9px;color:var(--studio-text);font-size:.66rem;font-weight:800;outline:none}small{grid-column:1/-1;color:#746b92;font:700 .56rem/1.4 monospace;overflow-wrap:anywhere}`;
-const BatchPicker = styled.div`grid-column:1/-1!important;display:grid!important;grid-template-columns:repeat(4,1fr);gap:6px!important;margin-top:3px;button{grid-column:auto!important;min-height:44px!important;margin:0!important;border:1px solid var(--studio-line);border-radius:8px;background:#fff;color:#4f5b6f;font-size:.68rem;font-weight:900;cursor:pointer}button[aria-pressed=true]{border-color:#6d35e8;background:#6d35e8;color:#fff}button:disabled{opacity:.45;cursor:not-allowed}`;
-const GenerationStates = styled.ul`margin:0 0 13px;padding:13px;border:1px solid var(--studio-line);border-radius:10px;background:#fff;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;list-style:none;>strong{grid-column:1/-1;color:#34394a;font-size:.72rem;margin-bottom:3px}li{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--studio-line);border-radius:7px;padding:8px 9px;color:#4f5b6f;font-size:.65rem}b{color:#4f5b6f;font-size:.62rem}li[data-status='generating'] b{color:#075985}li[data-status='completed'] b{color:#136c4b}li[data-status='failed'] b,li[data-status='cancelled'] b{color:#b42318}@media(max-width:640px){grid-template-columns:1fr}`;
-const InlineConsent = styled.div`margin:0 0 16px;border:1px solid #d7ad55;border-radius:9px;background:#fff9eb;padding:11px 13px;display:flex;gap:8px;color:#6b4700;font-size:.7rem;font-weight:800;input{accent-color:#8b5cf6}`;
 const PromptPreview = styled.div`margin-top:18px;border:1px solid rgba(139,92,246,.34);border-radius:13px;background:linear-gradient(120deg,rgba(139,92,246,.12),rgba(12,24,43,.92));padding:20px;display:flex;align-items:center;gap:20px;>div:first-child{display:grid;gap:5px;margin-right:auto}span{color:#d8ccff;font-size:.62rem;font-weight:950;letter-spacing:.1em}strong{color:#fff;font-size:1rem}p{margin:0;color:#899ab1;font-size:.75rem;line-height:1.45}@media(max-width:720px){align-items:stretch;flex-direction:column}`;
 const PromptActions = styled.div`display:flex;gap:8px;flex:0 0 auto;@media(max-width:560px){flex-direction:column}`;
 const StepFooter = styled.footer`display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--studio-line);@media(max-width:560px){position:static;padding:14px 0 0;background:transparent;button{width:auto;flex:1}}`;
-const BridgeGrid = styled.div`display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:12px;align-items:center;@media(max-width:900px){grid-template-columns:1fr}.bridge-arrow{transform:rotate(90deg)}`;
-const BridgeCard = styled.article`min-height:250px;border:1px solid var(--studio-line);border-radius:14px;background:var(--studio-panel);padding:22px;display:flex;flex-direction:column;align-items:flex-start;gap:9px;i{width:42px;height:42px;border-radius:11px;background:rgba(139,92,246,.13);display:grid;place-items:center;color:#7950d6;font-style:normal}span{color:#64748b;font-size:.64rem;font-weight:950}strong{font-size:1rem}p{margin:0 0 auto;color:#566174;font-size:.76rem;line-height:1.55}a{min-height:42px;border:1px solid #7138d8;border-radius:9px;background:#7138d8;padding:0 14px;display:inline-flex;align-items:center;gap:7px;color:#fff;text-decoration:none;font-size:.78rem;font-weight:900}`;
-const BridgeArrow = styled.div`color:#475569;@media(max-width:900px){display:none}`;
-const ImportSummary = styled.div`margin-top:18px;border:1px solid var(--studio-line);border-radius:12px;background:#fff;padding:18px;display:grid;grid-template-columns:auto 1fr;gap:8px 18px;align-items:center;div{display:flex;align-items:baseline;gap:7px}strong{font-size:1.5rem;color:#6d35e8}span,p{color:#566174;font-size:.72rem}progress{width:100%;height:8px;accent-color:#8b5cf6}p{grid-column:1/-1;margin:0}`;
 const SlotSection = styled.section`margin-top:18px;border:1px solid var(--studio-line);border-radius:14px;background:var(--studio-panel);padding:16px`;
 const SlotHeader = styled.header`display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:12px;div{display:grid;gap:4px}span{color:#6030c7;font-size:.58rem;font-weight:950;letter-spacing:.1em}strong{font-size:.9rem}small{color:#566174;font-size:.65rem}@media(max-width:620px){align-items:start;flex-direction:column}`;
 const SlotBoard = styled.div`display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;@media(max-width:980px){grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:560px){display:flex;overflow-x:auto;padding-bottom:5px}`;
@@ -2991,5 +3265,16 @@ const GifPreviewStage = styled.div`min-height:220px;border:1px solid var(--studi
 const GifPreviewActions = styled.div`grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px;@media(max-width:560px){display:grid;grid-template-columns:1fr}`;
 const ExportGrid = styled.div`display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px;@media(max-width:820px){grid-template-columns:repeat(2,1fr)}@media(max-width:480px){grid-template-columns:1fr}`;
 const ExportCard = styled.article`border:1px solid var(--studio-line);border-radius:11px;background:var(--studio-panel);padding:16px;display:grid;gap:8px;color:#047857;strong{color:#343a49;font-size:.8rem}span{color:#566174;font-size:.7rem;line-height:1.48}`;
-const ReviewList = styled.ul`margin:18px 0 0;padding:0;border:1px solid var(--studio-line);border-radius:12px;background:#fff;list-style:none;overflow:hidden;li{min-height:50px;border-bottom:1px solid var(--studio-line);padding:0 15px;display:flex;align-items:center;gap:10px;color:#566174;font-size:.77rem;font-weight:850}li:last-child{border-bottom:0}li>span{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:#f1f3f6}li[data-done=true]{color:#343a49}li[data-done=true]>span{background:#e9fbf4;color:#22b573}`;
 const ExportWarning = styled.aside`margin-top:14px;border-left:3px solid #a86500;border-radius:0 9px 9px 0;background:#fff8e8;padding:14px 16px;display:grid;gap:7px;strong{color:#704800;font-size:.78rem}p{margin:0;color:#5f533e;font-size:.71rem;line-height:1.55}a{width:max-content;color:#704800;font-size:.68rem;font-weight:900;text-decoration:none;display:flex;align-items:center;gap:5px}`;
+
+const WorkArea = styled.fieldset`min-width:0;padding:0;margin:0;border:0;&:disabled{opacity:.65}`;
+const FilterBar = styled.div`display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0;label{flex:1;min-width:180px}button{min-height:44px;padding:8px 13px;border:1px solid var(--studio-line);border-radius:8px;background:#fff;cursor:pointer;color:var(--studio-muted)}button[aria-pressed=true]{border-color:var(--studio-accent);color:#5322b8;background:#f5f0ff}`;
+const SceneThumbnail = styled.span`width:52px;height:52px;flex:0 0 52px;display:grid;place-items:center;font-size:1.7rem;background:#f5f1ff;border-radius:10px;overflow:hidden;img{width:100%;height:100%;object-fit:contain}`;
+const StatusBanner = styled.aside`display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin:16px;padding:16px;border:1px solid #e6c889;border-radius:10px;background:#fff9ec;color:#5a441a;font-size:.85rem;line-height:1.6;span{overflow-wrap:anywhere}`;
+const OperationSummary = styled.details`margin:12px 18px;padding:12px 16px;background:#fff;border:1px solid var(--studio-line);border-radius:8px;font-size:.8rem;summary{cursor:pointer;min-height:32px}p{line-height:1.6;overflow-wrap:anywhere}`;
+const ProjectMenu = styled.section`padding:18px;margin:12px;background:#fff;border:1px solid var(--studio-line);border-radius:10px;display:grid;gap:12px;>div:first-child{display:flex;align-items:center;justify-content:space-between}p{margin:0;font-size:.85rem;color:var(--studio-muted)}>button{text-align:left;min-height:44px;background:#f8f6fd;border:1px solid var(--studio-line);border-radius:8px;padding:10px;cursor:pointer}`;
+const MakeTabs = styled(FilterBar)`margin:16px 20px 0`;
+const BulkFrameRow = styled.div`display:flex;align-items:center;gap:8px;input{accent-color:var(--studio-accent);flex:0 0 18px;width:18px}button{flex:1;min-width:0}`;
+const BulkControls = styled.div`display:grid;gap:10px;margin-top:14px;font-size:.78rem;label{display:grid;gap:6px}input{width:100%;min-height:44px;border:1px solid var(--studio-line);border-radius:8px;padding:8px}button{min-height:44px}`;
+const ReviewProblems = styled.section`display:grid;gap:12px;margin:20px 0;padding:20px;background:#fff;border:1px solid var(--studio-line);border-radius:12px;h2{font-size:1rem;margin:0}div{display:flex;align-items:center;flex-wrap:wrap;gap:12px;border-top:1px solid var(--studio-line);padding-top:12px}span{flex:1;min-width:180px;font-size:.85rem;line-height:1.6;color:var(--studio-muted)}[data-level=error] strong{color:#a32929}[data-level=warning] strong{color:#8b581a}`;
+const MobileAction = styled.div`display:none;@media(max-width:900px){position:fixed;bottom:0;left:0;right:0;z-index:30;display:grid;gap:4px;padding:8px 16px max(10px,env(safe-area-inset-bottom));background:rgba(255,255,255,.98);border-top:1px solid var(--studio-line);box-shadow:0 -2px 10px #2429380a;small{font-size:.72rem;color:var(--studio-muted)}button{width:100%;min-height:44px}}`;

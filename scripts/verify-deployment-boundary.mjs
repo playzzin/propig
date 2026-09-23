@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { isStandaloneClientFile, verifyStandaloneClients } from './lib/standalone-client-boundary.mjs';
 
 const root = process.cwd();
 const requireStaticExportRuntime = process.argv.includes('--require-static-export-runtime');
@@ -82,6 +83,7 @@ async function collectClientApiCalls() {
 
   const calls = new Map();
   for (const filePath of files) {
+    if (isStandaloneClientFile(filePath, standaloneClientDirectories)) continue;
     const source = await readFile(filePath, 'utf8');
     for (const match of source.matchAll(/fetch\(\s*(?:`([^`]+)`|'([^']+)'|"([^"]+)")/g)) {
       const raw = match[1] ?? match[2] ?? match[3] ?? '';
@@ -137,6 +139,7 @@ async function collectExportedFunctions() {
 
 const firebaseConfig = JSON.parse(await readText('firebase.json'));
 const boundaryManifest = JSON.parse(await readText('docs/api-runtime-boundary.json'));
+const standaloneClientDirectories = await verifyStandaloneClients(root, boundaryManifest.standaloneClients);
 const classifiedRoutes = Object.keys(boundaryManifest.routes ?? {}).sort();
 const classifiedClientOnlyCalls = Object.keys(boundaryManifest.clientOnlyCalls ?? {}).sort();
 const hostingConfigs = Array.isArray(firebaseConfig.hosting)
@@ -278,7 +281,7 @@ const unresolvedStaticClientCalls = [];
 for (const [apiCall, locations] of clientApiCalls) {
   const routePattern = findMatchingPattern(classifiedRoutes, apiCall);
   const routeBoundary = routePattern ? boundaryManifest.routes[routePattern] : null;
-  const clientOnlyBoundary = routePattern ? null : boundaryManifest.clientOnlyCalls[findMatchingPattern(classifiedClientOnlyCalls, apiCall) ?? ''];
+  const clientOnlyBoundary = routePattern ? null : boundaryManifest.clientOnlyCalls?.[findMatchingPattern(classifiedClientOnlyCalls, apiCall) ?? ''];
 
   assert.equal(
     knownApiPatterns.some((pattern) => comparePathSegments(pattern, apiCall)),

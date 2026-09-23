@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import admin, { db as adminDb } from '@/lib/firebase-admin';
 import { getAIRuntimeConfig } from '@/lib/server/ai-runtime';
 import { runManagedTextChat } from '@/lib/server/managed-text-provider';
 import { enforceUserRateLimit } from '@/lib/server/rate-limit';
 import { requireAdminOrPermissionAuth } from '@/lib/server/admin-auth';
+import { defaultImageBudgetLimit, imageDailyBudgetKey, readImageBudgetLimit } from '@/lib/server/image-budget-operations';
 import {
   EmoticonAnimationPlanRequestSchema,
   EmoticonAnimationPresetSchema,
@@ -15,7 +17,6 @@ import {
 
 export const runtime = 'nodejs';
 
-const OPERATION_TTL_MS = 10 * 60 * 1000;
 const EMOTICON_STUDIO_IMAGE_MODEL = 'openai/gpt-image-2';
 const STUDIO_IMAGE_MODEL_IDS = ['openai/gpt-image-2', 'google/gemini-3.1-flash-lite-image', 'google/gemini-3.1-flash-image', 'x-ai/grok-imagine-image-2.0'] as const;
 
@@ -33,11 +34,57 @@ async function getImageModelCapabilities(apiKey: string) {
 }
 
 export async function GET(request: NextRequest) {
+  const headers = { 'Cache-Control': 'private, no-store' };
   const auth = await requireAdminOrPermissionAuth(request, 'photoManagement');
-  if (!auth.ok) return NextResponse.json({ success: false, error: auth.message }, { status: auth.status });
-  const runtimeConfig = await getAIRuntimeConfig();
-  const imageCapabilities = runtimeConfig.openRouterApiKey ? await getImageModelCapabilities(runtimeConfig.openRouterApiKey) : { catalogStatus: 'not-configured' as const, checkedAt: new Date().toISOString(), models: [] };
-  return NextResponse.json({ success: true, textModel: runtimeConfig.model, imageModel: EMOTICON_STUDIO_IMAGE_MODEL, configured: Boolean(runtimeConfig.openRouterApiKey), imageCapabilities });
+  if (!auth.ok) return NextResponse.json({ success: false, error: auth.message }, { status: auth.status, headers });
+  try {
+    if (request.nextUrl.searchParams.has('operationId')) {
+      const parsed = z.string().uuid().safeParse(request.nextUrl.searchParams.get('operationId'));
+      if (!parsed.success) return NextResponse.json({ success: false, error: '작업 ID를 확인해 주세요.' }, { status: 400, headers });
+      return NextResponse.json(await readPlanOperation(auth.uid, parsed.data), { headers });
+    }
+    const [runtimeConfig, budget] = await Promise.all([getAIRuntimeConfig(), readStudioImageBudget(auth.uid)]);
+    const imageCapabilities = runtimeConfig.openRouterApiKey ? await getImageModelCapabilities(runtimeConfig.openRouterApiKey) : { catalogStatus: 'not-configured' as const, checkedAt: new Date().toISOString(), models: [] };
+    return NextResponse.json({ success: true, textModel: runtimeConfig.model, imageModel: EMOTICON_STUDIO_IMAGE_MODEL, configured: Boolean(runtimeConfig.openRouterApiKey), imageCapabilities, budget }, { headers });
+  } catch {
+    return NextResponse.json({ success: false, code: 'RECOVERY_UNAVAILABLE', error: '기획 작업 또는 연결 정보를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.' }, { status: 503, headers });
+  }
+}
+
+async function readStudioImageBudget(uid: string) {
+  try {
+    return await adminDb.runTransaction(async (transaction) => {
+      const limitUsd = await readImageBudgetLimit(transaction, adminDb, uid, defaultImageBudgetLimit());
+      const date = new Date().toISOString().slice(0, 10);
+      const snapshot = await transaction.get(adminDb.collection('aiDailyBudgets').doc(imageDailyBudgetKey(uid, date)));
+      const data = snapshot.data();
+      if (snapshot.exists && (!data || data.uid !== uid || data.date !== date || ![data.spentUsd, data.reservedUsd].every((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0))) return null;
+      const spentUsd = snapshot.exists ? data!.spentUsd as number : 0;
+      const reservedUsd = snapshot.exists ? data!.reservedUsd as number : 0;
+      if (!Number.isFinite(spentUsd + reservedUsd)) return null;
+      return { limitUsd, spentUsd, reservedUsd, remainingUsd: Math.max(0, limitUsd - spentUsd - reservedUsd) };
+    });
+  } catch { return null; }
+}
+
+function planSuccess(preset: EmoticonAnimationPresetPlan, metadata: Record<string, unknown>, cached: boolean) {
+  const costUsd = typeof metadata.costUsd === 'number' && Number.isFinite(metadata.costUsd) && metadata.costUsd >= 0 ? metadata.costUsd : null;
+  const modelUsed = typeof metadata.modelUsed === 'string' ? metadata.modelUsed : null;
+  return { success: true as const, preset, provider: 'openrouter', model: modelUsed, modelUsed, costUsd, cached };
+}
+
+async function readPlanOperation(uid: string, operationId: string) {
+  const snapshot = await operationRef(uid, operationId).get();
+  if (!snapshot.exists) return { success: true, status: 'not-found' as const };
+  const data = snapshot.data() || {};
+  if (data.uid !== uid || data.operation !== 'emoticon-animation-plan' || data.operationId !== operationId) throw new Error('OPERATION_IDENTITY_CONFLICT');
+  if (data.status === 'completed') {
+    const preset = EmoticonAnimationPresetSchema.safeParse(data.result);
+    if (!preset.success) throw new Error('OPERATION_RESULT_INVALID');
+    return { success: true, status: 'completed' as const, result: planSuccess(preset.data, data, true) };
+  }
+  const status = data.status === 'pending' || data.status === 'failed' ? data.status : 'uncertain';
+  return { success: true, status };
 }
 
 function buildSystemPrompt(input: EmoticonAnimationPlanRequest, correction?: string): string {
@@ -77,19 +124,21 @@ function operationRef(uid: string, operationId: string) {
   return adminDb.collection('aiOperationReservations').doc(id);
 }
 
-async function reserveOperation(uid: string, operationId: string, requestFingerprint: string): Promise<EmoticonAnimationPresetPlan | null> {
+async function reserveOperation(uid: string, operationId: string, requestFingerprint: string): Promise<ReturnType<typeof planSuccess> | null> {
   const ref = operationRef(uid, operationId);
   return adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(ref);
     const data = snapshot.data() ?? {};
+    if (snapshot.exists && (data.uid !== uid || data.operation !== 'emoticon-animation-plan' || data.operationId !== operationId)) throw new Error('OPERATION_PAYLOAD_CONFLICT');
     if (data.requestFingerprint && data.requestFingerprint !== requestFingerprint) throw new Error('OPERATION_PAYLOAD_CONFLICT');
     if (data.status === 'uncertain') throw new Error('OPERATION_UNCERTAIN');
     if (data.status === 'completed') {
       const parsed = EmoticonAnimationPresetSchema.safeParse(data.result);
-      if (parsed.success) return parsed.data;
+      if (parsed.success) return planSuccess(parsed.data, data, true);
+      throw new Error('OPERATION_UNCERTAIN');
     }
-    const updatedAt = data.updatedAt instanceof admin.firestore.Timestamp ? data.updatedAt.toMillis() : 0;
-    if (data.status === 'pending' && Date.now() - updatedAt < OPERATION_TTL_MS) {
+    // Elapsed time cannot prove that an earlier paid request did not run.
+    if (data.status === 'pending') {
       throw new Error('OPERATION_IN_PROGRESS');
     }
     transaction.set(ref, {
@@ -105,10 +154,11 @@ async function reserveOperation(uid: string, operationId: string, requestFingerp
   });
 }
 
-async function finishOperation(uid: string, operationId: string, status: 'completed' | 'failed' | 'uncertain', result?: EmoticonAnimationPresetPlan) {
+async function finishOperation(uid: string, operationId: string, status: 'completed' | 'failed' | 'uncertain', result?: EmoticonAnimationPresetPlan, metadata?: { costUsd: number | null; modelUsed: string }) {
   await operationRef(uid, operationId).set({
     status,
     ...(result ? { result } : {}),
+    ...(metadata || {}),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 }
@@ -116,18 +166,20 @@ async function finishOperation(uid: string, operationId: string, status: 'comple
 export async function POST(request: NextRequest) {
   let reservation: { uid: string; operationId: string } | null = null;
   let providerSubmitted = false;
+  let reservationStarted = false;
   try {
     const auth = await requireAdminOrPermissionAuth(request, 'photoManagement');
-    if (!auth.ok) return NextResponse.json({ success: false, error: auth.message }, { status: auth.status });
+    if (!auth.ok) return NextResponse.json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, error: auth.message }, { status: auth.status });
 
     const parsed = EmoticonAnimationPlanRequestSchema.safeParse(await request.json());
     if (!parsed.success) {
-      return NextResponse.json({ success: false, error: '동작 설명, 프레임 수, FPS를 확인해 주세요.' }, { status: 400 });
+      return NextResponse.json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, error: '동작 설명, 프레임 수, FPS를 확인해 주세요.' }, { status: 400 });
     }
     const input = parsed.data;
     const requestFingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+    reservationStarted = true;
     const cached = await reserveOperation(auth.uid, input.operationId, requestFingerprint);
-    if (cached) return NextResponse.json({ success: true, preset: cached, cached: true });
+    if (cached) return NextResponse.json(cached);
     reservation = { uid: auth.uid, operationId: input.operationId };
 
     for (const limit of [
@@ -155,6 +207,8 @@ export async function POST(request: NextRequest) {
       { role: 'system', content: buildSystemPrompt(input) },
       { role: 'user', content: buildUserPrompt(input) },
     ], { temperature: 0.32, maxTokens: Math.min(7200, 1400 + input.frameCount * 420), responseFormat: 'json_object' });
+    const readCost = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+    let costUsd = readCost(result.response.usage?.costUsd);
     let preset: EmoticonAnimationPresetPlan | null = null;
     let correction = '';
     try {
@@ -169,6 +223,8 @@ export async function POST(request: NextRequest) {
         { role: 'system', content: buildSystemPrompt(input, correction) },
         { role: 'user', content: buildUserPrompt(input) },
       ], { temperature: 0.2, maxTokens: Math.min(7200, 1400 + input.frameCount * 420), responseFormat: 'json_object' });
+      const correctionCost = readCost(result.response.usage?.costUsd);
+      costUsd = costUsd !== null && correctionCost !== null ? readCost(costUsd + correctionCost) : null;
       try { preset = parseEmoticonAnimationPresetJson(result.response.content); } catch { preset = null; }
     }
 
@@ -177,9 +233,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'AI 기획 결과가 움짤 프리셋 형식과 맞지 않았습니다. 이 작업은 자동 재실행하지 않습니다.' }, { status: 422 });
     }
 
-    await finishOperation(auth.uid, input.operationId, 'completed', preset);
-    return NextResponse.json({ success: true, preset, provider: result.provider, model: result.model, cached: false });
+    const metadata = { costUsd, modelUsed: result.model };
+    await finishOperation(auth.uid, input.operationId, 'completed', preset, metadata);
+    return NextResponse.json(planSuccess(preset, metadata, false));
   } catch (error) {
+    if (!reservationStarted) {
+      return NextResponse.json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, error: '기획 요청을 전송하지 못했습니다. 입력과 연결 상태를 확인해 주세요.' }, { status: error instanceof SyntaxError ? 400 : 503 });
+    }
     if (reservation) await finishOperation(reservation.uid, reservation.operationId, providerSubmitted ? 'uncertain' : 'failed').catch(() => undefined);
     if (error instanceof Error && error.message === 'OPERATION_IN_PROGRESS') {
       return NextResponse.json({ success: false, error: '같은 기획 요청이 처리 중입니다. 잠시 후 다시 확인해 주세요.' }, { status: 409 });

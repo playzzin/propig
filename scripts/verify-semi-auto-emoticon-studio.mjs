@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [page, studio, menuService, appLayout, siteHomeContent, packageJson, planRoute, hostingPlanRoute, hostingApi, schema, imageRoute, hostingGenerationRoute, gifWorker, zipWorker, convertRoute, hostingConversionRoute] = await Promise.all([
+const [page, studio, menuService, appLayout, siteHomeContent, packageJson, planRoute, hostingPlanRoute, hostingApi, schema, imageRoute, hostingGenerationRoute, gifWorker, zipWorker, convertRoute, hostingConversionRoute, productionPanel] = await Promise.all([
   readFile(new URL('../src/app/admin/emoticon-studio/page.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/app/admin/emoticon-studio/SemiAutoEmoticonStudio.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/services/menuService.ts', import.meta.url), 'utf8'),
@@ -18,7 +18,9 @@ const [page, studio, menuService, appLayout, siteHomeContent, packageJson, planR
   readFile(new URL('../src/app/admin/emoticon-studio/zip-builder.worker.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/app/api/convert-image/route.ts', import.meta.url), 'utf8'),
   readFile(new URL('../functions/src/api/hostingImageConversion.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/app/admin/emoticon-studio/StudioProductionPanel.tsx', import.meta.url), 'utf8'),
 ]);
+const studioUi = `${studio}\n${productionPanel}`;
 
 assert.match(page, /SemiAutoEmoticonStudio/);
 assert.match(page, /<SemiAutoEmoticonStudio\s*\/>/);
@@ -36,7 +38,7 @@ for (const contract of [
   '반자동 이모티콘 스튜디오',
   '관리자 홈으로 돌아가기',
   'ChatGPT 수동 · OpenRouter API 선택',
-  '움짤의 움직임을 프레임으로 연출해요',
+  '만들 장면을 골라 주세요',
   '560도 회전 발차기',
   '손 흔들며 “안녕”',
   '연출 추가',
@@ -44,16 +46,16 @@ for (const contract of [
   '프리셋 저장',
   '프레임 추가',
   '전체 프롬프트 복사',
-  'ChatGPT에서 프레임 만들기',
+  '이 장면으로 만들기',
   '결과 가져오기',
   'AI로 기획',
   'OpenRouter로 기획',
-  'OPENROUTER API · 자동 생성',
+  'AI로 만들기',
   '프레임 제작 현황',
-  'FRAME PRODUCTION BOARD',
+  '프레임 제작 보드',
   '이번 자동 생성 수량',
   '이 프레임만 다시 생성',
-  '부분 ZIP 내보내기',
+  '플랫폼 부분 결과 받기',
   '네이버 OGQ',
   '사진 추가',
   '말풍선 추가',
@@ -78,33 +80,34 @@ for (const contract of [
   'google/gemini-3.1-flash-lite-image',
   'google/gemini-3.1-flash-image',
   'x-ai/grok-imagine-image-2.0',
-  '가성비·빠른',
-  '퀄리티·고급',
+  '빠른 제작',
+  '고품질',
   'ChatGPT 기획 JSON 가져오기',
-  '생성 취소',
+  '추가 생성 중지',
   '프레임 편집 워크스페이스',
   'GENERATED IMAGES',
   '캔버스 확대 비율',
   '움짤 미리보기',
   '원본 해상도 유지',
-  '미완성 프레임 이어 생성',
+  '이전 결과 확인',
   'FRAME TIMELINE',
-  '프로젝트 ZIP 내보내기',
+  '작업 백업 받기',
+  '플랫폼 결과 받기',
   '작업 ZIP 생성 완료 · 규격 참고값 충족',
   '작업 ZIP 생성 완료 · 제출 참고값 미충족',
   '로그인 후 자동 기획',
   'data-studio-ready',
-  '필요한 화면부터 자유롭게 확인하세요',
+  '이미지가 있어요 · 바로 가져오기',
   '아직 편집할 프레임이 없어요',
   'animated WebP 자동 변환',
   '선택 레이어 회전 핸들',
   '선택 레이어 크기 조절 핸들',
   '편집 실행 취소',
-  'Worker 인코딩 취소',
+  'GIF 만들기 취소',
   'data-model-preflight',
-]) assert.ok(studio.includes(contract), `Missing semi-auto Studio contract: ${contract}`);
+]) assert.ok(studioUi.includes(contract), `Missing semi-auto Studio contract: ${contract}`);
 
-assert.match(studio, /https:\/\/chatgpt\.com\//);
+assert.match(productionPanel, /https:\/\/chatgpt\.com\//);
 assert.match(studio, /navigator\.clipboard/);
 assert.match(studio, /indexedDB\.open/);
 assert.match(studio, /import\(['"]jszip['"]\)/);
@@ -136,9 +139,9 @@ const parserBlock = studio.slice(parserStart, readDraftStart);
 assert.doesNotMatch(parserBlock, /window|localStorage|sessionStorage|indexedDB/, 'draft candidate parser must stay pure');
 assert.match(studio.slice(readDraftStart, studio.indexOf('function openAssetDatabase')), /return parseAndNormalizeDraft\(raw\)/);
 const importStart = studio.indexOf('const importProjectPackage = async');
-const resetStart = studio.indexOf('const resetProject = async', importStart);
-assert.ok(importStart >= 0 && resetStart > importStart, 'ZIP import block must exist');
-const importBlock = studio.slice(importStart, resetStart);
+const backupStart = studio.indexOf('const exportWorkingBackup = async', importStart);
+assert.ok(importStart >= 0 && backupStart > importStart, 'ZIP import block must exist');
+const importBlock = studio.slice(importStart, backupStart);
 const candidateParseIndex = importBlock.indexOf('parseAndNormalizeDraft(JSON.stringify(candidateRaw))');
 const firstAssetWriteIndex = importBlock.indexOf('await putAsset');
 const finalManifestCommitIndex = importBlock.indexOf('window.localStorage.setItem(DRAFT_KEY, JSON.stringify(importedDraft))');
@@ -203,7 +206,8 @@ assert.match(studio, /const operationId = crypto\.randomUUID\(\)/);
 assert.doesNotMatch(studio, /function stableOperationId/);
 assert.match(studio, /key: `\$\{draftRef\.current\.projectId\}:\$\{meta\.id\}`/);
 assert.doesNotMatch(studio, /key: `\$\{projectId\}:frame:/);
-assert.match(studio, /generationRunRef\.current === runId && draftRef\.current\.projectId === runProjectId/);
+assert.match(studio, /generationRunRef\.current === runId/);
+assert.match(studio, /controller\.signal\.aborted \|\| draftRef\.current\.projectId !== runProjectId \|\| currentUserRef\.current\?\.uid !== ownerId/);
 assert.match(studio, /undoHistoryRef\.current = \[\]/);
 assert.match(studio, /expectedLoop:/);
 assert.match(studio, /packageChecks/);
@@ -216,7 +220,7 @@ assert.match(studio, /if \(allPassed\) toast\.success\('작업 ZIP 생성 완료
 assert.match(studio, /else toast\.warning\(`작업 ZIP 생성 완료 · 제출 참고값 미충족 \$\{failedReferenceCount\}개`\)/);
 assert.match(studio, /disabled=\{!currentUser \|\| planning \|\| !actionDescription\.trim\(\) \|\| !hasApiConsent\}/);
 assert.match(studio, /!currentUser \? '로그인 후 자동 기획' : planning \? '기획 중…' : 'OpenRouter로 기획'/);
-assert.match(studio, /if \(!currentUser\) return toast\.error\('OpenRouter 자동 기획은 로그인이 필요합니다\.'\)/);
+assert.match(studio, /const requestOpenRouterPlan = async \(\) => \{\s*if \([^\n]*!currentUser[^\n]*\) return;/);
 assert.match(studio, /setCanvasZoom/);
 assert.match(studio, /setPreviewing/);
 assert.match(studio, /frames\[\(currentIndex \+ 1\) % frames\.length\]/);
@@ -233,11 +237,23 @@ assert.match(studio, /frameSlotKey/);
 assert.match(studio, /generateFramesWithOpenRouter\(\[selectedSlot\], selectedFrame\.id\)/);
 assert.match(studio, /if \(!next\.length\) setStep\('import'\)/);
 assert.match(studio, /ref=\{frameInputRef\}[\s\S]{0,180}multiple type="file"/);
-assert.match(studio, /!missingSlots\.length && expectedSlots\.length > 0/);
+assert.match(studio, /!missingSlots\.length && expectedSlots\.length/);
 assert.match(studio, /model:\s*selectedGenerationModel/);
 assert.match(studio, /quality:\s*generationMode === 'fast' \? 'low' : 'high'/);
 assert.match(studio, /const StepFooter[\s\S]{0,300}position:static/);
 assert.match(studio, /type StepId = 'project' \| 'character' \| 'plan' \| 'import' \| 'edit' \| 'export'/);
+const stepItems = studio.match(/const STEP_ITEMS[\s\S]*?\n\];/)?.[0] || '';
+assert.equal((stepItems.match(/target:/g) || []).length, 5, 'four destinations plus the target property in the type must remain');
+for (const label of ['준비하기', '장면 고르기', '만들고 다듬기', '검수하고 받기']) assert.ok(stepItems.includes(label));
+assert.match(studio, /updateSelectedFrame\(getFrameSlotPatch\(slot\)\)/);
+const switchProjectBlock = studio.slice(studio.indexOf('const archiveCurrentProject ='), studio.indexOf('const goToStep ='));
+assert.match(switchProjectBlock, /archiveCurrentProject\(\)/);
+assert.match(switchProjectBlock, /localStorage\.setItem\(ARCHIVES_KEY/);
+assert.match(switchProjectBlock, /const resetProject = \(\) => openProject\(createInitialDraft\(\)\)/);
+assert.doesNotMatch(switchProjectBlock, /deleteAsset\(|removeItem\(/, 'new project must retain existing assets and project history');
+assert.match(productionPanel, /aria-label="제작 방식"/);
+assert.match(productionPanel, /props\.method === 'manual'/);
+assert.match(productionPanel, /aria-describedby=\{props\.blockedReason/);
 const freeNavigationBlock = studio.match(/const goToStep = \(next: StepId\) => \{[\s\S]*?\n  \};/)?.[0] ?? '';
 assert.match(freeNavigationBlock, /setStep\(next\)/);
 assert.doesNotMatch(freeNavigationBlock, /canPlan|canImport|canEdit|toast\.error/);

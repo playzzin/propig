@@ -8,6 +8,7 @@ exports.handleRedesignImageStoryboardFlow = handleRedesignImageStoryboardFlow;
 exports.handleGenerateProjectBoardContent = handleGenerateProjectBoardContent;
 const node_crypto_1 = require("node:crypto");
 const node_zlib_1 = require("node:zlib");
+const imageBudgetOperations_1 = require("./imageBudgetOperations");
 const admin = require("firebase-admin");
 const zod_1 = require("zod");
 const openrouterUsage_1 = require("../openrouterUsage");
@@ -44,6 +45,7 @@ const GenerateImageSchema = zod_1.z.object({
     resourceMode: zod_1.z.enum(['efficient', 'balanced', 'premium']).default('premium'),
     provider: zod_1.z.literal('openrouter').optional().default('openrouter'),
     model: zod_1.z.enum(STUDIO_IMAGE_MODELS).optional(),
+    strictModel: zod_1.z.boolean().optional(),
     quality: zod_1.z.enum(['low', 'high']).optional(),
 });
 const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
@@ -68,7 +70,6 @@ const PREFERRED_AUTO_IMAGE_MODELS = [
 const IMAGE_MODEL_CACHE_TTL_MS = 15 * 60 * 1000;
 const OPENROUTER_DISCOVERY_TIMEOUT_MS = 15000;
 const OPENROUTER_GENERATION_TIMEOUT_MS = 120000;
-const IMAGE_OPERATION_TTL_MS = 5 * 60 * 1000;
 const IMAGE_RESULT_CACHE_TTL_MS = 2 * 60 * 1000;
 const IMAGE_RESULT_CACHE_MAX_ENTRIES = 5;
 const IMAGE_RESULT_CACHE_MAX_BYTES = 2 * 1024 * 1024;
@@ -80,6 +81,8 @@ const IMAGE_DAILY_BUDGET_USD = Math.min(1000, Math.max(0.5, Number(process.env.O
 const IMAGE_RESERVED_USD_PER_OUTPUT = Math.min(10, Math.max(0.01, Number(process.env.OPENROUTER_IMAGE_RESERVED_USD_PER_OUTPUT) || 1));
 let cachedImageModels = null;
 const completedImageResults = new Map();
+class ImageModelUnavailableError extends Error {
+}
 function imageOperationKey(uid, operationId) {
     return (0, node_crypto_1.createHash)('sha256').update(`${uid}:image-generation:${operationId}`).digest('hex');
 }
@@ -91,6 +94,57 @@ function imageBudgetKey(uid, date) {
 }
 function imageRequestFingerprint(payload) {
     return (0, node_crypto_1.createHash)('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+async function readImageOperation(uid, operationId) {
+    const key = imageOperationKey(uid, operationId);
+    const reference = firestore_1.db.collection('aiOperationReservations').doc(key);
+    const snapshot = await reference.get();
+    if (!snapshot.exists)
+        return { success: true, status: 'not-found' };
+    const data = snapshot.data() || {};
+    if (data.uid !== uid || data.operation !== 'image-generation' || data.operationId !== operationId) {
+        throw new hostingCommon_1.ApiError(409, '이미지 작업의 소유 정보를 확인할 수 없습니다.');
+    }
+    if (data.status !== 'completed') {
+        const status = data.status === 'pending' || data.status === 'failed' ? data.status : 'uncertain';
+        return { success: true, status };
+    }
+    let result = data.result;
+    let serialized = null;
+    if (!result && data.resultChunkCount !== undefined) {
+        const count = data.resultChunkCount;
+        const maxChunks = Math.ceil(Math.ceil(IMAGE_DURABLE_CHUNKED_MAX_BYTES / 3) * 4 / IMAGE_DURABLE_CHUNK_BYTES);
+        if (!Number.isSafeInteger(count) || count < 1 || count > maxChunks)
+            throw new hostingCommon_1.ApiError(409, '보관된 이미지 조각 수가 올바르지 않습니다.');
+        const chunks = await Promise.all(Array.from({ length: count }, (_, index) => reference.collection('resultChunks').doc(String(index).padStart(3, '0')).get()));
+        const encoded = chunks.map((chunk, index) => {
+            const item = chunk.data();
+            if (!chunk.exists || (item === null || item === void 0 ? void 0 : item.index) !== index || typeof item.data !== 'string' || !item.data.length || item.data.length > IMAGE_DURABLE_CHUNK_BYTES || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.data))
+                throw new hostingCommon_1.ApiError(409, '보관된 이미지 조각이 누락되거나 손상되었습니다.');
+            return item.data;
+        }).join('');
+        serialized = Buffer.from(encoded, 'base64');
+        if (serialized.toString('base64') !== encoded || serialized.byteLength > IMAGE_DURABLE_CHUNKED_MAX_BYTES)
+            throw new hostingCommon_1.ApiError(409, '보관된 이미지 조각이 손상되었습니다.');
+    }
+    else if (!result && data.resultStoragePath) {
+        const expectedPath = `ai-operation-results/${(0, node_crypto_1.createHash)('sha256').update(key).digest('hex')}.json.gz`;
+        if (data.resultStoragePath !== expectedPath || typeof data.resultSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(data.resultSha256))
+            throw new hostingCommon_1.ApiError(409, '보관된 이미지 경로를 확인할 수 없습니다.');
+        const [compressed] = await admin.storage().bucket().file(expectedPath).download();
+        if (compressed.byteLength > IMAGE_DURABLE_STORAGE_MAX_BYTES)
+            throw new hostingCommon_1.ApiError(409, '보관된 이미지 크기가 올바르지 않습니다.');
+        serialized = (0, node_zlib_1.gunzipSync)(compressed, { maxOutputLength: IMAGE_DURABLE_STORAGE_MAX_BYTES });
+    }
+    if (serialized) {
+        if (data.resultSha256 !== undefined && (typeof data.resultSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(data.resultSha256) || (0, node_crypto_1.createHash)('sha256').update(serialized).digest('hex') !== data.resultSha256))
+            throw new hostingCommon_1.ApiError(409, '완료된 이미지 결과의 무결성을 확인하지 못했습니다.');
+        result = JSON.parse(serialized.toString('utf8'));
+    }
+    const parsed = zod_1.z.object({ success: zod_1.z.literal(true), images: zod_1.z.array(zod_1.z.object({ url: zod_1.z.string().min(1) }).passthrough()).min(1).max(4) }).passthrough().safeParse(result);
+    if (!parsed.success)
+        throw new hostingCommon_1.ApiError(409, '완료된 이미지 결과를 복구하지 못했습니다. 새로 생성하기 전에 작업 상태를 확인해 주세요.');
+    return { success: true, status: 'completed', result: parsed.data };
 }
 function readTimestampMillis(value) {
     if (value instanceof Date)
@@ -132,9 +186,7 @@ async function enforceSharedImageRateLimit(input) {
 async function reserveImageOperation(uid, payload) {
     const key = imageOperationKey(uid, payload.operationId);
     const cached = completedImageResults.get(key);
-    if (cached && cached.expiresAt > Date.now())
-        return { key, cached: cached.response };
-    if (cached)
+    if (cached && cached.expiresAt <= Date.now())
         completedImageResults.delete(key);
     const reference = firestore_1.db.collection('aiOperationReservations').doc(key);
     const fingerprint = imageRequestFingerprint(payload);
@@ -147,8 +199,10 @@ async function reserveImageOperation(uid, payload) {
         if (data.requestFingerprint && data.requestFingerprint !== fingerprint) {
             throw new hostingCommon_1.ApiError(409, '같은 operationId를 다른 이미지 요청에 사용할 수 없습니다.');
         }
-        const ageMs = Date.now() - readTimestampMillis(data.updatedAt);
         if (data.status === 'completed') {
+            // Memory results are usable only after durable identity and completion checks.
+            if (cached && cached.expiresAt > Date.now())
+                return cached.response;
             if (data.result && typeof data.result === 'object')
                 return data.result;
             const chunkCount = Number(data.resultChunkCount);
@@ -158,24 +212,34 @@ async function reserveImageOperation(uid, payload) {
                 return { storagePath: data.resultStoragePath, sha256: data.resultSha256 };
             throw new hostingCommon_1.ApiError(409, '같은 이미지 생성 요청이 이미 완료되었지만 보관된 결과가 없어 새 operationId가 필요합니다.');
         }
-        if ((data.status === 'pending' && ageMs < IMAGE_OPERATION_TTL_MS) || data.status === 'uncertain') {
+        // Elapsed time cannot prove that an earlier paid provider request did not run.
+        // Manual reconciliation is terminal too; never replay this logical paid operation.
+        if (data.status === 'pending' || data.status === 'uncertain' || data.status === 'reconciled' || data.costReconciliation) {
             throw new hostingCommon_1.ApiError(409, '같은 이미지 생성 요청이 처리 중이거나 결과 확인이 필요합니다.');
         }
+        const limitUsd = await (0, imageBudgetOperations_1.readImageBudgetLimit)(transaction, firestore_1.db, uid, IMAGE_DAILY_BUDGET_USD);
         const budgetSnapshot = await transaction.get(budgetReference);
         const budget = budgetSnapshot.data() || {};
-        const previousReservation = !data.budgetSettled && data.budgetDate === budgetDate
-            ? Math.max(0, Number(data.reservedUsd) || 0)
-            : 0;
-        const spentUsd = Math.max(0, Number(budget.spentUsd) || 0);
-        const pendingUsd = Math.max(0, Number(budget.reservedUsd) || 0) - previousReservation;
-        if (spentUsd + pendingUsd + reservedUsd > IMAGE_DAILY_BUDGET_USD) {
+        const validAmount = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+        if (budgetSnapshot.exists && (budget.uid !== uid || budget.date !== budgetDate || !validAmount(budget.spentUsd) || !validAmount(budget.reservedUsd))) {
+            throw new hostingCommon_1.ApiError(409, '이미지 예산 기록을 확인해 주세요.');
+        }
+        const hasPreviousReservation = !data.budgetSettled && data.budgetDate === budgetDate;
+        if (hasPreviousReservation && !validAmount(data.reservedUsd))
+            throw new hostingCommon_1.ApiError(409, '이미지 예산 기록을 확인해 주세요.');
+        const previousReservation = hasPreviousReservation ? data.reservedUsd : 0;
+        const spentUsd = budgetSnapshot.exists ? budget.spentUsd : 0;
+        const pendingUsd = (budgetSnapshot.exists ? budget.reservedUsd : 0) - previousReservation;
+        if (pendingUsd < 0 || !Number.isFinite(spentUsd + pendingUsd + reservedUsd))
+            throw new hostingCommon_1.ApiError(409, '이미지 예산 기록을 확인해 주세요.');
+        if (spentUsd + pendingUsd + reservedUsd > limitUsd) {
             throw new hostingCommon_1.ApiError(402, '오늘의 OpenRouter 이미지 생성 예산을 모두 사용했습니다.');
         }
         const now = new Date();
         transaction.set(budgetReference, {
             uid,
             date: budgetDate,
-            limitUsd: IMAGE_DAILY_BUDGET_USD,
+            limitUsd,
             spentUsd,
             reservedUsd: pendingUsd + reservedUsd,
             updatedAt: now,
@@ -229,6 +293,7 @@ async function finishImageOperation(key, status, response) {
         chunks.forEach((chunk, index) => batch.set(chunkCollection.doc(String(index).padStart(3, '0')), { data: chunk, index, updatedAt: new Date(), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }));
         await batch.commit();
         resultChunkCount = chunks.length;
+        resultSha256 = (0, node_crypto_1.createHash)('sha256').update(serializedResponse).digest('hex');
     }
     if (status === 'completed' && serializedResponse && responseBytes > IMAGE_DURABLE_CHUNKED_MAX_BYTES && responseBytes <= IMAGE_DURABLE_STORAGE_MAX_BYTES) {
         resultSha256 = (0, node_crypto_1.createHash)('sha256').update(serializedResponse).digest('hex');
@@ -251,8 +316,11 @@ async function finishImageOperation(key, status, response) {
     await firestore_1.db.runTransaction(async (transaction) => {
         const operationSnapshot = await transaction.get(operationReference);
         const operation = operationSnapshot.data() || {};
+        // An old finisher may arrive after manual review; never overwrite that terminal fence.
+        if (operation.status === 'reconciled' || operation.costReconciliation)
+            return;
         if (operation.budgetSettled) {
-            transaction.set(operationReference, Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({ status }, (durableResult ? { result: durableResult } : {})), (resultChunkCount ? { resultChunkCount } : {})), (resultStoragePath ? { resultStoragePath, resultSha256 } : {})), (resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {})), { updatedAt: new Date() }), { merge: true });
+            transaction.set(operationReference, Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({ status }, (durableResult ? { result: durableResult } : {})), (resultChunkCount ? { resultChunkCount, resultSha256 } : {})), (resultStoragePath ? { resultStoragePath, resultSha256 } : {})), (resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {})), { updatedAt: new Date() }), { merge: true });
             return;
         }
         const reservedUsd = Math.max(0, Number(operation.reservedUsd) || 0);
@@ -273,7 +341,7 @@ async function finishImageOperation(key, status, response) {
             spentUsd: Math.max(0, Number(budget.spentUsd) || 0) + chargedUsd,
             updatedAt: new Date(),
         }, { merge: true });
-        transaction.set(operationReference, Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({ status }, (durableResult ? { result: durableResult } : {})), (resultChunkCount ? { resultChunkCount } : {})), (resultStoragePath ? { resultStoragePath, resultSha256 } : {})), (resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {})), { budgetSettled: true, chargedUsd, updatedAt: new Date() }), { merge: true });
+        transaction.set(operationReference, Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({ status }, (durableResult ? { result: durableResult } : {})), (resultChunkCount ? { resultChunkCount, resultSha256 } : {})), (resultStoragePath ? { resultStoragePath, resultSha256 } : {})), (resultChunkCount || resultStoragePath ? { resultExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } : {})), { budgetSettled: true, chargedUsd, updatedAt: new Date() }), { merge: true });
     });
 }
 async function readReferenceResponse(response) {
@@ -459,6 +527,12 @@ async function selectOpenRouterImageModel(params) {
     try {
         const models = await discoverOpenRouterImageModels(params.apiKey);
         const compatibleModels = models.filter((model) => supportsRequestedImageInput(model, params.payload, params.references));
+        if (params.payload.strictModel) {
+            const requested = compatibleModels.find((model) => model.id === params.payload.model);
+            if (!requested)
+                throw new ImageModelUnavailableError('선택한 모델의 이미지 생성·참조 이미지 지원을 확인할 수 없습니다. 모델을 다시 선택해 주세요.');
+            return { id: requested.id, supportedParameters: new Set(Object.keys(requested.supported_parameters || {})), selectionSource: 'requested' };
+        }
         const efficientModel = params.payload.resourceMode === 'efficient'
             ? compatibleModels.find((model) => model.id === EFFICIENT_STORYBOARD_IMAGE_MODEL)
             : null;
@@ -498,6 +572,8 @@ async function selectOpenRouterImageModel(params) {
         }
     }
     catch (error) {
+        if (params.payload.strictModel)
+            throw new ImageModelUnavailableError(error instanceof ImageModelUnavailableError ? error.message : '모델 연결을 확인하지 못해 생성하지 않았습니다. 연결을 다시 확인해 주세요.');
         console.warn('[hostingApi] OpenRouter image model discovery failed; using the compatibility fallback.', error);
     }
     return {
@@ -590,33 +666,65 @@ function canRetryWithoutPresentationOptions(error) {
 }
 async function handleGenerateImage(req, res) {
     var _a, _b;
+    if (req.method === 'GET') {
+        res.set('Cache-Control', 'private, no-store');
+        const auth = await (0, hostingCommon_1.requireAccess)(req, 'photoManagement');
+        const parsed = zod_1.z.string().uuid().safeParse(req.query.operationId);
+        if (!parsed.success)
+            throw new hostingCommon_1.ApiError(400, '작업 ID를 확인해 주세요.');
+        try {
+            res.status(200).json(await readImageOperation(auth.uid, parsed.data));
+        }
+        catch (_c) {
+            res.status(503).json({ success: false, code: 'RECOVERY_UNAVAILABLE', error: '이미지 작업 결과를 확인하지 못했습니다. 새로 생성하지 말고 잠시 후 다시 확인해 주세요.' });
+        }
+        return;
+    }
     (0, hostingCommon_1.requireMethod)(req, 'POST');
-    const auth = await (0, hostingCommon_1.requireAccess)(req, 'photoManagement');
-    const rateLimit = await enforceSharedImageRateLimit({
-        namespace: 'generate-image-minute',
-        uid: auth.uid,
-        maxRequests: 12,
-        windowMs: 60000,
-    });
-    if (!rateLimit.allowed) {
-        res.set('Retry-After', String(rateLimit.retryAfterSeconds));
-        throw new hostingCommon_1.ApiError(429, `${rateLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+    let auth;
+    let payload;
+    let runtime;
+    try {
+        auth = await (0, hostingCommon_1.requireAccess)(req, 'photoManagement');
+        const rateLimit = await enforceSharedImageRateLimit({
+            namespace: 'generate-image-minute',
+            uid: auth.uid,
+            maxRequests: 12,
+            windowMs: 60000,
+        });
+        if (!rateLimit.allowed) {
+            res.set('Retry-After', String(rateLimit.retryAfterSeconds));
+            throw new hostingCommon_1.ApiError(429, `${rateLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+        }
+        const dailyLimit = await enforceSharedImageRateLimit({
+            namespace: 'generate-image-day',
+            uid: auth.uid,
+            maxRequests: 48,
+            windowMs: 24 * 60 * 60 * 1000,
+        });
+        if (!dailyLimit.allowed) {
+            res.set('Retry-After', String(dailyLimit.retryAfterSeconds));
+            throw new hostingCommon_1.ApiError(429, `${dailyLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+        }
+        payload = (0, hostingCommon_1.parseJson)(req, GenerateImageSchema);
+        runtime = await (0, hostingAiRuntime_1.getHostingAiRuntime)();
+        if (!runtime.openRouterApiKey)
+            throw new hostingCommon_1.ApiError(503, 'OPENROUTER_API_KEY가 설정되지 않았습니다.');
     }
-    const dailyLimit = await enforceSharedImageRateLimit({
-        namespace: 'generate-image-day',
-        uid: auth.uid,
-        maxRequests: 48,
-        windowMs: 24 * 60 * 60 * 1000,
-    });
-    if (!dailyLimit.allowed) {
-        res.set('Retry-After', String(dailyLimit.retryAfterSeconds));
-        throw new hostingCommon_1.ApiError(429, `${dailyLimit.retryAfterSeconds}초 후 다시 시도해 주세요.`);
+    catch (error) {
+        res.status(error instanceof hostingCommon_1.ApiError ? error.status : 503).json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, error: error instanceof hostingCommon_1.ApiError ? error.message : '이미지 생성 요청을 전송하지 못했습니다. 입력과 연결 상태를 확인해 주세요.' });
+        return;
     }
-    const payload = (0, hostingCommon_1.parseJson)(req, GenerateImageSchema);
-    const runtime = await (0, hostingAiRuntime_1.getHostingAiRuntime)();
-    if (!runtime.openRouterApiKey)
-        throw new hostingCommon_1.ApiError(503, 'OPENROUTER_API_KEY가 설정되지 않았습니다.');
-    const reservation = await reserveImageOperation(auth.uid, payload);
+    let reservation;
+    try {
+        reservation = await reserveImageOperation(auth.uid, payload);
+    }
+    catch (error) {
+        if (!(error instanceof hostingCommon_1.ApiError) || error.status !== 402)
+            throw error;
+        res.status(402).json({ success: false, code: 'REQUEST_NOT_SUBMITTED', requestSubmitted: false, reasonCode: 'budget_exceeded', error: error.message });
+        return;
+    }
     if (reservation.cached) {
         res.status(200).json(reservation.cached);
         return;
@@ -685,6 +793,10 @@ async function handleGenerateImage(req, res) {
     }
     catch (error) {
         await finishImageOperation(reservation.key, providerAttempted ? 'uncertain' : 'failed').catch(() => undefined);
+        if (error instanceof ImageModelUnavailableError) {
+            res.status(503).json({ success: false, code: 'MODEL_UNAVAILABLE', reasonCode: 'model_unavailable', error: error.message });
+            return;
+        }
         if (error instanceof hostingCommon_1.ApiError)
             throw error;
         const rawMessage = error instanceof Error ? error.message : String(error);
