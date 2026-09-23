@@ -24,6 +24,10 @@ import {
   TimelineOverview,
   TimelineScene,
   SceneProductionList,
+  RecoveryNotice,
+  PrimaryAutomationButton,
+  SecondaryAutomationButton,
+  AutomationActions,
 } from "./StoryboardVideoProductionPanel.styles";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -108,6 +112,9 @@ import {
 } from "@/services/videoStudioService";
 import { imageStoryboardService } from "@/services/imageStoryboardService";
 import StoryboardProjectFileManager from "@/components/image-generator/StoryboardProjectFileManager";
+import { getStoryboardVideoConfirmationIssue } from "@/lib/storyboard-video-confirmation";
+import StoryboardBatchSettings from "./StoryboardBatchSettings";
+import StoryboardSceneComparison from "./StoryboardSceneComparison";
 
 type StoryboardUpdater = (current: ImageStoryboard) => ImageStoryboard;
 
@@ -121,6 +128,7 @@ type StoryboardVideoProductionPanelProps = {
   onOpenImageWorkspace: () => void;
   disabled?: boolean;
   onChange: (updater: StoryboardUpdater) => void;
+  onRequestPendingChange?: (pending: boolean) => void;
 };
 
 const MAX_VIDEO_REFERENCE_IMAGES = 2;
@@ -842,8 +850,10 @@ function sceneStatusFromJob(
   if (job.status === "queued") return "queued";
   if (job.status === "running" || job.status === "uploading")
     return "rendering";
-  if (job.status === "completed")
+  if (job.status === "completed") {
+    if (!job.clipId || !job.resultVideoUrl) return "failed";
     return current === "approved" ? "approved" : "review";
+  }
   if (job.status === "failed" || job.status === "canceled") return "failed";
   return current;
 }
@@ -932,9 +942,99 @@ export default function StoryboardVideoProductionPanel({
   onDuplicateScene,
   onOpenImageWorkspace,
   disabled = false,
-  onChange,
+  onChange: onStoryboardChange,
+  onRequestPendingChange,
 }: StoryboardVideoProductionPanelProps) {
   const { currentUser } = useAuth();
+  const livePanelRef = useRef(true);
+  useEffect(() => { livePanelRef.current = true; return () => { livePanelRef.current = false; }; }, []);
+  const onChange = useCallback((updater: StoryboardUpdater) => {
+    if (livePanelRef.current) onStoryboardChange(updater);
+  }, [onStoryboardChange]);
+  const [pendingVideoAction, setPendingVideoAction] = useState<{
+    draft: ImageStoryboard;
+    label: string;
+    description: string;
+    estimate: string;
+    action: { kind: "start" | "resume" | "scene" | "regenerate" | "text"; sceneId?: string; estimateProfileKey?: string };
+    quotes: Map<string, VideoStudioEstimate>;
+  } | null>(null);
+  const [videoActionAccepted, setVideoActionAccepted] = useState(false);
+  const [confirmationQuote, setConfirmationQuote] = useState<{ loading: boolean; estimate: VideoStudioEstimate | null; error: string | null }>({ loading: false, estimate: null, error: null });
+  const [confirmationQuoteRetry, setConfirmationQuoteRetry] = useState(0);
+  const videoActionRunningRef = useRef(false);
+  const requestVideoAction = useCallback((label: string, description: string, estimate: string, action: NonNullable<typeof pendingVideoAction>["action"], quotes: Map<string, VideoStudioEstimate>) => {
+    if (videoActionRunningRef.current) return;
+    setVideoActionAccepted(false);
+    setConfirmationQuote({ loading: Boolean(action.sceneId), estimate: null, error: null });
+    setPendingVideoAction({ draft: storyboard, label, description, estimate, action, quotes });
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById("storyboard-video-approval");
+      target?.scrollIntoView({ block: "center" });
+      target?.focus({ preventScroll: true });
+    });
+  }, [storyboard]);
+  useEffect(() => {
+    if (!pendingVideoAction?.action.sceneId || !currentUser) return;
+    const draft = pendingVideoAction.draft;
+    const index = draft.scenes.findIndex((scene) => scene.id === pendingVideoAction.action.sceneId);
+    const scene = draft.scenes[index];
+    if (!scene) return;
+    const controller = new AbortController();
+    const textOnly = pendingVideoAction.action.kind === "text";
+    setVideoActionAccepted(false);
+    setConfirmationQuote({ loading: true, estimate: null, error: null });
+    void withFirebaseAuthRetry(currentUser, (authToken) => videoStudioService.getVideoEstimate({
+      authToken, duration: effectiveSceneDuration(scene), resolution: videoResolution(draft.videoProduction.qualityMode),
+      aspectRatio: draft.aspectRatio as VideoStudioAspectRatio, qualityMode: draft.videoProduction.qualityMode,
+      audioMode: resolveStoryboardVideoAudioMode(scene.video),
+      hasReferenceImage: !textOnly && Boolean(scene.generatedImage?.url || scene.video.lastFrameUrl || draft.scenes[index - 1]?.video.lastFrameUrl),
+      hasEndReferenceImage: !textOnly && Boolean(scene.video.useNextSceneAsEndFrame && draft.scenes[index + 1]?.generatedImage?.url),
+      hasVisualReferenceImages: !textOnly && selectVideoReferenceAssets(referenceAssets, scene.video.referenceAssetIds).length > 0,
+      knownInputImagePrivacyBlock: !textOnly && isInputImagePrivacyFailure(scene.video.errorMessage),
+      signal: controller.signal,
+    })).then((estimate) => {
+      if (!controller.signal.aborted) setConfirmationQuote({ loading: false, estimate, error: null });
+    }).catch(() => {
+      if (!controller.signal.aborted) setConfirmationQuote({ loading: false, estimate: null, error: "이 장면의 예상 비용을 확인하지 못했습니다. 다시 확인해 주세요." });
+    });
+    return () => controller.abort();
+  }, [pendingVideoAction, currentUser, referenceAssets, confirmationQuoteRetry]);
+  const confirmVideoAction = async () => {
+    if (!pendingVideoAction || !videoActionAccepted || videoActionRunningRef.current) return;
+    if (pendingVideoAction.draft !== storyboard || (!pendingVideoAction.action.sceneId && pendingVideoAction.quotes !== estimatesByProfile)) {
+      setPendingVideoAction(null);
+      setVideoActionAccepted(false);
+      toast.info("장면·설정 또는 견적이 바뀌었습니다. 최신 내용으로 제작을 다시 확인해 주세요.");
+      return;
+    }
+    const action = pendingVideoAction.action;
+    if (action.sceneId && (confirmationQuote.loading || confirmationQuote.error || !confirmationQuote.estimate)) return;
+    const issue = getStoryboardVideoConfirmationIssue({
+      scope: action.kind === "start" || action.kind === "resume" ? "project" : "scene",
+      pendingSceneCount, busy: projectBusy, workerBlocked: workerGenerationBlocked,
+      subscriptionReady: jobSubscriptionReady && !jobSubscriptionError,
+      pricingPending: pricingCheckPending, budgetExceeded, creditBlocked, unknownPricingBlocked,
+      sceneEstimate: confirmationQuote.estimate,
+      maxBudgetUsd, allowUnknownPricing: storyboard.videoProduction.allowUnknownPricing,
+    });
+    if (issue) {
+      toast.info(issue);
+      return;
+    }
+    videoActionRunningRef.current = true;
+    setPendingVideoAction(null);
+    setVideoActionAccepted(false);
+    try {
+      const { kind, sceneId } = pendingVideoAction.action;
+      const scene = storyboard.scenes.find((item) => item.id === sceneId);
+      if (kind === "start") await handleStartAutomation();
+      else if (kind === "resume") await handleResumeAutomation();
+      else if (scene && kind === "text") await handleGenerateWithoutVisualInputs(scene);
+      else if (scene) await handleGenerateScene(scene, { forceNewProviderRequest: kind === "regenerate" });
+    }
+    finally { videoActionRunningRef.current = false; }
+  };
   const [queueingSceneId, setQueueingSceneId] = useState<string | null>(null);
   const [isPreparingProject, setIsPreparingProject] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
@@ -1371,6 +1471,11 @@ export default function StoryboardVideoProductionPanel({
     isFinalizing ||
     isRecoveringAutomation ||
     automationActive;
+  useEffect(() => {
+    onRequestPendingChange?.(isPreparingProject || Boolean(queueingSceneId) || isFinalizing || isRecoveringAutomation);
+    return () => onRequestPendingChange?.(false);
+  }, [onRequestPendingChange, isPreparingProject, queueingSceneId, isFinalizing, isRecoveringAutomation]);
+
   const qualityReadiness = useMemo(() => {
     const scenes = storyboard.scenes.map((scene, index) => ({
       scene,
@@ -1583,18 +1688,24 @@ export default function StoryboardVideoProductionPanel({
         if (!job) return scene;
         const result = renderResult(job);
         const stalledError = stalledJobMessage(job, jobStatusClock);
+        const completedOutput =
+          job.status === "completed" && job.clipId && job.resultVideoUrl
+            ? { clipId: job.clipId, videoUrl: job.resultVideoUrl }
+            : null;
+        const completedOutputMissing = job.status === "completed" && !completedOutput;
         const nextVideo: StoryboardVideoScene = {
           ...scene.video,
           status: sceneStatusFromJob(job, scene.video.status, jobStatusClock),
-          clipId: job.clipId || scene.video.clipId,
-          videoUrl: job.resultVideoUrl || scene.video.videoUrl,
-          lastFrameUrl: job.resultFrameUrl || scene.video.lastFrameUrl,
-          artifactId: job.clipId || scene.video.artifactId,
+          clipId: completedOutput?.clipId ?? scene.video.clipId,
+          videoUrl: completedOutput?.videoUrl ?? scene.video.videoUrl,
+          lastFrameUrl: completedOutput
+            ? job.resultFrameUrl || null
+            : scene.video.lastFrameUrl,
+          artifactId: completedOutput?.clipId ?? scene.video.artifactId,
           replacedClipId:
-            job.status === "completed" &&
-            job.clipId &&
+            completedOutput &&
             scene.video.clipId &&
-            job.clipId !== scene.video.clipId
+            completedOutput.clipId !== scene.video.clipId
               ? scene.video.clipId
               : scene.video.replacedClipId,
           modelUsed: result.modelUsed || scene.video.modelUsed,
@@ -1605,6 +1716,9 @@ export default function StoryboardVideoProductionPanel({
           audioApplied: result.audioApplied,
           errorMessage:
             stalledError ||
+            (completedOutputMissing
+              ? "장면 영상 작업에 재생 가능한 결과가 없습니다. 작업 상태를 확인한 뒤 다시 시도해 주세요."
+              : null) ||
             (job.status === "failed" || job.status === "canceled"
               ? job.errorMessage ||
                 job.message ||
@@ -1635,13 +1749,17 @@ export default function StoryboardVideoProductionPanel({
                 : finalJob.status === "queued"
                   ? ("queued" as const)
                   : ("rendering" as const);
+        const completedOutput =
+          finalStatus === "completed" && finalJob.clipId && finalJob.resultVideoUrl
+            ? { clipId: finalJob.clipId, videoUrl: finalJob.resultVideoUrl }
+            : null;
         const nextProduction = {
           ...videoProduction,
           finalStatus,
-          finalClipId: finalJob.clipId || videoProduction.finalClipId,
+          finalClipId: completedOutput?.clipId ?? videoProduction.finalClipId,
           finalVideoUrl:
-            finalJob.resultVideoUrl || videoProduction.finalVideoUrl,
-          finalArtifactId: finalJob.clipId || videoProduction.finalArtifactId,
+            completedOutput?.videoUrl ?? videoProduction.finalVideoUrl,
+          finalArtifactId: completedOutput?.clipId ?? videoProduction.finalArtifactId,
           finalAssemblyManifest:
             finalStatus === "completed" &&
             videoProduction.pendingAssemblyManifest
@@ -4010,7 +4128,8 @@ export default function StoryboardVideoProductionPanel({
         }
         return;
       case "resume-automation":
-        void handleResumeAutomation();
+        if (pendingSceneCount === 0) { void handleResumeAutomation(); return; }
+        requestVideoAction("확인하고 이어 만들기", `승인 영상 ${reusableSceneIds.size}개 재사용 · 남은 ${pendingSceneCount}개 장면 제작. 기존 공급자 작업이 있으면 먼저 재조회합니다. 이후 미완료 장면에는 새 생성 비용이 생길 수 있습니다.`, formatUsd(projectedCost), { kind: "resume" }, estimatesByProfile);
         return;
       case "remerge-final":
         void handleFinalMerge();
@@ -4019,7 +4138,8 @@ export default function StoryboardVideoProductionPanel({
         handleFinalDownload();
         return;
       case "start-automation":
-        void handleStartAutomation();
+        if (pendingSceneCount === 0) { void handleStartAutomation(); return; }
+        requestVideoAction(`${pendingSceneCount}개 장면 제작 시작`, `승인 영상 ${reusableSceneIds.size}개 재사용 · 새 생성 ${pendingSceneCount}개. 실패 장면 자동 재시도는 새 요청 비용이 생길 수 있습니다.`, formatUsd(projectedCost), { kind: "start" }, estimatesByProfile);
         return;
     }
   }, [
@@ -4034,6 +4154,11 @@ export default function StoryboardVideoProductionPanel({
     onOpenImageWorkspace,
     productionJourney.primaryIntent,
     productionJourney.primarySceneId,
+    pendingSceneCount,
+    projectedCost,
+    requestVideoAction,
+    estimatesByProfile,
+    reusableSceneIds.size,
   ]);
 
   const handleJourneyStepSelect = useCallback(
@@ -4165,6 +4290,42 @@ export default function StoryboardVideoProductionPanel({
         onSelectScene={focusVideoScene}
         onSelectStep={handleJourneyStepSelect}
       />
+
+      <div className="production-cost-summary" role="status">
+        승인 영상 {reusableSceneIds.size}개 재사용 · 남은 제작 {pendingSceneCount}개 · 예상 추가 비용 {formatUsd(projectedCost)}
+        <small>예산 상한 {maxBudgetUsd === null ? "설정 안 됨" : formatUsd(maxBudgetUsd)} · 예상액이며 실제 비용은 요청 결과로 확정됩니다.</small>
+      </div>
+
+      {pendingVideoAction ? (
+        <RecoveryNotice id="storyboard-video-approval" $safe $stacked tabIndex={-1} aria-labelledby="storyboard-video-approval-title">
+          <div>
+            <strong id="storyboard-video-approval-title">영상 제작 내용 확인</strong>
+            <p>{pendingVideoAction.description}</p>
+            <p>예상 추가 비용 {pendingVideoAction.action.sceneId ? confirmationQuote.loading ? "확인 중…" : formatUsd(confirmationQuote.estimate?.estimatedCostUsd ?? null) : pendingVideoAction.estimate} · 예산 상한 {maxBudgetUsd === null ? "설정 안 됨" : formatUsd(maxBudgetUsd)}</p>
+            {confirmationQuote.error ? <p role="alert">{confirmationQuote.error} <SecondaryAutomationButton type="button" onClick={() => setConfirmationQuoteRetry((value) => value + 1)}>견적 다시 확인</SecondaryAutomationButton></p> : null}
+            <p>장면 설명·대사와 필요한 참조 이미지를 OpenRouter 영상 공급자에게 전송합니다. 가격 미확정 항목과 재시도는 실제 비용이 달라질 수 있습니다. 지금은 새 생성 요청이 시작되지 않았습니다.</p>
+            <label><input type="checkbox" checked={videoActionAccepted} disabled={Boolean(pendingVideoAction.action.sceneId && (confirmationQuote.loading || confirmationQuote.error || !confirmationQuote.estimate))} onChange={(event) => setVideoActionAccepted(event.target.checked)} /> 생성 범위·외부 전송·추가 비용을 확인했습니다.</label>
+            <AutomationActions>
+              <SecondaryAutomationButton type="button" onClick={() => { setPendingVideoAction(null); setVideoActionAccepted(false); }}>취소</SecondaryAutomationButton>
+              <PrimaryAutomationButton type="button" disabled={!videoActionAccepted || projectBusy || Boolean(pendingVideoAction.action.sceneId && (confirmationQuote.loading || confirmationQuote.error || !confirmationQuote.estimate))} onClick={() => void confirmVideoAction()}>{pendingVideoAction.label}</PrimaryAutomationButton>
+            </AutomationActions>
+          </div>
+        </RecoveryNotice>
+      ) : null}
+
+      {storyboard.scenes.some((scene) => scene.video.status === "failed") || jobSubscriptionError || storyboard.videoProduction.finalErrorMessage ? (
+        <RecoveryNotice id="storyboard-recovery-summary" tabIndex={-1} role="alert" $safe={false} $stacked>
+          <div>
+            <strong>{jobSubscriptionError ? "작업 상태 연결 확인 필요" : storyboard.scenes.some((scene) => scene.video.status === "failed") ? "제작이 멈춘 장면이 있습니다" : "완성본 조립 확인 필요"}</strong>
+            <p>{jobSubscriptionError || (storyboard.scenes.some((scene) => scene.video.status === "failed") ? "장면에서 원인을 확인하세요. 기존 요청의 결과 재조회와 새 비용이 드는 재제작을 구분해 안내합니다." : "기존 승인 영상은 유지됩니다. 작업 상태에서 조립 오류를 확인하세요.")}</p>
+            {storyboard.scenes.filter((scene) => scene.video.status === "failed").map((scene) => {
+              const recovery = describeStoryboardVideoRecovery({ errorMessage: scene.video.errorMessage, job: scene.video.jobId ? jobsById.get(scene.video.jobId) : undefined });
+              return <div key={scene.id} className="recovery-scene"><strong>{scene.order}번 · {scene.title}</strong><p>{recovery.description}</p><SecondaryAutomationButton type="button" onClick={() => focusVideoScene(scene.id)}>{scene.order}번 장면 원인·해결 보기</SecondaryAutomationButton></div>;
+            })}
+            {jobSubscriptionError ? <SecondaryAutomationButton type="button" onClick={retryJobSubscription}>작업 상태 다시 연결</SecondaryAutomationButton> : null}
+          </div>
+        </RecoveryNotice>
+      ) : null}
 
       <ProductionDetails>
         <summary>
@@ -4510,6 +4671,7 @@ export default function StoryboardVideoProductionPanel({
           <i className="fas fa-chevron-down" aria-hidden="true" />
         </summary>
         <StoryboardAutomationConsoleView
+          primaryActionInJourney
           model={{
             allowUnknownPricing: storyboard.videoProduction.allowUnknownPricing,
             automationErrorMessage:
@@ -4626,6 +4788,9 @@ export default function StoryboardVideoProductionPanel({
           onChange={onChange}
         />
       </ProductionDetails>
+
+      <StoryboardBatchSettings storyboard={storyboard} disabled={projectBusy} onChange={onChange} />
+      <StoryboardSceneComparison scenes={storyboard.scenes} activeSceneId={activeSceneId} onSelectScene={focusVideoScene} />
 
       <TimelineOverview as="nav" aria-label="영상 장면 타임라인">
         {storyboard.scenes.map((scene) => (
@@ -4796,13 +4961,14 @@ export default function StoryboardVideoProductionPanel({
                 onDuplicate: () => onDuplicateScene(scene),
                 onDurationChange: (duration) =>
                   patchSceneDuration(scene.id, duration),
-                onGenerate: () => handleGenerateScene(scene),
+                onGenerate: () => {
+                  if (sceneJob && canReuseStoryboardVideoProviderJob(sceneJob)) return handleGenerateScene(scene);
+                  requestVideoAction(`${scene.order}번 장면 제작`, "선택한 장면 1개를 새로 제작합니다. 승인된 다른 장면은 유지합니다.", formatUsd(sceneEstimate), { kind: "scene", sceneId: scene.id, estimateProfileKey: sceneEstimateProfileKey }, estimatesByProfile);
+                },
                 onRegenerate: () =>
-                  handleGenerateScene(scene, {
-                    forceNewProviderRequest: true,
-                  }),
+                  requestVideoAction(`${scene.order}번 장면 다시 제작`, "선택한 장면 1개를 새 요청으로 제작하며 추가 비용이 발생합니다.", formatUsd(sceneEstimate), { kind: "regenerate", sceneId: scene.id, estimateProfileKey: sceneEstimateProfileKey }, estimatesByProfile),
                 onGenerateWithoutVisualInputs: () =>
-                  handleGenerateWithoutVisualInputs(scene),
+                  requestVideoAction(`${scene.order}번 장면 텍스트로 제작`, "참조 이미지를 제외한 새 생성 요청입니다. 이미지 포함 견적과 실제 비용이 달라질 수 있습니다.", "제작 전 확인 필요", { kind: "text", sceneId: scene.id }, estimatesByProfile),
                 onPatchVideo: (patch) => patchSceneVideo(scene.id, patch),
                 onVoiceProfileChange: (voiceProfileId) =>
                   patchSceneVideo(scene.id, {

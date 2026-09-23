@@ -79,6 +79,8 @@ export default function StoryboardProductionJourney({
         ))}
       </JourneySteps>
 
+      <details>
+      <summary>완성 조건 자세히 보기</summary>
       <JourneyCompletionChecks role="group" aria-label="완성본 제작 조건">
         {model.completionChecks.map((check) => (
           <JourneyCompletionCheck
@@ -101,10 +103,11 @@ export default function StoryboardProductionJourney({
           </JourneyCompletionCheck>
         ))}
       </JourneyCompletionChecks>
+      </details>
 
       <JourneyActionRow>
         <div>
-          <strong>{model.progress}% 진행</strong>
+          <strong>{model.preparationDescription}</strong>
           <span>{model.progressDescription}</span>
         </div>
         {model.nextQualityAction ? (

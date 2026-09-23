@@ -77,7 +77,7 @@ assert.ok(
     dashboard.includes("handleProjectFilter") &&
     !workspace.includes("const [projectSearch") &&
     workspace.includes('$dashboardMode={workspaceSurface === "dashboard"}') &&
-    workspace.includes('{workspaceSurface === "editor" ? (\n              <ProjectSidebar'),
+    /workspaceSurface === "editor"\s*\?\s*\(\s*<ProjectSidebar/.test(workspace),
   "Project search, filter, and pagination state must remain isolated from the storyboard editor, and the dashboard must not duplicate the project sidebar.",
 );
 assert.ok(
@@ -85,10 +85,10 @@ assert.ok(
   "The file-management shortcut must target the project file manager.",
 );
 assert.ok(
-  dashboard.includes('type StoryboardOpenIntent = "edit" | "result" | "recovery"') &&
-    dashboard.includes('isCompleted\n                            ? "result"') &&
-    dashboard.includes('? "recovery"') &&
-    workspace.includes("revealStoryboardOpenIntent(intent)") &&
+  // Actual state/intent combinations and remount restoration run in verify-storyboard-ux.mjs.
+  dashboard.includes('getStoryboardNextAction(storyboard)') &&
+    workspace.includes('resolveStoryboardPosition(storyboard, intent,') &&
+    workspace.includes('revealStoryboardOpenIntent(intent,') &&
     workspace.includes('"#storyboard-final-delivery"') &&
     workspace.includes('"#storyboard-production-subscription-retry:not([disabled])"') &&
     workspace.includes('"#storyboard-production-recovery-action:not([disabled])"') &&

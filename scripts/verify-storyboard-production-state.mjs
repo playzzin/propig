@@ -178,7 +178,7 @@ assert(
   "A prepared storyboard must point to scene video production.",
 );
 assert(
-  activeJourney.primaryLabel === "전체 영상 만들기",
+  activeJourney.primaryLabel === "2개 장면 제작 내용 확인",
   "An idle storyboard must expose one production action.",
 );
 assert(

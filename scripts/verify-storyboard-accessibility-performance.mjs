@@ -12,7 +12,6 @@ const [
   videoJobsHook,
   sceneEditor,
   dashboard,
-  appLayout,
 ] =
   await Promise.all([
     readFile(
@@ -175,11 +174,8 @@ assert.ok(
     dashboard.includes("검색·필터 초기화"),
   "An empty filtered dashboard must offer one-action search and filter recovery.",
 );
-assert.ok(
-  appLayout.includes("{isMobileSidebarOpen ? (") &&
-    appLayout.includes('className="mobile-sidebar-backdrop active"'),
-  "The inactive mobile-menu backdrop must stay out of the focus and pointer tree.",
-);
+// Menu visibility is exercised in verify-storyboard-ui-playwright.mjs against
+// rendered open/closed states; source spelling does not prove focus behavior.
 
 for (const requirement of [
   'type="button"',

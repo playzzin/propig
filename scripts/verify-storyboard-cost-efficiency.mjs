@@ -76,7 +76,7 @@ for (const [name, source] of [
 }
 
 assert.ok(
-  nextRoute.includes("namespace: 'generate-image'") &&
+  /namespace: 'generate-image(?:-minute)?'/.test(nextRoute) &&
     nextRoute.includes("maxRequests: 12") &&
     nextRoute.includes("'Retry-After': String(rateLimit.retryAfterSeconds)"),
   "The local paid image route must reject request bursts before provider execution.",

@@ -69,6 +69,7 @@ export type StoryboardAutomationConsoleModel = {
 };
 
 type StoryboardAutomationConsoleProps = {
+  primaryActionInJourney?: boolean;
   model: StoryboardAutomationConsoleModel;
   onAllowUnknownPricingChange: (allowed: boolean) => void;
   onBudgetChange: (budget: number | null) => void;
@@ -78,6 +79,7 @@ type StoryboardAutomationConsoleProps = {
 };
 
 export default function StoryboardAutomationConsoleView({
+  primaryActionInJourney = false,
   model,
   onAllowUnknownPricingChange,
   onBudgetChange,
@@ -299,7 +301,7 @@ export default function StoryboardAutomationConsoleView({
           )}
         </p>
         <AutomationActions>
-          {model.canPauseAutomation ? (
+          {!primaryActionInJourney && model.canPauseAutomation ? (
             <SecondaryAutomationButton
               type="button"
               onClick={onPause}
@@ -311,7 +313,7 @@ export default function StoryboardAutomationConsoleView({
                 : "현재 장면 후 멈추기"}
             </SecondaryAutomationButton>
           ) : null}
-          {model.canResumeAutomation ? (
+          {!primaryActionInJourney && model.canResumeAutomation ? (
             <PrimaryAutomationButton
               id="storyboard-production-recovery-action"
               type="button"

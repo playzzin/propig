@@ -141,7 +141,8 @@ import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
 import { IMAGE_STYLE_PRESETS } from "@/constants/imageStylePresets";
-import StoryboardProjectDashboard from "@/components/image-generator/StoryboardProjectDashboard";
+import StoryboardProjectDashboard, { type StoryboardDashboardSession } from "@/components/image-generator/StoryboardProjectDashboard";
+import { resolveStoryboardPosition, type StoryboardOpenIntent, type StoryboardPosition } from "@/lib/storyboard-workspace-navigation";
 import {
   BufferedTextInput as BaseBufferedTextInput,
   BufferedTextarea as BaseBufferedTextarea,
@@ -153,6 +154,8 @@ import {
 } from "@/lib/client/media-download";
 import { KOREAN_DATE_TIME_FORMAT } from "@/lib/date-formatters";
 import { resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
+import { applyStoryboardPlanningPreset, isStoryboardPresetApplyBusy } from "@/lib/storyboard-planning-presets";
+import StoryboardPlanningPresets from "./StoryboardPlanningPresets";
 import { inspectStoryboardQuality } from "@/lib/storyboard-quality";
 import {
   getStoryboardProjectStatus,
@@ -248,7 +251,6 @@ const STORYBOARD_FORMAT_OPTIONS = [
 type StoryboardFormat = (typeof STORYBOARD_FORMAT_OPTIONS)[number]["value"];
 type SceneRedesignScope = "scene" | "flow";
 type WorkspaceSurface = "dashboard" | "editor";
-type StoryboardOpenIntent = "edit" | "result" | "recovery";
 type PendingStoryboardPaidAction =
   | { kind: "planning"; requestCount: number }
   | { kind: "scene"; sceneId: string; order: number; replacing: boolean }
@@ -776,7 +778,13 @@ async function preparePlanningReferences(
   );
 }
 
-export default function StoryboardWorkspace({
+export default function StoryboardWorkspace(props: StoryboardWorkspaceProps) {
+  const { currentUser } = useAuth();
+  // A new account gets a new editor, including drafts, requests and navigation memory.
+  return <StoryboardAccountWorkspace key={currentUser?.uid ?? "signed-out"} {...props} />;
+}
+
+function StoryboardAccountWorkspace({
   onClose,
   onGenerateScene,
   isGenerating,
@@ -789,6 +797,11 @@ export default function StoryboardWorkspace({
     loginWithGoogle,
   } = useAuth();
   const [storyboards, setStoryboards] = useState<SavedImageStoryboard[]>([]);
+  const dashboardSessionRef = useRef<StoryboardDashboardSession>({ search: "", page: 1, scrollTop: 0, focusedProjectId: null });
+  const [dashboardSnapshot, setDashboardSnapshot] = useState<StoryboardDashboardSession>({ search: "", page: 1, scrollTop: 0, focusedProjectId: null });
+  const projectPositionsRef = useRef(new Map<string, StoryboardPosition>());
+  const videoRequestPendingRef = useRef(false);
+  const handleVideoRequestPending = useCallback((pending: boolean) => { videoRequestPendingRef.current = pending; }, []);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ImageStoryboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -936,6 +949,9 @@ export default function StoryboardWorkspace({
       sceneRedesignAbortControllerRef.current?.abort();
       referenceUploadRequestRef.current += 1;
       versionHistoryRequestRef.current += 1;
+      projectSwitchRequestRef.current += 1;
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      pendingSaveRef.current = null;
     };
   }, []);
 
@@ -1086,6 +1102,8 @@ export default function StoryboardWorkspace({
               { ...requestedSave.draft, revision: serverRevision },
             );
 
+            if (!isMountedRef.current) return false;
+
             savedRevisionRef.current.set(
               requestedSave.storyboardId,
               nextServerRevision,
@@ -1114,6 +1132,7 @@ export default function StoryboardWorkspace({
           }
           return true;
         } catch (error) {
+          if (!isMountedRef.current) return false;
           pendingSaveRef.current = null;
           inFlightSaveRef.current = null;
           console.error(error);
@@ -1153,6 +1172,7 @@ export default function StoryboardWorkspace({
   }, []);
 
   const handleClose = useCallback(async () => {
+    if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
     cancelDraftScopedRequests();
     await flushFocusedWorkspaceField();
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -1290,6 +1310,10 @@ export default function StoryboardWorkspace({
     [],
   );
 
+  const updateActiveStoryboard = useCallback((updater: (current: ImageStoryboard) => ImageStoryboard) => {
+    if (isMountedRef.current && activeIdRef.current === activeId) updateDraft(updater);
+  }, [activeId, updateDraft]);
+
   const undoDraft = useCallback(() => {
     const current = draftRef.current;
     const previous = historyPastRef.current.pop();
@@ -1413,11 +1437,12 @@ export default function StoryboardWorkspace({
   );
 
   const revealStoryboardOpenIntent = useCallback(
-    (intent: StoryboardOpenIntent) => {
+    (intent: StoryboardOpenIntent, storyboard: ImageStoryboard, storyboardId: string) => {
       intentRevealCleanupRef.current?.();
       intentRevealCleanupRef.current = null;
-      setWorkspaceMode(intent === "edit" ? "storyboard" : "video");
-      if (intent === "edit") return;
+      const position = resolveStoryboardPosition(storyboard, intent, projectPositionsRef.current.get(storyboardId));
+      setWorkspaceMode(position.mode);
+      setActiveSceneId(position.sceneId);
 
       let observer: MutationObserver | null = null;
       let timeoutId: number | null = null;
@@ -1446,14 +1471,18 @@ export default function StoryboardWorkspace({
           }
         }
 
-        const selectors =
-          intent === "result"
+        const selectors = storyboard.cleanupStatus === "retry" ? ["#storyboard-project-files"] : position.mode === "storyboard"
+          ? [`#scene-title-${position.sceneId}`, "#storyboard-project-brief"]
+          : intent === "edit"
+            ? [`#storyboard-video-scene-${position.sceneId}`, "#storyboard-production-primary-action"]
+          : intent === "result"
             ? [
                 "#storyboard-final-delivery",
                 "#storyboard-production-primary-action:not([disabled])",
                 "#storyboard-production-recovery-console",
               ]
             : [
+                "#storyboard-recovery-summary",
                 "#storyboard-production-subscription-retry:not([disabled])",
                 "#storyboard-production-recovery-action:not([disabled])",
                 "#storyboard-production-recovery-notice",
@@ -1466,6 +1495,12 @@ export default function StoryboardWorkspace({
           .map((selector) => document.querySelector<HTMLElement>(selector))
           .find((candidate): candidate is HTMLElement => Boolean(candidate));
         if (!target) return false;
+
+        let disclosure = target.parentElement?.closest("details");
+        while (disclosure) {
+          disclosure.open = true;
+          disclosure = disclosure.parentElement?.closest("details") ?? null;
+        }
 
         const reduceMotion = window.matchMedia(
           "(prefers-reduced-motion: reduce)",
@@ -1515,6 +1550,7 @@ export default function StoryboardWorkspace({
       storyboard: SavedImageStoryboard,
       intent: StoryboardOpenIntent = "edit",
     ) => {
+      if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
       const requestId = projectSwitchRequestRef.current + 1;
       projectSwitchRequestRef.current = requestId;
       await flushFocusedWorkspaceField();
@@ -1522,10 +1558,11 @@ export default function StoryboardWorkspace({
       setPaidActionAccepted(false);
       const currentStoryboardId = activeIdRef.current;
       const currentDraft = draftRef.current;
+      if (currentStoryboardId) projectPositionsRef.current.set(currentStoryboardId, { mode: workspaceMode, sceneId: activeSceneId });
       setWorkspaceSurface("editor");
       if (currentStoryboardId === storyboard.id) {
         setProjectSwitchState("ready");
-        revealStoryboardOpenIntent(intent);
+        revealStoryboardOpenIntent(intent, currentDraft ?? storyboard, storyboard.id);
         return;
       }
       invalidateVersionHistory();
@@ -1572,7 +1609,7 @@ export default function StoryboardWorkspace({
         setLastSavedAt(latest.updatedAt);
         setLoadError(null);
         setProjectSwitchState("ready");
-        revealStoryboardOpenIntent(intent);
+        revealStoryboardOpenIntent(intent, latest, latest.id);
       } catch (error) {
         if (projectSwitchRequestRef.current !== requestId) return;
         console.error(error);
@@ -1591,10 +1628,13 @@ export default function StoryboardWorkspace({
       persistDraft,
       replaceDraft,
       revealStoryboardOpenIntent,
+      workspaceMode,
+      activeSceneId,
     ],
   );
 
   const createNewStoryboard = useCallback(async () => {
+    if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
     await flushFocusedWorkspaceField();
     if (!currentUser?.uid) {
       toast.error("로그인 후 스토리보드를 만들 수 있습니다.");
@@ -3808,13 +3848,18 @@ export default function StoryboardWorkspace({
   }, []);
 
   const openDashboard = useCallback(async () => {
+    if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
+    await flushFocusedWorkspaceField();
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    if (activeId && draft && isDirty) {
-      const saved = await persistDraft(activeId, draft, revisionRef.current);
+    if (activeId && draftRef.current && isDirtyRef.current) {
+      const saved = await persistDraft(activeId, draftRef.current, revisionRef.current);
       if (!saved) return;
     }
+    if (activeId) projectPositionsRef.current.set(activeId, { mode: workspaceMode, sceneId: activeSceneId });
+    intentRevealCleanupRef.current?.();
     setWorkspaceSurface("dashboard");
-  }, [activeId, draft, isDirty, persistDraft]);
+    setDashboardSnapshot({ ...dashboardSessionRef.current });
+  }, [activeId, activeSceneId, workspaceMode, flushFocusedWorkspaceField, persistDraft]);
 
   const handleGoogleLogin = useCallback(async () => {
     if (!isAuthConfigured) {
@@ -3967,6 +4012,8 @@ export default function StoryboardWorkspace({
                   ? "프로젝트 여는 중…"
                   : isSaving
                     ? "저장 중…"
+                    : loadError && isDirty
+                      ? "저장되지 않음"
                     : isDirty
                       ? "변경 저장 대기"
                       : formatSavedTime(lastSavedAt)}
@@ -4200,6 +4247,8 @@ export default function StoryboardWorkspace({
 
             {workspaceSurface === "dashboard" ? (
               <StoryboardProjectDashboard
+                sessionRef={dashboardSessionRef}
+                initialSession={dashboardSnapshot}
                 storyboards={storyboards}
                 isLoading={isLoading}
                 loadError={subscriptionError}
@@ -4231,6 +4280,7 @@ export default function StoryboardWorkspace({
                           </button>
                         </div>
                       ) : null}
+                      {isDirty && !saveConflict ? <button type="button" disabled={isSaving} onClick={() => { if (activeId && draftRef.current) void persistDraft(activeId, draftRef.current, revisionRef.current); }}>다시 저장</button> : null}
                     </ErrorNotice>
                   ) : null}
                   {isHistoryOpen ? (
@@ -4301,6 +4351,8 @@ export default function StoryboardWorkspace({
                         maxLength={100}
                         autoComplete="off"
                       />
+                      <details className="project-management">
+                        <summary>프로젝트 관리</summary>
                       <ProjectActionRow aria-label="프로젝트 관리">
                         <button
                           type="button"
@@ -4363,6 +4415,7 @@ export default function StoryboardWorkspace({
                           <i className="fas fa-trash" aria-hidden="true" /> 삭제
                         </button>
                       </ProjectActionRow>
+                      </details>
                     </div>
                     <ProgressSummary>
                       <span>장면 이미지</span>
@@ -4370,7 +4423,7 @@ export default function StoryboardWorkspace({
                         {progress.generated}/{progress.total}
                       </strong>
                       <small>
-                        {productionProgress}% · 영상·완성본은 영상 제작에서 확인
+                        이미지 준비 · 영상 승인 {approvedVideoCount}/{progress.total}
                       </small>
                       <ProgressTrack aria-hidden="true">
                         <ProgressFill $progress={productionProgress} />
@@ -4483,6 +4536,18 @@ export default function StoryboardWorkspace({
                         </WorkflowStep>
                       </ProductionFlow>
 
+                      <StoryboardPlanningPresets
+                        key={activeId}
+                        userId={currentUser.uid}
+                        storyboard={draft}
+                        disabled={isWorkspaceBusy || isUploadingReferences}
+                        onApply={(settings) => {
+                          if (videoRequestPendingRef.current || isWorkspaceBusy || isUploadingReferences
+                            || !draftRef.current || isStoryboardPresetApplyBusy(draftRef.current)) return false;
+                          updateDraft((current) => applyStoryboardPlanningPreset(current, settings));
+                          return true;
+                        }}
+                      />
                       <QuickPlanner aria-labelledby="quick-storyboard-title">
                         <QuickPlannerHeading>
                           <div>
@@ -5886,6 +5951,7 @@ export default function StoryboardWorkspace({
                     </>
                   ) : (
                     <StoryboardVideoProductionPanel
+                      key={activeId}
                       storyboardId={activeId}
                       storyboard={draft}
                       referenceAssets={projectReferenceAssets}
@@ -5901,7 +5967,8 @@ export default function StoryboardWorkspace({
                         if (missingScene) focusScene(missingScene.id);
                       }}
                       disabled={isWorkspaceBusy}
-                      onChange={updateDraft}
+                      onRequestPendingChange={handleVideoRequestPending}
+                      onChange={updateActiveStoryboard}
                     />
                   )}
                 </BoardContent>

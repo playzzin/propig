@@ -16,6 +16,7 @@ import { useSystem } from '@/contexts/SystemContext';
 import { useBrandImageFallback } from '@/hooks/useBrandImageFallback';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 import { MenuItem } from '@/types/menu';
+import { isDocumentMenuRoute } from '@/lib/menu-navigation';
 
 interface SidebarProps {
     currentEnv: string;
@@ -143,6 +144,7 @@ function collectIdlePrefetchTargets(items: MenuItem[], pathname: string | null, 
                 item.path !== pathname &&
                 item.path.startsWith('/') &&
                 !isCompanyMenuRoute(item.path) &&
+                !isDocumentMenuRoute(item.path) &&
                 !targets.includes(item.path)
             ) {
                 targets.push(item.path);
@@ -331,13 +333,14 @@ export default function Sidebar({
             item.external ||
             item.path === pathname ||
             !item.path.startsWith('/') ||
+            isDocumentMenuRoute(item.path) ||
             isCompanyMenuRoute(item.path)
         ) return;
         router.prefetch(item.path);
     }, [pathname, router]);
 
     const prefetchMenuItemOnPointerDown = useCallback((item: MenuItem) => {
-        if (item.path && !item.external && item.path !== pathname && item.path.startsWith('/')) {
+        if (item.path && !item.external && !isDocumentMenuRoute(item.path) && item.path !== pathname && item.path.startsWith('/')) {
             router.prefetch(item.path);
         }
     }, [pathname, router]);
@@ -380,7 +383,8 @@ export default function Sidebar({
         });
         if (!window.dispatchEvent(navigationEvent)) return;
 
-        router.push(item.path);
+        if (isDocumentMenuRoute(item.path)) window.location.href = item.path;
+        else router.push(item.path);
         closeMobileSidebar?.();
         setViewTitle(item.text, `현재 환경: ${currentEnv} / 메뉴: ${item.text}`);
     }, [closeMobileSidebar, currentEnv, pathname, router, setViewTitle]);
@@ -483,6 +487,12 @@ export default function Sidebar({
         });
         if (!window.dispatchEvent(navigationEvent)) {
             event.preventDefault();
+            return;
+        }
+
+        if (isDocumentMenuRoute(item.path)) {
+            event.preventDefault();
+            window.location.href = item.path;
             return;
         }
 
@@ -618,7 +628,7 @@ export default function Sidebar({
                                     <Link
                                         href={getMenuItemHref(item)}
                                         className="nav-btn"
-                                        prefetch={null}
+                                        prefetch={isDocumentMenuRoute(item.path) ? false : null}
                                         aria-current={isActive ? 'page' : undefined}
                                         onClick={(event) => handleAnchorMenuClick(item, event)}
                                         onMouseEnter={() => prefetchMenuItem(item)}
@@ -639,7 +649,7 @@ export default function Sidebar({
                                             <li key={sub.id} className={`sub-nav-item ${isMenuItemActive(sub) ? 'active' : ''}`}>
                                                 <Link
                                                     href={getMenuItemHref(sub)}
-                                                    prefetch={sub.external ? false : null}
+                                                    prefetch={sub.external || isDocumentMenuRoute(sub.path) ? false : null}
                                                     className={sub.path === pathname ? 'active' : ''}
                                                     aria-current={sub.path === pathname ? 'page' : undefined}
                                                     onMouseEnter={() => prefetchMenuItem(sub)}
@@ -672,7 +682,7 @@ export default function Sidebar({
                         {popover.parent.path ? (
                             <Link
                                 href={getMenuItemHref(popover.parent)}
-                                prefetch={popover.parent.external ? false : null}
+                                prefetch={popover.parent.external || isDocumentMenuRoute(popover.parent.path) ? false : null}
                                 className="popover-header popover-header-link"
                                 aria-current={popover.parent.path === pathname ? 'page' : undefined}
                                 onMouseEnter={() => prefetchMenuItem(popover.parent)}
@@ -691,7 +701,7 @@ export default function Sidebar({
                             <Link
                                 key={subItem.id}
                                 href={getMenuItemHref(subItem)}
-                                prefetch={subItem.external ? false : null}
+                                prefetch={subItem.external || isDocumentMenuRoute(subItem.path) ? false : null}
                                 className="popover-link"
                                 aria-current={subItem.path === pathname ? 'page' : undefined}
                                 onMouseEnter={() => prefetchMenuItem(subItem)}

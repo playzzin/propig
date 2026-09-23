@@ -69,7 +69,12 @@ async function measureTransition(page, href) {
   await page.waitForFunction((expectedPath) => window.location.pathname === expectedPath, href, {
     timeout: maxTransitionMs,
   });
-  await page.locator('main').first().waitFor({ state: 'visible', timeout: maxTransitionMs }).catch(() => {});
+  // A committed URL and interactive shell can still hide a suspended page.
+  // Wait for content, including the delayed recovery state, before reporting success.
+  await page.locator('[data-route-loading], [aria-label="페이지를 불러오는 중"]').waitFor({
+    state: 'hidden', timeout: maxTransitionMs,
+  });
+  await page.locator('main').first().waitFor({ state: 'visible', timeout: maxTransitionMs });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
 
   return Math.round(performance.now() - startedAt);

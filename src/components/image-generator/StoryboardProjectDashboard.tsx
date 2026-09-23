@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { getStoryboardNextAction, type StoryboardOpenIntent } from "@/lib/storyboard-workspace-navigation";
 import { KOREAN_DATE_TIME_FORMAT } from "@/lib/date-formatters";
 import type { SavedImageStoryboard } from "@/schemas/imageStoryboard";
 import {
@@ -36,9 +37,17 @@ const PROJECT_PAGE_SIZE = 12;
 
 type ProjectFilter = "active" | "completed" | "attention" | "archived";
 
-type StoryboardOpenIntent = "edit" | "result" | "recovery";
+export type StoryboardDashboardSession = {
+  search: string;
+  page: number;
+  scrollTop: number;
+  focusedProjectId: string | null;
+  filter?: ProjectFilter;
+};
 
 type StoryboardProjectDashboardProps = {
+  sessionRef: RefObject<StoryboardDashboardSession>;
+  initialSession: StoryboardDashboardSession;
   isLoading: boolean;
   loadError: string | null;
   onCreate: () => void;
@@ -69,6 +78,8 @@ function needsProjectAttention(storyboard: SavedImageStoryboard): boolean {
 }
 
 export default function StoryboardProjectDashboard({
+  sessionRef,
+  initialSession,
   isLoading,
   loadError,
   onCreate,
@@ -76,21 +87,42 @@ export default function StoryboardProjectDashboard({
   onRetry,
   storyboards,
 }: StoryboardProjectDashboardProps) {
-  const [projectSearch, setProjectSearch] = useState("");
-  const [projectPage, setProjectPage] = useState(1);
+  const dashboardRef = useRef<HTMLElement>(null);
+  const [projectSearch, setProjectSearch] = useState(initialSession.search);
+  const [projectPage, setProjectPage] = useState(initialSession.page);
   const [projectFilter, setProjectFilter] =
-    useState<ProjectFilter>("active");
+    useState<ProjectFilter>(initialSession.filter ?? "active");
 
   useEffect(() => {
     const restoreFilterFromUrl = () => {
       setProjectFilter(projectFilterFromSearch(window.location.search));
-      setProjectPage(1);
     };
 
-    restoreFilterFromUrl();
+    if (initialSession.filter === undefined) restoreFilterFromUrl();
+    else {
+      const url = new URL(window.location.href);
+      if (initialSession.filter === "active") url.searchParams.delete("projectStatus");
+      else url.searchParams.set("projectStatus", initialSession.filter);
+      window.history.replaceState(window.history.state, "", url);
+    }
     window.addEventListener("popstate", restoreFilterFromUrl);
     return () => window.removeEventListener("popstate", restoreFilterFromUrl);
-  }, []);
+  }, [initialSession.filter]);
+
+  useEffect(() => {
+    sessionRef.current.search = projectSearch;
+    sessionRef.current.page = projectPage;
+    sessionRef.current.filter = projectFilter;
+  }, [projectSearch, projectPage, projectFilter, sessionRef]);
+
+  useLayoutEffect(() => {
+    const dashboard = dashboardRef.current;
+    if (!dashboard) return;
+    const target = Array.from(dashboard.querySelectorAll<HTMLElement>("[data-project-id]"))
+      .find((element) => element.dataset.projectId === sessionRef.current.focusedProjectId);
+    target?.focus({ preventScroll: true });
+    dashboard.scrollTop = sessionRef.current.scrollTop;
+  }, [sessionRef]);
 
   const dashboardStats = useMemo(() => {
     const availableProjects = storyboards.filter(
@@ -165,7 +197,8 @@ export default function StoryboardProjectDashboard({
   };
 
   return (
-    <ProjectDashboard aria-labelledby="storyboard-dashboard-title">
+    <ProjectDashboard ref={dashboardRef} aria-labelledby="storyboard-dashboard-title"
+      onScroll={(event) => { sessionRef.current.scrollTop = event.currentTarget.scrollTop; }}>
       <DashboardHero>
         <div>
           <BoardKicker>PRODUCTION CONTROL</BoardKicker>
@@ -224,6 +257,7 @@ export default function StoryboardProjectDashboard({
           </small>
         </DashboardKpi>
       </DashboardKpiGrid>
+      <p className="dashboard-scope">전체 프로젝트 기준 · 검색과 상태 필터는 아래 목록에 적용됩니다.</p>
 
       <ProjectControlBar>
         <ProjectSearchField>
@@ -305,15 +339,23 @@ export default function StoryboardProjectDashboard({
               ].includes(storyboard.videoProduction.automationStatus);
               const statusLabel =
                 STORYBOARD_PROJECT_STATUS_LABELS[projectStatus];
+              const nextAction = getStoryboardNextAction(storyboard);
+              const reviewCount = storyboard.scenes.filter((scene) => scene.video.status === "failed" || scene.assetFreshness === "review").length;
               return (
                 <ProjectTableRow key={storyboard.id} role="row">
                   <ProjectIdentity role="cell">
-                    <span>{storyboard.aspectRatio}</span>
+                    <span>{storyboard.scenes.find((scene) => scene.generatedImage?.url)?.generatedImage?.url ? (
+                      <img src={storyboard.scenes.find((scene) => scene.generatedImage?.url)?.generatedImage?.url} alt="" width={48} height={36} loading="lazy" />
+                    ) : storyboard.aspectRatio}</span>
                     <div>
-                      <strong>{storyboard.title}</strong>
+                      <strong title={storyboard.title}>{storyboard.title}</strong>
                       <small>
                         {storyboard.topic || "주제가 아직 입력되지 않았습니다."}
                       </small>
+                      <span className="mobile-project-summary">이미지 {projectGenerated}/{storyboard.scenes.length} · 영상 승인 {projectApproved}/{storyboard.scenes.length}</span>
+                      <time className="mobile-project-summary" dateTime={storyboard.updatedAt ? new Date(storyboard.updatedAt).toISOString() : undefined}>
+                        {storyboard.updatedAt ? KOREAN_DATE_TIME_FORMAT.format(storyboard.updatedAt) : "수정 기록 없음"}
+                      </time>
                     </div>
                   </ProjectIdentity>
                   <ProjectMetric role="cell">
@@ -342,7 +384,7 @@ export default function StoryboardProjectDashboard({
                             : "neutral"
                     }
                   >
-                    {statusLabel}
+                    {reviewCount ? `${reviewCount}개 장면 확인 필요` : statusLabel}
                   </ProjectStatus>
                   <ProjectUpdated role="cell">
                     {storyboard.updatedAt
@@ -352,22 +394,13 @@ export default function StoryboardProjectDashboard({
                   <ProjectActionCell role="cell">
                     <ProjectOpenButton
                       type="button"
+                      data-project-id={storyboard.id}
                       onClick={() =>
-                        onOpen(
-                          storyboard,
-                          isCompleted
-                            ? "result"
-                            : needsAttention
-                              ? "recovery"
-                              : "edit",
-                        )
+                        { sessionRef.current.focusedProjectId = storyboard.id;
+                          onOpen(storyboard, nextAction.intent); }
                       }
                     >
-                      {isCompleted
-                        ? "결과 보기"
-                        : needsAttention
-                          ? "문제 해결"
-                          : "이어서 제작"}
+                      {nextAction.label}
                       <i className="fas fa-arrow-right" aria-hidden="true" />
                     </ProjectOpenButton>
                   </ProjectActionCell>

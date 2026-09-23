@@ -51,6 +51,7 @@ export type StoryboardProductionJourneyModel = {
   primarySceneId: string | null;
   progress: number;
   progressDescription: string;
+  preparationDescription: string;
   showPause: boolean;
   steps: Array<{
     label: string;
@@ -216,9 +217,9 @@ export function buildStoryboardProductionJourney(
         : ("waiting" as const),
   }));
 
-  const needsImageWorkspace = !imageDesignDone || !imageProductionDone;
+  const needsImageWorkspace = !sceneProductionDone && (!imageDesignDone || !imageProductionDone);
   const needsVideoDesign =
-    imageProductionDone && !videoDesignDone && !params.canResumeAutomation;
+    !sceneProductionDone && imageProductionDone && !videoDesignDone && !params.canResumeAutomation;
   const needsRemerge =
     params.hasFinalDelivery && !params.hasCurrentFinalDelivery;
   const primaryIntent: StoryboardProductionJourneyPrimaryIntent =
@@ -238,6 +239,7 @@ export function buildStoryboardProductionJourney(
       ? params.firstMissingVideoDesignSceneId
       : null;
 
+  const isGenerationAction = (primaryIntent === "start-automation" || primaryIntent === "resume-automation") && params.pendingSceneCount > 0;
   const primaryLabel =
     params.finalMergeInFlight || params.automationStatus === "merging"
       ? "최종 완성본 조립 중…"
@@ -247,13 +249,9 @@ export function buildStoryboardProductionJourney(
           ? `${Math.min(params.sceneCount, (params.automationCurrentSceneIndex ?? 0) + 1)}번 장면 제작 중…`
           : params.automationStatus === "pausing"
             ? "현재 장면 마무리 중…"
-            : params.automationStatus === "failed"
-              ? "문제 해결하고 이어 만들기"
-              : params.automationStatus === "paused"
-                ? "멈춘 장면부터 이어 만들기"
-                : params.workerStatusPending
+            : isGenerationAction && params.workerStatusPending
                   ? "영상 서버 확인 중…"
-                  : params.workerIssue
+                  : isGenerationAction && params.workerIssue
                     ? "영상 서버 업데이트 필요"
                     : params.creditIssue &&
                         (primaryIntent === "start-automation" ||
@@ -269,17 +267,18 @@ export function buildStoryboardProductionJourney(
                           ? "최신 완성본 다시 조립"
                           : primaryIntent === "download-final"
                             ? "완성본 다운로드"
+                            : primaryIntent === "resume-automation"
+                              ? "이어 만들기 내용 확인"
                             : params.pendingSceneCount === 0
                               ? "승인 영상으로 완성본 만들기"
-                              : "전체 영상 만들기";
+                              : `${params.pendingSceneCount}개 장면 제작 내용 확인`;
 
   const primaryDisabled =
     params.finalMergeInFlight ||
     params.automationActive ||
     params.isRecoveringAutomation ||
     params.isDownloading ||
-    (!needsImageWorkspace &&
-      primaryIntent !== "download-final" &&
+    (isGenerationAction &&
       (params.workerStatusPending || Boolean(params.workerIssue))) ||
     (primaryIntent === "open-image-workspace"
       ? !params.canOpenImageWorkspace
@@ -290,23 +289,21 @@ export function buildStoryboardProductionJourney(
           : primaryIntent === "remerge-final"
             ? !sceneProductionDone
             : !params.canResumeAutomation && !params.canStartAutomation) ||
-    (params.canResumeAutomation &&
+    (isGenerationAction && params.canResumeAutomation &&
       (!params.jobSubscriptionReady || Boolean(params.jobSubscriptionError)));
 
   const guidance =
-    params.jobSubscriptionError ||
-    params.workerIssue ||
-    params.creditIssue ||
-    (params.workerStatusPending
+    (isGenerationAction ? params.jobSubscriptionError || params.workerIssue || params.creditIssue : null) ||
+    (isGenerationAction && params.workerStatusPending
       ? "추가 비용이 생기기 전에 영상 처리 서버의 안전 버전을 확인하고 있습니다."
       : null) ||
-    (params.pricingCheckPending
+    (isGenerationAction && params.pricingCheckPending
       ? "장면별 예상 비용을 확인하고 있습니다. 잠시만 기다려 주세요."
       : null) ||
-    (params.budgetExceeded
+    (isGenerationAction && params.budgetExceeded
       ? "설정한 최대 예산을 초과했습니다. 고급 설정에서 예산을 조정해 주세요."
       : null) ||
-    (params.unknownPricingBlocked
+    (isGenerationAction && params.unknownPricingBlocked
       ? "가격 미공개 모델 사용 여부를 고급 설정에서 선택해 주세요."
       : null) ||
     (!imageDesignDone
@@ -335,7 +332,7 @@ export function buildStoryboardProductionJourney(
       ? "최신 완성본이 준비되었습니다. 바로 내려받거나 아래에서 재생해 검수하세요."
       : needsRemerge
         ? "장면이나 사운드가 바뀌었습니다. 승인된 장면 순서로 최신 완성본을 다시 조립하세요."
-        : "대표 버튼 한 번으로 장면을 순서대로 만들고 최종 완성본까지 자동으로 조립합니다.");
+        : "제작 범위와 예상 비용을 확인하면 장면을 순서대로 만들고 최종 완성본까지 자동으로 조립합니다.");
 
   const completionChecks: StoryboardProductionJourneyModel["completionChecks"] =
     [
@@ -422,6 +419,7 @@ export function buildStoryboardProductionJourney(
     primaryLabel,
     primarySceneId,
     progress: journeyProgress,
+    preparationDescription: `준비 ${[imageDesignDone, imageProductionDone, videoDesignDone].filter(Boolean).length}/3단계`,
     progressDescription: params.hasCurrentFinalDelivery
       ? "최신 완성본 준비 완료"
       : !imageProductionDone

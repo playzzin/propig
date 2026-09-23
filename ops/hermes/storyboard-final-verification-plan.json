@@ -1,0 +1,3 @@
+[
+  {"role":"qa","goal":"유료 제외 후속 검증: 실제 VideoProductionPanel과 가짜 IO를 사용하는 기존 회귀를 확장해 승인된 장면만 최종 병합, 이전 완성본 보존, 병합 실패·출력 누락·완료 갱신을 검사한다. 동일 동기화 구간의 개별 장면 재생성 부분 출력과 정상 결과·마지막 프레임 원자성을 포함한다. 제품 파일·서버·package·다른 테스트 수정, 실제 네트워크·Firebase·유료 요청은 금지한다. 구현 결함은 수정하지 말고 lead에게 근거와 함께 보고한다.","files":["scripts/verify-storyboard-video-confirmation.cjs"]}
+]

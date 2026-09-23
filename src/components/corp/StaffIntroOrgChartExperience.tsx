@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styled, { createGlobalStyle } from 'styled-components';
+import { StaffCollaborationStage } from './StaffCollaborationStage';
+import { DepartmentConversation, StaffConversationControls, StaffConversationProvider } from './StaffDepartmentConversations';
 
 type PersonLevel = '경영진' | '총괄본부장' | '본부장' | '팀장' | '센터장';
 
@@ -874,6 +876,11 @@ export function StaffIntroOrgChartExperience() {
             </PrincipleRail>
           </HeroCopy>
 
+          <StaffCollaborationStage
+            people={[CEO, GENERAL_MANAGER, ...DIVISIONS.map((division) => division.head)]}
+            portrait={(person) => <ProfilePhoto person={person} size={64} />}
+          />
+
           <LeadershipStage aria-label="대표이사와 핵심 경영진">
             <ExecutiveArea>
               <ExecutiveHeading>
@@ -982,6 +989,7 @@ export function StaffIntroOrgChartExperience() {
         </TopStage>
 
         <DivisionSection variants={riseVariants} aria-labelledby="division-title">
+          <StaffConversationProvider>
           <SectionTopline>
             <div>
               <SectionEyebrow>
@@ -997,6 +1005,7 @@ export function StaffIntroOrgChartExperience() {
               <span><strong>100</strong>명 팀장</span>
             </SectionSummary>
           </SectionTopline>
+          <StaffConversationControls />
           <DivisionTiers>
             {DIVISION_TIERS.map((tier, tierIndex) => (
               <motion.div
@@ -1048,13 +1057,22 @@ export function StaffIntroOrgChartExperience() {
                                   <p>{division.head.description}</p>
                                 </div>
                               </DivisionHead>
-                              <TeamList>
-                                {division.teams.map((team) => {
+                              <DepartmentConversation
+                                id={division.id}
+                                label={division.label}
+                                accent={division.accent}
+                                teams={division.teams}
+                                portrait={(index) => <ProfilePhoto person={buildTeamPerson(division, division.teams[index])} size={36} />}
+                              >
+                                {(speaker, listener) => <TeamList>
+                                {division.teams.map((team, index) => {
                                   const teamPerson = buildTeamPerson(division, team);
                                   return (
                                     <TeamButton
                                       key={team.name}
                                       type="button"
+                                      data-staff-speaking={speaker === index}
+                                      data-staff-listening={listener === index}
                                       onClick={(event) => openProfile(teamPerson, event.currentTarget)}
                                       aria-label={`${team.name} ${team.lead} 상세 프로필 열기`}
                                     >
@@ -1066,7 +1084,8 @@ export function StaffIntroOrgChartExperience() {
                                     </TeamButton>
                                   );
                                 })}
-                              </TeamList>
+                              </TeamList>}
+                              </DepartmentConversation>
                               <DivisionFooter>
                                 <span>{division.executive} 직속 · 팀장 10명</span>
                                 <BadgeCheck size={14} strokeWidth={2.2} aria-hidden="true" />
@@ -1081,6 +1100,7 @@ export function StaffIntroOrgChartExperience() {
               </motion.div>
             ))}
           </DivisionTiers>
+          </StaffConversationProvider>
         </DivisionSection>
 
         <SupportSection variants={riseVariants} aria-labelledby="support-title">
@@ -2261,6 +2281,16 @@ const TeamButton = styled.button`
   text-align: left;
   cursor: pointer;
   transition: background 150ms ease;
+
+  &[data-staff-speaking='true'] {
+    background: rgba(69, 180, 208, 0.17);
+    box-shadow: inset 3px 0 #8fe7e1;
+  }
+
+  &[data-staff-listening='true'] {
+    background: rgba(69, 180, 208, 0.08);
+    box-shadow: inset 2px 0 #538db6;
+  }
 
   &:nth-child(odd) {
     border-right: 1px solid rgba(110, 168, 224, 0.12);

@@ -1,0 +1,7 @@
+[
+  {
+    "role": "qa",
+    "goal": "전체 릴리스 감사 및 재현된 Office 복원 비교 수정. 파생 응답 필드와 영구 저장 데이터를 구분하되 원본 무결성 검증을 보존한다. 유료 호출·실제 프로필·운영 데이터·Git 변경·상시 서버·배포 변경 금지. 합성 임시 검사 허용. lead가 전체 통합·스냅샷·빌드·commit/push/deploy를 소유한다.",
+    "files": ["scripts/hermes-office/restore_check.py", "scripts/hermes-office/test_maintenance.py", "scripts/hermes-office/test_phase2.py", "scripts/hermes-office/game-check.mjs"]
+  }
+]

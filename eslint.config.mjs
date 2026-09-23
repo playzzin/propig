@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     ".hermes-*/**",
     "home/hermes/.cache/**",
     "out/**",
+    "output/**",
+    ".propig-static-export-*/**",
     "build/**",
     "next-env.d.ts",
     "functions/lib/**",

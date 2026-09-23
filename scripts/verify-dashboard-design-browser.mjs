@@ -23,11 +23,19 @@ try{
   await shell.getByRole('button',{name:'메모장 숨기기',exact:true}).waitFor();
   await shell.evaluate(async el=>{await Promise.all(el.getAnimations({subtree:true}).filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));});
   const dragHandle=shell.getByRole('button',{name:'메모장',exact:true});
+  // Start with the active widget at the top of its scroll surface so the next
+  // mobile widget is a visible keyboard target rather than an auto-scroll step.
+  await dragHandle.evaluate(el=>el.scrollIntoView({block:'start',behavior:'instant'}));
   await dragHandle.focus();await page.keyboard.press('Space');
   await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-pressed')==='true');
-  await page.keyboard.press(width===390?'ArrowDown':'ArrowRight');
-  await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
-  await page.waitForFunction(()=>[...document.querySelectorAll('[role="status"]')].some(e=>e.textContent?.includes('droppable area habit')));
+  // Tall mobile widgets may consume a keyboard step to scroll before moving.
+  // Keep the destination and persisted-order assertions; allow bounded steps.
+  let reachedNextWidget=false;
+  for(let step=0;step<4&&!reachedNextWidget;step++){
+    await page.keyboard.press(width===390?'ArrowDown':'ArrowRight');
+    reachedNextWidget=await page.waitForFunction(()=>[...document.querySelectorAll('[role="status"]')].some(e=>e.textContent?.includes('droppable area habit')),undefined,{timeout:1500}).then(()=>true,()=>false);
+  }
+  assert(reachedNextWidget,'keyboard drag must reach the next widget');
   await page.keyboard.press('Space');
   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('propig:widget-layout:v1')||'{}').order?.[0]!=='memo');
   await shell.getByRole('button',{name:'초기화',exact:true}).click();

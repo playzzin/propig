@@ -142,9 +142,6 @@ const loadUsageReport = async (rangeDays) => {
         byOperation: ['text', 'image', 'video'].map((operation) => (Object.assign({ operation }, (byOperation.get(operation) || emptyAggregate())))),
         recent: records.slice(0, 20),
         truncated: snapshot.size > MAX_RECORDS,
-        uncertainSummary: { count: 0, reservedCostUsd: 0 },
-        uncertain: [],
-        uncertainTruncated: false,
     };
 };
 exports.openRouterUsage = (0, https_1.onRequest)({ cors: true, timeoutSeconds: 60, memory: '256MiB' }, async (req, res) => {

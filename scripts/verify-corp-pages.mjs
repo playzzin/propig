@@ -29,7 +29,7 @@ const pageSpecs = [
     slug: 'company-introduction',
     path: '/corp/company/introduction',
     requiredTexts: ['제품소개', '통합 실행 체계', 'SIMPLYPIG VISION', 'AI 웹·앱 개발', '리셀러 파트너'],
-    screenshotProbe: { label: 'product introduction section', selector: '#company-introduction-business', minWidth: 280, minHeight: 180 },
+    screenshotProbe: { label: 'company brands section', selector: '#company-brands', minWidth: 280, minHeight: 180 },
     targets: [
       { label: 'execution section', selector: 'h2,section,div', text: '통합 실행 체계', minWidth: 150, minHeight: 28 },
       { label: 'history section', selector: 'h2,section,div', text: '그냥돼지 연혁', minWidth: 150, minHeight: 28 },
@@ -62,12 +62,12 @@ const pageSpecs = [
   {
     slug: 'ceo-intro',
     path: '/corp/company/ceo-intro',
-    requiredTexts: ['CEO PROFILE · 01 / 03', '현장과 실행', '대표 메시지', '현장 중심 기준'],
+    requiredTexts: ['CEO PROFILE · 01 / 03', '현장과 실행', '신체정보', '학력정보', '경력정보'],
     screenshotProbe: { label: 'ceo hero image', selector: 'img[alt="대표 소개 사진 - 현장과 실행 리더십"]', minLuminanceRange: 20, minContrastPixelRatio: 0.002 },
     targets: [
       { label: 'ceo heading', selector: '#dashboard2-title,h1,h2', text: '현장과 실행', minWidth: 160, minHeight: 30 },
-      { label: 'ceo message accordion', selector: 'button,article,section,div', text: '대표 메시지', minWidth: 100, minHeight: 34 },
-      { label: 'ceo field accordion', selector: 'button,article,section,div', text: '현장 중심 기준', minWidth: 100, minHeight: 34 },
+      { label: 'ceo profile accordion', selector: 'button', text: '신체정보', minWidth: 100, minHeight: 34 },
+      { label: 'ceo education accordion', selector: 'button', text: '학력정보', minWidth: 100, minHeight: 34 },
     ],
   },
   {
@@ -453,7 +453,7 @@ async function verifyCeoProfileSwitch(page, viewportName) {
       return (
         image?.getAttribute('src')?.includes('upload_1780878139007') === true &&
         pageText.includes('사람과 신뢰') &&
-        pageText.includes('함께 결정하는 리더십')
+        pageText.includes('함께 성장하는 리더십')
       );
     },
     undefined,
@@ -463,6 +463,7 @@ async function verifyCeoProfileSwitch(page, viewportName) {
 
 async function verifyCompanyDashboardExperience(page, viewportName) {
   const expectedSectionOrder = [
+    'company-brands',
     'company-introduction-business',
     'company-introduction-execution',
     'company-introduction-vision',

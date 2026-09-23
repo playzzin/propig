@@ -4,6 +4,9 @@ exports.hostingApi = exports.HOSTING_API_ROUTE_PATTERNS = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const secrets_1 = require("../secrets");
 const hostingAdminUsers_1 = require("./hostingAdminUsers");
+const hostingInvitations_1 = require("./hostingInvitations");
+const hostingProductionInbox_1 = require("./hostingProductionInbox");
+const hostingImageBudgets_1 = require("./hostingImageBudgets");
 const hostingAiConfigRoutes_1 = require("./hostingAiConfigRoutes");
 const hostingCoreRoutes_1 = require("./hostingCoreRoutes");
 const hostingGenerationRoutes_1 = require("./hostingGenerationRoutes");
@@ -17,6 +20,10 @@ exports.HOSTING_API_ROUTE_PATTERNS = [
     '/api/admin/activity-logs',
     '/api/admin/menu-sites',
     '/api/admin/users',
+    '/api/admin/invitations',
+    '/api/invitations/accept',
+    '/api/production-inbox',
+    '/api/admin/image-budgets',
     '/api/ai-config',
     '/api/ai-config/test',
     '/api/convert-image',
@@ -47,6 +54,10 @@ const exactRoutes = new Map([
     ['/api/admin/activity-logs', hostingCoreRoutes_1.handleAdminActivityLogs],
     ['/api/admin/menu-sites', hostingCoreRoutes_1.handleAdminMenuSites],
     ['/api/admin/users', hostingAdminUsers_1.handleAdminUsers],
+    ['/api/admin/invitations', hostingInvitations_1.handleAdminInvitations],
+    ['/api/invitations/accept', hostingInvitations_1.handleAcceptInvitation],
+    ['/api/production-inbox', hostingProductionInbox_1.handleProductionInbox],
+    ['/api/admin/image-budgets', hostingImageBudgets_1.handleImageBudgets],
     ['/api/ai-config', hostingAiConfigRoutes_1.handleAiConfig],
     ['/api/ai-config/test', hostingAiConfigRoutes_1.handleAiConfigTest],
     ['/api/convert-image', hostingImageConversion_1.handleConvertImage],

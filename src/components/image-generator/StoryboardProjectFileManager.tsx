@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -66,7 +66,12 @@ function storagePathFromFirebaseDownloadUrl(value: string | null | undefined): s
     }
 }
 
-export default function StoryboardProjectFileManager({
+export default function StoryboardProjectFileManager(props: StoryboardProjectFileManagerProps) {
+    const { currentUser } = useAuth();
+    return <ProjectFileManager key={`${currentUser?.uid ?? 'signed-out'}:${props.storyboardId}:${props.storyboard.videoProduction.projectId}`} {...props} />;
+}
+
+function ProjectFileManager({
     storyboardId,
     storyboard,
     projectBusy,
@@ -74,7 +79,15 @@ export default function StoryboardProjectFileManager({
     onChange,
 }: StoryboardProjectFileManagerProps) {
     const { currentUser } = useAuth();
+    const liveRef = useRef(true);
+    const localInspectionRef = useRef(0);
+    const videoInspectionRef = useRef(0);
+    useEffect(() => {
+        liveRef.current = true;
+        return () => { liveRef.current = false; };
+    }, []);
     const [localFiles, setLocalFiles] = useState<StoryboardCleanupFileInfo[]>([]);
+    const [localStorageError, setLocalStorageError] = useState<string | null>(null);
     const [isInspectingLocal, setIsInspectingLocal] = useState(false);
     const [isDeletingLocal, setIsDeletingLocal] = useState(false);
     const [videoOverview, setVideoOverview] = useState<VideoStudioStorageOverview | null>(null);
@@ -93,14 +106,14 @@ export default function StoryboardProjectFileManager({
             return path ? [path] : [];
         }),
     ]), [storyboard.referenceAssets, storyboard.scenes, storyboard.videoProduction.backgroundMusicStoragePath]);
-    const reclaimableAssets = useMemo(
+    const filteredAssets = useMemo(
         () => storyboard.reclaimableStorageAssets.filter((asset) => !protectedLocalPaths.has(asset.storagePath)),
         [protectedLocalPaths, storyboard.reclaimableStorageAssets],
     );
-    const reclaimableAssetKey = useMemo(
-        () => reclaimableAssets.map((asset) => `${asset.id}:${asset.storagePath}`).join('|'),
-        [reclaimableAssets],
-    );
+    // Keep inspection inputs stable when unrelated edits or live job updates replace the draft.
+    const reclaimableAssetKey = JSON.stringify(filteredAssets);
+    const reclaimableAssets = useMemo<StoryboardStorageCleanupAsset[]>(
+        () => JSON.parse(reclaimableAssetKey), [reclaimableAssetKey]);
     const localFileById = useMemo(
         () => new Map(localFiles.map((file) => [file.id, file])),
         [localFiles],
@@ -112,14 +125,15 @@ export default function StoryboardProjectFileManager({
     const protectedSourceCount = storyboard.referenceAssets.filter((asset) => asset.storagePath).length
         + (storyboard.videoProduction.backgroundMusicStoragePath ? 1 : 0);
     const isDisabled = disabled || projectBusy;
+    const localInspectionComplete = !localStorageError && reclaimableAssets.every((asset) => localFileById.has(asset.id));
 
     const refreshLocalFiles = useCallback(async () => {
-        if (!currentUser?.uid || !storyboardId) {
+        const request = ++localInspectionRef.current;
+        setLocalStorageError(null);
+        setLocalFiles([]);
+        if (!currentUser?.uid || !storyboardId || !reclaimableAssets.length) {
             setLocalFiles([]);
-            return;
-        }
-        if (!storyboard.reclaimableStorageAssets.length) {
-            setLocalFiles([]);
+            setIsInspectingLocal(false);
             return;
         }
 
@@ -128,18 +142,23 @@ export default function StoryboardProjectFileManager({
             const files = await imageStoryboardService.inspectReclaimableStorageAssets(
                 currentUser.uid,
                 storyboardId,
-                storyboard.reclaimableStorageAssets,
+                reclaimableAssets,
             );
+            if (!liveRef.current || request !== localInspectionRef.current) return;
             setLocalFiles(files);
         } catch (error) {
-            console.error('[StoryboardFileManager] local storage inspection failed', error);
-            toast.error(error instanceof Error ? error.message : '정리 대기 파일의 용량을 확인하지 못했습니다.');
+            if (!liveRef.current || request !== localInspectionRef.current) return;
+            const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+            setLocalStorageError(code === 'storage/unauthorized'
+                ? '파일 접근 권한을 확인할 수 없습니다. 현재 계정으로 접근 가능한지 확인한 뒤 다시 시도해 주세요.'
+                : '파일 용량을 확인하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.');
         } finally {
-            setIsInspectingLocal(false);
+            if (liveRef.current && request === localInspectionRef.current) setIsInspectingLocal(false);
         }
-    }, [currentUser?.uid, storyboard, storyboardId]);
+    }, [currentUser?.uid, reclaimableAssets, storyboardId]);
 
     const refreshVideoFiles = useCallback(async () => {
+        const request = ++videoInspectionRef.current;
         const projectId = storyboard.videoProduction.projectId;
         if (!currentUser || !projectId) {
             setVideoOverview(null);
@@ -155,23 +174,28 @@ export default function StoryboardProjectFileManager({
                     projectId,
                 }),
             );
+            if (!liveRef.current || request !== videoInspectionRef.current) return;
             setVideoOverview(overview);
             setVideoStorageError(null);
-        } catch (error) {
-            console.error('[StoryboardFileManager] video storage inspection failed', error);
+        } catch {
+            if (!liveRef.current || request !== videoInspectionRef.current) return;
             setVideoOverview(null);
-            setVideoStorageError(error instanceof Error ? error.message : '영상 렌더 파일을 확인하지 못했습니다.');
+            setVideoStorageError('영상 렌더 파일을 확인하지 못했습니다. 서버 연결과 프로젝트 접근 권한을 확인한 뒤 다시 시도해 주세요.');
         } finally {
-            setIsInspectingVideo(false);
+            if (liveRef.current && request === videoInspectionRef.current) setIsInspectingVideo(false);
         }
     }, [currentUser, storyboard.videoProduction.projectId]);
 
     useEffect(() => {
+        const inspection = localInspectionRef;
         void refreshLocalFiles();
-    }, [reclaimableAssetKey, refreshLocalFiles]);
+        return () => { inspection.current++; };
+    }, [refreshLocalFiles]);
 
     useEffect(() => {
+        const inspection = videoInspectionRef;
         void refreshVideoFiles();
+        return () => { inspection.current++; };
     }, [refreshVideoFiles]);
 
     const dismissCleanupAssets = useCallback((storagePaths: Set<string>) => {
@@ -184,7 +208,7 @@ export default function StoryboardProjectFileManager({
     }, [onChange]);
 
     const handleDeleteLocalFiles = useCallback(async () => {
-        if (!currentUser?.uid || !storyboardId || !reclaimableAssets.length || isDisabled) return;
+        if (!currentUser?.uid || !storyboardId || !reclaimableAssets.length || isDisabled || !localInspectionComplete || isInspectingLocal || isDeletingLocal) return;
         const confirmed = window.confirm(
             `정리 대기 파일 ${reclaimableAssets.length}개(${formatBytes(localReclaimableBytes)})를 완전히 삭제할까요?\n현재 참조 사진·배경음악·완성 영상은 삭제하지 않습니다.`,
         );
@@ -197,6 +221,7 @@ export default function StoryboardProjectFileManager({
                 storyboardId,
                 reclaimableAssets,
             );
+            if (!liveRef.current) return;
             if (result.deletedStoragePaths.length) {
                 dismissCleanupAssets(new Set(result.deletedStoragePaths));
             }
@@ -206,17 +231,20 @@ export default function StoryboardProjectFileManager({
                 toast.success(`${result.deletedStoragePaths.length}개 파일을 정리했습니다.`);
             }
         } catch (error) {
+            if (!liveRef.current) return;
             console.error('[StoryboardFileManager] local cleanup failed', error);
             toast.error(error instanceof Error ? error.message : '파일을 정리하지 못했습니다.');
         } finally {
-            setIsDeletingLocal(false);
-            void refreshLocalFiles();
+            if (liveRef.current) {
+                setIsDeletingLocal(false);
+                void refreshLocalFiles();
+            }
         }
-    }, [currentUser?.uid, dismissCleanupAssets, isDisabled, localReclaimableBytes, reclaimableAssets, refreshLocalFiles, storyboardId]);
+    }, [currentUser?.uid, dismissCleanupAssets, isDisabled, isDeletingLocal, isInspectingLocal, localInspectionComplete, localReclaimableBytes, reclaimableAssets, refreshLocalFiles, storyboardId]);
 
     const handleDeleteVideoFiles = useCallback(async () => {
         const projectId = storyboard.videoProduction.projectId;
-        if (!currentUser || !projectId || !videoOverview || !videoOverview.cleanupCandidates.length || isDisabled) return;
+        if (!currentUser || !projectId || !videoOverview || !videoOverview.cleanupCandidates.length || isDisabled || isInspectingVideo || isDeletingVideo) return;
         if (videoOverview.cleanupLocked) {
             toast.info('현재 영상 제작이 끝난 뒤에 정리할 수 있습니다.');
             return;
@@ -235,6 +263,7 @@ export default function StoryboardProjectFileManager({
                     storagePaths: videoOverview.cleanupCandidates.map((file) => file.path),
                 }),
             );
+            if (!liveRef.current) return;
             if (result.failed.length) {
                 toast.error(`${result.failed.length}개 렌더 파일을 삭제하지 못했습니다.`);
             } else {
@@ -242,12 +271,13 @@ export default function StoryboardProjectFileManager({
             }
             await refreshVideoFiles();
         } catch (error) {
+            if (!liveRef.current) return;
             console.error('[StoryboardFileManager] video cleanup failed', error);
             toast.error(error instanceof Error ? error.message : '이전 렌더 파일을 정리하지 못했습니다.');
         } finally {
-            setIsDeletingVideo(false);
+            if (liveRef.current) setIsDeletingVideo(false);
         }
-    }, [currentUser, isDisabled, refreshVideoFiles, storyboard.videoProduction.projectId, videoOverview]);
+    }, [currentUser, isDisabled, isDeletingVideo, isInspectingVideo, refreshVideoFiles, storyboard.videoProduction.projectId, videoOverview]);
 
     return (
         <ManagerSection id="storyboard-project-files" aria-labelledby="storyboard-file-manager-title">
@@ -301,6 +331,7 @@ export default function StoryboardProjectFileManager({
                 </StorageGroupHeader>
                 {reclaimableAssets.length ? (
                     <>
+                        {localStorageError ? <StorageError role="status"><i className="fas fa-circle-info" aria-hidden="true" /><span>{localStorageError} 확인 전에는 파일을 삭제하지 않습니다.</span><button type="button" onClick={() => void refreshLocalFiles()}>다시 확인</button></StorageError> : null}
                         <StorageFileList>
                             {reclaimableAssets.map((asset) => {
                                 const file = localFileById.get(asset.id);
@@ -311,7 +342,7 @@ export default function StoryboardProjectFileManager({
                                             <strong>{asset.label}</strong>
                                             <span>{LOCAL_KIND_LABEL[asset.kind]} · {fileNameFromPath(asset.storagePath)}</span>
                                         </div>
-                                        <small>{file?.missing ? '이미 없음' : file?.sizeBytes !== undefined && file?.sizeBytes !== null ? formatBytes(file.sizeBytes) : '용량 확인 중'}</small>
+                                        <small>{localStorageError ? '확인 실패' : file?.missing ? '이미 없음' : file?.sizeBytes !== undefined && file?.sizeBytes !== null ? formatBytes(file.sizeBytes) : isInspectingLocal ? '용량 확인 중' : '확인 필요'}</small>
                                     </StorageFileRow>
                                 );
                             })}
@@ -319,7 +350,7 @@ export default function StoryboardProjectFileManager({
                         <CleanupActionButton
                             type="button"
                             onClick={() => void handleDeleteLocalFiles()}
-                            disabled={isDisabled || isDeletingLocal || isInspectingLocal}
+                            disabled={isDisabled || isDeletingLocal || isInspectingLocal || !localInspectionComplete}
                         >
                             <i className={isDeletingLocal ? 'fas fa-spinner fa-spin' : 'fas fa-trash-can'} aria-hidden="true" />
                             {isDeletingLocal ? '정리 중…' : `${reclaimableAssets.length}개 파일 영구 삭제`}
@@ -345,7 +376,7 @@ export default function StoryboardProjectFileManager({
                 ) : videoStorageError ? (
                     <StorageError role="status">
                         <i className="fas fa-circle-info" aria-hidden="true" />
-                        <span>영상 렌더 파일은 서버 연결이 가능한 환경에서만 점검할 수 있습니다. 참조 사진과 배경음악 정리는 지금 바로 가능합니다.</span>
+                        <span>{videoStorageError}</span>
                         <button type="button" onClick={() => void refreshVideoFiles()}>다시 확인</button>
                     </StorageError>
                 ) : videoOverview?.cleanupLocked ? (

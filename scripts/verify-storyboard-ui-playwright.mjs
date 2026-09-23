@@ -19,7 +19,11 @@ try {
   const consoleErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+    if (message.type() === "error") {
+      const source = message.location().url;
+      const path = source ? new URL(source).pathname : "unknown";
+      consoleErrors.push(`${message.text()} (${path})`);
+    }
   });
 
   await page.goto(`${baseUrl}/admin/storyboard`, {
@@ -52,6 +56,14 @@ try {
   assert.match(await page.locator("body").innerText(), /로그인 전/);
 
   await page.setViewportSize({ width: 390, height: 844 });
+  const backdrop = page.locator("button.mobile-sidebar-backdrop");
+  assert.equal(await backdrop.count(), 0, "닫힌 메뉴의 배경 버튼은 DOM에 없어야 합니다.");
+  await page.getByRole("button", { name: "메뉴 열기", exact: true }).click();
+  await backdrop.waitFor({ state: "visible" });
+  await backdrop.focus();
+  await page.keyboard.press("Enter");
+  await backdrop.waitFor({ state: "detached" });
+  assert.equal(await backdrop.count(), 0, "키보드로 메뉴를 닫으면 배경 버튼이 제거돼야 합니다.");
   await page.waitForTimeout(120);
   const signedOutPageHeader = page.locator(
     '[data-page-view="true"][data-signed-out="true"]',

@@ -24,6 +24,10 @@ const ProductionSurface = styled.section`
   gap: 20px;
   min-width: 0;
   overflow-x: hidden;
+  .production-cost-summary { font-size: 0.875rem; line-height: 1.7; }
+  .production-cost-summary small { display: block; font-size: 0.75rem; color: var(--text-muted); }
+  .recovery-scene { padding: 12px 0; border-top: 1px solid var(--border-subtle); }
+  #storyboard-video-approval label { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 0.875rem; }
 
   button,
   a,
@@ -66,7 +70,7 @@ const ProductionHeader = styled.header`
 
 const HeaderLabel = styled.span`
   color: var(--primary-color);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.12em;
 `;
@@ -87,7 +91,7 @@ const AutomaticBadge = styled.span`
     var(--primary-color) 7%,
     var(--background-paper)
   );
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 800;
 `;
 
@@ -111,7 +115,7 @@ const ModelCatalogRefreshButton = styled.button`
   color: var(--text-secondary);
   background: var(--background-paper);
   font: inherit;
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
 
@@ -130,6 +134,8 @@ const ModelCatalogRefreshButton = styled.button`
 `;
 
 const ProductionJourney = styled.section<{ $hasError: boolean }>`
+  > details > summary { min-height: 44px; cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; }
+  > details > summary:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
   display: grid;
   gap: 16px;
   padding: 20px;
@@ -156,7 +162,7 @@ const JourneyHeader = styled.div`
   }
   > div > span {
     color: var(--primary-color);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 900;
     letter-spacing: 0.08em;
   }
@@ -170,7 +176,7 @@ const JourneyHeader = styled.div`
     max-width: 760px;
     margin: 0;
     color: var(--text-secondary);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     line-height: 1.55;
     overflow-wrap: anywhere;
     text-wrap: pretty;
@@ -193,7 +199,7 @@ const JourneyModeBadge = styled.span`
   border-radius: 999px;
   color: var(--text-secondary);
   background: var(--background-paper);
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   font-weight: 850;
 
   i {
@@ -293,17 +299,17 @@ const JourneyStep = styled.button<{
         : $state === "done"
           ? "var(--success-color)"
           : "var(--text-muted)"};
-    font-size: 0.56rem;
+    font-size: 0.75rem;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
   }
   strong {
     color: var(--text-primary);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
   em {
     color: var(--text-muted);
-    font-size: 0.59rem;
+    font-size: 0.75rem;
     font-style: normal;
     line-height: 1.35;
     overflow-wrap: anywhere;
@@ -362,7 +368,7 @@ const JourneyActionRow = styled.div`
   }
   > div span {
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 
   @media (max-width: 720px) {
@@ -388,7 +394,7 @@ const JourneyActionBase = styled.button`
   padding: 0 16px;
   border-radius: 11px;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 900;
   cursor: pointer;
   touch-action: manipulation;
@@ -460,7 +466,7 @@ const QualityReadiness = styled.section<{ $score: number }>`
   }
   > div > span {
     color: var(--primary-color);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-weight: 900;
     letter-spacing: 0.1em;
   }
@@ -471,20 +477,20 @@ const QualityReadiness = styled.section<{ $score: number }>`
   }
   small {
     color: var(--text-secondary);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     white-space: nowrap;
   }
   p {
     margin: 0;
     color: var(--text-secondary);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     line-height: 1.5;
   }
   em {
     display: block;
     margin-top: 2px;
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-style: normal;
   }
   @media (max-width: 820px) {
@@ -549,7 +555,7 @@ const ProductionDetails = styled.details`
   > summary > span {
     flex: 1;
     color: var(--text-secondary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 850;
   }
   > summary > span i {
@@ -558,7 +564,7 @@ const ProductionDetails = styled.details`
   }
   > summary > small {
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     text-align: right;
   }
   > summary > i {
@@ -615,7 +621,7 @@ const QualityGateHeader = styled.div`
   }
   > div > span {
     color: var(--primary-color);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 900;
     letter-spacing: 0.11em;
   }
@@ -628,7 +634,7 @@ const QualityGateHeader = styled.div`
     max-width: 650px;
     margin: 0;
     color: var(--text-secondary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     line-height: 1.5;
   }
   > strong {
@@ -641,7 +647,7 @@ const QualityGateHeader = styled.div`
       var(--primary-color) 8%,
       var(--background-default)
     );
-    font-size: 0.64rem;
+    font-size: 0.75rem;
   }
   @media (max-width: 620px) {
     flex-direction: column;
@@ -687,7 +693,7 @@ const QualityCheck = styled.div<{ $ready: boolean }>`
   }
   > span {
     color: var(--text-secondary);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   > strong {
@@ -699,7 +705,7 @@ const QualityCheck = styled.div<{ $ready: boolean }>`
     grid-column: 1 / -1;
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     line-height: 1.38;
   }
 `;
@@ -761,7 +767,7 @@ const QualityActionList = styled.div`
     border-radius: 50%;
     color: var(--primary-color);
     background: color-mix(in srgb, var(--primary-color) 10%, transparent);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
   }
@@ -773,14 +779,14 @@ const QualityActionList = styled.div`
   .copy strong {
     overflow: hidden;
     color: var(--text-primary);
-    font-size: 0.67rem;
+    font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .copy small {
     overflow: hidden;
     color: var(--text-muted);
-    font-size: 0.59rem;
+    font-size: 0.75rem;
     line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -788,7 +794,7 @@ const QualityActionList = styled.div`
   .tone {
     padding: 4px 6px;
     border-radius: 999px;
-    font-size: 0.56rem;
+    font-size: 0.75rem;
     font-weight: 850;
     white-space: nowrap;
   }
@@ -806,7 +812,7 @@ const QualityActionList = styled.div`
   }
   button > i {
     color: var(--text-muted);
-    font-size: 0.65rem;
+    font-size: 0.75rem;
   }
   > p {
     display: flex;
@@ -821,7 +827,7 @@ const QualityActionList = styled.div`
       var(--success-color) 7%,
       var(--background-default)
     );
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
   @media (max-width: 560px) {
@@ -874,7 +880,7 @@ const AutomationSummary = styled.div`
   }
   > div:first-child > span {
     color: var(--primary-color);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-weight: 900;
     letter-spacing: 0.12em;
   }
@@ -888,7 +894,7 @@ const AutomationSummary = styled.div`
     max-width: 720px;
     margin: 0;
     color: var(--text-secondary);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     line-height: 1.55;
     text-wrap: pretty;
   }
@@ -926,10 +932,10 @@ const AutomationMode = styled.div`
   }
   strong {
     color: var(--text-primary);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
   span {
-    font-size: 0.6rem;
+    font-size: 0.75rem;
   }
 `;
 
@@ -959,13 +965,13 @@ const BudgetGuard = styled.div<{ $blocked: boolean }>`
   }
   > div label {
     color: var(--text-primary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   > div span {
     margin-top: 2px;
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     line-height: 1.4;
   }
   select {
@@ -975,12 +981,12 @@ const BudgetGuard = styled.div<{ $blocked: boolean }>`
     border-radius: 8px;
     color: var(--text-primary);
     background: var(--background-paper);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
   > strong {
     color: ${({ $blocked }) =>
       $blocked ? "#fecaca" : "var(--text-secondary)"};
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     white-space: nowrap;
   }
   .unknown-pricing {
@@ -989,7 +995,7 @@ const BudgetGuard = styled.div<{ $blocked: boolean }>`
     gap: 6px;
     color: ${({ $blocked }) =>
       $blocked ? "#fecaca" : "var(--text-secondary)"};
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 700;
     cursor: pointer;
   }
@@ -1023,7 +1029,7 @@ const AutomationProgress = styled.div`
   }
   > div:first-child span {
     color: var(--text-secondary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   > div:first-child strong {
@@ -1033,7 +1039,7 @@ const AutomationProgress = styled.div`
   }
   > small {
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     line-height: 1.45;
     overflow-wrap: anywhere;
   }
@@ -1073,7 +1079,7 @@ const AutomationFooter = styled.div`
     max-width: 620px;
     margin: 0;
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
   @media (max-width: 760px) {
@@ -1105,7 +1111,7 @@ const AutomationActionBase = styled.button`
   padding: 0 15px;
   border-radius: 10px;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 850;
   cursor: pointer;
 
@@ -1170,7 +1176,7 @@ const FinalDeliveryHeader = styled.div`
   }
   > div > span {
     color: var(--success-color);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 900;
     letter-spacing: 0.11em;
   }
@@ -1182,7 +1188,7 @@ const FinalDeliveryHeader = styled.div`
   p {
     margin: 0;
     color: var(--text-secondary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     line-height: 1.5;
   }
   @media (max-width: 620px) {
@@ -1205,7 +1211,7 @@ const FinalFreshnessNotice = styled.div`
     var(--warning-color) 8%,
     var(--background-paper)
   );
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   line-height: 1.5;
 
   i {
@@ -1233,7 +1239,7 @@ const FinalDownloadButton = styled.button`
   border-radius: 9px;
   color: white;
   background: var(--success-color);
-  font-size: 0.67rem;
+  font-size: 0.75rem;
   font-weight: 850;
   cursor: pointer;
   touch-action: manipulation;
@@ -1280,7 +1286,7 @@ const SecondaryFinalAction = styled.button`
   color: var(--text-secondary);
   background: var(--background-paper);
   font: inherit;
-  font-size: 0.67rem;
+  font-size: 0.75rem;
   font-weight: 850;
   cursor: pointer;
   &:hover:not(:disabled) {
@@ -1335,7 +1341,7 @@ const FinalCheckList = styled.ul`
   li > i {
     margin-top: 2px;
     color: var(--success-color);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     text-align: center;
   }
   li:nth-child(2) > i,
@@ -1350,11 +1356,11 @@ const FinalCheckList = styled.ul`
   }
   strong {
     color: var(--text-primary);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
   }
   small {
     color: var(--text-muted);
-    font-size: 0.59rem;
+    font-size: 0.75rem;
     line-height: 1.42;
   }
 `;
@@ -1413,7 +1419,7 @@ const QualitySelector = styled.div`
   span {
     margin-top: 5px;
     color: var(--text-muted);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
 `;
 
@@ -1444,7 +1450,7 @@ const Metric = styled.div`
   background: var(--background-paper);
   span {
     color: var(--text-muted);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   strong {
@@ -1458,7 +1464,7 @@ const Metric = styled.div`
   small {
     overflow: hidden;
     color: var(--text-secondary);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -1497,7 +1503,7 @@ const CreditReadiness = styled.section<{ $blocked: boolean }>`
   span {
     color: ${({ $blocked }) =>
       $blocked ? "var(--error-color)" : "var(--warning-color)"};
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 900;
     letter-spacing: 0.08em;
   }
@@ -1507,7 +1513,7 @@ const CreditReadiness = styled.section<{ $blocked: boolean }>`
   }
   small {
     color: var(--text-secondary);
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
   a {
@@ -1522,7 +1528,7 @@ const CreditReadiness = styled.section<{ $blocked: boolean }>`
     color: white;
     background: ${({ $blocked }) =>
       $blocked ? "var(--error-color)" : "var(--warning-color)"};
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 850;
     text-decoration: none;
   }
@@ -1555,7 +1561,7 @@ const RuntimeStatusRetryButton = styled.button`
   color: white;
   background: var(--primary-color);
   font: inherit;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 850;
   cursor: pointer;
   transition:
@@ -1596,7 +1602,7 @@ const AssemblyEditorHeader = styled.div`
 
   span {
     color: var(--primary-color);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 900;
     letter-spacing: 0.1em;
   }
@@ -1608,13 +1614,13 @@ const AssemblyEditorHeader = styled.div`
   p {
     margin: 0;
     color: var(--text-muted);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
   > strong {
     max-width: 220px;
     color: var(--text-secondary);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1640,7 +1646,7 @@ const AssemblyEditorGrid = styled.div`
   }
   label > span {
     color: var(--text-secondary);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   label > input:not([type="range"]) {
@@ -1651,7 +1657,7 @@ const AssemblyEditorGrid = styled.div`
     border-radius: 8px;
     color: var(--text-primary);
     background: var(--background-default);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
   input[type="range"] {
     width: 100%;
@@ -1659,7 +1665,7 @@ const AssemblyEditorGrid = styled.div`
   }
   small {
     color: var(--text-muted);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   input:focus-visible,
@@ -1695,7 +1701,7 @@ const AssemblyEditorGrid = styled.div`
   }
   .voice-profiles > header strong {
     color: var(--text-primary);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
   }
   .voice-profile-list {
     display: grid;
@@ -1730,7 +1736,7 @@ const AssemblyEditorGrid = styled.div`
       var(--primary-color) 10%,
       var(--background-default)
     );
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 900;
   }
   .voice-profile-remove {
@@ -1761,7 +1767,7 @@ const AssemblyEditorGrid = styled.div`
       var(--background-default) 84%,
       transparent
     );
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
   .voice-profile-empty i {
@@ -1785,7 +1791,7 @@ const AssemblyEditorGrid = styled.div`
   .audio-mix-presets legend {
     padding: 0 4px;
     color: var(--text-secondary);
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 900;
   }
   .audio-mix-presets > div {
@@ -1814,12 +1820,12 @@ const AssemblyEditorGrid = styled.div`
     );
   }
   .audio-mix-presets button strong {
-    font-size: 0.66rem;
+    font-size: 0.75rem;
   }
   .audio-mix-presets button span {
     margin-top: 2px;
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     line-height: 1.32;
   }
   .audio-mix-presets p {
@@ -1828,7 +1834,7 @@ const AssemblyEditorGrid = styled.div`
     gap: 6px;
     margin: 8px 0 0;
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     line-height: 1.42;
   }
   .audio-mix-presets p i {
@@ -1845,7 +1851,7 @@ const AssemblyEditorGrid = styled.div`
   }
   .music-file-hint {
     color: var(--text-muted);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     line-height: 1.4;
   }
   .music-preview {
@@ -1861,7 +1867,7 @@ const AssemblyEditorGrid = styled.div`
   }
   .music-preview > span {
     color: var(--text-secondary);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   .music-preview audio {
@@ -1881,7 +1887,7 @@ const AssemblyEditorGrid = styled.div`
       var(--primary-color) 11%,
       var(--background-paper)
     );
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 750;
     cursor: pointer;
     white-space: nowrap;
@@ -2011,7 +2017,7 @@ const TimelineScene = styled.button<{
     border-radius: 6px;
     color: white;
     background: rgb(0 0 0 / 0.68);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   strong,
@@ -2024,13 +2030,13 @@ const TimelineScene = styled.button<{
   strong {
     margin-top: 7px;
     color: var(--text-primary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
   small {
     margin-top: 2px;
     color: ${({ $status }) =>
       $status === "approved" ? "var(--success-color)" : "var(--text-muted)"};
-    font-size: 0.6rem;
+    font-size: 0.75rem;
   }
 `;
 
@@ -2067,7 +2073,7 @@ const JourneyCompletionCheck = styled.button<{ $ready: boolean }>`
       ? "color-mix(in srgb, var(--success-color) 5%, var(--background-paper))"
       : "var(--background-paper)"};
   font: inherit;
-  font-size: 0.61rem;
+  font-size: 0.75rem;
   cursor: pointer;
   touch-action: manipulation;
 
@@ -2083,7 +2089,7 @@ const JourneyCompletionCheck = styled.button<{ $ready: boolean }>`
   }
   strong {
     color: var(--text-primary);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   &:hover {
@@ -2161,7 +2167,7 @@ const EmptyFrame = styled.div`
     font-size: 1.5rem;
   }
   span {
-    font-size: 0.74rem;
+    font-size: 0.75rem;
   }
 `;
 
@@ -2177,7 +2183,7 @@ const SceneNumber = styled.span`
   border-radius: 9px;
   color: white;
   background: rgb(0 0 0 / 0.64);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 800;
 `;
 
@@ -2220,7 +2226,7 @@ const SceneBriefHeader = styled.div`
   }
   span {
     color: var(--text-muted);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   h4 {
@@ -2298,7 +2304,7 @@ const SceneAdvancedDetails = styled.details`
   }
   > summary > span {
     flex: 1;
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 850;
   }
   > summary > span i {
@@ -2307,11 +2313,11 @@ const SceneAdvancedDetails = styled.details`
   }
   > summary > small {
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
   }
   > summary > i {
     color: var(--text-muted);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     transition: transform 150ms ease;
   }
   &[open] > summary {
@@ -2345,7 +2351,7 @@ const ClipEditor = styled.details`
     color: var(--text-secondary);
     cursor: pointer;
     list-style: none;
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   > summary::-webkit-details-marker {
@@ -2360,7 +2366,7 @@ const ClipEditor = styled.details`
   }
   > summary > small {
     color: var(--text-muted);
-    font-size: 0.59rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
   > summary > i {
@@ -2392,7 +2398,7 @@ const ClipEditorGrid = styled.div`
   }
   label > span {
     color: var(--text-muted);
-    font-size: 0.59rem;
+    font-size: 0.75rem;
     font-weight: 750;
   }
   input[type="number"],
@@ -2404,7 +2410,7 @@ const ClipEditorGrid = styled.div`
     border-radius: 7px;
     color: var(--text-primary);
     background: var(--background-paper);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
   }
   input[type="range"] {
     width: 100%;
@@ -2412,7 +2418,7 @@ const ClipEditorGrid = styled.div`
   }
   label > small {
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
   }
   input:focus-visible,
   select:focus-visible {
@@ -2434,11 +2440,11 @@ const FieldLabel = styled.label`
   justify-content: space-between;
   gap: 12px;
   color: var(--text-secondary);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   span {
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
 `;
@@ -2453,7 +2459,7 @@ const MotionEditorActions = styled.div`
   > span {
     min-width: 0;
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     line-height: 1.42;
   }
   > div {
@@ -2475,7 +2481,7 @@ const MotionEditorActions = styled.div`
     color: var(--text-secondary);
     background: var(--background-paper);
     font: inherit;
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
   }
@@ -2526,7 +2532,7 @@ const MotionChangeNotice = styled.p`
     var(--primary-color) 6%,
     var(--background-paper)
   );
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   line-height: 1.46;
 
   > i {
@@ -2555,7 +2561,7 @@ const DurationControl = styled.div`
   gap: 7px;
   label {
     color: var(--text-muted);
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   select {
@@ -2565,7 +2571,7 @@ const DurationControl = styled.div`
     border-radius: 9px;
     color: var(--text-primary);
     background: var(--background-default);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
   select:focus-visible {
     outline: 3px solid color-mix(in srgb, var(--primary-color) 25%, transparent);
@@ -2584,7 +2590,7 @@ const MotionControl = styled.div`
     border-radius: 9px;
     color: var(--text-secondary);
     background: var(--background-default);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     cursor: pointer;
   }
   button.active {
@@ -2632,12 +2638,12 @@ const AudioModeHeader = styled.div`
   }
   strong {
     color: var(--text-secondary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 850;
   }
   small {
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
   > span {
@@ -2651,7 +2657,7 @@ const AudioModeHeader = styled.div`
       var(--primary-color) 8%,
       var(--background-paper)
     );
-    font-size: 0.59rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
 
@@ -2700,11 +2706,11 @@ const AudioModeSelector = styled.div`
   }
   button strong {
     color: currentColor;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
   }
   button small {
     color: var(--text-muted);
-    font-size: 0.57rem;
+    font-size: 0.75rem;
   }
   button.active {
     border-color: color-mix(
@@ -2770,7 +2776,7 @@ const DialogueComposer = styled.div<{
   }
   .voice-profile-selector label {
     color: var(--text-secondary);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 850;
   }
   .voice-profile-selector select {
@@ -2782,7 +2788,7 @@ const DialogueComposer = styled.div<{
     color: var(--text-primary);
     background: var(--background-default);
     font: inherit;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
   .voice-profile-selector select:focus-visible {
     outline: 3px solid color-mix(in srgb, var(--primary-color) 25%, transparent);
@@ -2791,7 +2797,7 @@ const DialogueComposer = styled.div<{
   .voice-profile-selector small {
     grid-column: 2;
     color: var(--text-muted);
-    font-size: 0.59rem;
+    font-size: 0.75rem;
     line-height: 1.4;
   }
 
@@ -2801,12 +2807,12 @@ const DialogueComposer = styled.div<{
     gap: 12px;
     color: ${({ $tone }) =>
       $tone === "empty" ? "var(--error-color)" : "var(--text-secondary)"};
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 850;
   }
   > label span {
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   > textarea {
@@ -2817,11 +2823,11 @@ const DialogueComposer = styled.div<{
         ? "color-mix(in srgb, var(--error-color) 55%, var(--border-color))"
         : "var(--border-color)"};
     background: var(--background-paper);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
   }
   > small {
     color: var(--text-muted);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
 
@@ -2873,7 +2879,7 @@ const DialogueTimingRow = styled.div<{
         : $tone === "tight"
           ? "var(--primary-color)"
           : "var(--error-color)"};
-    font-size: 0.72rem;
+    font-size: 0.75rem;
   }
   > div > span {
     display: grid;
@@ -2882,11 +2888,11 @@ const DialogueTimingRow = styled.div<{
   }
   strong {
     color: var(--text-secondary);
-    font-size: 0.63rem;
+    font-size: 0.75rem;
   }
   small {
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     line-height: 1.4;
   }
   > button {
@@ -2899,7 +2905,7 @@ const DialogueTimingRow = styled.div<{
     color: var(--error-color);
     background: var(--background-paper);
     font: inherit;
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-weight: 850;
     cursor: pointer;
   }
@@ -2951,7 +2957,7 @@ const LipSyncHint = styled.p`
   gap: 6px;
   margin: 1px 0 0;
   color: var(--text-muted);
-  font-size: 0.59rem;
+  font-size: 0.75rem;
   line-height: 1.5;
 
   i {
@@ -2979,7 +2985,7 @@ const ReferenceSignal = styled.span<{ $ready: boolean }>`
     $ready
       ? "color-mix(in srgb, var(--primary-color) 6%, var(--background-paper))"
       : "var(--background-default)"};
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   font-weight: 800;
 `;
 
@@ -3004,12 +3010,12 @@ const ReferencePickerHeader = styled.div`
   }
   strong {
     color: var(--text-secondary);
-    font-size: 0.67rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   small {
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
 `;
@@ -3022,7 +3028,7 @@ const ReferenceResetButton = styled.button`
   border-radius: 8px;
   color: var(--text-secondary);
   background: var(--background-paper);
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   &:hover:not(:disabled) {
@@ -3085,18 +3091,18 @@ const ReferenceChoiceList = styled.div`
   }
   i {
     flex: 0 0 auto;
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
   span {
     flex: 0 0 auto;
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   small {
     min-width: 0;
     overflow: hidden;
     color: currentColor;
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -3133,7 +3139,7 @@ const EndFrameToggle = styled.div<{ $active: boolean }>`
     gap: 3px;
     min-width: 0;
     color: var(--text-secondary);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
   }
@@ -3147,7 +3153,7 @@ const EndFrameToggle = styled.div<{ $active: boolean }>`
   }
   small {
     color: var(--text-muted);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.45;
   }
@@ -3156,7 +3162,7 @@ const EndFrameToggle = styled.div<{ $active: boolean }>`
 const EndFrameNote = styled.p`
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 `;
 
@@ -3168,7 +3174,7 @@ const SceneQualityNote = styled.p<{ $tone: SceneQualityReadiness["tone"] }>`
       : $tone === "progress"
         ? "var(--text-secondary)"
         : "var(--error-color)"};
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 `;
 
@@ -3187,7 +3193,7 @@ const RenderSignals = styled.div`
     border-radius: 999px;
     color: var(--success-color);
     background: color-mix(in srgb, var(--success-color) 7%, transparent);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   span:last-child:only-child {
@@ -3203,14 +3209,14 @@ const SceneError = styled.p`
   border-radius: 8px;
   color: var(--error-color);
   background: color-mix(in srgb, var(--error-color) 8%, transparent);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
 `;
 
-const RecoveryNotice = styled.div<{ $safe: boolean }>`
+const RecoveryNotice = styled.div<{ $safe: boolean; $stacked?: boolean }>`
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: ${({ $stacked }) => $stacked ? "minmax(0, 1fr)" : "28px minmax(0, 1fr)"};
   gap: 10px;
   margin: 0;
   padding: 12px;
@@ -3245,12 +3251,12 @@ const RecoveryNotice = styled.div<{ $safe: boolean }>`
   strong {
     display: block;
     color: var(--text-primary);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
   }
   p {
     margin: 4px 0 0;
     color: var(--text-secondary);
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     line-height: 1.55;
     text-wrap: pretty;
   }
@@ -3261,7 +3267,7 @@ const RecoveryNotice = styled.div<{ $safe: boolean }>`
     width: fit-content;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-weight: 750;
   }
   summary:focus-visible {
@@ -3277,10 +3283,11 @@ const RecoveryNotice = styled.div<{ $safe: boolean }>`
     border-radius: 6px;
     color: var(--text-muted);
     background: color-mix(in srgb, var(--background-default) 82%, transparent);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     white-space: pre-wrap;
   }
+  ${({ $stacked }) => $stacked ? "strong, p { font-size: 0.875rem; }" : ""}
 `;
 
 const PrivacyRecovery = styled.div`
@@ -3314,11 +3321,11 @@ const PrivacyRecovery = styled.div`
   strong {
     display: block;
     color: var(--text-primary);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
   }
   p {
     margin: 3px 0 0;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     text-wrap: pretty;
   }
@@ -3339,7 +3346,7 @@ const PrivacyFallbackButton = styled.button`
   border-radius: 9px;
   color: var(--text-primary);
   background: var(--background-paper);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 850;
   white-space: nowrap;
   cursor: pointer;
@@ -3387,13 +3394,13 @@ const SceneCost = styled.div`
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   span {
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   small {
     max-width: 320px;
     color: var(--text-muted);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     line-height: 1.35;
     overflow-wrap: anywhere;
   }
@@ -3436,7 +3443,7 @@ const ModelDecision = styled.details<{ $attention: boolean }>`
   summary strong {
     overflow: hidden;
     color: var(--text-primary);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -3444,7 +3451,7 @@ const ModelDecision = styled.details<{ $attention: boolean }>`
     max-width: 116px;
     overflow: hidden;
     color: var(--text-muted);
-    font-size: 0.57rem;
+    font-size: 0.75rem;
     text-align: right;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3461,7 +3468,7 @@ const ModelDecision = styled.details<{ $attention: boolean }>`
   }
   p {
     color: var(--text-secondary);
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     line-height: 1.48;
     text-wrap: pretty;
   }
@@ -3477,7 +3484,7 @@ const ModelDecision = styled.details<{ $attention: boolean }>`
     border-radius: 999px;
     color: var(--text-muted);
     background: color-mix(in srgb, var(--background-default) 70%, transparent);
-    font-size: 0.56rem;
+    font-size: 0.75rem;
     line-height: 1.3;
   }
   li a {
@@ -3504,7 +3511,7 @@ const GenerateButton = styled.button`
   border-radius: 10px;
   color: white;
   background: var(--primary-color);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   &:hover:not(:disabled) {
@@ -3533,7 +3540,7 @@ const ReviewButton = styled.button<{ $approved: boolean }>`
     $approved
       ? "color-mix(in srgb, var(--success-color) 9%, transparent)"
       : "var(--background-paper)"};
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   &:hover:not(:disabled) {
@@ -3567,7 +3574,7 @@ const SceneMoreActions = styled.details`
     color: var(--text-secondary);
     background: var(--background-paper);
     list-style: none;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
   }
@@ -3612,7 +3619,7 @@ const DuplicateSceneButton = styled.button`
   border-radius: 10px;
   color: var(--text-secondary);
   background: var(--background-paper);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   &:hover:not(:disabled) {
@@ -3654,7 +3661,7 @@ const SceneDownloadButton = styled.button`
     var(--primary-color) 9%,
     var(--background-paper)
   );
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   touch-action: manipulation;

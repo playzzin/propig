@@ -105,7 +105,7 @@ const HeaderIcon = styled.i`
 
 const Eyebrow = styled.div`
   color: var(--text-muted);
-  font-size: 0.63rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.12em;
 
@@ -133,15 +133,15 @@ const HeaderToolGroup = styled.div`
     gap: 1px;
 
     button {
-      width: 34px;
-      height: 34px;
+      width: 44px;
+      height: 44px;
     }
   }
 `;
 
 const HeaderToolButton = styled.button`
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 0;
@@ -173,10 +173,7 @@ const SaveState = styled.span`
     max-width: 74px;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 0.66rem;
-  }
-  @media (max-width: 420px) {
-    display: none;
+    font-size: 0.75rem;
   }
 `;
 
@@ -311,12 +308,12 @@ const SidebarDashboardButton = styled.button<{ $active: boolean }>`
     white-space: nowrap;
   }
   strong {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
   small {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
   }
   &:hover {
     border-color: rgba(16, 185, 129, 0.38);
@@ -359,7 +356,7 @@ const SidebarLabel = styled.div`
 const SidebarMeta = styled.div`
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
 
   @media (max-width: 560px) {
     display: none;
@@ -454,7 +451,7 @@ const ProjectItem = styled.button<{ $active: boolean }>`
   .project-meta {
     margin-top: 4px;
     color: var(--text-muted);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
 
   @media (max-width: 840px) {
@@ -467,11 +464,11 @@ const ProjectItem = styled.button<{ $active: boolean }>`
     padding: 7px 8px;
     scroll-snap-align: start;
     .project-title {
-      font-size: 0.7rem;
+      font-size: 0.75rem;
     }
     .project-meta {
       margin-top: 2px;
-      font-size: 0.6rem;
+      font-size: 0.75rem;
     }
   }
 `;
@@ -525,7 +522,7 @@ const ProjectRowMenu = styled.details`
     color: var(--text-secondary);
     background: transparent;
     font: inherit;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     text-align: left;
     cursor: pointer;
   }
@@ -556,7 +553,7 @@ const ProjectStatusBadge = styled.span`
   border-radius: 999px;
   color: var(--text-muted);
   background: rgba(255, 255, 255, 0.07);
-  font-size: 0.57rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1;
 `;
@@ -564,7 +561,7 @@ const ProjectStatusBadge = styled.span`
 const SidebarMessage = styled.p`
   margin: 14px;
   color: var(--text-muted);
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   line-height: 1.55;
 `;
 
@@ -592,6 +589,7 @@ const ProjectDashboard = styled.main`
   padding: 32px clamp(20px, 3vw, 42px) 56px;
   container-name: storyboard-dashboard;
   container-type: inline-size;
+  .dashboard-scope { color: var(--text-muted); font-size: 0.75rem; margin: 0 0 14px; }
 
   @media (max-width: 840px) {
     grid-column: 1;
@@ -639,7 +637,7 @@ const DashboardPrimaryButton = styled.button`
   color: #052e24;
   background: #6ee7b7;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 850;
   cursor: pointer;
   white-space: nowrap;
@@ -697,7 +695,7 @@ const DashboardKpi = styled.article<{ $tone?: "success" | "warning" }>`
   }
   span {
     color: var(--text-muted);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 750;
   }
   span i {
@@ -719,7 +717,7 @@ const DashboardKpi = styled.article<{ $tone?: "success" | "warning" }>`
   small {
     margin-top: 6px;
     color: var(--text-muted);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
   }
 
   @container storyboard-dashboard (max-width: 460px) {
@@ -773,7 +771,7 @@ const ProjectSearchField = styled.label`
     color: var(--text-main);
     background: transparent;
     font: inherit;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
   input::placeholder {
     color: var(--text-dim);
@@ -805,7 +803,7 @@ const ProjectFilterGroup = styled.div`
     color: var(--text-muted);
     background: transparent;
     font: inherit;
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 750;
     cursor: pointer;
     white-space: nowrap;
@@ -840,7 +838,7 @@ const DashboardPagination = styled.nav`
 
   span {
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   button {
@@ -872,7 +870,7 @@ const ProjectTableHeader = styled.div`
   display: grid;
   grid-template-columns:
     minmax(230px, 1.5fr) minmax(104px, 0.65fr) minmax(92px, 0.55fr)
-    92px 122px 108px;
+    minmax(92px, 0.7fr) 122px minmax(150px, 1fr);
   gap: 14px;
   align-items: center;
   min-height: 38px;
@@ -880,7 +878,7 @@ const ProjectTableHeader = styled.div`
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-dim);
   background: rgba(255, 255, 255, 0.024);
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 
@@ -897,7 +895,7 @@ const ProjectTableRow = styled.article`
   display: grid;
   grid-template-columns:
     minmax(230px, 1.5fr) minmax(104px, 0.65fr) minmax(92px, 0.55fr)
-    92px 122px 108px;
+    minmax(92px, 0.7fr) 122px minmax(150px, 1fr);
   gap: 14px;
   align-items: center;
   min-height: 74px;
@@ -944,7 +942,7 @@ const ProjectIdentity = styled.div`
     border-radius: 7px;
     color: #a7f3d0;
     background: rgba(16, 185, 129, 0.08);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   strong,
@@ -956,12 +954,25 @@ const ProjectIdentity = styled.div`
   }
   strong {
     color: var(--text-main);
-    font-size: 0.72rem;
+    font-size: 0.875rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  img { object-fit: cover; width: 100%; height: 100%; border-radius: inherit; }
+  .mobile-project-summary { display: none; color: var(--text-muted); font-size: 0.75rem; line-height: 1.6; margin-top: 4px; }
+  @container storyboard-dashboard (max-width: 1080px) {
+    .mobile-project-summary { display: block; }
+  }
+  @media (max-width: 1080px) {
+    .mobile-project-summary { display: block; }
   }
   small {
     margin-top: 4px;
     color: var(--text-muted);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
   }
 `;
 
@@ -973,13 +984,13 @@ const ProjectMetric = styled.div`
   }
   strong {
     color: var(--text-main);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   small {
     margin-top: 4px;
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
   }
   > span {
     width: 100%;
@@ -1040,7 +1051,7 @@ const ProjectStatus = styled.span<{
         : $tone === "info"
           ? "rgba(14,165,233,0.09)"
           : "rgba(148,163,184,0.06)"};
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   font-weight: 800;
 
   @media (max-width: 1080px) {
@@ -1054,7 +1065,7 @@ const ProjectStatus = styled.span<{
 
 const ProjectUpdated = styled.span`
   color: var(--text-muted);
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   line-height: 1.45;
   @media (max-width: 1080px) {
     display: none;
@@ -1083,7 +1094,7 @@ const ProjectActionCell = styled.div`
 `;
 
 const ProjectOpenButton = styled.button`
-  min-height: 32px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1094,10 +1105,11 @@ const ProjectOpenButton = styled.button`
   color: #d1fae5;
   background: rgba(16, 185, 129, 0.09);
   font: inherit;
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 
   &:hover {
     background: rgba(16, 185, 129, 0.17);
@@ -1135,7 +1147,7 @@ const DashboardEmpty = styled.div`
   p {
     max-width: 460px;
     margin: 0;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     line-height: 1.55;
   }
   button {
@@ -1147,7 +1159,7 @@ const DashboardEmpty = styled.div`
     color: #d1fae5;
     background: rgba(16, 185, 129, 0.12);
     font: inherit;
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
   }
@@ -1194,7 +1206,7 @@ const AssistantRailHeader = styled.div`
   span {
     display: block;
     color: #6ee7b7;
-    font-size: 0.56rem;
+    font-size: 0.75rem;
     font-weight: 850;
     letter-spacing: 0.11em;
   }
@@ -1217,7 +1229,7 @@ const QualityScore = styled.strong<{ $score: number }>`
 
   small {
     color: var(--text-muted);
-    font-size: 0.55rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
 `;
@@ -1247,7 +1259,7 @@ const QualityProgress = styled.div`
 const AssistantSummary = styled.p`
   margin: 9px 0 13px;
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   line-height: 1.52;
 `;
 
@@ -1274,7 +1286,7 @@ const QualityCheckItem = styled.div<{ $ready: boolean }>`
   > i {
     margin-top: 2px;
     color: ${({ $ready }) => ($ready ? "#6ee7b7" : "#fbbf24")};
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
   strong,
   span {
@@ -1282,12 +1294,12 @@ const QualityCheckItem = styled.div<{ $ready: boolean }>`
   }
   strong {
     color: var(--text-main);
-    font-size: 0.63rem;
+    font-size: 0.75rem;
   }
   span {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.56rem;
+    font-size: 0.75rem;
     line-height: 1.4;
   }
   button {
@@ -1298,7 +1310,7 @@ const QualityCheckItem = styled.div<{ $ready: boolean }>`
     color: #fde68a;
     background: rgba(245, 158, 11, 0.08);
     font: inherit;
-    font-size: 0.54rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
     white-space: nowrap;
@@ -1332,12 +1344,12 @@ const AssistantSectionTitle = styled.div`
 
   span {
     color: var(--text-main);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 850;
   }
   small {
     color: var(--text-muted);
-    font-size: 0.56rem;
+    font-size: 0.75rem;
   }
 `;
 
@@ -1367,7 +1379,7 @@ const ActiveScenePreview = styled.div`
     border-radius: 999px;
     color: #fde68a;
     background: rgba(120, 53, 15, 0.86);
-    font-size: 0.52rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
 `;
@@ -1383,7 +1395,7 @@ const ActiveScenePlaceholder = styled.div`
   border-radius: 9px;
   color: var(--text-muted);
   background: rgba(255, 255, 255, 0.018);
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   text-align: center;
 
   i {
@@ -1400,14 +1412,14 @@ const ActiveSceneCopy = styled.div`
   }
   strong {
     color: var(--text-main);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
   span {
     margin-top: 4px;
     display: -webkit-box;
     overflow: hidden;
     color: var(--text-muted);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     line-height: 1.45;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -1432,7 +1444,7 @@ const AssistantActionGrid = styled.div`
     color: var(--text-muted);
     background: rgba(255, 255, 255, 0.025);
     font: inherit;
-    font-size: 0.57rem;
+    font-size: 0.75rem;
     font-weight: 750;
     cursor: pointer;
   }
@@ -1460,7 +1472,7 @@ const ReviewAcceptButton = styled.button`
   color: #a7f3d0;
   background: rgba(16, 185, 129, 0.09);
   font: inherit;
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   &:hover {
@@ -1503,7 +1515,7 @@ const ProductionShortcutButton = styled.button`
   }
   > i:last-child {
     color: var(--text-dim);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
   strong,
   small {
@@ -1511,12 +1523,12 @@ const ProductionShortcutButton = styled.button`
   }
   strong {
     color: var(--text-main);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
   small {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.53rem;
+    font-size: 0.75rem;
   }
   &:hover {
     border-color: rgba(16, 185, 129, 0.35);
@@ -1534,9 +1546,14 @@ const BoardHeader = styled.div`
   justify-content: space-between;
   gap: 20px;
   margin-bottom: 20px;
+  > div { min-width: 0; }
+  .project-management > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: 0.875rem; color: var(--text-muted); }
+  .project-management > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  @media (max-width: 620px) { flex-direction: column; align-items: stretch; }
 `;
 
 const ProjectActionRow = styled.div`
+
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -1544,7 +1561,7 @@ const ProjectActionRow = styled.div`
 
   button,
   label {
-    min-height: 28px;
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -1553,7 +1570,7 @@ const ProjectActionRow = styled.div`
     border-radius: 7px;
     color: var(--text-muted);
     background: transparent;
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 700;
     cursor: pointer;
   }
@@ -1607,7 +1624,7 @@ const VersionPanelHeader = styled.div`
   span {
     margin-top: 2px;
     color: var(--text-muted);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
   }
   button {
     min-height: 32px;
@@ -1616,7 +1633,7 @@ const VersionPanelHeader = styled.div`
     border-radius: 8px;
     color: #d1fae5;
     background: rgba(16, 185, 129, 0.12);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 750;
     cursor: pointer;
   }
@@ -1652,19 +1669,19 @@ const VersionList = styled.div`
     display: block;
   }
   strong {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
   span {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 `;
 
 const VersionEmpty = styled.p`
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
 `;
 
 const WorkspaceModeSwitch = styled.div`
@@ -1690,7 +1707,7 @@ const WorkspaceModeSwitch = styled.div`
     color: var(--text-muted);
     background: transparent;
     font: inherit;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
   }
@@ -1712,7 +1729,7 @@ const WorkspaceModeSwitch = styled.div`
     border-radius: 999px;
     color: white;
     background: var(--primary);
-    font-size: 0.58rem;
+    font-size: 0.75rem;
   }
 
   @media (max-width: 640px) {
@@ -1723,7 +1740,7 @@ const WorkspaceModeSwitch = styled.div`
 const BoardKicker = styled.div`
   margin-bottom: 6px;
   color: #6ee7b7;
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.12em;
 `;
@@ -1759,12 +1776,12 @@ const ProgressSummary = styled.div`
   border-radius: 9px;
   color: var(--text-muted);
   background: rgba(16, 185, 129, 0.055);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   white-space: nowrap;
 
   span {
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   strong {
@@ -1775,7 +1792,7 @@ const ProgressSummary = styled.div`
   small {
     grid-column: span 2;
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 
   @media (max-width: 560px) {
@@ -1848,12 +1865,12 @@ const WorkflowStep = styled.li<{ $complete: boolean; $active: boolean }>`
     white-space: nowrap;
   }
   strong {
-    font-size: 0.72rem;
+    font-size: 0.75rem;
   }
   span {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
   }
   > i {
     color: ${({ $complete, $active }) =>
@@ -1879,7 +1896,7 @@ const WorkflowNumber = styled.span`
   border-radius: 7px;
   color: var(--text-muted);
   background: rgba(15, 23, 42, 0.42);
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 800;
 `;
 
@@ -1918,7 +1935,7 @@ const PlanReadinessHeading = styled.div`
   span {
     display: block;
     color: #67e8f9;
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-weight: 800;
     letter-spacing: 0.1em;
   }
@@ -1940,7 +1957,7 @@ const BulkStatus = styled.span`
   border-radius: 999px;
   color: #a7f3d0;
   background: rgba(16, 185, 129, 0.12);
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   font-weight: 700;
 
   @media (max-width: 520px) {
@@ -1983,13 +2000,13 @@ const ReadinessItem = styled.div<{ $ready: boolean }>`
   }
   strong {
     color: var(--text-main);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     line-height: 1.35;
   }
   span {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     line-height: 1.4;
     overflow-wrap: anywhere;
   }
@@ -2003,7 +2020,7 @@ const QualityRepairButton = styled.button`
   border-radius: 7px;
   color: #bae6fd;
   background: rgba(14, 116, 144, 0.13);
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   font-weight: 750;
   cursor: pointer;
 
@@ -2031,7 +2048,7 @@ const QuickPlannerHeading = styled.div`
   span {
     display: block;
     color: #6ee7b7;
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 800;
     letter-spacing: 0.11em;
   }
@@ -2056,11 +2073,11 @@ const PlannerState = styled.span<{ $ready: boolean }>`
   color: ${({ $ready }) => ($ready ? "#a7f3d0" : "var(--text-muted)")};
   background: ${({ $ready }) =>
     $ready ? "rgba(16, 185, 129, 0.09)" : "rgba(255,255,255,0.035)"};
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   font-weight: 700;
 
   i {
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
 
   @media (max-width: 620px) {
@@ -2100,7 +2117,7 @@ const QuickStartRow = styled.div`
     flex: 0 0 auto;
     margin-right: 2px;
     color: var(--text-muted);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
 `;
@@ -2113,7 +2130,7 @@ const QuickStartButton = styled.button`
   border-radius: 999px;
   color: #d1fae5;
   background: rgba(5, 46, 22, 0.28);
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
 
@@ -2145,7 +2162,7 @@ const QuickTopicField = styled.div`
   label {
     margin: 0 0 6px;
     color: var(--text-muted);
-    font-size: 0.69rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   textarea {
@@ -2176,7 +2193,7 @@ const TopicHint = styled.p`
   min-height: 18px;
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   line-height: 1.4;
 `;
 
@@ -2188,7 +2205,7 @@ const QuickSelectField = styled.div`
   label {
     margin: 0 0 6px;
     color: var(--text-muted);
-    font-size: 0.69rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   select {
@@ -2255,7 +2272,7 @@ const PlanDisclosure = styled.p`
   border-radius: 9px;
   color: var(--text-muted);
   background: rgba(14, 116, 144, 0.08);
-  font-size: 0.67rem;
+  font-size: 0.75rem;
   line-height: 1.5;
 
   i {
@@ -2285,14 +2302,14 @@ const PaidActionApproval = styled.section`
     color: #fbbf24;
   }
   h4 { margin: 0; color: var(--text-main); font-size: 0.86rem; }
-  p { margin: 4px 0 0; color: var(--text-muted); font-size: 0.72rem; line-height: 1.55; }
+  p { margin: 4px 0 0; color: var(--text-muted); font-size: 0.75rem; line-height: 1.55; }
   ul {
     display: grid;
     gap: 5px;
     margin: 0;
     padding-left: 18px;
     color: var(--text-muted);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
   label {
@@ -2304,7 +2321,7 @@ const PaidActionApproval = styled.section`
     border-radius: 9px;
     color: var(--text-main);
     background: rgba(255, 255, 255, 0.04);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     cursor: pointer;
   }
   input { width: 18px; height: 18px; accent-color: #6ee7b7; }
@@ -2367,12 +2384,12 @@ const AdvancedDetails = styled.details`
   > summary small {
     margin-left: auto;
     color: var(--text-muted);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
   > summary > i {
     color: var(--text-muted);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     transition: transform 0.16s ease;
   }
   &[open] > summary {
@@ -2425,7 +2442,7 @@ const BriefField = styled.div<{ $wide?: boolean }>`
     display: block;
     margin: 0 0 6px;
     color: var(--text-muted);
-    font-size: 0.69rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
 
@@ -2499,7 +2516,7 @@ const SceneSummary = styled.div`
     display: block;
     margin-top: 6px;
     color: var(--text-muted);
-    font-size: 0.69rem;
+    font-size: 0.75rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2516,7 +2533,7 @@ const ResultReviewNotice = styled.div`
   border-radius: 8px;
   color: #fde68a;
   background: rgba(120, 53, 15, 0.16);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 
   i {
@@ -2539,7 +2556,7 @@ const ResultReviewNotice = styled.div`
     border-radius: 7px;
     color: #fff7d6;
     background: rgba(245, 158, 11, 0.14);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
     white-space: nowrap;
@@ -2571,7 +2588,7 @@ const MissingSceneImageNotice = styled.div`
   border-radius: 8px;
   color: #fde68a;
   background: rgba(120, 53, 15, 0.12);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   line-height: 1.48;
 
   i {
@@ -2599,7 +2616,7 @@ const SceneProductionNotes = styled.div`
     gap: 6px;
     align-items: flex-start;
     color: var(--text-muted);
-    font-size: 0.69rem;
+    font-size: 0.75rem;
     line-height: 1.45;
     overflow-wrap: anywhere;
   }
@@ -2610,7 +2627,7 @@ const SceneProductionNotes = styled.div`
     border-radius: 4px;
     color: #a7f3d0;
     background: rgba(16, 185, 129, 0.13);
-    font-size: 0.6rem;
+    font-size: 0.75rem;
   }
 
   @media (max-width: 620px) {
@@ -2639,7 +2656,7 @@ const SceneRedesignHeader = styled.div`
   span {
     display: block;
     color: #7dd3fc;
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 800;
     letter-spacing: 0.08em;
   }
@@ -2654,7 +2671,7 @@ const SceneRedesignHeader = styled.div`
     max-width: 680px;
     margin: 5px 0 0;
     color: var(--text-muted);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     line-height: 1.5;
   }
 
@@ -2702,7 +2719,7 @@ const SceneRedesignScope = styled.div`
     border-radius: 8px;
     color: var(--text-muted);
     background: rgba(15, 23, 42, 0.32);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 750;
     line-height: 1.3;
     text-align: center;
@@ -2756,7 +2773,7 @@ const SceneRedesignQuickActions = styled.div`
     border-radius: 999px;
     color: #dbeafe;
     background: rgba(14, 116, 144, 0.12);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 700;
     cursor: pointer;
     &:hover:not(:disabled) {
@@ -2783,12 +2800,12 @@ const SceneRedesignField = styled.div`
     gap: 5px;
     margin-bottom: 6px;
     color: var(--text-main);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 750;
   }
   label span {
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
   textarea {
@@ -2801,7 +2818,7 @@ const SceneRedesignField = styled.div`
     color: var(--text-main);
     background: rgba(15, 23, 42, 0.52);
     font: inherit;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     &:focus-visible {
       outline: 2px solid #7dd3fc;
@@ -2821,7 +2838,7 @@ const SceneRedesignContext = styled.div`
   gap: 6px 10px;
   margin-top: 10px;
   color: var(--text-muted);
-  font-size: 0.63rem;
+  font-size: 0.75rem;
   line-height: 1.4;
 
   span {
@@ -2847,7 +2864,7 @@ const SceneRedesignActions = styled.div`
 
   > span {
     color: var(--text-muted);
-    font-size: 0.63rem;
+    font-size: 0.75rem;
     line-height: 1.4;
   }
   @media (max-width: 520px) {
@@ -2864,7 +2881,7 @@ const SceneRedesignSubmit = styled.button`
   border-radius: 8px;
   color: #082f49;
   background: #bae6fd;
-  font-size: 0.71rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   &:hover:not(:disabled) {
@@ -2891,14 +2908,14 @@ const SceneDetails = styled.details`
     color: var(--text-muted);
     cursor: pointer;
     list-style: none;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   > summary::-webkit-details-marker {
     display: none;
   }
   > summary > i {
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     transition: transform 0.16s ease;
   }
   &[open] > summary {
@@ -2923,15 +2940,19 @@ const SceneDetails = styled.details`
 
 const SectionHeading = styled.div`
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
 
-  span {
+  > div {
+    min-width: 0;
+  }
+  > div:first-child > span {
     display: block;
     color: #6ee7b7;
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     font-weight: 800;
     letter-spacing: 0.1em;
   }
@@ -2943,12 +2964,13 @@ const SectionHeading = styled.div`
   p {
     margin: 0;
     color: var(--text-muted);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     text-align: right;
   }
 
   @media (max-width: 560px) {
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: stretch;
     p {
       display: none;
     }
@@ -2997,7 +3019,7 @@ const ReferenceToggle = styled.div`
     display: block;
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     line-height: 1.45;
   }
 `;
@@ -3008,6 +3030,7 @@ const SceneSection = styled.section`
 
 const SceneHeaderActions = styled.div`
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 
@@ -3038,12 +3061,12 @@ const MissingImageFinder = styled.div`
   }
   strong {
     color: #fef3c7;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
   }
   span {
     margin-top: 2px;
     color: #fcd34d;
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     line-height: 1.42;
   }
 
@@ -3066,7 +3089,7 @@ const MissingImageActions = styled.div`
     border-radius: 7px;
     color: #fff7d6;
     background: rgba(245, 158, 11, 0.13);
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 800;
     cursor: pointer;
     white-space: nowrap;
@@ -3081,7 +3104,7 @@ const MissingImageActions = styled.div`
   small {
     align-self: center;
     color: #fcd34d;
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
 
@@ -3093,24 +3116,26 @@ const MissingImageActions = styled.div`
 
 const SceneCount = styled.span`
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;
 
   @media (max-width: 560px) {
-    display: none;
+    flex-basis: 100%;
   }
 `;
 
 const AddSceneButton = styled.button`
-  height: 34px;
+  flex-shrink: 0;
+  min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   color: var(--text-main);
   background: rgba(255, 255, 255, 0.04);
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
 
   &:hover:not(:disabled) {
@@ -3127,13 +3152,14 @@ const AddSceneButton = styled.button`
 `;
 
 const BulkGenerateButton = styled.button`
-  height: 34px;
+  flex-shrink: 0;
+  min-height: 44px;
   padding: 0 11px;
   border: 1px solid rgba(16, 185, 129, 0.34);
   border-radius: 8px;
   color: #052e16;
   background: #6ee7b7;
-  font-size: 0.71rem;
+  font-size: 0.75rem;
   font-weight: 800;
   white-space: nowrap;
   cursor: pointer;
@@ -3230,13 +3256,13 @@ const SceneNavigatorButton = styled.button<{
           : $status === "ready"
             ? "#fcd34d"
             : "var(--text-muted)"};
-    font-size: 0.64rem;
+    font-size: 0.75rem;
     font-weight: 800;
   }
   strong {
     min-width: 0;
     overflow: hidden;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -3317,7 +3343,7 @@ const SceneStatus = styled.div<{
         : $status === "ready"
           ? "#fcd34d"
           : "var(--text-muted)"};
-  font-size: 0.61rem;
+  font-size: 0.75rem;
   font-weight: 700;
   @media (max-width: 560px) {
     margin-top: 0;
@@ -3409,7 +3435,7 @@ const SceneFooter = styled.div`
 
 const PromptHint = styled.span`
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 `;
 
 const SceneActionGroup = styled.div`
@@ -3428,7 +3454,7 @@ const RedesignSceneButton = styled.button`
   border-radius: 8px;
   color: #bae6fd;
   background: rgba(14, 116, 144, 0.11);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 750;
   cursor: pointer;
   &:hover:not(:disabled) {
@@ -3452,7 +3478,7 @@ const GenerateSceneButton = styled.button`
   border-radius: 8px;
   color: #052e16;
   background: #6ee7b7;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
 
@@ -3488,7 +3514,7 @@ const GeneratedResult = styled.div`
     display: block;
     padding: 6px 8px;
     color: #d1fae5;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 700;
   }
   button {
@@ -3560,7 +3586,7 @@ const SignInState = styled.div`
   .signin-eyebrow {
     margin-bottom: 7px;
     color: #6ee7b7;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 850;
     letter-spacing: 0.12em;
   }
@@ -3605,7 +3631,7 @@ const SignInState = styled.div`
     border-radius: 9px;
     color: #052e24;
     background: #6ee7b7;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     font-weight: 900;
   }
   .signin-journey strong,
@@ -3619,7 +3645,7 @@ const SignInState = styled.div`
   .signin-journey small {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 0.67rem;
+    font-size: 0.75rem;
     line-height: 1.4;
   }
   .signin-trust {
@@ -3635,7 +3661,7 @@ const SignInState = styled.div`
     align-items: flex-start;
     gap: 8px;
     color: var(--text-muted);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     line-height: 1.5;
   }
   .signin-trust i {
@@ -3665,7 +3691,7 @@ const SignInState = styled.div`
   .signin-footnote {
     margin: -7px auto 0;
     color: var(--text-muted);
-    font-size: 0.67rem;
+    font-size: 0.75rem;
     text-align: center;
   }
   .signin-warning {
@@ -3748,7 +3774,7 @@ const ErrorNotice = styled.div`
     border-radius: 7px;
     color: #fff;
     background: rgba(248, 113, 113, 0.16);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 750;
     cursor: pointer;
   }

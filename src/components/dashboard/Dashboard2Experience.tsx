@@ -6,17 +6,11 @@ import { usePathname } from 'next/navigation';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowRight,
-  faBuilding,
-  faBullhorn,
-  faChartLine,
   faChevronDown,
-  faCode,
-  faFilm,
-  faHelmetSafety,
-  faRobot,
-  faUsers,
 } from '@fortawesome/free-solid-svg-icons';
 import styled from 'styled-components';
+import FounderStory from '@/components/corp/FounderStory';
+import CeoCharacterAside from '@/components/corp/CeoCharacterAside';
 import { getDashboardStyleCorpVariant } from '@/constants/dashboardStyleCorpRoutes';
 
 const CompanyBusinessAreaSections = dynamic(
@@ -57,7 +51,7 @@ function DeferredCorpSection() {
 }
 
 type Dashboard2ExperienceVariant = 'introduction' | 'ceo';
-type CeoDocumentTab = 'brands' | 'resume' | 'introduction' | 'analysis';
+type CeoDocumentTab = 'resume' | 'introduction' | 'analysis';
 
 type NumberMetric = {
   label: string;
@@ -110,7 +104,6 @@ type CeoHeroProfile = {
   headingSecondLine: string;
   description: string;
   stats: NumberMetric[];
-  accordionItems: CeoHeroAccordionItem[];
 };
 
 type OperatingPanel = {
@@ -145,13 +138,6 @@ type PieMetric = OperatingPanel['pieData'][number];
 type PieDonutSegment = PieMetric & {
   percentage: number;
   offset: number;
-};
-
-type BusinessOperationStage = {
-  title: string;
-  summary: string;
-  detail: string;
-  outcome: string;
 };
 
 type CeoDocumentTabOption = {
@@ -419,71 +405,6 @@ const visionPillars = [
   },
 ];
 
-const businessCards = [
-  {
-    icon: faCode,
-    title: 'AI 웹·앱 개발',
-    desc: '전략, UX, 데이터, AI 기능, 배포를 하나의 제품 흐름으로 연결합니다.',
-    detail: '브랜드 사이트, SaaS, ERP·CRM, 관리자 도구, PWA와 하이브리드 앱을 구현합니다.',
-    color: '#4f7cff',
-  },
-  {
-    icon: faRobot,
-    title: 'AI 업무자동화',
-    desc: '반복 업무를 AI·API·RPA로 연결하고 승인과 예외를 통제합니다.',
-    detail: '문서, 메일, 웹, 데이터 처리의 속도와 일관성을 높이고 감사 가능한 기록을 남깁니다.',
-    color: '#7c3aed',
-  },
-  {
-    icon: faFilm,
-    title: 'AI 영상제작·편집',
-    desc: '기획, 생성형 비주얼, 편집, 자막, 사운드를 제작 파이프라인으로 묶습니다.',
-    detail: '브랜드 필름, 제품 데모, 교육 영상, 유튜브 롱폼과 숏폼을 채널에 맞게 제작합니다.',
-    color: '#00b894',
-  },
-  {
-    icon: faBullhorn,
-    title: '리셀러 파트너',
-    desc: '제품·가격·제안 자료와 고객 지원 기준을 파트너 운영 시스템으로 연결합니다.',
-    detail: '온보딩, 리드 배정, 견적, 주문, 고객 인수인계와 성과 분석으로 공동 성장을 돕습니다.',
-    color: '#2563eb',
-  },
-];
-
-const businessOperationStages: BusinessOperationStage[] = [
-  {
-    title: '문제 발견',
-    summary: '사용자와 업무, 데이터의 핵심 문제를 정의합니다.',
-    detail: '인터뷰와 현행 흐름 분석을 통해 반복 작업, 정보 단절, 전환 저하, 콘텐츠 병목을 구체적인 우선순위로 바꿉니다.',
-    outcome: '문제 정의와 성공 기준 확정',
-  },
-  {
-    title: '서비스 설계',
-    summary: '화면, 데이터, AI, 콘텐츠의 전체 구조를 설계합니다.',
-    detail: '정보 구조와 사용자 여정, 권한, AI 입력·출력, 사람 승인 지점, 측정 지표를 하나의 실행 가능한 설계로 정리합니다.',
-    outcome: 'UX 프로토타입과 기술 구조 확정',
-  },
-  {
-    title: '제품 구축',
-    summary: '검증된 가설을 실제 제품과 제작 흐름으로 구현합니다.',
-    detail: '재사용 가능한 컴포넌트와 스키마를 기반으로 웹·앱, AI 기능, 자동화, 미디어 자산과 운영 도구를 연결합니다.',
-    outcome: '프로덕션 제품과 운영 콘솔 완성',
-  },
-  {
-    title: '품질 검증',
-    summary: '기능과 접근성, 성능, 보안, 콘텐츠 품질을 점검합니다.',
-    detail: '자동 검사와 실제 브라우저 검증을 결합해 모바일, 느린 네트워크, 권한 부족, 중복 실행, 생성 오류 같은 상황까지 확인합니다.',
-    outcome: '출시 기준과 복구 시나리오 확보',
-  },
-  {
-    title: '운영과 성장',
-    summary: '사용과 성과 데이터를 다음 버전에 반영합니다.',
-    detail: '제품 로그, 업무 시간, 오류, 전환, 시청 데이터를 읽고 개선 가설과 백로그를 쌓아 팀이 지속적으로 성장할 수 있게 합니다.',
-    outcome: '측정 가능한 성장 루프 정착',
-  },
-];
-
-
 const ceoHeroStats: NumberMetric[] = [
   { label: '대표 상세 소개서', value: 3, unit: '가지' },
   { label: '판단 루프', value: 4, unit: '단계' },
@@ -492,39 +413,34 @@ const ceoHeroStats: NumberMetric[] = [
 
 const ceoHeroAccordionItems: CeoHeroAccordionItem[] = [
   {
-    eyebrow: '01 / Message',
-    title: '대표 메시지',
-    summary: '말보다 실행 기준으로 남는 리더십',
-    detail:
-      '대표소개는 긴 인사말보다 조직이 반복해서 따라갈 수 있는 기준을 먼저 보여줘야 합니다. 현장, 책임, 신뢰를 핵심 메시지로 정리했습니다.',
+    eyebrow: '01 / Physical',
+    title: '신체정보',
+    summary: '키 · 체중 등 기본 신체정보',
+    detail: '키와 체중 등 신체정보는 아직 등록되지 않았습니다.',
   },
   {
-    eyebrow: '02 / Field',
-    title: '현장 중심 기준',
-    summary: '책상 위 계획보다 현장 신호를 먼저 확인',
-    detail:
-      '운영 판단은 현장 상황, 구성원의 반응, 고객의 요구에서 출발합니다. 사진 옆에 핵심 기준을 배치해 대표의 방향이 첫 화면에서 바로 읽히도록 했습니다.',
+    eyebrow: '02 / Education',
+    title: '학력정보',
+    summary: '학교 · 전공 · 졸업 정보',
+    detail: '학교, 전공, 졸업 연도 등 학력정보는 아직 등록되지 않았습니다.',
   },
   {
-    eyebrow: '03 / Decision',
-    title: '의사결정 방식',
-    summary: '경청, 판단, 실행, 회고로 이어지는 루프',
-    detail:
-      '문제를 확인하고 기준을 선택한 뒤 실행을 위임하며 결과를 기록합니다. 대표의 역할을 단순 소개가 아니라 실행 구조로 보여줍니다.',
+    eyebrow: '03 / Career',
+    title: '경력정보',
+    summary: '현장 경험에서 개발과 사업 운영까지',
+    detail: '현장 업무와 배달, 대리운전을 거쳐 개발을 공부하고 프리랜서 프로젝트를 수행했습니다. 이후 직접 프로젝트를 수주하며 사업을 시작했습니다.',
   },
   {
-    eyebrow: '04 / People',
-    title: '구성원과 협력사',
-    summary: '팀과 파트너가 같은 기준으로 움직이는 구조',
-    detail:
-      '리더 한 명의 감각에 의존하지 않고, 구성원과 협력사가 이해할 수 있는 언어로 운영 기준을 공유하는 것을 강조했습니다.',
+    eyebrow: '04 / Skills',
+    title: '기술정보',
+    summary: 'AI 서비스 · 웹·앱 · 자동화 · 콘텐츠',
+    detail: 'AI 서비스 기획, 웹·앱 구축, 업무 자동화, 브랜드 운영과 콘텐츠 제작을 연결합니다. 현장의 문제를 파악하고 실제로 사용할 수 있는 서비스로 구현합니다.',
   },
   {
-    eyebrow: '05 / Trust',
-    title: '책임 경영 약속',
-    summary: '결정의 이유와 결과가 기록으로 남는 방식',
-    detail:
-      '신뢰는 좋은 문구보다 반복 가능한 실행에서 만들어집니다. 결정의 이유, 실행 과정, 결과 회고를 함께 남기는 책임 경영을 전면에 배치했습니다.',
+    eyebrow: '05 / Strategy',
+    title: '핵심전략',
+    summary: '현장에서 찾고, 직접 만들고, 계속 개선합니다.',
+    detail: '현장의 요구를 먼저 듣고 작은 실행으로 검증합니다. 개발·디자인·콘텐츠를 함께 활용하며, 결과와 피드백을 다음 개선에 반영합니다.',
   },
 ];
 
@@ -544,7 +460,6 @@ const ceoHeroProfiles: CeoHeroProfile[] = [
     headingSecondLine: '변화를 만드는 리더십',
     description: '현장의 신호를 먼저 읽고, 실행과 책임으로 결과를 만드는 대표의 기준을 소개합니다.',
     stats: ceoHeroStats,
-    accordionItems: ceoHeroAccordionItems,
   },
   {
     id: 'people-trust',
@@ -565,43 +480,6 @@ const ceoHeroProfiles: CeoHeroProfile[] = [
       { label: '신뢰의 기준', value: 3, unit: '단계' },
       { label: '현장 우선', value: 100, unit: '%' },
     ],
-    accordionItems: [
-      {
-        eyebrow: '01 / Team',
-        title: '함께 결정하는 리더십',
-        summary: '의견을 빠르게 모으고 결정의 이유를 투명하게 공유합니다.',
-        detail:
-          '현장과 사무실의 정보를 한쪽으로 치우치지 않게 듣고, 필요한 결정은 책임 있게 정리해 팀이 같은 방향으로 실행할 수 있도록 돕습니다.',
-      },
-      {
-        eyebrow: '02 / Trust',
-        title: '신뢰를 쌓는 실행',
-        summary: '말보다 약속을 지키는 반복으로 관계의 기준을 만듭니다.',
-        detail:
-          '작은 약속도 기록하고 결과까지 확인합니다. 일관된 실행이 구성원과 협력사 모두에게 예측 가능한 협업 경험을 만든다고 믿습니다.',
-      },
-      {
-        eyebrow: '03 / Communication',
-        title: '명확한 소통 방식',
-        summary: '필요한 정보는 제때 공유하고, 애매한 지시는 줄입니다.',
-        detail:
-          '무엇을 왜 하는지, 누가 언제까지 맡는지를 분명하게 맞춥니다. 불필요한 재확인을 줄여 현장이 본업에 집중할 수 있게 합니다.',
-      },
-      {
-        eyebrow: '04 / Growth',
-        title: '서로의 성장을 만드는 구조',
-        summary: '개인의 경험이 팀의 다음 판단에 남도록 연결합니다.',
-        detail:
-          '현장에서 얻은 배움과 개선점을 팀의 공통 기준으로 남겨, 다음 프로젝트에서 더 나은 선택을 할 수 있는 운영 기반을 만듭니다.',
-      },
-      {
-        eyebrow: '05 / Responsibility',
-        title: '끝까지 책임지는 약속',
-        summary: '결정 이후의 과정과 결과까지 함께 확인합니다.',
-        detail:
-          '결과가 기대와 다를 때도 원인을 숨기지 않고 함께 돌아봅니다. 피드백을 다음 행동으로 연결하는 것이 지속되는 신뢰의 출발점입니다.',
-      },
-    ],
   },
   {
     id: 'ceo-intro-film',
@@ -619,26 +497,6 @@ const ceoHeroProfiles: CeoHeroProfile[] = [
       { label: '대표 소개 영상', value: 1, unit: '편' },
       { label: '자동 재생', value: 1, unit: '개' },
       { label: '한 번 재생', value: 1, unit: '회' },
-    ],
-    accordionItems: [
-      {
-        eyebrow: '01 / Message',
-        title: '대표 메시지',
-        summary: '대표의 이야기를 배경 영상으로 차분하게 전합니다.',
-        detail: '화면의 흐름을 방해하지 않도록 영상은 자동으로 재생되며, 핵심 메시지는 우측에서 읽을 수 있습니다.',
-      },
-      {
-        eyebrow: '02 / Direction',
-        title: '현장과 실행',
-        summary: '일하는 현장과 실행의 방향을 영상의 분위기와 함께 보여줍니다.',
-        detail: '사진 한 장에 담기 어려운 현장의 움직임을 자연스럽게 전달해 대표소개 페이지의 몰입도를 높입니다.',
-      },
-      {
-        eyebrow: '03 / Together',
-        title: '함께 만드는 변화',
-        summary: '구성원과 파트너가 함께 만들어 가는 방향을 담았습니다.',
-        detail: '대표의 메시지가 구성원의 실행과 연결되어, 지속 가능한 변화로 이어지는 모습을 소개합니다.',
-      },
     ],
   },
 ];
@@ -720,72 +578,38 @@ const ceoOperatingPanels: OperatingPanel[] = [
 
 const ceoVisionPillars = [
   {
-    title: '전문 분야: 일단 손대봄',
-    desc: '정해진 한 가지보다, 필요한 곳에 먼저 끼어들어 끝까지 확인하는 쪽에 가깝습니다.',
+    title: '전문 분야: 될 때까지 하는 거야',
+    desc: '한 번에 안 되면 다른 방법으로. 될 때까지 고치고 다시 해봅니다.',
     tone: '#2d61ff',
   },
   {
-    title: '업무 방식: 만능인 척하기',
-    desc: '사실 이도저도 아니지만, 모르는 일도 일단 해보며 다음에 덜 헤매는 방법을 남깁니다.',
+    title: '업무 방식: 이것저것 다 해보는 거야',
+    desc: '모르면 배우고, 궁금하면 만들어봅니다. 이것저것 해보며 나에게 맞는 방법을 찾습니다.',
     tone: '#ffb000',
   },
   {
-    title: '성과 해석: 얻어걸려도 기록',
-    desc: '하다 보면 예상 밖의 기회가 오기도 합니다. 운 좋았던 이유까지 적어 두고 다음 실행에 씁니다.',
+    title: '성과 해석: 얻어걸려도 실력인 거야',
+    desc: '많이 시도해야 얻어걸릴 기회도 생깁니다. 우연히 얻은 결과도 다음에는 다시 만들 수 있도록 배웁니다.',
     tone: '#ff6955',
   },
 ];
 
-const ceoBusinessCards = [
-  {
-    icon: faHelmetSafety,
-    title: '안전 우선 판단',
-    desc: '속도보다 안전 기준을 먼저 세우고 현장이 흔들리지 않게 관리합니다.',
-    detail: '위험 요소를 미리 확인하고 책임자가 즉시 대응할 수 있는 흐름을 강조합니다.',
-    color: '#2563eb',
-  },
-  {
-    icon: faUsers,
-    title: '구성원 성장',
-    desc: '사람의 경험과 역할을 존중하며 팀이 스스로 판단할 수 있는 기준을 만듭니다.',
-    detail: '리더 한 명의 감각이 아니라 조직 전체가 재현할 수 있는 운영 언어를 남깁니다.',
-    color: '#7c3aed',
-  },
-  {
-    icon: faChartLine,
-    title: '데이터형 경영',
-    desc: '느낌과 보고서 사이의 간격을 줄이고 숫자로 확인 가능한 결정을 지향합니다.',
-    detail: '공수, 일정, 품질, 이슈 기록을 같은 화면에서 확인하는 문화를 만듭니다.',
-    color: '#00b894',
-  },
-  {
-    icon: faBuilding,
-    title: '파트너 신뢰',
-    desc: '협력사와 고객에게 설명 가능한 기준으로 약속을 관리합니다.',
-    detail: '관계의 안정성은 투명한 기록과 반복 가능한 실행에서 시작된다는 메시지를 담았습니다.',
-    color: '#ff8a00',
-  },
-];
-
-const ceoBusinessPipelines = ['현장 경청', '문제 정의', '기준 정렬', '실행 위임', '결과 확인', '다음 개선'];
-
 const ceoDocumentTabs: CeoDocumentTabOption[] = [
-  { id: 'brands', label: '대표브랜드', eyebrow: 'BRAND' },
   { id: 'resume', label: '대표이력서', eyebrow: 'RESUME' },
-  { id: 'introduction', label: '대표소개서', eyebrow: 'STORY' },
-  { id: 'analysis', label: '대표통계분석', eyebrow: 'ANALYSIS' },
+  { id: 'introduction', label: '창업배경', eyebrow: 'STORY' },
+  { id: 'analysis', label: '대표통계', eyebrow: 'ANALYSIS' },
 ];
 
-const ceoBrandCollection = [
+const companyBrandCollection = [
   {
-    name: 'SIMPLYPIG',
-    category: 'Corporate Identity',
-    description: '기술, 콘텐츠, 운영을 하나의 실행 체계로 연결하는 기업 브랜드입니다.',
-    imageUrl: '/propig-favicon.svg',
-    imageAlt: 'SIMPLYPIG 브랜드 심볼',
-    imageWidth: 64,
-    imageHeight: 64,
-    imageStyle: 'symbol',
+    name: 'CYENG 청연 ERP',
+    category: 'ERP Brand',
+    description: '현장과 사무실의 업무를 연결하고 일상의 운영을 체계적으로 관리하는 ERP 브랜드입니다.',
+    imageUrl: '/images/corp/brands/cyeng-erp.png',
+    imageAlt: '은색과 파란색 CY 심볼의 CYENG 청연 ERP 로고',
+    imageWidth: 1254,
+    imageHeight: 1254,
+    imageStyle: 'erp',
   },
   {
     name: 'PROPIG',
@@ -798,70 +622,17 @@ const ceoBrandCollection = [
     imageStyle: 'cover',
   },
   {
-    name: 'KIBA',
-    category: 'Professional Brand',
-    description: '검증 가능한 경영 분석과 실행 방법론을 시각화한 전문 브랜드입니다.',
-    imageUrl: '/corp/kiba-dashboard/hero-logo.webp',
-    imageAlt: 'KIBA 한국경영분석연구원 브랜드 로고',
-    imageWidth: 1716,
-    imageHeight: 886,
-    imageStyle: 'wide',
+    name: '그뚠스토리',
+    category: 'Webtoon Brand',
+    description: '작은 목표에서 시작한 창업과 일상, 그 뒤의 솔직한 이야기를 웹툰으로 전하는 브랜드입니다.',
+    imageUrl: '/images/corp/founder-story/geuttun-story-brand.png',
+    imageAlt: '곱슬머리 웹툰 주인공과 붓글씨로 표현한 그뚠스토리 브랜드 이미지',
+    imageWidth: 1254,
+    imageHeight: 1254,
+    imageStyle: 'story',
   },
 ];
 
-const ceoResumeExperience = [
-  {
-    period: '현재',
-    role: '경영 및 사업 총괄',
-    organization: 'SIMPLYPIG · 대표이사',
-    description: '사업 방향과 브랜드 원칙을 정립하고 제품, 콘텐츠, 운영 조직의 실행 우선순위를 조율합니다.',
-  },
-  {
-    period: '핵심 프로젝트',
-    role: 'AI 제품·업무 자동화 체계 구축',
-    organization: '전략 · UX · 개발 · 운영',
-    description: '현장 문제를 발견하고 설계, 구축, 검증, 운영으로 이어지는 반복 가능한 실행 체계를 만듭니다.',
-  },
-  {
-    period: '브랜드 운영',
-    role: '콘텐츠·크리에이터 성장 시스템',
-    organization: '브랜드 · 미디어 · 데이터',
-    description: '브랜드 메시지를 콘텐츠로 확장하고 채널별 반응을 다음 기획과 운영 개선에 연결합니다.',
-  },
-];
-
-const ceoResumeSkills = ['사업 전략', 'AI 서비스 기획', '웹·앱 구축', '업무 자동화', '브랜드 운영', '콘텐츠 제작'];
-
-const ceoIntroductionItems = [
-  {
-    eyebrow: '01 · MOTIVATION',
-    title: '사업을 시작한 이유',
-    summary: '복잡한 문제를 누구나 실행할 수 있는 단순한 흐름으로 바꾸고 싶었습니다.',
-    detail:
-      '현장에는 좋은 아이디어가 많지만 기술, 시간, 정보의 간격 때문에 실행으로 이어지지 못하는 경우가 많습니다. SIMPLYPIG은 그 간격을 줄이고, 작은 실행이 실제 성과와 다음 성장으로 연결되는 구조를 만들기 위해 시작했습니다.',
-  },
-  {
-    eyebrow: '02 · STRENGTH',
-    title: '대표의 핵심 역량',
-    summary: '전략을 문서에 머물게 하지 않고 제품과 운영 체계까지 연결합니다.',
-    detail:
-      '문제를 정의한 뒤 사용자 경험, 기술 구조, 콘텐츠, 운영 지표를 하나의 관점으로 정렬합니다. 필요한 경우 직접 프로토타입을 만들고 검증하며, 팀이 반복해서 사용할 수 있는 기준과 도구로 정리합니다.',
-  },
-  {
-    eyebrow: '03 · LEADERSHIP',
-    title: '협업과 리더십 방식',
-    summary: '명확한 기준을 함께 공유하고 결정의 이유와 결과를 투명하게 남깁니다.',
-    detail:
-      '구성원이 자신의 전문성을 충분히 발휘할 수 있도록 목적과 우선순위를 먼저 맞춥니다. 결정은 빠르게 내리되 과정과 결과를 기록하고, 피드백을 다음 행동으로 연결해 신뢰가 축적되는 협업 환경을 지향합니다.',
-  },
-  {
-    eyebrow: '04 · VISION',
-    title: '앞으로 만들고 싶은 변화',
-    summary: '사람과 AI가 각자의 강점을 살려 더 가치 있는 일에 집중하는 환경을 만듭니다.',
-    detail:
-      '반복 업무는 기술로 줄이고 사람은 판단, 창의, 관계에 더 집중할 수 있어야 합니다. SIMPLYPIG은 접근하기 쉬운 AI 제품과 실행 가능한 콘텐츠를 통해 개인과 조직의 지속 가능한 성장을 돕겠습니다.',
-  },
-];
 
 
 function formatNumber(value: number, decimals = 0): string {
@@ -957,11 +728,9 @@ export default function Dashboard2Experience({
   const shouldReduceMotion = true;
   const [brandStorySlideIndex, setBrandStorySlideIndex] = useState(0);
   const [selectedOperatingState, setSelectedOperatingState] = useState({ variant: resolvedVariant, index: 0 });
-  const [selectedBusinessStageState, setSelectedBusinessStageState] = useState({ variant: resolvedVariant, index: 0 });
   const [openCeoHeroAccordionState, setOpenCeoHeroAccordionState] = useState({ variant: resolvedVariant, index: 0 });
   const [activeCeoProfileIndex, setActiveCeoProfileIndex] = useState(0);
-  const [activeCeoDocumentTab, setActiveCeoDocumentTab] = useState<CeoDocumentTab>('brands');
-  const [openCeoIntroductionIndex, setOpenCeoIntroductionIndex] = useState(0);
+  const [activeCeoDocumentTab, setActiveCeoDocumentTab] = useState<CeoDocumentTab>('resume');
   const barInView = true;
   const isCeoVariant = resolvedVariant === 'ceo';
   const isBrandStoryActive = enableBrandStory && !isCeoVariant;
@@ -970,8 +739,6 @@ export default function Dashboard2Experience({
   const activeBrandStorySlide =
     introductionHeroSlides[brandStorySlideIndex] ?? introductionHeroSlides[0]!;
   const selectedOperatingIndex = selectedOperatingState.variant === resolvedVariant ? selectedOperatingState.index : 0;
-  const selectedBusinessStageIndex =
-    selectedBusinessStageState.variant === resolvedVariant ? selectedBusinessStageState.index : 0;
   const openCeoHeroAccordionIndex =
     openCeoHeroAccordionState.variant === resolvedVariant ? openCeoHeroAccordionState.index : 0;
   const activeHeroStats = isCeoVariant
@@ -982,9 +749,6 @@ export default function Dashboard2Experience({
   const activeOperatingHighlights = isCeoVariant ? ceoOperatingHighlights : operatingHighlights;
   const activeOperatingPanels = isCeoVariant ? ceoOperatingPanels : operatingPanels;
   const activeVisionPillars = isCeoVariant ? ceoVisionPillars : visionPillars;
-  const activeBusinessCards = isCeoVariant ? ceoBusinessCards : businessCards;
-  const selectedBusinessStage =
-    businessOperationStages[selectedBusinessStageIndex] ?? businessOperationStages[0]!;
   const selectedPanel = activeOperatingPanels[selectedOperatingIndex] ?? activeOperatingPanels[0];
   const selectedPieSegments = getPieDonutSegments(selectedPanel.pieData);
   const activeCeoMedia = activeCeoProfile.media;
@@ -1256,7 +1020,6 @@ export default function Dashboard2Experience({
 
   const handleNextCeoProfile = () => {
     setActiveCeoProfileIndex((currentIndex) => (currentIndex + 1) % ceoHeroProfiles.length);
-    setOpenCeoHeroAccordionState({ variant: resolvedVariant, index: 0 });
   };
 
   const handleHeroImageKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -1546,19 +1309,7 @@ export default function Dashboard2Experience({
   );
 
 
-  return (
-    <PageShell
-      ref={pageRef}
-      id="content-area"
-      aria-labelledby={shouldRenderIntroductionHero ? 'dashboard2-title' : undefined}
-      aria-label={shouldRenderIntroductionHero ? undefined : '회사소개'}
-      $squareSections={isBrandStoryActive}
-    >
-      {!isCeoVariant && !isBrandStoryActive && showIntroductionHero ? (
-        <TopNotice>SIMPLYPIG의 AI 기술과 실행 역량을 기존 대시보드 스타일 안에 구성했습니다.</TopNotice>
-      ) : null}
-
-      {shouldRenderIntroductionHero ? (
+  const introductionHero = shouldRenderIntroductionHero ? (
       <HeroSection id="dashboard2-intro" $isCeo={isCeoVariant}>
         <HeroGrid aria-hidden="true" />
         <HeroWash aria-hidden="true" />
@@ -1652,20 +1403,20 @@ export default function Dashboard2Experience({
           </motion.div>
 
           {isCeoVariant ? (
-            <CeoHeroAccordionColumn className="ceo-hero-copy" key={activeCeoProfile.id} aria-label="대표소개 핵심 메시지" aria-live="polite" aria-atomic="true">
+            <CeoHeroAccordionColumn className="ceo-hero-copy" aria-label="대표소개 핵심 메시지" aria-live="polite" aria-atomic="true">
               <StatusBadge className="ceo-hero-badge">
                 <span />
                 {activeCeoProfile.badge}
               </StatusBadge>
-              <h1 id="dashboard2-title" className="ceo-hero-title">
+              <h2 id="ceo-resume-profile-title" className="ceo-hero-title">
                 <GradientText>{activeCeoProfile.accentHeading}</GradientText>{activeCeoProfile.headingSuffix}
                 <br />
                 {activeCeoProfile.headingSecondLine}
-              </h1>
+              </h2>
               <p className="ceo-hero-description">{activeCeoProfile.description}</p>
 
               <CeoHeroAccordionList className="ceo-hero-accordion">
-                {activeCeoProfile.accordionItems.map((item, index) => {
+                {ceoHeroAccordionItems.map((item, index) => {
                   const isOpen = openCeoHeroAccordionIndex === index;
                   const panelId = `ceo-hero-accordion-${index}`;
 
@@ -1678,10 +1429,13 @@ export default function Dashboard2Experience({
                         aria-controls={panelId}
                         onClick={() => setOpenCeoHeroAccordionState({ variant: resolvedVariant, index: isOpen ? -1 : index })}
                       >
-                        <span>
-                          <small>{item.eyebrow}</small>
-                          <strong>{item.title}</strong>
-                          <em>{item.summary}</em>
+                        <span className="resume-heading">
+                          <span className="resume-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                          <span>
+                            <small>{item.eyebrow.split(' / ')[1].toUpperCase()}</small>
+                            <strong>{item.title}</strong>
+                            <em>{item.summary}</em>
+                          </span>
                         </span>
                         <i className={isOpen ? 'is-open' : undefined}>
                           <FontAwesomeIcon icon={faChevronDown} />
@@ -1745,7 +1499,115 @@ export default function Dashboard2Experience({
           )}
         </HeroInner>
       </HeroSection>
+  ) : null;
+
+  return (
+    <PageShell
+      ref={pageRef}
+      id="content-area"
+      aria-labelledby={isCeoVariant ? 'ceo-document-title' : shouldRenderIntroductionHero ? 'dashboard2-title' : undefined}
+      aria-label={shouldRenderIntroductionHero ? undefined : '회사소개'}
+      $squareSections={isBrandStoryActive}
+    >
+      {!isCeoVariant && !isBrandStoryActive && showIntroductionHero ? (
+        <TopNotice>SIMPLYPIG의 AI 기술과 실행 역량을 기존 대시보드 스타일 안에 구성했습니다.</TopNotice>
       ) : null}
+
+      {isCeoVariant ? (
+        <BusinessSection id="ceo-document-section" aria-labelledby="ceo-document-title">
+        <SectionInner initial={shouldReduceMotion ? false : 'hidden'} whileInView="visible" viewport={{ once: true, amount: 0.18 }} variants={staggerVariant}>
+          <SectionHeading>
+            <motion.p variants={revealVariant}>CEO PROFILE</motion.p>
+            <motion.h1 id="ceo-document-title" variants={revealVariant}>대표소개서</motion.h1>
+            <motion.span variants={revealVariant}>
+              방문자에게는 대표의 방향을, 구성원에게는 판단 기준을, 파트너에게는 신뢰의 근거를 보여줍니다.
+            </motion.span>
+          </SectionHeading>
+
+          <CeoDocumentHub variants={revealVariant}>
+            <CeoDocumentTabs role="tablist" aria-label="대표소개서 탭 선택">
+              {ceoDocumentTabs.map((tab, index) => {
+                const isActive = activeCeoDocumentTab === tab.id;
+
+                return (
+                  <button
+                    key={tab.id}
+                    id={`ceo-document-tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls="ceo-document-panel"
+                    tabIndex={isActive ? 0 : -1}
+                    onClick={() => setActiveCeoDocumentTab(tab.id)}
+                    onKeyDown={(event) => handleCeoDocumentTabKeyDown(event, index)}
+                  >
+                    <small>{tab.eyebrow}</small>
+                    <strong>{tab.label}</strong>
+                  </button>
+                );
+              })}
+            </CeoDocumentTabs>
+
+            <CeoDocumentPanel
+              id="ceo-document-panel"
+              role="tabpanel"
+              aria-labelledby={`ceo-document-tab-${activeCeoDocumentTab}`}
+              tabIndex={0}
+            >
+              {activeCeoDocumentTab === 'resume' ? introductionHero : null}
+
+              {activeCeoDocumentTab === 'introduction' ? <FounderStory /> : null}
+
+              {activeCeoDocumentTab === 'analysis' ? (
+                <CeoLeadershipAnalytics>
+                  {operatingContent}
+                </CeoLeadershipAnalytics>
+              ) : null}
+            </CeoDocumentPanel>
+          </CeoDocumentHub>
+        </SectionInner>
+        </BusinessSection>
+      ) : null}
+
+      {!isCeoVariant ? introductionHero : null}
+
+      {!isCeoVariant ? (
+        <BusinessSection id="company-brands" aria-label="회사 브랜드">
+          <SectionInner>
+                  <CompanyBrandIntro>
+                    <div>
+                      <span>BRAND PORTFOLIO</span>
+                      <h3>기술과 일상을 연결하는 브랜드</h3>
+                    </div>
+                    <p>업무를 연결하는 ERP, 일상을 돕는 제품, 경험을 전하는 웹툰. 서로 다른 브랜드가 SIMPLYPIG의 방향을 함께 만들어갑니다.</p>
+                  </CompanyBrandIntro>
+
+                  <CompanyBrandGrid>
+                    {companyBrandCollection.map((brand) => (
+                      <article key={brand.name}>
+                        <div className={`brand-image brand-image--${brand.imageStyle}`}>
+                          <img
+                            src={brand.imageUrl}
+                            alt={brand.imageAlt}
+                            width={brand.imageWidth}
+                            height={brand.imageHeight}
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        </div>
+                        <footer>
+                          <small>{brand.category}</small>
+                          <h4>{brand.name}</h4>
+                          <p>{brand.description}</p>
+                        </footer>
+                      </article>
+                    ))}
+                  </CompanyBrandGrid>
+          </SectionInner>
+        </BusinessSection>
+      ) : null}
+
+
 
       {!isCeoVariant ? (
         includeProductIntroduction ? (
@@ -1812,18 +1674,14 @@ export default function Dashboard2Experience({
             <CeoVisionDispatchHeader>
               <span>CEO 비전 · 사장에서 날아온 메모</span>
               <h2 id="ceo-vision-title">
-                그냥돼지입니다.
+                그냥 뚠뚠이 입니다
                 <br />
-                만능 엔터테이너입니다.
+                만등 엔터테이너 입니다
               </h2>
-              <p>사실 이도저도 아닌데, 하다 보면 얻어걸리는 게 현실입니다.</p>
+              <p>사실... 이도저도 아닌 돼지 입니다...;;</p>
             </CeoVisionDispatchHeader>
 
-            <CeoVisionStamp aria-label="오늘의 비전 결재: 일단 해봄">
-              <small>오늘의 비전 결재</small>
-              <strong>일단 해봄</strong>
-              <span>실패해도 다음엔 덜 헤맴</span>
-            </CeoVisionStamp>
+            <CeoCharacterAside />
 
             <CeoVisionNoteGrid>
               {activeVisionPillars.map((pillar, index) => (
@@ -1840,302 +1698,6 @@ export default function Dashboard2Experience({
         </DarkSection>
       ) : null}
 
-      {isCeoVariant ? (
-        <BusinessSection>
-        <SectionInner initial={shouldReduceMotion ? false : 'hidden'} whileInView="visible" viewport={{ once: true, amount: 0.18 }} variants={staggerVariant}>
-          <SectionHeading>
-            <motion.p variants={revealVariant}>대표 상세 소개서</motion.p>
-            <motion.h2 variants={revealVariant}>
-              대표의 브랜드, 이력, 소개와 통계 분석을 한곳에서
-            </motion.h2>
-            <motion.span variants={revealVariant}>
-              방문자에게는 대표의 방향을, 구성원에게는 판단 기준을, 파트너에게는 신뢰의 근거를 보여줍니다.
-            </motion.span>
-          </SectionHeading>
-
-          <CeoDocumentHub variants={revealVariant}>
-            <CeoDocumentTabs role="tablist" aria-label="대표 상세 소개서 탭 선택">
-              {ceoDocumentTabs.map((tab, index) => {
-                const isActive = activeCeoDocumentTab === tab.id;
-
-                return (
-                  <button
-                    key={tab.id}
-                    id={`ceo-document-tab-${tab.id}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    aria-controls="ceo-document-panel"
-                    tabIndex={isActive ? 0 : -1}
-                    onClick={() => setActiveCeoDocumentTab(tab.id)}
-                    onKeyDown={(event) => handleCeoDocumentTabKeyDown(event, index)}
-                  >
-                    <small>{tab.eyebrow}</small>
-                    <strong>{tab.label}</strong>
-                  </button>
-                );
-              })}
-            </CeoDocumentTabs>
-
-            <CeoDocumentPanel
-              id="ceo-document-panel"
-              role="tabpanel"
-              aria-labelledby={`ceo-document-tab-${activeCeoDocumentTab}`}
-              tabIndex={0}
-            >
-              {activeCeoDocumentTab === 'brands' ? (
-                <>
-                  <CeoDocumentIntro>
-                    <div>
-                      <span>BRAND PORTFOLIO</span>
-                      <h3>대표가 이끄는 브랜드</h3>
-                    </div>
-                    <p>기업의 방향과 제품의 개성을 이미지 중심으로 한눈에 확인할 수 있습니다.</p>
-                  </CeoDocumentIntro>
-
-                  <CeoBrandGrid>
-                    {ceoBrandCollection.map((brand) => (
-                      <article key={brand.name}>
-                        <div className={`brand-image brand-image--${brand.imageStyle}`}>
-                          <img
-                            src={brand.imageUrl}
-                            alt={brand.imageAlt}
-                            width={brand.imageWidth}
-                            height={brand.imageHeight}
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        </div>
-                        <footer>
-                          <small>{brand.category}</small>
-                          <h4>{brand.name}</h4>
-                          <p>{brand.description}</p>
-                        </footer>
-                      </article>
-                    ))}
-                  </CeoBrandGrid>
-                </>
-              ) : null}
-
-              {activeCeoDocumentTab === 'resume' ? (
-                <CeoResumePaper>
-                  <CeoResumeAside>
-                    <img
-                      src="/propig-favicon.svg"
-                      alt="SIMPLYPIG 브랜드 심볼"
-                      width="64"
-                      height="64"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <span>CEO RESUME</span>
-                    <h3>SIMPLYPIG<br />대표이사</h3>
-                    <p>현장 문제를 기술과 콘텐츠, 운영 체계로 전환하는 실행형 리더</p>
-
-                    <dl>
-                      <div>
-                        <dt>직책</dt>
-                        <dd>대표이사 · CEO</dd>
-                      </div>
-                      <div>
-                        <dt>소속</dt>
-                        <dd>SIMPLYPIG</dd>
-                      </div>
-                      <div>
-                        <dt>전문 분야</dt>
-                        <dd>AI 전략 · 제품 · 자동화</dd>
-                      </div>
-                      <div>
-                        <dt>운영 기준</dt>
-                        <dd>현장 · 실행 · 책임</dd>
-                      </div>
-                    </dl>
-                  </CeoResumeAside>
-
-                  <CeoResumeBody>
-                    <section>
-                      <header>
-                        <span>01</span>
-                        <div>
-                          <small>PROFILE</small>
-                          <h4>경력 요약</h4>
-                        </div>
-                      </header>
-                      <p>
-                        사업 전략부터 AI 서비스, 웹·앱, 업무 자동화, 콘텐츠 제작까지 서로 다른 전문 영역을
-                        하나의 실행 흐름으로 연결합니다.
-                      </p>
-                    </section>
-
-                    <section>
-                      <header>
-                        <span>02</span>
-                        <div>
-                          <small>EXPERIENCE</small>
-                          <h4>주요 경력</h4>
-                        </div>
-                      </header>
-                      <CeoResumeTimeline>
-                        {ceoResumeExperience.map((experience) => (
-                          <article key={experience.role}>
-                            <small>{experience.period}</small>
-                            <div>
-                              <h5>{experience.role}</h5>
-                              <strong>{experience.organization}</strong>
-                              <p>{experience.description}</p>
-                            </div>
-                          </article>
-                        ))}
-                      </CeoResumeTimeline>
-                    </section>
-
-                    <section>
-                      <header>
-                        <span>03</span>
-                        <div>
-                          <small>CORE SKILLS</small>
-                          <h4>핵심 역량</h4>
-                        </div>
-                      </header>
-                      <CeoResumeSkills>
-                        {ceoResumeSkills.map((skill) => <li key={skill}>{skill}</li>)}
-                      </CeoResumeSkills>
-                    </section>
-                  </CeoResumeBody>
-                </CeoResumePaper>
-              ) : null}
-
-              {activeCeoDocumentTab === 'introduction' ? (
-                <CeoIntroductionLayout>
-                  <CeoIntroductionLead>
-                    <span>SELF INTRODUCTION</span>
-                    <h3>대표소개서</h3>
-                    <p>
-                      사업을 시작한 이유부터 리더십과 미래 방향까지, 자기소개서의 핵심 문항을
-                      아코디언으로 구성했습니다.
-                    </p>
-                    <strong>문항을 선택해 자세한 내용을 확인하세요.</strong>
-                  </CeoIntroductionLead>
-
-                  <CeoIntroductionAccordion>
-                    {ceoIntroductionItems.map((item, index) => {
-                      const isOpen = openCeoIntroductionIndex === index;
-                      const panelId = `ceo-introduction-panel-${index}`;
-
-                      return (
-                        <article key={item.title} className={isOpen ? 'is-open' : undefined}>
-                          <button
-                            type="button"
-                            aria-expanded={isOpen}
-                            aria-controls={panelId}
-                            onClick={() => setOpenCeoIntroductionIndex(isOpen ? -1 : index)}
-                          >
-                            <span>
-                              <small>{item.eyebrow}</small>
-                              <strong>{item.title}</strong>
-                              <em>{item.summary}</em>
-                            </span>
-                            <i aria-hidden="true">
-                              <FontAwesomeIcon icon={faChevronDown} />
-                            </i>
-                          </button>
-                          <motion.div
-                            id={panelId}
-                            hidden={!isOpen}
-                            initial={false}
-                            animate={{ height: isOpen ? 'auto' : 0, opacity: isOpen ? 1 : 0 }}
-                            transition={{ duration: shouldReduceMotion ? 0 : 0.24 }}
-                          >
-                            <p>{item.detail}</p>
-                          </motion.div>
-                        </article>
-                      );
-                    })}
-                  </CeoIntroductionAccordion>
-                </CeoIntroductionLayout>
-              ) : null}
-
-              {activeCeoDocumentTab === 'analysis' ? (
-                <CeoLeadershipAnalytics>
-                  {operatingContent}
-                </CeoLeadershipAnalytics>
-              ) : null}
-            </CeoDocumentPanel>
-          </CeoDocumentHub>
-
-
-          <BusinessGrid>
-            {activeBusinessCards.map((card) => (
-              <motion.article key={card.title} variants={revealVariant} whileHover={shouldReduceMotion ? undefined : { y: -7 }}>
-                <i style={{ backgroundColor: card.color }}>
-                  <FontAwesomeIcon icon={card.icon} />
-                </i>
-                <h3>{card.title}</h3>
-                <p>{card.desc}</p>
-                <small>{card.detail}</small>
-              </motion.article>
-            ))}
-          </BusinessGrid>
-
-          <PipelinePanel variants={revealVariant}>
-            <div>
-              <span>{isCeoVariant ? '리더십 수행 흐름' : '사업 수행 흐름'}</span>
-              <h3>{isCeoVariant ? '한 결정을 실행으로 완성하는 단계' : '하나의 아이디어를 성장 자산으로 완성하는 5단계'}</h3>
-            </div>
-            {isCeoVariant ? (
-              <PipelineGrid>
-                {ceoBusinessPipelines.map((item, index) => (
-                  <article key={item}>
-                    <b>{index + 1}</b>
-                    <strong>{item}</strong>
-                  </article>
-                ))}
-              </PipelineGrid>
-            ) : (
-              <>
-                <PipelineGrid aria-label="사업 운영 5단계">
-                  {businessOperationStages.map((stage, index) => {
-                    const isSelected = selectedBusinessStageIndex === index;
-                    const detailId = 'business-operation-stage-detail';
-
-                    return (
-                      <button
-                        key={stage.title}
-                        type="button"
-                        aria-pressed={isSelected}
-                        aria-controls={detailId}
-                        className={isSelected ? 'is-selected' : undefined}
-                        onClick={() => setSelectedBusinessStageState({ variant: resolvedVariant, index })}
-                      >
-                        <b>{String(index + 1).padStart(2, '0')}</b>
-                        <strong>{stage.title}</strong>
-                        <span>{stage.summary}</span>
-                      </button>
-                    );
-                  })}
-                </PipelineGrid>
-
-                <BusinessStageDetail
-                  key={selectedBusinessStage.title}
-                  id="business-operation-stage-detail"
-                  aria-live="polite"
-                >
-                  <div>
-                    <span>STEP {String(selectedBusinessStageIndex + 1).padStart(2, '0')}</span>
-                    <h4>{selectedBusinessStage.title}</h4>
-                  </div>
-                  <div>
-                    <p>{selectedBusinessStage.detail}</p>
-                    <strong>{selectedBusinessStage.outcome}</strong>
-                  </div>
-                </BusinessStageDetail>
-              </>
-            )}
-          </PipelinePanel>
-
-        </SectionInner>
-        </BusinessSection>
-      ) : null}
     </PageShell>
   );
 }
@@ -2491,7 +2053,7 @@ const HeroInner = styled.div<{ $isCeo?: boolean }>`
     order: 3;
   }
 
-  h1 {
+  h1, .ceo-hero-title {
     margin: 28px 0 0;
     color: #111827;
     font-size: 4rem;
@@ -2520,13 +2082,13 @@ const HeroInner = styled.div<{ $isCeo?: boolean }>`
       grid-row: auto;
     }
 
-    h1 {
+    h1, .ceo-hero-title {
       font-size: 3.15rem;
     }
   }
 
   @media (max-width: 640px) {
-    h1 {
+    h1, .ceo-hero-title {
       font-size: 2.35rem;
     }
 
@@ -2921,7 +2483,7 @@ const CeoHeroAccordionColumn = styled.div`
   flex-direction: column;
   justify-content: flex-start;
 
-  h1 {
+  h1, .ceo-hero-title {
     max-width: 780px;
     margin: 12px 0 0;
     color: #111827;
@@ -2942,13 +2504,13 @@ const CeoHeroAccordionColumn = styled.div`
   }
 
   @media (max-width: 1024px) {
-    h1 {
+    h1, .ceo-hero-title {
       font-size: 2.55rem;
     }
   }
 
   @media (max-width: 640px) {
-    h1 {
+    h1, .ceo-hero-title {
       font-size: 2rem;
       line-height: 1.18;
     }
@@ -2961,23 +2523,31 @@ const CeoHeroAccordionColumn = styled.div`
 
 const CeoHeroAccordionList = styled.div`
   display: grid;
-  gap: 10px;
+  gap: 0;
   margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid #d9e1ec;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.08);
+
+  .resume-heading { display: flex; align-items: center; gap: 13px; min-width: 0; }
+  .resume-number { width: 36px; height: 36px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; background: #eaf1ff; color: #1d4ed8; font-size: 0.72rem; font-weight: 950; }
+
 
   article {
     overflow: hidden;
-    border: 1px solid #dbe3ef;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+    border: 0;
+    border-bottom: 1px solid #e7ebf1;
+    border-radius: 0;
+    background: #ffffff;
+    box-shadow: none;
     transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
   }
 
-  article.is-open {
-    border-color: #93c5fd;
-    background: #ffffff;
-    box-shadow: 0 18px 44px rgba(37, 99, 235, 0.12);
-  }
+  article:last-child { border-bottom: 0; }
+
+  article.is-open { background: #f8faff; }
 
   button {
     width: 100%;
@@ -3002,7 +2572,8 @@ const CeoHeroAccordionList = styled.div`
   small {
     display: block;
     color: #2563eb;
-    font-size: 0.72rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
     font-weight: 950;
   }
 
@@ -3010,7 +2581,7 @@ const CeoHeroAccordionList = styled.div`
     display: block;
     margin-top: 5px;
     color: #111827;
-    font-size: 1.02rem;
+    font-size: 1.15rem;
     font-weight: 950;
     line-height: 1.25;
     word-break: keep-all;
@@ -4007,7 +3578,7 @@ const CeoVisionDispatch = styled.section`
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1.36fr) minmax(220px, 0.64fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
   gap: 28px;
   margin: 0 auto;
   border: 1px solid rgba(255, 255, 255, 0.17);
@@ -4096,7 +3667,7 @@ const CeoVisionDispatchHeader = styled.header`
     max-width: 700px;
     margin: 18px 0 0;
     color: #ffffff;
-    font-size: 3.6rem;
+    font-size: 2.6rem;
     font-weight: 950;
     line-height: 1.08;
     word-break: keep-all;
@@ -4126,78 +3697,6 @@ const CeoVisionDispatchHeader = styled.header`
     p {
       font-size: 0.96rem;
     }
-  }
-`;
-
-const CeoVisionStamp = styled.aside`
-  min-height: 196px;
-  position: relative;
-  z-index: 1;
-  align-self: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid rgba(255, 105, 85, 0.82);
-  border-radius: 50%;
-  background: rgba(62, 22, 28, 0.45);
-  color: #ff9a8b;
-  text-align: center;
-  transform: rotate(7deg);
-
-  &::before,
-  &::after {
-    position: absolute;
-    inset: 8px;
-    border: 1px dashed rgba(255, 154, 139, 0.72);
-    border-radius: 50%;
-    content: '';
-  }
-
-  &::after {
-    inset: 17px;
-    border-style: solid;
-    opacity: 0.35;
-  }
-
-  small,
-  strong,
-  span {
-    position: relative;
-    z-index: 1;
-  }
-
-  small {
-    font-size: 0.72rem;
-    font-weight: 950;
-    letter-spacing: 0.08em;
-  }
-
-  strong {
-    margin-top: 6px;
-    color: #fff1ed;
-    font-size: 1.55rem;
-    font-weight: 950;
-  }
-
-  span {
-    max-width: 150px;
-    margin-top: 8px;
-    color: #ffc6bc;
-    font-size: 0.76rem;
-    font-weight: 700;
-    line-height: 1.45;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 800px) {
-    width: min(220px, 100%);
-    min-height: 172px;
-    justify-self: end;
-  }
-
-  @media (max-width: 520px) {
-    justify-self: center;
   }
 `;
 
@@ -4268,7 +3767,7 @@ const SectionHeading = styled.div`
     font-weight: 950;
   }
 
-  h2 {
+  h1, h2 {
     margin: 16px 0 0;
     color: #24242a;
     font-size: 3rem;
@@ -4288,7 +3787,7 @@ const SectionHeading = styled.div`
   }
 
   @media (max-width: 720px) {
-    h2 {
+    h1, h2 {
       font-size: 2.15rem;
     }
   }
@@ -4594,267 +4093,6 @@ const BusinessSection = styled.section`
   padding: 80px 20px;
 `;
 
-const BusinessGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 20px;
-  margin-top: 48px;
-
-  article {
-    border: 1px solid #e2e5ee;
-    border-radius: 8px;
-    background: #ffffff;
-    padding: 24px;
-    box-shadow: 0 18px 45px rgba(21, 27, 45, 0.05);
-  }
-
-  i {
-    width: 50px;
-    height: 50px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    color: #ffffff;
-    font-size: 1.1rem;
-  }
-
-  h3 {
-    margin: 20px 0 0;
-    color: #24242a;
-    font-size: 1.2rem;
-    font-weight: 950;
-  }
-
-  p,
-  small {
-    display: block;
-    color: #475569;
-    line-height: 1.65;
-  }
-
-  p {
-    margin: 12px 0 0;
-    font-size: 0.92rem;
-    font-weight: 750;
-  }
-
-  small {
-    margin-top: 12px;
-    font-size: 0.8rem;
-    font-weight: 700;
-  }
-
-  @media (max-width: 980px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @media (max-width: 620px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const PipelinePanel = styled(motion.div)`
-  margin-top: 48px;
-  border: 1px solid #e2e5ee;
-  border-radius: 8px;
-  background: #f7f8fb;
-  padding: 24px;
-
-  > div:first-child {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-
-  span {
-    color: #c2410c;
-    font-size: 0.9rem;
-    font-weight: 950;
-  }
-
-  h3 {
-    margin: 8px 0 0;
-    color: #24242a;
-    font-size: 1.6rem;
-    font-weight: 950;
-  }
-`;
-
-const PipelineGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 24px;
-
-  &[aria-label] {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  article {
-    border: 1px solid #e4e8f2;
-    border-radius: 8px;
-    background: #ffffff;
-    padding: 16px;
-    text-align: center;
-  }
-
-  b {
-    width: 40px;
-    height: 40px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    background: #111827;
-    color: #ffffff;
-  }
-
-  strong {
-    display: block;
-    margin-top: 12px;
-    color: #333236;
-    font-size: 0.85rem;
-    font-weight: 950;
-  }
-
-  button {
-    min-width: 0;
-    border: 1px solid #e4e8f2;
-    border-radius: 8px;
-    background: #ffffff;
-    padding: 16px;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    touch-action: manipulation;
-    transition:
-      border-color 0.2s ease,
-      box-shadow 0.2s ease,
-      transform 0.2s ease;
-  }
-
-  button:hover {
-    border-color: #94a3b8;
-    transform: translateY(-2px);
-  }
-
-  button:focus-visible {
-    outline: 3px solid rgba(37, 99, 235, 0.35);
-    outline-offset: 2px;
-  }
-
-  button.is-selected {
-    border-color: #2563eb;
-    box-shadow: 0 12px 24px rgba(37, 99, 235, 0.16);
-  }
-
-  button b {
-    background: #2563eb;
-  }
-
-  button span {
-    display: block;
-    margin-top: 10px;
-    color: #64748b;
-    font-size: 0.76rem;
-    font-weight: 700;
-    line-height: 1.55;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 820px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-
-    &[aria-label] {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    button {
-      transition: none;
-    }
-
-    button:hover {
-      transform: none;
-    }
-  }
-`;
-
-const BusinessStageDetail = styled.div`
-  display: grid;
-  grid-template-columns: minmax(180px, 0.72fr) minmax(0, 1.28fr);
-  gap: 24px;
-  margin-top: 16px;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  background: #eff6ff;
-  padding: 24px;
-  animation: business-stage-detail-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-
-  @keyframes business-stage-detail-in {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  > div:first-child {
-    align-self: start;
-  }
-
-  span {
-    display: block;
-    color: #2563eb;
-    font-size: 0.78rem;
-    font-weight: 950;
-  }
-
-  h4 {
-    margin: 8px 0 0;
-    color: #1e3a8a;
-    font-size: 1.35rem;
-    font-weight: 950;
-  }
-
-  p {
-    margin: 0;
-    color: #334155;
-    font-size: 0.94rem;
-    font-weight: 700;
-    line-height: 1.7;
-    word-break: keep-all;
-  }
-
-  strong {
-    display: block;
-    margin-top: 14px;
-    color: #1d4ed8;
-    font-size: 0.85rem;
-    font-weight: 950;
-  }
-
-  strong::before {
-    content: '결과 · ';
-  }
-
-  @media (max-width: 720px) {
-    grid-template-columns: 1fr;
-    gap: 14px;
-    padding: 20px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
 
 const CeoDocumentHub = styled(motion.section)`
   margin-top: 36px;
@@ -4866,7 +4104,7 @@ const CeoLeadershipAnalytics = styled.section`
 
 const CeoDocumentTabs = styled.div`
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   border: 1px solid #dbe3ee;
   border-radius: 14px;
@@ -4972,6 +4210,8 @@ const CeoDocumentPanel = styled.div`
   padding: 28px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.06);
 
+  > #founder-story { padding: 24px 0; }
+
   &:focus-visible {
     outline: 3px solid rgba(37, 99, 235, 0.28);
     outline-offset: 3px;
@@ -4989,7 +4229,7 @@ const CeoDocumentPanel = styled.div`
   }
 `;
 
-const CeoDocumentIntro = styled.header`
+const CompanyBrandIntro = styled.header`
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -5032,7 +4272,7 @@ const CeoDocumentIntro = styled.header`
   }
 `;
 
-const CeoBrandGrid = styled.div`
+const CompanyBrandGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
@@ -5128,411 +4368,6 @@ const CeoBrandGrid = styled.div`
     }
   }
 `;
-
-const CeoResumePaper = styled.article`
-  display: grid;
-  grid-template-columns: minmax(250px, 0.35fr) minmax(0, 0.65fr);
-  overflow: hidden;
-  border: 1px solid #d9e1ec;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.08);
-
-  @media (max-width: 820px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const CeoResumeAside = styled.aside`
-  background:
-    linear-gradient(160deg, rgba(37, 99, 235, 0.18), transparent 48%),
-    #0b1424;
-  padding: 34px 30px;
-  color: #ffffff;
-
-  > img {
-    display: block;
-    width: 58px;
-    height: 58px;
-    margin-bottom: 28px;
-    border-radius: 14px;
-  }
-
-  > span {
-    color: #7db0ff;
-    font-size: 0.7rem;
-    font-weight: 950;
-    letter-spacing: 0.14em;
-  }
-
-  > h3 {
-    margin: 10px 0 0;
-    font-size: 2rem;
-    font-weight: 950;
-    line-height: 1.18;
-  }
-
-  > p {
-    margin: 16px 0 0;
-    color: #c8d5e7;
-    font-size: 0.88rem;
-    font-weight: 700;
-    line-height: 1.7;
-    word-break: keep-all;
-  }
-
-  dl {
-    display: grid;
-    gap: 0;
-    margin: 32px 0 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.14);
-  }
-
-  dl div {
-    display: grid;
-    grid-template-columns: 72px 1fr;
-    gap: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 13px 0;
-  }
-
-  dt,
-  dd {
-    margin: 0;
-    font-size: 0.78rem;
-    line-height: 1.5;
-  }
-
-  dt {
-    color: #7db0ff;
-    font-weight: 900;
-  }
-
-  dd {
-    color: #eef4ff;
-    font-weight: 750;
-  }
-
-  @media (max-width: 820px) {
-    > h3 br {
-      display: none;
-    }
-  }
-
-  @media (max-width: 560px) {
-    padding: 26px 22px;
-  }
-`;
-
-const CeoResumeBody = styled.div`
-  display: grid;
-  gap: 30px;
-  padding: 34px;
-
-  > section > header {
-    display: flex;
-    align-items: center;
-    gap: 13px;
-    margin-bottom: 16px;
-  }
-
-  > section > header > span {
-    width: 36px;
-    height: 36px;
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    background: #eaf1ff;
-    color: #1d4ed8;
-    font-size: 0.72rem;
-    font-weight: 950;
-  }
-
-  header small {
-    display: block;
-    color: #2563eb;
-    font-size: 0.62rem;
-    font-weight: 950;
-    letter-spacing: 0.12em;
-  }
-
-  h4 {
-    margin: 3px 0 0;
-    color: #172033;
-    font-size: 1.15rem;
-    font-weight: 950;
-  }
-
-  > section > p {
-    margin: 0;
-    color: #475569;
-    font-size: 0.88rem;
-    font-weight: 700;
-    line-height: 1.75;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 560px) {
-    gap: 26px;
-    padding: 26px 22px;
-  }
-`;
-
-const CeoResumeTimeline = styled.div`
-  display: grid;
-  gap: 0;
-
-  article {
-    display: grid;
-    grid-template-columns: 94px minmax(0, 1fr);
-    gap: 18px;
-    padding: 15px 0;
-    border-top: 1px solid #e7ebf1;
-  }
-
-  article:first-child {
-    padding-top: 0;
-    border-top: 0;
-  }
-
-  article > small {
-    color: #2563eb;
-    font-size: 0.72rem;
-    font-weight: 950;
-    line-height: 1.5;
-  }
-
-  h5 {
-    margin: 0;
-    color: #172033;
-    font-size: 0.94rem;
-    font-weight: 950;
-  }
-
-  strong {
-    display: block;
-    margin-top: 4px;
-    color: #64748b;
-    font-size: 0.74rem;
-    font-weight: 850;
-  }
-
-  p {
-    margin: 7px 0 0;
-    color: #64748b;
-    font-size: 0.78rem;
-    font-weight: 700;
-    line-height: 1.65;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 560px) {
-    article {
-      grid-template-columns: 1fr;
-      gap: 5px;
-    }
-  }
-`;
-
-const CeoResumeSkills = styled.ul`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-
-  li {
-    border: 1px solid #cbdcfb;
-    border-radius: 7px;
-    background: #f3f7ff;
-    padding: 8px 11px;
-    color: #1e40af;
-    font-size: 0.74rem;
-    font-weight: 850;
-  }
-`;
-
-const CeoIntroductionLayout = styled.div`
-  display: grid;
-  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
-  gap: 28px;
-  align-items: start;
-
-  @media (max-width: 860px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const CeoIntroductionLead = styled.header`
-  position: sticky;
-  top: 16px;
-  border-radius: 12px;
-  background:
-    linear-gradient(145deg, rgba(37, 99, 235, 0.16), transparent 55%),
-    #0b1424;
-  padding: 28px;
-  color: #ffffff;
-
-  > span {
-    color: #7db0ff;
-    font-size: 0.68rem;
-    font-weight: 950;
-    letter-spacing: 0.14em;
-  }
-
-  h3 {
-    margin: 10px 0 0;
-    font-size: 1.7rem;
-    font-weight: 950;
-  }
-
-  p {
-    margin: 14px 0 0;
-    color: #c8d5e7;
-    font-size: 0.86rem;
-    font-weight: 700;
-    line-height: 1.72;
-    word-break: keep-all;
-  }
-
-  strong {
-    display: block;
-    margin-top: 22px;
-    border-top: 1px solid rgba(255, 255, 255, 0.14);
-    padding-top: 16px;
-    color: #eaf2ff;
-    font-size: 0.75rem;
-    font-weight: 850;
-  }
-
-  @media (max-width: 860px) {
-    position: static;
-  }
-`;
-
-const CeoIntroductionAccordion = styled.div`
-  display: grid;
-  gap: 10px;
-
-  article {
-    overflow: hidden;
-    border: 1px solid #dfe6ef;
-    border-radius: 10px;
-    background: #ffffff;
-    transition:
-      border-color 0.18s ease,
-      box-shadow 0.18s ease;
-  }
-
-  article.is-open {
-    border-color: #b9cff8;
-    box-shadow: 0 12px 28px rgba(37, 99, 235, 0.08);
-  }
-
-  button {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    border: 0;
-    background: transparent;
-    padding: 18px 20px;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    touch-action: manipulation;
-  }
-
-  button:focus-visible {
-    outline: 3px solid rgba(37, 99, 235, 0.3);
-    outline-offset: -3px;
-  }
-
-  button > span {
-    min-width: 0;
-  }
-
-  button small {
-    display: block;
-    color: #2563eb;
-    font-size: 0.62rem;
-    font-weight: 950;
-    letter-spacing: 0.1em;
-  }
-
-  button strong {
-    display: block;
-    margin-top: 5px;
-    color: #172033;
-    font-size: 1rem;
-    font-weight: 950;
-  }
-
-  button em {
-    display: block;
-    margin-top: 6px;
-    color: #64748b;
-    font-size: 0.78rem;
-    font-style: normal;
-    font-weight: 700;
-    line-height: 1.55;
-    word-break: keep-all;
-  }
-
-  button i {
-    width: 36px;
-    height: 36px;
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    background: #edf3ff;
-    color: #1d4ed8;
-    transition: transform 0.18s ease;
-  }
-
-  article.is-open button i {
-    transform: rotate(180deg);
-  }
-
-  article > div {
-    overflow: hidden;
-  }
-
-  article > div p {
-    margin: 0;
-    border-top: 1px solid #edf0f5;
-    padding: 17px 20px 20px;
-    color: #475569;
-    font-size: 0.82rem;
-    font-weight: 700;
-    line-height: 1.75;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 560px) {
-    button {
-      padding: 16px;
-    }
-
-    article > div p {
-      padding: 16px;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    article,
-    button i {
-      transition: none;
-    }
-  }
-`;
-
 
 const _ImpactSection = styled.section`
   background: #111827;

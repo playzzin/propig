@@ -1,0 +1,3 @@
+[
+  {"role":"qa","goal":"Workspace·FileManager·영상 생성 전 확인의 계정 격리, 늦은 응답, 견적 및 실행 범위를 격리 mock renderer로 검증한다. 지정된 검증 파일만 작성하고 제품 파일은 읽기 전용 감사한다.","files":["scripts/verify-storyboard-workspace-lifecycle.cjs","scripts/verify-storyboard-file-manager-lifecycle.cjs","scripts/verify-storyboard-video-confirmation.cjs"]}
+]
