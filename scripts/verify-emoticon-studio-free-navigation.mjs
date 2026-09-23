@@ -64,7 +64,12 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-studio-ready="true"]').waitFor({ timeout: 60_000 });
 
-  const rail = page.locator('nav[aria-label="제작 단계"]');
+  // Static streaming can retain a hidden initial tree after hydration. Check
+  // the single visible, ready workspace that a user can actually operate.
+  const studio = page.locator('[data-studio-ready="true"]:visible');
+  await studio.waitFor({ timeout: 60_000 });
+  assert.equal(await studio.count(), 1, 'exactly one visible workspace must be ready');
+  const rail = studio.locator('nav[aria-label="제작 단계"]');
   const destinations = [
     ['검수하고 받기', '움직임을 확인하고 파일을 받아요'],
     ['장면 고르기', '만들 장면을 골라 주세요'],

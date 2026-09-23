@@ -50,3 +50,12 @@ SHA-256: `794e1b5c74e4dac8b196108563bcb12022155dcde79ae99696f2609b1d18d1b8`.
 - Linux 빌드 산출물에서 이모티콘 자유 이동 및 전체 완주 검사 통과(앱 오류 0, 유료 요청 0). 24장면·48프레임 백업 왕복, 원본 보존, GIF, 손상 ZIP 복구를 실제 브라우저에서 확인했다.
 - 네 사이트 corp/blog/propig/admin을 1440px·390px에서 검사했다. 가로 넘침·페이지 오류·검사 범위의 심각한 접근성 위반 0, 관리자 guest 경계 통과. Windows 검사 도구 미설치 오류 후 Linux clean install 환경에서 동일 산출물 검사에 성공했다.
 - 배포 후보 HTML SHA-256: `cc6b7edf65b2421b623603754e659e808388513dfa64555dd0498cb771c7f145`. 로컬 검증 기록은 ignored `output/emoticon-release`에 보존한다.
+
+### 운영 적용 완료
+
+- 2026-09-24 04:14 KST, 코드 커밋 `f64eee4d38f92a65407a31361f503435af18edef`를 기존 `codex/add-founding-background-to-introduction` 브랜치에 푸시했다. 빌드에 사용한 Git tree와 해당 커밋의 차이는 이 검증 기록 문서뿐이다.
+- `propig-63524`에 `hosting,functions:hostingApi` targeted deploy 성공. `hostingApi(us-central1)` Node 22 2세대 함수 업데이트 및 Hosting live release 완료를 CLI에서 확인했다. 기존 함수 삭제·규칙 배포·운영 자료 변경·유료 공급자 호출은 실행하지 않았다.
+- 운영 주소: https://propig-63524.web.app/admin/emoticon-studio . 실제 운영 HTML SHA-256이 위 검증 산출물과 일치하며 연결된 JavaScript 24개가 모두 200으로 응답했다.
+- 운영의 `/api/generate-image`, `/api/emoticon-studio/plan` 결과 복구 GET은 미인증 요청에 401로 응답했다. 로그인 상태의 실제 공급자 결과 복구는 유료 실행 없이 검증하지 않았다.
+- 운영 PC·390px 브라우저의 네 작업 공간 자유 이동, 빈 상태 복구, 모바일 첫 화면 이미지 반입, guest AI 잠금 통과. 앱 오류 0, 유료 요청 0, 가로 넘침 0. Firestore의 복구 가능한 offline 경고 1건은 별도로 기록했다.
+- 첫 운영 브라우저 검사는 정적 스트리밍의 숨겨진 초기 HTML까지 탐색해 중복 요소 오류가 났다. 실제 보이는 준비 완료 작업 공간이 정확히 1개임을 먼저 확인하도록 검사 범위를 보정한 뒤 전체 검사를 통과했다. 이 후속 변경은 검사 코드와 기록만 포함하며 운영 제품 파일은 바꾸지 않는다.
