@@ -27,12 +27,15 @@ function deferred() {
 async function fixture() {
   let uid = 'A', root, latestDashboard, latestVideo, nextTimer = 0, nextFrame = 0;
   let location = new URL('http://localhost:3002/admin/storyboard');
-  const listeners = [], reads = [], writes = [], notices = [], errors = [], dashboardRenders = [], videoRenders = [];
+  const listeners = [], reads = [], writes = [], creations = [], deletions = [], confirmations = [], notices = [], errors = [], dashboardRenders = [], videoRenders = [];
   const timers = new Map(), frames = new Map(), events = new Map(), modules = new Map();
   const documents = new Map();
   const stages = {
     get: async (_userId, id) => documents.get(id),
     save: async (_userId, _id, draft) => draft.revision + 1,
+    create: () => { throw new Error('Unexpected project creation'); },
+    remove: async () => {},
+    confirm: () => { throw new Error('Unexpected destructive confirmation'); },
   };
   class FakeElement {
     constructor() { this.isConnected = true; this.tabIndex = -1; }
@@ -67,7 +70,7 @@ async function fixture() {
     },
     cancelAnimationFrame: id => frames.delete(id),
     matchMedia: () => ({ matches: true }),
-    confirm: () => { throw new Error('Unexpected destructive confirmation'); },
+    confirm: message => { confirmations.push(message); return stages.confirm(message); },
   };
   const Dashboard = props => {
     latestDashboard = props;
@@ -89,14 +92,20 @@ async function fixture() {
     },
     get(userId, id) { reads.push({ userId, id }); return stages.get(userId, id); },
     save(userId, id, draft) { writes.push({ userId, id, draft }); return stages.save(userId, id, draft); },
-    create() { throw new Error('Unexpected project creation'); },
+    removeWithMedia(token, id) { deletions.push({ token, id }); return stages.remove(token, id); },
+    async create(userId, draft) {
+      creations.push({ userId, draft });
+      const id = await stages.create(userId, draft);
+      documents.set(id, { ...draft, id, userId, createdAt: 1, updatedAt: 2 });
+      return id;
+    },
   };
   const mocks = {
     react: React,
     'react/jsx-runtime': qa('react/jsx-runtime'),
     sonner: { toast: Object.fromEntries(['error', 'success', 'warning', 'info'].map(type => [type, (...args) => notices.push({ type, args })])) },
     'next/dynamic': { __esModule: true, default: loader => String(loader).includes('StoryboardVideoProductionPanel') ? VideoPanel : () => null },
-    '@/contexts/AuthContext': { useAuth: () => ({ currentUser: uid ? { uid } : null, loading: false, isConfigured: true, loginWithGoogle: async () => {} }) },
+    '@/contexts/AuthContext': { useAuth: () => ({ currentUser: uid ? { uid, getIdToken: async () => `fixture-${uid}` } : null, loading: false, isConfigured: true, loginWithGoogle: async () => {} }) },
     '@/components/image-generator/StoryboardProjectDashboard': { __esModule: true, default: Dashboard },
     './StoryboardPlanningPresets': { __esModule: true, default: () => null },
     '@/components/image-generator/BufferedTextField': { BufferedTextInput: Buffered, BufferedTextarea: Buffered },
@@ -106,7 +115,7 @@ async function fixture() {
   };
   const context = vm.createContext({
     console: { ...console, error: (...args) => errors.push(args) },
-    window, document, URL, URLSearchParams, AbortController, queueMicrotask, crypto: webcrypto,
+    window, document, URL, URLSearchParams, AbortController, queueMicrotask, Error, crypto: webcrypto,
     HTMLElement: FakeElement, HTMLInputElement: FakeInput, HTMLTextAreaElement: FakeTextarea, HTMLDetailsElement: FakeDetails,
     MutationObserver: class { observe() {} disconnect() {} },
   });
@@ -171,7 +180,7 @@ async function fixture() {
     await act(async () => row.props.onClick());
   };
   return {
-    stages, listeners, reads, writes, errors, notices, dashboardRenders, videoRenders, documents, timers, document,
+    stages, listeners, reads, writes, creations, deletions, confirmations, errors, notices, dashboardRenders, videoRenders, documents, timers, document,
     get dashboard() { return latestDashboard; }, get video() { return latestVideo; }, get tree() { return root.toJSON(); },
     publish, open, switchTo, clickProject, button,
     bufferTitle: title => {
@@ -181,12 +190,76 @@ async function fixture() {
     },
     get isDashboard() { return root.root.findAllByType('qa-dashboard').length === 1; },
     edit: async title => { await act(async () => latestVideo.onChange(current => ({ ...current, title }))); },
+    createProject: async () => { await act(async () => { latestDashboard.onCreate(); }); },
+    importProject: async (storyboard, text = async () => JSON.stringify(storyboard)) => {
+      const input = root.root.findAll(node => node.type === 'input' && node.props.type === 'file' && node.props.accept === 'application/json,.json')[0];
+      assert(input, 'Project JSON import control');
+      await act(async () => { input.props.onChange({ target: { files: [{ text }], value: 'fixture.json' } }); });
+    },
     flushSave: async () => { await act(async () => { for (const [id, timer] of [...timers]) if (timer.delay === 700) { timers.delete(id); timer.fn(); } }); },
     close: async () => { await act(async () => root.unmount()); assert(listeners.every(item => item.closed)); assert.equal(timers.size, 0, 'All timers cleared on unmount'); },
   };
 }
 
 async function run() {
+  {
+    const f = await fixture(); const [one] = await f.publish('A');
+    f.stages.confirm = () => false;
+    await act(async () => f.dashboard.onDelete(one));
+    assert.equal(f.deletions.length, 0, 'Cancel must not delete anything');
+    assert.match(f.confirmations[0], /모든 버전/);
+    f.stages.confirm = () => true;
+    const pending = deferred(); f.stages.remove = () => pending.promise;
+    await act(async () => f.dashboard.onDelete(one));
+    assert.equal(f.dashboard.deletingProjectId, one.id);
+    await act(async () => f.dashboard.onDelete(one));
+    assert.equal(f.deletions.length, 1, 'Duplicate clicks must issue a single DELETE');
+    await act(async () => pending.resolve());
+    assert.equal(f.dashboard.deletingProjectId, null);
+    assert(!f.dashboard.storyboards.some(item => item.id === one.id));
+    await f.publish('A');
+    assert(!f.dashboard.storyboards.some(item => item.id === one.id), 'Stale subscription must not resurrect deleted project');
+    await f.close();
+    console.log('PASS deletion confirmation, duplicate protection, completion and stale-list rejection');
+  }
+  {
+    const f = await fixture(); const [one] = await f.publish('A'); await f.open(one);
+    const saving = deferred(); f.stages.save = () => saving.promise;
+    await f.edit('unsaved project'); await f.flushSave();
+    f.stages.confirm = () => true;
+    await act(async () => f.dashboard.onDelete(one));
+    assert.equal(f.deletions.length, 0, 'Deletion must wait for in-flight save and artifact sync');
+    await act(async () => saving.resolve(2));
+    assert.equal(f.deletions.length, 1); assert(f.isDashboard);
+    assert(!f.dashboard.storyboards.some(item => item.id === one.id));
+    await f.flushSave(); assert.equal(f.writes.length, 1, 'No delayed autosave after deletion');
+    await f.close();
+    console.log('PASS delete/save ordering, editor return and autosave cancellation');
+  }
+  {
+    const f = await fixture(); const [one] = await f.publish('A');
+    f.stages.confirm = () => true; f.stages.remove = async () => { throw new Error('정리 실패: 다시 삭제해 주세요.'); };
+    await act(async () => f.dashboard.onDelete(one));
+    assert(f.dashboard.storyboards.some(item => item.id === one.id));
+    assert.equal(f.dashboard.deletingProjectId, null);
+    assert(f.notices.some(item => item.type === 'error' && item.args[0].includes('정리 실패')));
+    f.stages.remove = async () => {};
+    await act(async () => f.dashboard.onDelete(one));
+    assert.equal(f.deletions.length, 2); assert(!f.dashboard.storyboards.some(item => item.id === one.id));
+    await f.close();
+    console.log('PASS failed deletion retains project and supports retry');
+  }
+  {
+    const f = await fixture(); const [one] = await f.publish('A');
+    const pending = deferred(); f.stages.confirm = () => true; f.stages.remove = () => pending.promise;
+    await act(async () => f.dashboard.onDelete(one));
+    await f.switchTo('B'); await f.publish('B'); const before = f.notices.length;
+    await act(async () => pending.resolve());
+    assert.equal(f.notices.length, before, 'Old-account deletion must not show a success toast in the next account');
+    assert.equal(f.dashboard.storyboards.length, 2);
+    await f.close();
+    console.log('PASS deletion completion stays isolated across account switches');
+  }
   {
     const f = await fixture();
     assert(f.listeners.some(item => item.closed), 'StrictMode exercises subscription cleanup');
@@ -264,6 +337,89 @@ async function run() {
     await f.close();
     console.log('PASS buffered-field flush, dashboard session restoration and unsaved-draft protection on failed switch');
   }
+  {
+    const f = await fixture(); const [one, two] = await f.publish('A'); await f.open(one);
+    await f.edit('prior undo state');
+    f.bufferTitle('final buffered title before import');
+    f.stages.create = async () => 'A-imported';
+    await f.importProject(two);
+    assert.equal(f.writes.length, 1, 'Import must save the source project before activating its replacement');
+    assert.equal(f.writes[0].id, one.id);
+    assert.equal(f.writes[0].draft.title, 'final buffered title before import', 'Import must flush the focused buffered field');
+    assert.equal(f.creations.length, 1);
+    assert.equal(f.video.storyboardId, 'A-imported');
+    assert.equal(f.button('되돌리기').props.disabled, true, 'A new imported project cannot undo into the original project');
+    assert.equal(f.button('다시 실행').props.disabled, true);
+    const imported = f.video.storyboard;
+    await act(async () => f.button('되돌리기').props.onClick());
+    assert.equal(f.video.storyboard, imported, 'Even a stale undo callback must not restore the previous project');
+    await f.flushSave();
+    assert.equal(f.writes.length, 1, 'The original autosave timer must not write to the imported project');
+    await f.close();
+    console.log('PASS import flushes and saves the current draft, then resets project undo/redo');
+  }
+  {
+    const f = await fixture(); const [one, two] = await f.publish('A'); await f.open(one);
+    await f.edit('keep this unsaved change');
+    f.stages.save = async () => { throw new Error('Fixture save unavailable'); };
+    f.stages.create = async () => 'must-not-create';
+    await f.importProject(two);
+    assert.equal(f.writes.length, 1);
+    assert.equal(f.creations.length, 0, 'A failed current-draft save must abort import before creating a project');
+    assert.equal(f.video.storyboardId, one.id);
+    assert.equal(f.video.storyboard.title, 'keep this unsaved change');
+    assert.equal(f.button('되돌리기').props.disabled, false, 'A failed import must preserve source editing history');
+    await f.close();
+    console.log('PASS failed pre-import save preserves the source draft and editing history');
+  }
+  for (const operation of ['create', 'import']) {
+    const f = await fixture(); const [one, two] = await f.publish('A'); await f.open(one);
+    const pending = deferred(); f.stages.create = () => pending.promise;
+    if (operation === 'create') await f.createProject();
+    else await f.importProject(two);
+    assert.equal(f.creations.length, 1, `${operation} must reach the deferred creation`);
+    await f.clickProject(two);
+    assert.equal(f.video.storyboardId, two.id);
+    await act(async () => pending.resolve(`A-late-${operation}`));
+    assert.equal(f.video.storyboardId, two.id, `Late ${operation} completion must not replace a newer project selection`);
+    assert.equal(f.video.storyboard.title, two.title);
+    await f.close();
+  }
+  console.log('PASS deferred create/import completion cannot hijack a newer project selection');
+  for (const operation of ['create', 'import']) {
+    const f = await fixture(); const [one, two] = await f.publish('A'); await f.open(one);
+    const pending = deferred(); f.stages.create = () => pending.promise;
+    if (operation === 'create') await f.createProject();
+    else await f.importProject(two);
+    await f.switchTo('B'); const [b] = await f.publish('B'); await f.open(b);
+    const noticeCount = f.notices.length;
+    await act(async () => pending.resolve(`A-old-account-${operation}`));
+    assert.equal(f.video.storyboardId, b.id);
+    assert.equal(f.notices.length, noticeCount, `An old-account ${operation} must not show a success toast in the next account`);
+    await f.close();
+  }
+  console.log('PASS deferred create/import completion stays isolated across account switches');
+  for (const operation of ['create', 'import', 'select']) {
+    const f = await fixture(); const [one, two] = await f.publish('A'); await f.open(one);
+    await f.edit('first change before project transition');
+    const pendingSave = deferred();
+    f.stages.save = () => pendingSave.promise;
+    f.stages.create = async () => `A-${operation}-after-save`;
+    if (operation === 'create') await f.createProject();
+    else if (operation === 'import') await f.importProject(two);
+    else await f.clickProject(two);
+    assert.equal(f.writes.length, 1, `${operation} must wait on its pre-transition save`);
+    await f.edit('new change while previous save is pending');
+    f.stages.save = async (_userId, _id, draft) => draft.revision + 1;
+    await act(async () => pendingSave.resolve(2));
+    if (f.video.storyboardId === one.id) {
+      assert.equal(f.video.storyboard.title, 'new change while previous save is pending', `${operation} cancellation must retain the latest local edit`);
+    } else {
+      assert(f.writes.some(write => write.id === one.id && write.draft.title === 'new change while previous save is pending'), `${operation} must persist edits made during its awaited save before switching away`);
+    }
+    await f.close();
+  }
+  console.log('PASS create/import/select cannot lose edits made during the pre-transition save');
   console.log('PASS storyboard Workspace lifecycle — real React StrictMode; mocked IO and child widgets; zero network/paid calls');
 }
 

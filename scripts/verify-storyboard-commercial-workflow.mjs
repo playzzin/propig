@@ -45,7 +45,7 @@ const workspaceContracts = [
   ["missing image status marker", "data-missing-image={"],
   [
     "missing image direct focus",
-    'if (action === "scenes" && missingImageScenes[0])',
+    'if (action === "scenes" && (reviewImageScenes[0] || missingImageScenes[0]))',
   ],
   ["sequential production shortcut", "순차 생성·재시도·자동 병합"],
   ["file management shortcut", "결과·파일 관리"],

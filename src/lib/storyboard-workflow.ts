@@ -328,7 +328,9 @@ export function isStoryboardFinalCurrent(
     return false;
   }
 
-  return manifest.fingerprint === buildStoryboardAssemblyFingerprint(storyboard);
+  return storyboard.scenes.length > 0 && storyboard.scenes.every((scene) =>
+    scene.assetFreshness !== "review" && scene.video.status === "approved" && scene.video.clipId && scene.video.videoUrl,
+  ) && manifest.fingerprint === buildStoryboardAssemblyFingerprint(storyboard);
 }
 
 export function deriveStoryboardWorkflowStage(
@@ -356,7 +358,7 @@ export function deriveStoryboardWorkflowStage(
     return "final-assembly";
   }
   if (approvedVideos > 0) return "video-production";
-  if (designedVideos > 0 || generatedImages === storyboard.scenes.length) {
+  if (designedVideos > 0 || (generatedImages > 0 && generatedImages === storyboard.scenes.length)) {
     return "video-design";
   }
   if (generatedImages > 0) return "image-production";
@@ -369,6 +371,16 @@ export function getStoryboardProjectStatus(
   if (storyboard.archivedAt) return "archived";
   if (storyboard.cleanupStatus === "retry") return "cleanup-retry";
   if (
+    ["preparing", "running", "pausing", "merging"].includes(
+      storyboard.videoProduction.automationStatus,
+    ) ||
+    storyboard.videoProduction.finalStatus === "queued" ||
+    storyboard.videoProduction.finalStatus === "rendering" ||
+    storyboard.scenes.some((scene) => scene.video.status === "queued" || scene.video.status === "rendering")
+  ) {
+    return "producing";
+  }
+  if (
     storyboard.videoProduction.finalStatus === "failed" ||
     storyboard.videoProduction.automationStatus === "failed" ||
     storyboard.scenes.some(
@@ -377,15 +389,6 @@ export function getStoryboardProjectStatus(
     )
   ) {
     return "attention";
-  }
-  if (
-    ["preparing", "running", "pausing", "merging"].includes(
-      storyboard.videoProduction.automationStatus,
-    ) ||
-    storyboard.videoProduction.finalStatus === "queued" ||
-    storyboard.videoProduction.finalStatus === "rendering"
-  ) {
-    return "producing";
   }
   if (isStoryboardFinalCurrent(storyboard)) return "final-current";
   if (

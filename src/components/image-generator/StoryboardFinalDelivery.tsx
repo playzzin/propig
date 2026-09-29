@@ -78,7 +78,7 @@ export default function StoryboardFinalDelivery({
               }
               aria-hidden="true"
             />
-            완성본 받기
+            {delivery.isCurrent ? "완성본 받기" : "이전 완성본 받기"}
           </FinalDownloadButton>
         </FinalDeliveryActions>
       </FinalDeliveryHeader>
@@ -88,13 +88,14 @@ export default function StoryboardFinalDelivery({
           <span>
             <strong>이전 완성본입니다</strong>
             장면이나 사운드 설정이 바뀌었습니다. 현재 파일은 안전하게 유지되며
-            “순서대로 다시 병합”하면 최신 상태로 갱신됩니다.
+            수정한 장면을 확인·제작·승인한 뒤 “순서대로 다시 병합”해 주세요.
           </span>
         </FinalFreshnessNotice>
       ) : null}
 
       <FinalDeliveryGrid>
         <video
+          key={delivery.finalVideoUrl}
           controls
           preload="metadata"
           poster={delivery.posterUrl}
@@ -103,21 +104,21 @@ export default function StoryboardFinalDelivery({
           <source src={delivery.finalVideoUrl} />이 브라우저에서는 영상
           미리보기를 지원하지 않습니다. 완성본 받기 버튼을 이용해 주세요.
         </video>
-        <FinalCheckList>
+        <FinalCheckList aria-label={delivery.isCurrent ? "완성본 정보" : "현재 편집 설정 — 이전 완성본에는 미반영"}>
           <li>
             <i className="fas fa-circle-check" aria-hidden="true" />
             <span>
-              <strong>장면 순서와 승인 상태</strong>
+              <strong>{delivery.isCurrent ? "장면 순서와 승인 상태" : "현재 편집 중인 장면"}</strong>
               <small>
                 {delivery.readySceneCount}/{delivery.sceneCount} 장면이 재생
-                가능한 승인 영상으로 조립되었습니다.
+                가능한 승인 영상{delivery.isCurrent ? "으로 조립되었습니다." : "입니다. 아래 설정은 이전 완성본에 아직 반영되지 않았습니다."}
               </small>
             </span>
           </li>
           <li>
             <i className="fas fa-clock" aria-hidden="true" />
             <span>
-              <strong>최종 편집 길이</strong>
+              <strong>{delivery.isCurrent ? "최종 편집 길이" : "현재 편집 예상 길이"}</strong>
               <small>
                 {delivery.editedTotalDuration}초 · {delivery.sceneCount}개 장면
                 {delivery.dialogueAdjustedSceneCount > 0
@@ -137,7 +138,7 @@ export default function StoryboardFinalDelivery({
             />
             <span>
               <strong>
-                {delivery.backgroundMusicUrl
+                {!delivery.isCurrent ? "현재 사운드 설정" : delivery.backgroundMusicUrl
                   ? "배경음악·대사 믹스 적용"
                   : "장면 사운드 적용"}
               </strong>

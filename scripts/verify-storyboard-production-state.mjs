@@ -44,12 +44,12 @@ assert(
   "Only approved scenes with both a clip and playable video may be reused.",
 );
 assert(
-  findNextStoryboardSceneIndex(scenes, ["approved-complete"], 0) === 1,
+  findNextStoryboardSceneIndex(scenes) === 1,
   "Automation must skip a valid reusable scene and continue from the next unfinished scene.",
 );
 assert(
-  findNextStoryboardSceneIndex(scenes, ["approved-incomplete"], 1) === 1,
-  "A stale completed id without a playable video must be rendered again.",
+  findNextStoryboardSceneIndex([scenes[0]]) === 1,
+  "An approved clip remains reusable without a saved completed-id cache.",
 );
 assert(
   JSON.stringify(getOrderedStoryboardClipIds([scenes[0]])) ===

@@ -1,5 +1,7 @@
 "use client";
 
+import { invalidateChangedStoryboardDependencies, markStoryboardSceneVideoForReview } from "@/lib/storyboard-edit-invalidation";
+
 import {
   ProductionSurface,
   ProductionHeader,
@@ -846,13 +848,13 @@ function sceneStatusFromJob(
   current: StoryboardVideoSceneStatus,
   now: number,
 ): StoryboardVideoSceneStatus {
-  if (stalledJobMessage(job, now)) return "failed";
+  void now;
   if (job.status === "queued") return "queued";
   if (job.status === "running" || job.status === "uploading")
     return "rendering";
   if (job.status === "completed") {
     if (!job.clipId || !job.resultVideoUrl) return "failed";
-    return current === "approved" ? "approved" : "review";
+    return current === "approved" || current === "brief" ? current : "review";
   }
   if (job.status === "failed" || job.status === "canceled") return "failed";
   return current;
@@ -882,7 +884,9 @@ function timestampMillis(value: unknown): number | null {
 }
 
 function hasProviderVideoResumeCheckpoint(job: VideoStudioJob): boolean {
-  return canReuseStoryboardVideoProviderJob(job);
+  const checkpoint = job.metadata?.providerVideo as { jobId?: unknown; status?: unknown } | undefined;
+  return Boolean(checkpoint && typeof checkpoint.jobId === "string" && checkpoint.jobId &&
+    ["pending", "in_progress", "completed"].includes(String(checkpoint.status)));
 }
 
 function stalledJobMessage(job: VideoStudioJob, now: number): string | null {
@@ -906,9 +910,9 @@ function stalledJobMessage(job: VideoStudioJob, now: number): string | null {
   if (now - lastActivity <= stallThreshold) return null;
   return job.status === "queued"
     ? waitingForProviderResume
-      ? "OpenRouter 영상 결과를 다시 확인할 작업이 시작되지 않았습니다. 복구를 눌러 같은 생성 작업을 이어서 시도해 주세요."
-      : "영상 처리 서버가 작업을 시작하지 못했습니다. 복구를 눌러 작업 대기열을 다시 전송해 주세요."
-    : "영상 처리 시간이 제한을 초과했습니다. 실패한 작업으로 정리했으니 다시 시도해 주세요.";
+      ? "기존 영상 결과를 확인하는 데 시간이 걸리고 있습니다. 새 생성 요청 없이 같은 작업 상태를 확인하고 있습니다."
+      : "작업 대기가 길어지고 있습니다. 서버 상태를 계속 확인하며, 중단하려면 작업 취소를 눌러 주세요."
+    : "영상 처리 상태 확인이 지연되고 있습니다. 기존 작업은 유지되며 중단하려면 작업 취소를 눌러 주세요.";
 }
 
 function sameVideoScene(
@@ -949,8 +953,21 @@ export default function StoryboardVideoProductionPanel({
   const livePanelRef = useRef(true);
   useEffect(() => { livePanelRef.current = true; return () => { livePanelRef.current = false; }; }, []);
   const onChange = useCallback((updater: StoryboardUpdater) => {
-    if (livePanelRef.current) onStoryboardChange(updater);
+    if (livePanelRef.current) onStoryboardChange((current) => invalidateChangedStoryboardDependencies(current, updater(current)));
   }, [onStoryboardChange]);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const pendingRequestCountRef = useRef(0);
+  const withPendingVideoRequest = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
+    pendingRequestCountRef.current += 1;
+    setPendingRequestCount(pendingRequestCountRef.current);
+    onRequestPendingChange?.(true);
+    try {
+      return await operation();
+    } finally {
+      pendingRequestCountRef.current -= 1;
+      if (livePanelRef.current) setPendingRequestCount(pendingRequestCountRef.current);
+    }
+  }, [onRequestPendingChange]);
   const [pendingVideoAction, setPendingVideoAction] = useState<{
     draft: ImageStoryboard;
     label: string;
@@ -1059,7 +1076,6 @@ export default function StoryboardVideoProductionPanel({
   );
   const automationActionKeysRef = useRef(new Set<string>());
   const automationRetryCountsByJobRef = useRef(new Map<string, number>());
-  const clipCleanupInFlightRef = useRef(new Set<string>());
   const ensureProjectPromiseRef = useRef<Promise<string> | null>(null);
   const forceModelCatalogRefreshRef = useRef(false);
   const runtimeStatusAutoRetryCountRef = useRef(0);
@@ -1466,15 +1482,19 @@ export default function StoryboardVideoProductionPanel({
     storyboard.videoProduction.finalStatus === "rendering";
   const projectBusy =
     disabled ||
+    pendingRequestCount > 0 ||
+    isUploadingBgm ||
+    finalMergeInFlight ||
+    storyboard.scenes.some((scene) => scene.video.status === "queued" || scene.video.status === "rendering") ||
     isPreparingProject ||
     Boolean(queueingSceneId) ||
     isFinalizing ||
     isRecoveringAutomation ||
     automationActive;
   useEffect(() => {
-    onRequestPendingChange?.(isPreparingProject || Boolean(queueingSceneId) || isFinalizing || isRecoveringAutomation);
+    onRequestPendingChange?.(pendingRequestCount > 0 || isUploadingBgm || isPreparingProject || Boolean(queueingSceneId) || isFinalizing || isRecoveringAutomation);
     return () => onRequestPendingChange?.(false);
-  }, [onRequestPendingChange, isPreparingProject, queueingSceneId, isFinalizing, isRecoveringAutomation]);
+  }, [onRequestPendingChange, pendingRequestCount, isUploadingBgm, isPreparingProject, queueingSceneId, isFinalizing, isRecoveringAutomation]);
 
   const qualityReadiness = useMemo(() => {
     const scenes = storyboard.scenes.map((scene, index) => ({
@@ -1666,6 +1686,70 @@ export default function StoryboardVideoProductionPanel({
     [jobs],
   );
 
+  const handleCancelVideoJob = useCallback(async (job: VideoStudioJob) => {
+    if (!currentUser || pendingRequestCountRef.current || job.cancelRequestedAt) return;
+    await withPendingVideoRequest(async () => {
+      // Stop the coordinator before the cancellation response so it cannot
+      // enqueue the next paid scene when this job happens to finish first.
+      onChange((current) => ({ ...current, videoProduction: {
+        ...current.videoProduction,
+        automationStatus: AUTOMATION_ACTIVE_STATUSES.has(current.videoProduction.automationStatus) ? "paused" : current.videoProduction.automationStatus,
+        automationUpdatedAt: Date.now(),
+      } }));
+      try {
+        const result = await withFirebaseAuthRetry(currentUser, (authToken) =>
+          videoStudioService.updateStudioJob({ authToken, jobId: job.id, action: "cancel" }));
+        toast.info(result.cancellationRequested
+          ? "취소를 요청했습니다. 서버의 중단 확인까지 기존 작업 상태를 유지합니다."
+          : "작업을 취소했습니다. 기존 결과물은 유지됩니다.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "취소 요청을 보내지 못했습니다. 작업 상태를 다시 확인해 주세요.");
+      }
+    });
+  }, [currentUser, onChange, withPendingVideoRequest]);
+
+  const missingActiveJobIds = useMemo(() => jobSubscriptionReady && !jobSubscriptionError
+    ? [...new Set([
+        ...storyboard.scenes.flatMap((scene) => scene.video.jobId && ["queued", "rendering"].includes(scene.video.status) && !jobsById.has(scene.video.jobId) ? [scene.video.jobId] : []),
+        ...(storyboard.videoProduction.finalJobId && ["queued", "rendering"].includes(storyboard.videoProduction.finalStatus) && !jobsById.has(storyboard.videoProduction.finalJobId) ? [storyboard.videoProduction.finalJobId] : []),
+      ])]
+    : [], [jobSubscriptionReady, jobSubscriptionError, jobsById, storyboard.scenes, storyboard.videoProduction.finalJobId, storyboard.videoProduction.finalStatus]);
+  const handleRecoverMissingVideoJob = useCallback(async (jobId: string) => {
+    if (!currentUser || pendingRequestCountRef.current || !missingActiveJobIds.includes(jobId)) return;
+    await withPendingVideoRequest(async () => {
+      try {
+        const exists = await videoStudioService.hasStudioJobOnServer(jobId, currentUser.uid);
+        if (!livePanelRef.current) return;
+        if (exists) {
+          retryJobSubscription();
+          toast.info("서버에 작업이 있습니다. 작업 상태를 다시 연결합니다.");
+          return;
+        }
+        const message = "서버에서 기존 작업을 찾지 못해 연결을 해제했습니다. 결과물은 유지됩니다. 내용을 확인한 뒤 제작을 다시 시작해 주세요.";
+        onChange((current) => {
+          let changed = false;
+          const scenes = current.scenes.map((scene) => {
+            if (scene.video.jobId !== jobId || !["queued", "rendering"].includes(scene.video.status)) return scene;
+            changed = true;
+            return { ...scene, approvedVideoArtifactId: null, video: { ...scene.video, jobId: null, status: "failed" as const, approvedAt: null, errorMessage: message } };
+          });
+          const missingFinal = current.videoProduction.finalJobId === jobId && ["queued", "rendering"].includes(current.videoProduction.finalStatus);
+          if (!changed && !missingFinal) return current;
+          return { ...current, scenes, videoProduction: {
+            ...current.videoProduction,
+            automationStatus: current.videoProduction.automationRunId ? "paused" : current.videoProduction.automationStatus,
+            automationUpdatedAt: Date.now(),
+            automationErrorMessage: message,
+            ...(missingFinal ? { finalJobId: null, finalStatus: "failed" as const, finalErrorMessage: message, pendingAssemblyManifest: null } : {}),
+          } };
+        });
+        toast.info(message);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "서버 확인에 실패했습니다. 기존 작업 연결은 유지됩니다.");
+      }
+    });
+  }, [currentUser, missingActiveJobIds, onChange, retryJobSubscription, withPendingVideoRequest]);
+
   useEffect(() => {
     if (!hasActiveVideoJob && !automationActive && !finalMergeInFlight)
       return undefined;
@@ -1738,9 +1822,7 @@ export default function StoryboardVideoProductionPanel({
         const completedOutputMissing =
           finalJob.status === "completed" &&
           (!finalJob.clipId || !finalJob.resultVideoUrl);
-        const finalStatus = stalledError
-          ? ("failed" as const)
-          : completedOutputMissing
+        const finalStatus = completedOutputMissing
             ? ("failed" as const)
             : finalJob.status === "completed"
               ? ("completed" as const)
@@ -1799,7 +1881,7 @@ export default function StoryboardVideoProductionPanel({
                 finalJob.errorMessage ||
                 finalJob.message ||
                 "최종 영상을 완성하지 못했습니다."
-              : null,
+              : stalledError,
         };
         if (
           nextProduction.finalStatus !== videoProduction.finalStatus ||
@@ -1818,121 +1900,8 @@ export default function StoryboardVideoProductionPanel({
     });
   }, [jobsById, jobStatusClock, onChange, relevantJobIds]);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const cleanupTargets = storyboard.scenes.filter(
-      (scene) =>
-        scene.video.status === "approved" &&
-        scene.video.replacedClipId &&
-        !clipCleanupInFlightRef.current.has(scene.video.replacedClipId),
-    );
-    cleanupTargets.forEach((scene) => {
-      const replacedClipId = scene.video.replacedClipId;
-      if (!replacedClipId) return;
-      clipCleanupInFlightRef.current.add(replacedClipId);
-      void (async () => {
-        try {
-          await withFirebaseAuthRetry(currentUser, (authToken) =>
-            videoStudioService.deleteClip({
-              authToken,
-              clipId: replacedClipId,
-            }),
-          );
-          onChange((current) => ({
-            ...current,
-            scenes: current.scenes.map((item) =>
-              item.id === scene.id &&
-              item.video.replacedClipId === replacedClipId
-                ? {
-                    ...item,
-                    video: { ...item.video, replacedClipId: null },
-                  }
-                : item,
-            ),
-          }));
-        } catch (error) {
-          console.error(
-            "[StoryboardVideo] replaced clip cleanup failed:",
-            error,
-          );
-          const clipRecordAlreadyRemoved =
-            error instanceof Error &&
-            error.message.toLowerCase().includes("no longer exists");
-          onChange((current) => ({
-            ...current,
-            cleanupStatus: "retry",
-            cleanupErrorMessage:
-              "교체된 장면 영상 파일 정리가 필요합니다. 파일 관리에서 다시 시도해 주세요.",
-            scenes: clipRecordAlreadyRemoved
-              ? current.scenes.map((item) =>
-                  item.video.replacedClipId === replacedClipId
-                    ? {
-                        ...item,
-                        video: { ...item.video, replacedClipId: null },
-                      }
-                    : item,
-                )
-              : current.scenes,
-          }));
-        } finally {
-          clipCleanupInFlightRef.current.delete(replacedClipId);
-        }
-      })();
-    });
-    const replacedFinalClipId =
-      storyboard.videoProduction.finalStatus === "completed"
-        ? storyboard.videoProduction.replacedFinalClipId
-        : null;
-    if (
-      replacedFinalClipId &&
-      !clipCleanupInFlightRef.current.has(replacedFinalClipId)
-    ) {
-      clipCleanupInFlightRef.current.add(replacedFinalClipId);
-      void (async () => {
-        try {
-          await withFirebaseAuthRetry(currentUser, (authToken) =>
-            videoStudioService.deleteClip({
-              authToken,
-              clipId: replacedFinalClipId,
-            }),
-          );
-          onChange((current) => ({
-            ...current,
-            videoProduction: {
-              ...current.videoProduction,
-              replacedFinalClipId:
-                current.videoProduction.replacedFinalClipId ===
-                replacedFinalClipId
-                  ? null
-                  : current.videoProduction.replacedFinalClipId,
-            },
-          }));
-        } catch (error) {
-          console.error(
-            "[StoryboardVideo] previous final cleanup failed:",
-            error,
-          );
-          const clipRecordAlreadyRemoved =
-            error instanceof Error &&
-            error.message.toLowerCase().includes("no longer exists");
-          onChange((current) => ({
-            ...current,
-            cleanupStatus: "retry",
-            cleanupErrorMessage:
-              "교체된 이전 완성본 파일 정리가 필요합니다. 파일 관리에서 다시 시도해 주세요.",
-            videoProduction: clipRecordAlreadyRemoved
-              ? {
-                  ...current.videoProduction,
-                  replacedFinalClipId: null,
-                }
-              : current.videoProduction,
-          }));
-        } finally {
-          clipCleanupInFlightRef.current.delete(replacedFinalClipId);
-        }
-      })();
-    }
-  }, [currentUser, onChange, storyboard.scenes, storyboard.videoProduction]);
+  // Previous takes remain available to versions and undo. Project deletion
+  // removes all of them; explicit file management can retire unused media.
 
   const updateSceneForVideo = useCallback(
     (
@@ -1943,6 +1912,10 @@ export default function StoryboardVideoProductionPanel({
         const sceneIndex = current.scenes.findIndex(
           (scene) => scene.id === sceneId,
         );
+        if (sceneIndex < 0) return current;
+        const nextScene = updateScene(current.scenes[sceneIndex]);
+        if (nextScene === current.scenes[sceneIndex]) return current;
+        const nextScenes = current.scenes.map((scene) => scene.id === sceneId ? nextScene : scene);
         const canPreservePausedRun = Boolean(
           current.videoProduction.automationRunId &&
           (current.videoProduction.automationStatus === "paused" ||
@@ -1954,14 +1927,8 @@ export default function StoryboardVideoProductionPanel({
             ? {
                 ...current.videoProduction,
                 automationStatus: "paused",
-                automationCurrentSceneIndex:
-                  sceneIndex >= 0
-                    ? sceneIndex
-                    : current.videoProduction.automationCurrentSceneIndex,
-                automationCompletedSceneIds:
-                  current.videoProduction.automationCompletedSceneIds.filter(
-                    (id) => id !== sceneId,
-                  ),
+                automationCurrentSceneIndex: findNextStoryboardSceneIndex(nextScenes),
+                automationCompletedSceneIds: getReusableStoryboardSceneIds(nextScenes),
                 automationUpdatedAt: Date.now(),
                 automationErrorMessage: null,
                 finalJobId: null,
@@ -1979,85 +1946,39 @@ export default function StoryboardVideoProductionPanel({
                 pendingAssemblyManifest: null,
               }
             : resetStoryboardVideoProduction(current.videoProduction),
-          scenes: current.scenes.map((scene) =>
-            scene.id === sceneId ? updateScene(scene) : scene,
-          ),
+          scenes: nextScenes,
         };
       });
     },
     [onChange],
   );
 
-  const patchSceneVideo = useCallback(
-    (sceneId: string, patch: Partial<StoryboardVideoScene>) => {
-      const changesVideoDesign = [
-        "motionPrompt",
-        "durationSeconds",
-        "motionIntensity",
-        "useNextSceneAsEndFrame",
-        "audioMode",
-        "generateAudio",
-        "trimStartSeconds",
-        "trimEndSeconds",
-        "playbackRate",
-        "audioVolume",
-        "transitionStyle",
-        "transitionSeconds",
-        "referenceAssetIds",
-      ].some((field) => field in patch);
-      updateSceneForVideo(sceneId, (scene) => ({
-        ...scene,
-        videoDesignRevision: changesVideoDesign
-          ? scene.videoDesignRevision + 1
-          : scene.videoDesignRevision,
-        approvedVideoArtifactId:
-          patch.status === "approved"
-            ? patch.artifactId ||
-              scene.video.artifactId ||
-              scene.video.clipId ||
-              null
-            : changesVideoDesign
-              ? null
-              : scene.approvedVideoArtifactId,
-        video: {
-          ...scene.video,
-          ...patch,
-        },
-      }));
-    },
-    [updateSceneForVideo],
-  );
+  const patchSceneVideo = useCallback((sceneId: string, patch: Partial<StoryboardVideoScene>) => {
+    const generationFields = ["motionPrompt", "durationSeconds", "motionIntensity", "useNextSceneAsEndFrame", "audioMode", "generateAudio", "voiceProfileId", "referenceAssetIds"];
+    updateSceneForVideo(sceneId, (scene) => {
+      const changedFields = Object.keys(patch).filter((field) => JSON.stringify(scene.video[field as keyof StoryboardVideoScene]) !== JSON.stringify(patch[field as keyof StoryboardVideoScene]));
+      if (!changedFields.length) return scene;
+      const changesGeneration = changedFields.some((field) => generationFields.includes(field));
+      const next = { ...scene, video: { ...scene.video, ...patch } };
+      if (changesGeneration) return markStoryboardSceneVideoForReview(next);
+      return {
+        ...next,
+        approvedVideoArtifactId: patch.status === "approved"
+          ? patch.artifactId || scene.video.artifactId || scene.video.clipId || null
+          : patch.status ? null : scene.approvedVideoArtifactId,
+      };
+    });
+  }, [updateSceneForVideo]);
 
-  const patchSceneDuration = useCallback(
-    (sceneId: string, durationSeconds: number) => {
-      updateSceneForVideo(sceneId, (scene) => ({
-        ...scene,
-        duration: `${durationSeconds}초`,
-        video: {
-          ...scene.video,
-          durationSeconds,
-          status: scene.video.videoUrl ? "brief" : scene.video.status,
-          approvedAt: null,
-        },
-      }));
-    },
-    [updateSceneForVideo],
-  );
+  const patchSceneDuration = useCallback((sceneId: string, durationSeconds: number) => {
+    updateSceneForVideo(sceneId, (scene) => scene.video.durationSeconds === durationSeconds ? scene : markStoryboardSceneVideoForReview({
+      ...scene, duration: `${durationSeconds}초`, video: { ...scene.video, durationSeconds },
+    }));
+  }, [updateSceneForVideo]);
 
-  const patchSceneDialogue = useCallback(
-    (sceneId: string, dialogueOrCaption: string) => {
-      updateSceneForVideo(sceneId, (scene) => ({
-        ...scene,
-        dialogueOrCaption,
-        video: {
-          ...scene.video,
-          status: scene.video.videoUrl ? "brief" : scene.video.status,
-          approvedAt: null,
-        },
-      }));
-    },
-    [updateSceneForVideo],
-  );
+  const patchSceneDialogue = useCallback((sceneId: string, dialogueOrCaption: string) => {
+    updateSceneForVideo(sceneId, (scene) => scene.dialogueOrCaption === dialogueOrCaption ? scene : markStoryboardSceneVideoForReview({ ...scene, dialogueOrCaption }));
+  }, [updateSceneForVideo]);
 
   const patchAssemblySettings = useCallback(
     (patch: Partial<ImageStoryboard["videoProduction"]>) => {
@@ -2178,18 +2099,6 @@ export default function StoryboardVideoProductionPanel({
             ...current.videoProduction,
             voiceProfiles,
           },
-          scenes: current.scenes.map((scene) =>
-            scene.video.voiceProfileId === profileId
-              ? {
-                  ...scene,
-                  video: {
-                    ...scene.video,
-                    status: scene.video.videoUrl ? "brief" : scene.video.status,
-                    approvedAt: null,
-                  },
-                }
-              : scene,
-          ),
         };
       });
     },
@@ -2214,8 +2123,6 @@ export default function StoryboardVideoProductionPanel({
                 video: {
                   ...scene.video,
                   voiceProfileId: null,
-                  status: scene.video.videoUrl ? "brief" : scene.video.status,
-                  approvedAt: null,
                 },
               }
             : scene,
@@ -2228,6 +2135,7 @@ export default function StoryboardVideoProductionPanel({
   const handleBackgroundMusicFile = useCallback(
     async (file: File) => {
       if (!currentUser?.uid || !storyboardId || projectBusy) return;
+      await withPendingVideoRequest(async () => {
       setIsUploadingBgm(true);
       try {
         const uploaded = await imageStoryboardService.uploadBackgroundMusic(
@@ -2271,10 +2179,11 @@ export default function StoryboardVideoProductionPanel({
             : "배경음악을 저장하지 못했습니다.",
         );
       } finally {
-        setIsUploadingBgm(false);
+        if (livePanelRef.current) setIsUploadingBgm(false);
       }
+      });
     },
-    [currentUser?.uid, onChange, projectBusy, storyboardId],
+    [currentUser?.uid, onChange, projectBusy, storyboardId, withPendingVideoRequest],
   );
 
   const handleRemoveBackgroundMusic = useCallback(() => {
@@ -2402,7 +2311,7 @@ export default function StoryboardVideoProductionPanel({
       automationRunId?: string;
       previousLastFrameUrl?: string | null;
       visualInputMode?: "standard" | "text-only";
-    }): Promise<string> => {
+    }): Promise<string> => withPendingVideoRequest(async () => {
       if (!currentUser) throw new Error("로그인이 필요합니다.");
       if (!storyboardId) {
         throw new Error("스토리보드를 먼저 저장한 뒤 영상을 제작해 주세요.");
@@ -2650,8 +2559,9 @@ export default function StoryboardVideoProductionPanel({
         };
       });
       return queued.jobId;
-    },
+    }),
     [
+      withPendingVideoRequest,
       currentUser,
       ensureProject,
       jobSubscriptionError,
@@ -2671,6 +2581,10 @@ export default function StoryboardVideoProductionPanel({
       options?: { forceNewProviderRequest?: boolean },
     ) => {
       if (!currentUser || projectBusy) return;
+      if (scene.assetFreshness === "review") {
+        toast.info("설정이 바뀐 이미지를 먼저 검토해 주세요.");
+        return;
+      }
       if (workerGenerationBlocked) {
         toast.error(
           workerBlockingMessage ||
@@ -2826,7 +2740,7 @@ export default function StoryboardVideoProductionPanel({
 
   const handleApproval = useCallback(
     (scene: ImageStoryboardScene) => {
-      if (!scene.video.videoUrl) return;
+      if (projectBusy || pendingRequestCountRef.current || scene.assetFreshness === "review" || !scene.video.clipId || !scene.video.videoUrl || scene.video.errorMessage || !["review", "approved"].includes(scene.video.status)) return;
       const approved = scene.video.status !== "approved";
       patchSceneVideo(scene.id, {
         status: approved ? "approved" : "review",
@@ -2839,7 +2753,7 @@ export default function StoryboardVideoProductionPanel({
           : `${scene.order}번 장면 승인을 해제했습니다.`,
       );
     },
-    [patchSceneVideo],
+    [patchSceneVideo, projectBusy],
   );
 
   const submitFinalMerge = useCallback(
@@ -2847,7 +2761,7 @@ export default function StoryboardVideoProductionPanel({
       clipIds: string[];
       automationRunId?: string;
       preservePreviousFinal?: boolean;
-    }): Promise<string> => {
+    }): Promise<string> => withPendingVideoRequest(async () => {
       if (!currentUser) throw new Error("로그인이 필요합니다.");
       if (!storyboardId) {
         throw new Error("스토리보드를 먼저 저장한 뒤 최종본을 만들어 주세요.");
@@ -2949,8 +2863,9 @@ export default function StoryboardVideoProductionPanel({
         };
       });
       return queued.jobId;
-    },
+    }),
     [
+      withPendingVideoRequest,
       currentUser,
       ensureProject,
       onChange,
@@ -3012,6 +2927,10 @@ export default function StoryboardVideoProductionPanel({
 
   const handleStartAutomation = useCallback(async () => {
     if (!currentUser || automationActive || !storyboard.scenes.length) return;
+    if (storyboard.scenes.some((scene) => scene.assetFreshness === "review")) {
+      toast.info("설정이 바뀐 이미지를 먼저 검토해 주세요.");
+      return;
+    }
     if (pendingSceneCount > 0 && workerGenerationBlocked) {
       toast.error(
         workerBlockingMessage ||
@@ -3107,9 +3026,13 @@ export default function StoryboardVideoProductionPanel({
       await ensureProject();
       onChange((current) => {
         if (current.videoProduction.automationRunId !== runId) return current;
+        if (["pausing", "paused"].includes(current.videoProduction.automationStatus)) {
+          return { ...current, videoProduction: { ...current.videoProduction,
+            automationStatus: "paused", automationUpdatedAt: Date.now() } };
+        }
+        if (current.videoProduction.automationStatus !== "preparing") return current;
         const firstPendingIndex = findNextStoryboardSceneIndex(
           current.scenes,
-          reusableSceneIds,
         );
         return {
           ...current,
@@ -3150,10 +3073,6 @@ export default function StoryboardVideoProductionPanel({
             automationUpdatedAt: Date.now(),
           },
         };
-      });
-      toast.success("전체 영상 자동 제작을 시작했습니다.", {
-        description:
-          "장면을 순서대로 만들고, 실패 시 해당 장면만 1회 재시도한 뒤 자동 병합합니다.",
       });
     } catch (error) {
       const message =
@@ -3222,8 +3141,7 @@ export default function StoryboardVideoProductionPanel({
 
     automationActionKeysRef.current.clear();
     automationRetryCountsByJobRef.current.clear();
-    const sceneIndex =
-      storyboard.videoProduction.automationCurrentSceneIndex ?? 0;
+    const sceneIndex = findNextStoryboardSceneIndex(storyboard.scenes);
     const currentScene = storyboard.scenes[sceneIndex];
     const resumeMerge = sceneIndex >= storyboard.scenes.length;
     if (!resumeMerge && workerGenerationBlocked) {
@@ -3280,6 +3198,8 @@ export default function StoryboardVideoProductionPanel({
               // whole run. Mark it running so completion advances to the
               // next storyboard scene instead of pausing after one job.
               automationStatus: "running",
+              automationCurrentSceneIndex: sceneIndex,
+              automationCompletedSceneIds: getReusableStoryboardSceneIds(current.scenes),
               automationUpdatedAt: Date.now(),
               automationErrorMessage: null,
             },
@@ -3344,6 +3264,8 @@ export default function StoryboardVideoProductionPanel({
         videoProduction: {
           ...current.videoProduction,
           automationStatus: resumeMerge ? "merging" : "running",
+          automationCurrentSceneIndex: sceneIndex,
+          automationCompletedSceneIds: getReusableStoryboardSceneIds(current.scenes),
           automationUpdatedAt: Date.now(),
           automationErrorMessage: null,
           finalJobId:
@@ -3374,7 +3296,6 @@ export default function StoryboardVideoProductionPanel({
     jobsById,
     onChange,
     storyboard.scenes,
-    storyboard.videoProduction.automationCurrentSceneIndex,
     storyboard.videoProduction.automationErrorMessage,
     storyboard.videoProduction.automationRunId,
     workerBlockingMessage,
@@ -3499,7 +3420,7 @@ export default function StoryboardVideoProductionPanel({
                       current.videoProduction.finalAssemblyManifest,
                     pendingAssemblyManifest: null,
                     finalFreshness:
-                      current.videoProduction.pendingAssemblyManifest
+                      (current.videoProduction.pendingAssemblyManifest || current.videoProduction.finalAssemblyManifest)
                         ?.fingerprint ===
                       buildStoryboardAssemblyFingerprint(current)
                         ? "current"
@@ -3577,8 +3498,6 @@ export default function StoryboardVideoProductionPanel({
     const requestedSceneIndex = production.automationCurrentSceneIndex ?? 0;
     const sceneIndex = findNextStoryboardSceneIndex(
       storyboard.scenes,
-      production.automationCompletedSceneIds,
-      requestedSceneIndex,
     );
     if (sceneIndex !== requestedSceneIndex) {
       onChange((current) =>
@@ -3736,10 +3655,6 @@ export default function StoryboardVideoProductionPanel({
         const result = renderResult(sceneJob);
         onChange((current) => {
           if (current.videoProduction.automationRunId !== runId) return current;
-          const completedIds = new Set(
-            current.videoProduction.automationCompletedSceneIds,
-          );
-          completedIds.add(scene.id);
           const nextScenes = current.scenes.map((item) =>
             item.id === scene.id
               ? {
@@ -3774,8 +3689,6 @@ export default function StoryboardVideoProductionPanel({
           );
           const nextIndex = findNextStoryboardSceneIndex(
             nextScenes,
-            completedIds,
-            sceneIndex + 1,
           );
           return {
             ...current,
@@ -3783,15 +3696,16 @@ export default function StoryboardVideoProductionPanel({
             videoProduction: {
               ...current.videoProduction,
               automationStatus:
-                status === "pausing"
+                ["pausing", "paused"].includes(current.videoProduction.automationStatus)
                   ? "paused"
                   : nextIndex >= current.scenes.length
                     ? "merging"
                     : "running",
               automationCurrentSceneIndex: nextIndex,
-              automationCompletedSceneIds: [...completedIds],
+              automationCompletedSceneIds: getReusableStoryboardSceneIds(nextScenes),
               automationUpdatedAt: Date.now(),
-              automationErrorMessage: null,
+              automationErrorMessage: current.videoProduction.automationStatus === "paused"
+                ? current.videoProduction.automationErrorMessage : null,
             },
           };
         });
@@ -3972,8 +3886,9 @@ export default function StoryboardVideoProductionPanel({
     : [];
   const firstMissingImageSceneId =
     storyboard.scenes.find(
-      (scene) => !scene.generatedImage?.url && !scene.video.lastFrameUrl,
+      (scene) => scene.assetFreshness === "review" || (!scene.generatedImage?.url && !scene.video.lastFrameUrl),
     )?.id ?? null;
+  const reviewableScenes = storyboard.scenes.filter((scene) => scene.assetFreshness !== "review" && scene.video.status === "review" && scene.video.clipId && scene.video.videoUrl && !scene.video.errorMessage);
   const firstMissingVideoDesignSceneId =
     storyboard.scenes.find(
       (scene) =>
@@ -4017,6 +3932,7 @@ export default function StoryboardVideoProductionPanel({
   );
   const canStartAutomation =
     !disabled &&
+    !projectBusy &&
     Boolean(currentUser) &&
     sceneCount > 0 &&
     jobSubscriptionReady &&
@@ -4052,6 +3968,9 @@ export default function StoryboardVideoProductionPanel({
     firstMissingImageSceneId,
     firstMissingVideoDesignSceneId,
     firstMissingVideoSceneId,
+    firstReviewableSceneId: reviewableScenes[0]?.id ?? null,
+    reviewImageCount: storyboard.scenes.filter((scene) => scene.assetFreshness === "review").length,
+    requestPending: projectBusy && !automationActive,
     firstTransitionIssueSceneId,
     generatedVideoCount,
     hasCurrentFinalDelivery: isFinalDeliveryCurrent,
@@ -4116,13 +4035,14 @@ export default function StoryboardVideoProductionPanel({
   ]);
 
   const handleJourneyPrimaryAction = useCallback(() => {
-    if (finalMergeInFlight || automationActive || isRecoveringAutomation)
+    if (productionJourney.primaryDisabled || pendingRequestCountRef.current)
       return;
     switch (productionJourney.primaryIntent) {
       case "open-image-workspace":
         onOpenImageWorkspace();
         return;
       case "focus-video-design":
+      case "focus-video-review":
         if (productionJourney.primarySceneId) {
           focusVideoScene(productionJourney.primarySceneId);
         }
@@ -4138,21 +4058,18 @@ export default function StoryboardVideoProductionPanel({
         handleFinalDownload();
         return;
       case "start-automation":
-        if (pendingSceneCount === 0) { void handleStartAutomation(); return; }
+        if (pendingSceneCount === 0) { void handleFinalMerge(); return; }
         requestVideoAction(`${pendingSceneCount}개 장면 제작 시작`, `승인 영상 ${reusableSceneIds.size}개 재사용 · 새 생성 ${pendingSceneCount}개. 실패 장면 자동 재시도는 새 요청 비용이 생길 수 있습니다.`, formatUsd(projectedCost), { kind: "start" }, estimatesByProfile);
         return;
     }
   }, [
-    automationActive,
-    finalMergeInFlight,
     focusVideoScene,
     handleFinalDownload,
     handleFinalMerge,
     handleResumeAutomation,
-    handleStartAutomation,
-    isRecoveringAutomation,
     onOpenImageWorkspace,
     productionJourney.primaryIntent,
+    productionJourney.primaryDisabled,
     productionJourney.primarySceneId,
     pendingSceneCount,
     projectedCost,
@@ -4292,9 +4209,45 @@ export default function StoryboardVideoProductionPanel({
       />
 
       <div className="production-cost-summary" role="status">
-        승인 영상 {reusableSceneIds.size}개 재사용 · 남은 제작 {pendingSceneCount}개 · 예상 추가 비용 {formatUsd(projectedCost)}
+        {reviewableScenes.length
+          ? `검수 대기 ${reviewableScenes.length}개 · 승인 영상 ${reusableSceneIds.size}개 재사용 · 검수·승인 후 새 제작 범위가 줄어듭니다.`
+          : `승인 영상 ${reusableSceneIds.size}개 재사용 · 남은 제작 ${pendingSceneCount}개 · 예상 추가 비용 ${formatUsd(projectedCost)}`}
         <small>예산 상한 {maxBudgetUsd === null ? "설정 안 됨" : formatUsd(maxBudgetUsd)} · 예상액이며 실제 비용은 요청 결과로 확정됩니다.</small>
       </div>
+
+      {hasActiveVideoJob ? (
+        <RecoveryNotice $safe $stacked role="status" aria-live="polite">
+          <div>
+            <strong>영상 작업 진행 중</strong>
+            <p>접수된 작업의 상태를 확인하고 있습니다. 취소해도 이미 발생한 생성 비용은 되돌릴 수 없습니다.</p>
+            {jobs.filter((job) => ["queued", "running", "uploading"].includes(job.status)).map((job) => {
+              const scene = storyboard.scenes.find((item) => item.video.jobId === job.id);
+              return <div key={job.id}>
+                <span>{scene ? `${scene.order}번 장면` : "최종 영상 조립"} · {job.cancelRequestedAt ? "취소 확인 중" : job.status === "queued" ? "시작 대기" : "제작 중"}</span>
+                {stalledJobMessage(job, jobStatusClock) ? <p>{stalledJobMessage(job, jobStatusClock)}</p> : null}
+                <SecondaryAutomationButton type="button" disabled={pendingRequestCount > 0 || Boolean(job.cancelRequestedAt)} onClick={() => void handleCancelVideoJob(job)}>
+                  {job.cancelRequestedAt ? "취소 확인 중" : `${scene ? `${scene.order}번 장면` : "조립"} 작업 취소`}
+                </SecondaryAutomationButton>
+              </div>;
+            })}
+          </div>
+        </RecoveryNotice>
+      ) : null}
+
+      {missingActiveJobIds.length ? (
+        <RecoveryNotice $safe={false} $stacked role="status">
+          <div>
+            <strong>작업 상태를 찾지 못했습니다</strong>
+            <p>서버에서 다시 확인합니다. 작업이 없을 때만 연결을 해제하고 편집 잠금을 풉니다. 기존 결과물은 유지되며 새 제작은 시작하지 않습니다.</p>
+            {missingActiveJobIds.map((jobId) => {
+              const scene = storyboard.scenes.find((item) => item.video.jobId === jobId);
+              return <SecondaryAutomationButton key={jobId} type="button" disabled={pendingRequestCount > 0} onClick={() => void handleRecoverMissingVideoJob(jobId)}>
+                {scene ? `${scene.order}번 장면` : "최종 조립"} 서버 재확인·복구
+              </SecondaryAutomationButton>;
+            })}
+          </div>
+        </RecoveryNotice>
+      ) : null}
 
       {pendingVideoAction ? (
         <RecoveryNotice id="storyboard-video-approval" $safe $stacked tabIndex={-1} aria-labelledby="storyboard-video-approval-title">
@@ -4894,7 +4847,7 @@ export default function StoryboardVideoProductionPanel({
             estimatesByProfile.get(sceneEstimateProfileKey) ?? null;
           const sceneEstimate = scenePreflight?.estimatedCostUsd ?? null;
           const sceneAudioVerified = hasVerifiedAudibleAudio(sceneJob);
-          const sceneRecovery = scene.video.errorMessage
+          const sceneRecovery = scene.video.status === "failed" && scene.video.errorMessage
             ? describeStoryboardVideoRecovery({
                 errorMessage: scene.video.errorMessage,
                 job: sceneJob,
@@ -4915,6 +4868,8 @@ export default function StoryboardVideoProductionPanel({
                 durationOptions: STORYBOARD_VIDEO_DURATION_OPTIONS,
                 generationBlockedReason: !currentUser
                   ? "로그인 상태를 확인한 뒤 영상을 제작할 수 있습니다."
+                  : scene.assetFreshness === "review"
+                    ? "설정이 바뀐 이미지를 먼저 검토해 주세요. 이미지 화면에서 현재 이미지를 유지하거나 다시 생성할 수 있습니다."
                   : workerStatusPending
                     ? "영상 처리 서버의 안전 버전을 확인하고 있습니다. 확인 후 제작 버튼이 자동으로 활성화됩니다."
                     : workerBlockingMessage ||
@@ -4973,10 +4928,6 @@ export default function StoryboardVideoProductionPanel({
                 onVoiceProfileChange: (voiceProfileId) =>
                   patchSceneVideo(scene.id, {
                     voiceProfileId,
-                    status: scene.video.videoUrl
-                      ? "brief"
-                      : scene.video.status,
-                    approvedAt: null,
                   }),
               }}
             />

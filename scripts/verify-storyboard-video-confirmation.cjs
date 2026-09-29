@@ -225,11 +225,11 @@ async function testFinalMerges() {
     assert.equal(f.board.videoProduction.finalAssemblyManifest, pending); assert.equal(f.board.videoProduction.pendingAssemblyManifest, null);
     assert.equal(f.board.videoProduction.lastSuccessfulFinalVideoUrl, nextFinalUrl); assert.equal(f.board.videoProduction.finalErrorMessage, null);
     assert.equal(f.board.videoProduction.finalFreshness, changeDuringMerge ? 'stale' : 'current'); assert.equal(f.final.delivery.isCurrent, !changeDuringMerge);
-    assert.equal(f.final.delivery.finalVideoUrl, nextFinalUrl); assert.equal(f.clipDeletes.length, 1); assert.equal(f.clipDeletes[0].clipId, 'previous-final');
-    await f.publishJobs([{ ...done }]); assert.equal(f.clipDeletes.length, 1, 'Repeated completion snapshot cannot repeat prior-file cleanup');
+    assert.equal(f.final.delivery.finalVideoUrl, nextFinalUrl); assert.equal(f.clipDeletes.length, 0, 'Previous final media stays available for saved versions and undo');
+    await f.publishJobs([{ ...done }]); assert.equal(f.clipDeletes.length, 0, 'Repeated completion snapshots must also preserve prior media');
     await f.close();
   }
-  console.log('PASS ordered approved-only merge payload, successful manifest replacement, freshness and idempotent cleanup');
+  console.log('PASS ordered approved-only merge payload, successful manifest replacement, freshness and prior-media preservation');
   for (const partial of [{ clipId: null, resultVideoUrl: null }, { clipId: 'partial-final', resultVideoUrl: null }, { clipId: null, resultVideoUrl: nextFinalUrl }]) {
     const f = await fixture(withPreviousFinal); const oldManifest = f.board.videoProduction.finalAssemblyManifest;
     await f.merge(); const pending = f.board.videoProduction.pendingAssemblyManifest;

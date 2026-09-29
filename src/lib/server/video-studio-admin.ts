@@ -24,7 +24,7 @@ import {
     type VideoStudioResolution,
 } from '@/lib/video-studio';
 
-type StoredProject = Omit<VideoStudioProject, 'id'> & { clipCount?: number };
+type StoredProject = Omit<VideoStudioProject, 'id'> & { clipCount?: number; cleanupStatus?: unknown };
 type StoredClip = Omit<VideoStudioClip, 'id'>;
 
 const VIDEO_STUDIO_ACTIVE_JOB_STALE_MS = 12 * 60 * 1000;
@@ -246,7 +246,32 @@ export async function deleteVideoStudioStorageObject(params: {
     await getStorageBucket().file(params.storagePath).delete({ ignoreNotFound: true });
 }
 
-export async function getOwnedProject(userId: string, projectId: string): Promise<VideoStudioProject> {
+function assertProjectAcceptsWrites(project: { cleanupStatus?: unknown }): void {
+    if (project.cleanupStatus === 'pending' || project.cleanupStatus === 'retry') {
+        throw new VideoStudioServerError(409, '프로젝트 삭제를 진행 중입니다. 정리를 완료한 뒤 다시 시도해 주세요.');
+    }
+}
+
+async function requireWritableProjectInTransaction(
+    transaction: FirebaseFirestore.Transaction,
+    userId: string,
+    projectId: string,
+): Promise<void> {
+    if (!projectId || projectId.includes('/')) {
+        throw new VideoStudioServerError(404, 'The selected project no longer exists.');
+    }
+    const snapshot = await transaction.get(db.collection(VIDEO_STUDIO_PROJECTS_COLLECTION).doc(projectId));
+    if (!snapshot.exists) throw new VideoStudioServerError(404, 'The selected project no longer exists.');
+    const project = snapshot.data() as StoredProject;
+    if (project.userId !== userId) throw new VideoStudioServerError(403, 'You do not have access to this project.');
+    assertProjectAcceptsWrites(project);
+}
+
+export async function getOwnedProject(
+    userId: string,
+    projectId: string,
+    options: { allowCleanup?: boolean } = {},
+): Promise<VideoStudioProject> {
     ensureAdminReady();
 
     const snapshot = await db.collection(VIDEO_STUDIO_PROJECTS_COLLECTION).doc(projectId).get();
@@ -258,6 +283,7 @@ export async function getOwnedProject(userId: string, projectId: string): Promis
     if (!project?.userId || project.userId !== userId) {
         throw new VideoStudioServerError(403, 'You do not have access to this project.');
     }
+    if (!options.allowCleanup) assertProjectAcceptsWrites(project);
 
     return {
         id: snapshot.id,
@@ -421,12 +447,16 @@ export async function createOrReuseVideoStudioJob(
     };
 
     if (!params.idempotency) {
-        const docRef = await db.collection(VIDEO_STUDIO_JOBS_COLLECTION).add(data);
-        return {
-            jobId: docRef.id,
-            status: data.status,
-            deduplicated: false,
-        };
+        const docRef = db.collection(VIDEO_STUDIO_JOBS_COLLECTION).doc();
+        return db.runTransaction(async (transaction) => {
+            await requireWritableProjectInTransaction(transaction, params.userId, params.projectId);
+            transaction.create(docRef, data);
+            return {
+                jobId: docRef.id,
+                status: data.status,
+                deduplicated: false,
+            };
+        });
     }
 
     const jobRef = db
@@ -434,6 +464,7 @@ export async function createOrReuseVideoStudioJob(
         .doc(params.idempotency.jobId);
     return db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(jobRef);
+        await requireWritableProjectInTransaction(transaction, params.userId, params.projectId);
         if (snapshot.exists) {
             const existing = validateIdempotentVideoStudioJob({
                 snapshotId: snapshot.id,
@@ -579,6 +610,7 @@ export async function claimVideoStudioJobForProcessing(params: {
         if (job.cancelRequestedAt) {
             throw new VideoStudioServerError(409, 'Cancellation has already been requested for this job.');
         }
+        await requireWritableProjectInTransaction(transaction, params.userId, job.projectId);
 
         const currentAttempt = Number(job.attemptCount ?? 0);
         const nextAttempt = hasResumableProviderVideo(job.metadata)
@@ -641,6 +673,7 @@ export async function requeueOwnedVideoStudioJob(params: {
                 '저장된 OpenRouter 작업을 안전하게 이어받을 수 없습니다. 새 유료 요청은 전송하지 않았습니다.',
             );
         }
+        await requireWritableProjectInTransaction(transaction, params.userId, job.projectId);
 
         // A job may already be queued when its Firestore trigger was unavailable.
         // Bump a durable token so the requeue trigger can safely claim it again.
@@ -818,6 +851,7 @@ export async function createVideoStudioClipRecord(params: {
         if (!project?.userId || project.userId !== params.userId) {
             throw new VideoStudioServerError(403, 'You do not have permission to add clips to this project.');
         }
+        assertProjectAcceptsWrites(project);
 
         const existingClip = existingClipDoc.exists ? existingClipDoc.data() as StoredClip : null;
         if (
@@ -940,6 +974,7 @@ export async function resequenceOwnedProjectClips(params: {
         if (!project?.userId || project.userId !== params.userId) {
             throw new VideoStudioServerError(403, 'You do not have permission to reorder this project timeline.');
         }
+        assertProjectAcceptsWrites(project);
 
         const clipIdsInProject = clipDocs.docs.map((doc) => doc.id);
         if (clipIdsInProject.length !== params.orderedClipIds.length) {
@@ -1016,6 +1051,7 @@ export async function deleteOwnedProjectClip(params: {
         if (!project?.userId || project.userId !== params.userId) {
             throw new VideoStudioServerError(403, 'You do not have permission to update this project.');
         }
+        assertProjectAcceptsWrites(project);
 
         const remainingClips = sortStoredClips(
             clipDocs.docs
@@ -1221,7 +1257,7 @@ async function getOwnedVideoStudioStorageSnapshot(params: {
     candidatePaths: Set<string>;
 }> {
     ensureAdminReady();
-    await getOwnedProject(params.userId, params.projectId);
+    await getOwnedProject(params.userId, params.projectId, { allowCleanup: true });
 
     const prefix = videoStudioStoragePrefix(params.userId, params.projectId);
     const [clipSnapshot, jobSnapshot] = await Promise.all([

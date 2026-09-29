@@ -19,6 +19,7 @@ export type StoryboardProductionJourneyTarget =
 export type StoryboardProductionJourneyPrimaryIntent =
   | "open-image-workspace"
   | "focus-video-design"
+  | "focus-video-review"
   | "resume-automation"
   | "start-automation"
   | "remerge-final"
@@ -82,6 +83,9 @@ export type StoryboardProductionJourneyParams = {
   firstMissingImageSceneId: string | null;
   firstMissingVideoDesignSceneId: string | null;
   firstMissingVideoSceneId: string | null;
+  firstReviewableSceneId?: string | null;
+  reviewImageCount?: number;
+  requestPending?: boolean;
   firstTransitionIssueSceneId: string | null;
   generatedVideoCount: number;
   hasCurrentFinalDelivery: boolean;
@@ -111,7 +115,7 @@ export function buildStoryboardProductionJourney(
   const imageDesignDone =
     params.sceneCount > 0 && params.imageDesignReadyCount === params.sceneCount;
   const imageProductionDone =
-    params.sceneCount > 0 && params.startFrameCount === params.sceneCount;
+    params.sceneCount > 0 && params.startFrameCount === params.sceneCount && !params.reviewImageCount;
   const videoDesignDone =
     params.sceneCount > 0 && params.videoDesignReadyCount === params.sceneCount;
   const sceneProductionDone =
@@ -127,7 +131,7 @@ export function buildStoryboardProductionJourney(
   const isBusy =
     params.automationActive ||
     params.finalMergeInFlight ||
-    params.isRecoveringAutomation;
+    params.isRecoveringAutomation || Boolean(params.requestPending);
   const ratio = (completed: number, total: number) =>
     total > 0 ? Math.min(1, Math.max(0, completed / total)) : 0;
   const generatedAndApprovedProgress = ratio(
@@ -169,7 +173,9 @@ export function buildStoryboardProductionJourney(
     },
     {
       label: "이미지 생성",
-      description: `${params.startFrameCount}/${params.sceneCount}개 대표 이미지`,
+      description: params.reviewImageCount
+        ? `${params.reviewImageCount}개 이미지 변경 확인 필요`
+        : `${params.startFrameCount}/${params.sceneCount}개 대표 이미지`,
       icon: "fa-image",
       done: imageProductionDone,
       target: "image-generation",
@@ -205,7 +211,11 @@ export function buildStoryboardProductionJourney(
     },
   ];
   const firstIncompleteStep = baseSteps.findIndex((step) => !step.done);
-  const currentStep = firstIncompleteStep === -1 ? 4 : firstIncompleteStep;
+  const currentStep = finalDeliveryDone || sceneProductionDone
+    ? 4
+    : params.firstReviewableSceneId
+      ? 3
+      : firstIncompleteStep === -1 ? 4 : firstIncompleteStep;
   const steps = baseSteps.map((step, index) => ({
     ...step,
     state: step.done
@@ -223,19 +233,23 @@ export function buildStoryboardProductionJourney(
   const needsRemerge =
     params.hasFinalDelivery && !params.hasCurrentFinalDelivery;
   const primaryIntent: StoryboardProductionJourneyPrimaryIntent =
-    needsImageWorkspace
-      ? "open-image-workspace"
-      : needsVideoDesign
-        ? "focus-video-design"
-        : params.canResumeAutomation
-          ? "resume-automation"
-          : needsRemerge && sceneProductionDone
-            ? "remerge-final"
-            : params.hasCurrentFinalDelivery
-              ? "download-final"
-              : "start-automation";
+    params.hasCurrentFinalDelivery
+      ? "download-final"
+      : sceneProductionDone
+        ? "remerge-final"
+        : params.firstReviewableSceneId
+          ? "focus-video-review"
+          : needsImageWorkspace
+            ? "open-image-workspace"
+            : needsVideoDesign
+              ? "focus-video-design"
+              : params.canResumeAutomation
+                ? "resume-automation"
+                : "start-automation";
   const primarySceneId =
-    primaryIntent === "focus-video-design"
+    primaryIntent === "focus-video-review"
+      ? params.firstReviewableSceneId ?? null
+      : primaryIntent === "focus-video-design"
       ? params.firstMissingVideoDesignSceneId
       : null;
 
@@ -258,13 +272,17 @@ export function buildStoryboardProductionJourney(
                           primaryIntent === "resume-automation")
                       ? "OpenRouter 충전 후 제작"
                     : primaryIntent === "open-image-workspace"
-                      ? imageDesignDone
+                      ? params.reviewImageCount
+                        ? "변경된 이미지 확인하기"
+                        : imageDesignDone
                         ? "비어 있는 이미지 만들기"
                         : "이미지 장면 설계 계속하기"
                       : primaryIntent === "focus-video-design"
                         ? "움직임 설계 보완하기"
+                        : primaryIntent === "focus-video-review"
+                          ? "완성된 장면 영상 검수·승인"
                         : primaryIntent === "remerge-final"
-                          ? "최신 완성본 다시 조립"
+                          ? params.hasFinalDelivery ? "최신 완성본 다시 조립" : "승인 영상으로 완성본 만들기"
                           : primaryIntent === "download-final"
                             ? "완성본 다운로드"
                             : primaryIntent === "resume-automation"
@@ -278,11 +296,12 @@ export function buildStoryboardProductionJourney(
     params.automationActive ||
     params.isRecoveringAutomation ||
     params.isDownloading ||
+    Boolean(params.requestPending) ||
     (isGenerationAction &&
       (params.workerStatusPending || Boolean(params.workerIssue))) ||
     (primaryIntent === "open-image-workspace"
       ? !params.canOpenImageWorkspace
-      : primaryIntent === "focus-video-design"
+      : primaryIntent === "focus-video-design" || primaryIntent === "focus-video-review"
         ? !primarySceneId
         : primaryIntent === "download-final"
           ? false
@@ -293,6 +312,15 @@ export function buildStoryboardProductionJourney(
       (!params.jobSubscriptionReady || Boolean(params.jobSubscriptionError)));
 
   const guidance =
+    (params.hasCurrentFinalDelivery
+      ? "최신 완성본이 준비되었습니다. 바로 내려받거나 아래에서 재생해 검수하세요."
+      : null) ||
+    (primaryIntent === "focus-video-review"
+      ? "이미 완성된 장면 영상을 재생해 검수하고 승인하세요. 검수에는 새 생성 비용이 들지 않습니다."
+      : null) ||
+    (primaryIntent === "remerge-final"
+      ? "승인된 장면 영상이 모두 준비됐습니다. 현재 순서와 사운드 설정으로 완성본을 조립하세요."
+      : null) ||
     (isGenerationAction ? params.jobSubscriptionError || params.workerIssue || params.creditIssue : null) ||
     (isGenerationAction && params.workerStatusPending
       ? "추가 비용이 생기기 전에 영상 처리 서버의 안전 버전을 확인하고 있습니다."
@@ -305,6 +333,9 @@ export function buildStoryboardProductionJourney(
       : null) ||
     (isGenerationAction && params.unknownPricingBlocked
       ? "가격 미공개 모델 사용 여부를 고급 설정에서 선택해 주세요."
+      : null) ||
+    (params.reviewImageCount
+      ? `설정이 바뀐 이미지 ${params.reviewImageCount}개를 확인해 주세요. 현재 이미지를 유지하거나 새로 생성한 뒤 영상 제작을 이어갑니다.`
       : null) ||
     (!imageDesignDone
       ? `${params.sceneCount}개 장면 중 ${params.imageDesignReadyCount}개의 이미지 설계가 준비됐습니다. 비어 있는 장면부터 이어서 설계하세요.`
@@ -320,7 +351,7 @@ export function buildStoryboardProductionJourney(
         "멈춘 작업을 확인한 뒤 이어서 제작할 수 있습니다."
       : null) ||
     (params.automationStatus === "paused"
-      ? "완료된 장면은 그대로 두고 멈춘 장면부터 이어갑니다."
+      ? params.automationErrorMessage || "완료된 장면은 그대로 두고 멈춘 장면부터 이어갑니다."
       : null) ||
     (params.automationStatus === "running"
       ? `장면을 순서대로 제작하고 있습니다. 완료 ${params.automationCompletedCount}/${params.sceneCount}`
@@ -339,7 +370,7 @@ export function buildStoryboardProductionJourney(
       {
         key: "images",
         label: "장면 이미지",
-        value: `${params.startFrameCount}/${params.sceneCount}`,
+        value: params.reviewImageCount ? `${params.reviewImageCount}개 확인 필요` : `${params.startFrameCount}/${params.sceneCount}`,
         ready: imageProductionDone,
         sceneId: params.firstMissingImageSceneId,
         target: "image-generation",
@@ -406,7 +437,7 @@ export function buildStoryboardProductionJourney(
       ? "fas fa-spinner fa-spin"
       : primaryIntent === "open-image-workspace"
         ? "fas fa-images"
-        : primaryIntent === "focus-video-design"
+        : primaryIntent === "focus-video-design" || primaryIntent === "focus-video-review"
           ? "fas fa-pen-ruler"
           : primaryIntent === "download-final"
             ? "fas fa-download"
@@ -418,7 +449,7 @@ export function buildStoryboardProductionJourney(
     primaryIntent,
     primaryLabel,
     primarySceneId,
-    progress: journeyProgress,
+    progress: params.hasCurrentFinalDelivery ? 100 : journeyProgress,
     preparationDescription: `준비 ${[imageDesignDone, imageProductionDone, videoDesignDone].filter(Boolean).length}/3단계`,
     progressDescription: params.hasCurrentFinalDelivery
       ? "최신 완성본 준비 완료"

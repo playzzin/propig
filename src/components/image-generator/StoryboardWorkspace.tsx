@@ -140,6 +140,7 @@ import {
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
+import type { StoryboardImageGenerationInput } from "@/hooks/useStoryboardImageGeneration";
 import { IMAGE_STYLE_PRESETS } from "@/constants/imageStylePresets";
 import StoryboardProjectDashboard, { type StoryboardDashboardSession } from "@/components/image-generator/StoryboardProjectDashboard";
 import { resolveStoryboardPosition, type StoryboardOpenIntent, type StoryboardPosition } from "@/lib/storyboard-workspace-navigation";
@@ -153,12 +154,14 @@ import {
   openRemoteMedia,
 } from "@/lib/client/media-download";
 import { KOREAN_DATE_TIME_FORMAT } from "@/lib/date-formatters";
-import { resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
+import { hasActiveStoryboardVideoWork, resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
+import { invalidateChangedStoryboardDependencies, markStoryboardSceneVideoForReview } from "@/lib/storyboard-edit-invalidation";
 import { applyStoryboardPlanningPreset, isStoryboardPresetApplyBusy } from "@/lib/storyboard-planning-presets";
 import StoryboardPlanningPresets from "./StoryboardPlanningPresets";
 import { inspectStoryboardQuality } from "@/lib/storyboard-quality";
 import {
   getStoryboardProjectStatus,
+  isStoryboardFinalCurrent,
   STORYBOARD_PROJECT_STATUS_LABELS,
 } from "@/lib/storyboard-workflow";
 import {
@@ -212,7 +215,7 @@ type GeneratedStoryboardImage = {
 type StoryboardWorkspaceProps = {
   onClose: () => void;
   onGenerateScene: (
-    payload: ImageStoryboardGenerationPayload,
+    payload: StoryboardImageGenerationInput,
   ) => Promise<GeneratedStoryboardImage>;
   isGenerating: boolean;
   presentation?: "dialog" | "page";
@@ -495,19 +498,7 @@ function deriveSceneStatus(
 function resetSceneVideo(
   scene: ImageStoryboardScene,
 ): ImageStoryboardScene["video"] {
-  return {
-    ...createStoryboardVideoScene(),
-    durationSeconds: scene.video.durationSeconds,
-    motionIntensity: scene.video.motionIntensity,
-    audioMode: scene.video.audioMode,
-    generateAudio: scene.video.generateAudio,
-    trimStartSeconds: scene.video.trimStartSeconds,
-    trimEndSeconds: scene.video.trimEndSeconds,
-    playbackRate: scene.video.playbackRate,
-    audioVolume: scene.video.audioVolume,
-    transitionStyle: scene.video.transitionStyle,
-    transitionSeconds: scene.video.transitionSeconds,
-  };
+  return copySceneVideoSettings(scene);
 }
 
 function copySceneVideoSettings(
@@ -521,6 +512,7 @@ function copySceneVideoSettings(
     useNextSceneAsEndFrame: scene.video.useNextSceneAsEndFrame,
     audioMode: scene.video.audioMode,
     generateAudio: scene.video.generateAudio,
+    voiceProfileId: scene.video.voiceProfileId,
     trimStartSeconds: scene.video.trimStartSeconds,
     trimEndSeconds: scene.video.trimEndSeconds,
     playbackRate: scene.video.playbackRate,
@@ -551,13 +543,8 @@ function markSceneForReview(
       scene.generatedImage || sceneHasVideoResult(scene) ? "review" : "current",
     staleReason:
       scene.generatedImage || sceneHasVideoResult(scene) ? reason : null,
-    video: sceneHasVideoResult(scene)
-      ? {
-          ...scene.video,
-          status: "review",
-          approvedAt: null,
-        }
-      : scene.video,
+    approvedVideoArtifactId: null,
+    video: { ...scene.video, status: "brief", jobId: null, approvedAt: null },
   };
 }
 
@@ -577,7 +564,18 @@ function createIndependentStoryboardCopy(
     referenceAssets: [],
     reclaimableStorageAssets: [],
     transitionLinks: [],
-    videoProduction: createStoryboardVideoProduction(),
+    videoProduction: {
+      ...createStoryboardVideoProduction(),
+      qualityMode: storyboard.videoProduction.qualityMode,
+      maxBudgetUsd: storyboard.videoProduction.maxBudgetUsd,
+      allowUnknownPricing: storyboard.videoProduction.allowUnknownPricing,
+      voiceDirection: storyboard.videoProduction.voiceDirection,
+      voiceProfiles: storyboard.videoProduction.voiceProfiles.map((profile) => ({ ...profile })),
+      audioMixPreset: storyboard.videoProduction.audioMixPreset,
+      backgroundMusicVolume: storyboard.videoProduction.backgroundMusicVolume,
+      sceneAudioVolume: storyboard.videoProduction.sceneAudioVolume,
+      audioCrossfadeSeconds: storyboard.videoProduction.audioCrossfadeSeconds,
+    },
     scenes: storyboard.scenes.map((scene) => ({
       ...scene,
       id: crypto.randomUUID(),
@@ -590,13 +588,40 @@ function createIndependentStoryboardCopy(
       approvedVideoArtifactId: null,
       generatedImage: null,
       video: {
-        ...createStoryboardVideoScene(),
-        durationSeconds: scene.video.durationSeconds,
-        motionIntensity: scene.video.motionIntensity,
-        audioMode: scene.video.audioMode,
-        generateAudio: scene.video.generateAudio,
+        ...copySceneVideoSettings(scene),
+        referenceAssetIds: [],
       },
     })),
+  };
+}
+
+function storyboardImageDesignSignature(storyboard: ImageStoryboard, scene: ImageStoryboardScene): string {
+  return JSON.stringify([
+    buildGenerationPayload(storyboard, scene, []),
+    storyboard.referenceAssets.map(({ image, role }) => ({ image, role })),
+    storyboard.usePreviousSceneAsReference,
+    scene.imageDesignRevision,
+  ]);
+}
+
+function applyGeneratedStoryboardImage(
+  requested: ImageStoryboard, current: ImageStoryboard,
+  requestedScene: ImageStoryboardScene, scene: ImageStoryboardScene,
+  image: GeneratedStoryboardImage, storyboardId: string | null,
+): ImageStoryboardScene {
+  const matchesDesign = storyboardImageDesignSignature(requested, requestedScene) === storyboardImageDesignSignature(current, scene);
+  const reviewed = sceneHasVideoResult(scene) ? markStoryboardSceneVideoForReview(scene) : { ...scene, video: resetSceneVideo(scene) };
+  return {
+    ...reviewed,
+    status: "generated",
+    assetFreshness: matchesDesign ? "current" : "review",
+    staleReason: matchesDesign ? null : "생성 중 장면 설계가 바뀌었습니다. 이전 설계로 생성된 이미지를 확인하거나 다시 생성해 주세요.",
+    generatedImage: {
+      ...image, generatedAt: Date.now(), storagePath: image.storagePath ?? null,
+      provenance: storyboardId ? { kind: "storyboard-scene", storyboardId, sceneId: scene.id } : null,
+    },
+    approvedImageArtifactId: matchesDesign ? `scene-image:${image.id}` : null,
+    approvedVideoArtifactId: null,
   };
 }
 
@@ -797,6 +822,9 @@ function StoryboardAccountWorkspace({
     loginWithGoogle,
   } = useAuth();
   const [storyboards, setStoryboards] = useState<SavedImageStoryboard[]>([]);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const deletingProjectIdRef = useRef<string | null>(null);
+  const deletedProjectIdsRef = useRef(new Set<string>());
   const dashboardSessionRef = useRef<StoryboardDashboardSession>({ search: "", page: 1, scrollTop: 0, focusedProjectId: null });
   const [dashboardSnapshot, setDashboardSnapshot] = useState<StoryboardDashboardSession>({ search: "", page: 1, scrollTop: 0, focusedProjectId: null });
   const projectPositionsRef = useRef(new Map<string, StoryboardPosition>());
@@ -880,6 +908,8 @@ function StoryboardAccountWorkspace({
   const planningRequestRef = useRef(0);
   const sceneRedesignRequestRef = useRef(0);
   const projectSwitchRequestRef = useRef(0);
+  const imageGenerationRequestRef = useRef(0);
+  const imageGenerationPendingRef = useRef(false);
   const intentRevealCleanupRef = useRef<(() => void) | null>(null);
   const versionHistoryRequestRef = useRef(0);
   const versionsProjectIdRef = useRef<string | null>(null);
@@ -925,6 +955,23 @@ function StoryboardAccountWorkspace({
     [invalidateVersionHistory],
   );
 
+  const activateSavedStoryboard = useCallback((saved: SavedImageStoryboard) => {
+    revisionRef.current = 0;
+    historyPastRef.current = [];
+    historyFutureRef.current = [];
+    setHistoryState({ canUndo: false, canRedo: false });
+    savedRevisionRef.current.set(saved.id, saved.revision);
+    saveConflictRef.current = false;
+    setSaveConflict(false);
+    activateStoryboardId(saved.id);
+    replaceDraft(saved);
+    isDirtyRef.current = false;
+    setIsDirty(false);
+    setLastSavedAt(saved.updatedAt);
+    setLoadError(null);
+    setProjectSwitchState("ready");
+  }, [activateStoryboardId, replaceDraft]);
+
   const cancelDraftScopedRequests = useCallback(() => {
     planningRequestRef.current += 1;
     sceneRedesignRequestRef.current += 1;
@@ -950,6 +997,7 @@ function StoryboardAccountWorkspace({
       referenceUploadRequestRef.current += 1;
       versionHistoryRequestRef.current += 1;
       projectSwitchRequestRef.current += 1;
+      imageGenerationRequestRef.current += 1;
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
       pendingSaveRef.current = null;
     };
@@ -1000,7 +1048,7 @@ function StoryboardAccountWorkspace({
     const unsubscribe = imageStoryboardService.subscribe(
       currentUser.uid,
       (nextStoryboards) => {
-        setStoryboards(dedupeStoryboardsById(nextStoryboards));
+        setStoryboards(dedupeStoryboardsById(nextStoryboards).filter((item) => !deletedProjectIdsRef.current.has(item.id)));
         setSubscriptionError(null);
         setIsLoading(false);
       },
@@ -1064,7 +1112,7 @@ function StoryboardAccountWorkspace({
       nextDraft: ImageStoryboard,
       revision: number,
     ): Promise<boolean> => {
-      if (!currentUser?.uid || saveConflictRef.current) return false;
+      if (!currentUser?.uid || saveConflictRef.current || deletingProjectIdRef.current === storyboardId || deletedProjectIdsRef.current.has(storyboardId)) return false;
 
       const inFlightSave = inFlightSaveRef.current;
       if (
@@ -1171,8 +1219,51 @@ function StoryboardAccountWorkspace({
     });
   }, []);
 
-  const handleClose = useCallback(async () => {
+  const isProjectNavigationBlocked = useCallback(() => {
+    if (deletingProjectIdRef.current) return true;
+    if (videoRequestPendingRef.current || imageGenerationPendingRef.current || referenceUploadInProgressRef.current) {
+      toast.info("생성·업로드 작업 접수가 끝난 뒤 이동할 수 있습니다.");
+      return true;
+    }
+    return false;
+  }, []);
+
+  const isProjectChangeCurrent = useCallback((request: { requestId: number; projectId: string | null; revision: number }) =>
+    isMountedRef.current && projectSwitchRequestRef.current === request.requestId &&
+    activeIdRef.current === request.projectId && revisionRef.current === request.revision, []);
+
+  const changeWorkspaceMode = useCallback(async (mode: "storyboard" | "video") => {
     if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
+    if (mode === "storyboard" && draftRef.current && hasActiveStoryboardVideoWork(draftRef.current)) {
+      toast.info("진행 중인 영상 작업을 완료하거나 취소한 뒤 장면을 수정할 수 있습니다.");
+      return;
+    }
+    await flushFocusedWorkspaceField();
+    if (isMountedRef.current && !videoRequestPendingRef.current) setWorkspaceMode(mode);
+  }, [flushFocusedWorkspaceField]);
+
+  const prepareProjectChange = useCallback(async () => {
+    if (isProjectNavigationBlocked()) return null;
+    const requestId = ++projectSwitchRequestRef.current;
+    await flushFocusedWorkspaceField();
+    if (!isMountedRef.current || requestId !== projectSwitchRequestRef.current) return null;
+    const projectId = activeIdRef.current;
+    const currentDraft = draftRef.current;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    if (projectId && currentDraft && isDirtyRef.current &&
+      !await persistDraft(projectId, currentDraft, revisionRef.current)) return null;
+    if (!isMountedRef.current || requestId !== projectSwitchRequestRef.current || activeIdRef.current !== projectId) return null;
+    if (isDirtyRef.current) {
+      toast.info("저장 중 추가한 변경을 유지했습니다. 입력을 마친 뒤 다시 이동해 주세요.");
+      return null;
+    }
+    cancelDraftScopedRequests();
+    return { requestId, projectId, revision: revisionRef.current, draft: draftRef.current };
+  }, [cancelDraftScopedRequests, flushFocusedWorkspaceField, isProjectNavigationBlocked, persistDraft]);
+
+  const handleClose = useCallback(async () => {
+    if (isProjectNavigationBlocked()) return;
+    projectSwitchRequestRef.current += 1;
     cancelDraftScopedRequests();
     await flushFocusedWorkspaceField();
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -1188,6 +1279,7 @@ function StoryboardAccountWorkspace({
         toast.error("변경 내용을 저장하지 못해 작업공간을 닫지 않았습니다.");
         return;
       }
+      if (isDirtyRef.current) { toast.info("추가 변경 내용을 저장한 뒤 닫아 주세요."); return; }
     }
     onClose();
   }, [
@@ -1195,6 +1287,7 @@ function StoryboardAccountWorkspace({
     flushFocusedWorkspaceField,
     onClose,
     persistDraft,
+    isProjectNavigationBlocked,
   ]);
 
   useEffect(() => {
@@ -1278,7 +1371,7 @@ function StoryboardAccountWorkspace({
   ]);
 
   useEffect(() => {
-    if (!activeId || !draft || !isDirty || !currentUser?.uid || saveConflict)
+    if (!activeId || !draft || !isDirty || !currentUser?.uid || saveConflict || deletingProjectId)
       return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     const revision = revisionRef.current;
@@ -1290,19 +1383,26 @@ function StoryboardAccountWorkspace({
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [activeId, currentUser?.uid, draft, isDirty, persistDraft, saveConflict]);
+  }, [activeId, currentUser?.uid, draft, isDirty, persistDraft, saveConflict, deletingProjectId]);
 
   const updateDraft = useCallback(
-    (updater: (current: ImageStoryboard) => ImageStoryboard) => {
+    (updater: (current: ImageStoryboard) => ImageStoryboard, fromVideoPanel = false) => {
       const current = draftRef.current;
-      if (!current) return;
-      const next = updater(current);
+      if (!current || deletingProjectIdRef.current === activeIdRef.current) return;
+      if (!fromVideoPanel && (videoRequestPendingRef.current || hasActiveStoryboardVideoWork(current))) {
+        toast.info("영상 작업 중에는 설계가 유지됩니다. 영상 제작에서 완료 상태를 확인하거나 작업을 취소해 주세요.");
+        return;
+      }
+      const next = invalidateChangedStoryboardDependencies(current, updater(current));
       if (next === current) return;
-      historyPastRef.current = [...historyPastRef.current.slice(-29), current];
-      historyFutureRef.current = [];
+      const recordHistory = !fromVideoPanel || (!hasActiveStoryboardVideoWork(current) && !hasActiveStoryboardVideoWork(next));
+      if (recordHistory) {
+        historyPastRef.current = [...historyPastRef.current.slice(-29), current];
+        historyFutureRef.current = [];
+        setHistoryState({ canUndo: true, canRedo: false });
+      }
       draftRef.current = next;
       isDirtyRef.current = true;
-      setHistoryState({ canUndo: true, canRedo: false });
       revisionRef.current += 1;
       setIsDirty(true);
       setDraft(next);
@@ -1311,11 +1411,13 @@ function StoryboardAccountWorkspace({
   );
 
   const updateActiveStoryboard = useCallback((updater: (current: ImageStoryboard) => ImageStoryboard) => {
-    if (isMountedRef.current && activeIdRef.current === activeId) updateDraft(updater);
+    if (isMountedRef.current && activeIdRef.current === activeId) updateDraft(updater, true);
   }, [activeId, updateDraft]);
 
   const undoDraft = useCallback(() => {
+    if (deletingProjectIdRef.current) return;
     const current = draftRef.current;
+    if (videoRequestPendingRef.current || (current && hasActiveStoryboardVideoWork(current))) return;
     const previous = historyPastRef.current.pop();
     if (!current || !previous) return;
 
@@ -1336,7 +1438,9 @@ function StoryboardAccountWorkspace({
   }, []);
 
   const redoDraft = useCallback(() => {
+    if (deletingProjectIdRef.current) return;
     const current = draftRef.current;
+    if (videoRequestPendingRef.current || (current && hasActiveStoryboardVideoWork(current))) return;
     const next = historyFutureRef.current.shift();
     if (!current || !next) return;
 
@@ -1404,6 +1508,7 @@ function StoryboardAccountWorkspace({
     (updater: (current: ImageStoryboard) => ImageStoryboard) => {
       updateDraft((current) => {
         const next = updater(current);
+        if (JSON.stringify(next) === JSON.stringify(current)) return current;
         return {
           ...next,
           videoProduction: resetStoryboardVideoProduction(next.videoProduction),
@@ -1550,10 +1655,12 @@ function StoryboardAccountWorkspace({
       storyboard: SavedImageStoryboard,
       intent: StoryboardOpenIntent = "edit",
     ) => {
-      if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
+      if (deletingProjectIdRef.current || deletedProjectIdsRef.current.has(storyboard.id)) return;
+      if (isProjectNavigationBlocked()) return;
       const requestId = projectSwitchRequestRef.current + 1;
       projectSwitchRequestRef.current = requestId;
       await flushFocusedWorkspaceField();
+      if (!isMountedRef.current || projectSwitchRequestRef.current !== requestId) return;
       setPendingPaidAction(null);
       setPaidActionAccepted(false);
       const currentStoryboardId = activeIdRef.current;
@@ -1587,28 +1694,20 @@ function StoryboardAccountWorkspace({
       if (projectSwitchRequestRef.current !== requestId || !currentUser?.uid) {
         return;
       }
+      if (isDirtyRef.current) {
+        setProjectSwitchState("ready");
+        toast.info("저장 중 추가한 변경을 유지했습니다. 입력을 마친 뒤 다시 이동해 주세요.");
+        return;
+      }
       setProjectSwitchState("loading");
+      const request = { requestId, projectId: currentStoryboardId, revision: revisionRef.current };
       try {
         const latest = await imageStoryboardService.get(
           currentUser.uid,
           storyboard.id,
         );
-        if (projectSwitchRequestRef.current !== requestId) return;
-        revisionRef.current = 0;
-        historyPastRef.current = [];
-        historyFutureRef.current = [];
-        setHistoryState({ canUndo: false, canRedo: false });
-        savedRevisionRef.current.set(latest.id, latest.revision);
-        activateStoryboardId(latest.id);
-        replaceDraft({
-          ...latest,
-          scenes: latest.scenes.map((scene) => ({ ...scene })),
-        });
-        isDirtyRef.current = false;
-        setIsDirty(false);
-        setLastSavedAt(latest.updatedAt);
-        setLoadError(null);
-        setProjectSwitchState("ready");
+        if (!isProjectChangeCurrent(request)) return;
+        activateSavedStoryboard(latest);
         revealStoryboardOpenIntent(intent, latest, latest.id);
       } catch (error) {
         if (projectSwitchRequestRef.current !== requestId) return;
@@ -1620,13 +1719,14 @@ function StoryboardAccountWorkspace({
       }
     },
     [
-      activateStoryboardId,
+      activateSavedStoryboard,
       cancelDraftScopedRequests,
       currentUser?.uid,
       flushFocusedWorkspaceField,
       invalidateVersionHistory,
       persistDraft,
-      replaceDraft,
+      isProjectChangeCurrent,
+      isProjectNavigationBlocked,
       revealStoryboardOpenIntent,
       workspaceMode,
       activeSceneId,
@@ -1634,184 +1734,76 @@ function StoryboardAccountWorkspace({
   );
 
   const createNewStoryboard = useCallback(async () => {
-    if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
-    await flushFocusedWorkspaceField();
-    if (!currentUser?.uid) {
-      toast.error("로그인 후 스토리보드를 만들 수 있습니다.");
-      return;
-    }
-
-    cancelDraftScopedRequests();
-
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    const currentStoryboardId = activeIdRef.current;
-    const currentDraft = draftRef.current;
-    if (currentStoryboardId && currentDraft && isDirtyRef.current) {
-      const saved = await persistDraft(
-        currentStoryboardId,
-        currentDraft,
-        revisionRef.current,
-      );
-      if (!saved) return;
-    }
-
+    if (!currentUser?.uid) { toast.error("로그인 후 스토리보드를 만들 수 있습니다."); return; }
+    const request = await prepareProjectChange();
+    if (!request) return;
     const nextStoryboard = createStoryboard();
     try {
-      const id = await imageStoryboardService.create(
-        currentUser.uid,
-        nextStoryboard,
-      );
+      const id = await imageStoryboardService.create(currentUser.uid, nextStoryboard);
+      if (!isMountedRef.current) return;
       const now = Date.now();
-      setStoryboards((current) =>
-        upsertStoryboard(current, {
-          id,
-          ...nextStoryboard,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      );
-      revisionRef.current = 0;
-      historyPastRef.current = [];
-      historyFutureRef.current = [];
-      setHistoryState({ canUndo: false, canRedo: false });
-      savedRevisionRef.current.set(id, nextStoryboard.revision);
-      saveConflictRef.current = false;
-      setSaveConflict(false);
-      activateStoryboardId(id);
-      replaceDraft(nextStoryboard);
-      isDirtyRef.current = false;
+      const saved = { ...nextStoryboard, id, createdAt: now, updatedAt: now };
+      setStoryboards((current) => upsertStoryboard(current, saved));
+      if (!isProjectChangeCurrent(request)) return;
+      activateSavedStoryboard(saved);
       setWorkspaceSurface("editor");
-      setIsDirty(false);
-      setLastSavedAt(now);
       toast.success("새 스토리보드를 만들었습니다.");
     } catch (error) {
+      if (!isProjectChangeCurrent(request)) return;
       console.error(error);
       setLoadError("새 스토리보드를 만들지 못했습니다. 다시 시도해 주세요.");
     }
-  }, [
-    activateStoryboardId,
-    cancelDraftScopedRequests,
-    currentUser?.uid,
-    flushFocusedWorkspaceField,
-    persistDraft,
-    replaceDraft,
-  ]);
+  }, [activateSavedStoryboard, currentUser?.uid, isProjectChangeCurrent, prepareProjectChange]);
 
   const duplicateCurrentStoryboard = useCallback(async () => {
-    await flushFocusedWorkspaceField();
-    const currentDraft = draftRef.current;
-    const currentStoryboardId = activeIdRef.current;
-    if (!currentUser?.uid || !currentDraft) return;
-    if (currentStoryboardId && isDirtyRef.current) {
-      const saved = await persistDraft(
-        currentStoryboardId,
-        currentDraft,
-        revisionRef.current,
-      );
-      if (!saved) return;
-    }
-    cancelDraftScopedRequests();
+    if (!currentUser?.uid) return;
+    const request = await prepareProjectChange();
+    if (!request?.draft) return;
     try {
-      const copy = createIndependentStoryboardCopy(currentDraft);
+      const copy = createIndependentStoryboardCopy(request.draft);
       const id = await imageStoryboardService.create(currentUser.uid, copy);
+      if (!isMountedRef.current) return;
       const now = Date.now();
-      const savedCopy: SavedImageStoryboard = {
-        id,
-        ...copy,
-        createdAt: now,
-        updatedAt: now,
-      };
+      const savedCopy = { ...copy, id, createdAt: now, updatedAt: now };
       setStoryboards((current) => upsertStoryboard(current, savedCopy));
-      savedRevisionRef.current.set(id, copy.revision);
-      saveConflictRef.current = false;
-      setSaveConflict(false);
-      activateStoryboardId(id);
-      replaceDraft(copy);
-      isDirtyRef.current = false;
+      if (!isProjectChangeCurrent(request)) return;
+      activateSavedStoryboard(savedCopy);
       setWorkspaceSurface("editor");
-      setIsDirty(false);
-      setLastSavedAt(now);
-      historyPastRef.current = [];
-      historyFutureRef.current = [];
-      setHistoryState({ canUndo: false, canRedo: false });
       toast.success("독립된 복사본을 만들었습니다.", {
-        description:
-          "장면 기획만 복사하고 이미지·영상·첨부 파일은 새 프로젝트에서 시작합니다.",
+        description: "이미지·영상 기획과 목소리·편집 설정을 복사했습니다. 첨부 파일과 결과물은 새로 제작할 수 있습니다.",
       });
     } catch (error) {
+      if (!isProjectChangeCurrent(request)) return;
       console.error(error);
       toast.error("프로젝트를 복제하지 못했습니다.");
     }
-  }, [
-    activateStoryboardId,
-    cancelDraftScopedRequests,
-    currentUser?.uid,
-    flushFocusedWorkspaceField,
-    persistDraft,
-    replaceDraft,
-  ]);
+  }, [activateSavedStoryboard, currentUser?.uid, isProjectChangeCurrent, prepareProjectChange]);
 
   const duplicateCurrentStoryboardWithMedia = useCallback(async () => {
-    await flushFocusedWorkspaceField();
-    const currentDraft = draftRef.current;
-    const currentStoryboardId = activeIdRef.current;
-    if (!currentUser?.uid || !currentDraft || mediaCopyProgress) return;
-    if (currentStoryboardId && isDirtyRef.current) {
-      const saved = await persistDraft(
-        currentStoryboardId,
-        currentDraft,
-        revisionRef.current,
-      );
-      if (!saved) return;
-    }
-    cancelDraftScopedRequests();
+    if (!currentUser?.uid || mediaCopyProgress) return;
+    const request = await prepareProjectChange();
+    if (!request?.draft) return;
     setMediaCopyProgress({ completed: 0, total: 1 });
     try {
-      const id = await imageStoryboardService.duplicateWithMedia(
-        currentUser.uid,
-        currentDraft,
-        (completed, total) => setMediaCopyProgress({ completed, total }),
-      );
+      const id = await imageStoryboardService.duplicateWithMedia(currentUser.uid, request.draft,
+        (completed, total) => { if (isMountedRef.current) setMediaCopyProgress({ completed, total }); });
       const savedCopy = await imageStoryboardService.get(currentUser.uid, id);
+      if (!isMountedRef.current) return;
       setStoryboards((current) => upsertStoryboard(current, savedCopy));
-      savedRevisionRef.current.set(id, savedCopy.revision);
-      saveConflictRef.current = false;
-      setSaveConflict(false);
-      activateStoryboardId(id);
-      replaceDraft({
-        ...savedCopy,
-        scenes: savedCopy.scenes.map((scene) => ({ ...scene })),
-      });
-      isDirtyRef.current = false;
+      if (!isProjectChangeCurrent(request)) return;
+      activateSavedStoryboard(savedCopy);
       setWorkspaceSurface("editor");
-      setIsDirty(false);
-      setLastSavedAt(savedCopy.updatedAt);
-      historyPastRef.current = [];
-      historyFutureRef.current = [];
-      setHistoryState({ canUndo: false, canRedo: false });
       toast.success("파일까지 독립된 전체 복사본을 만들었습니다.", {
-        description:
-          "이미지·영상·배경음과 영상 클립 기록을 새 프로젝트 저장 공간에 복사했습니다.",
+        description: "이미지·영상·배경음과 영상 클립 기록을 새 프로젝트 저장 공간에 복사했습니다.",
       });
     } catch (error) {
+      if (!isProjectChangeCurrent(request)) return;
       console.error(error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "파일을 포함한 프로젝트 복제에 실패했습니다.",
-      );
+      toast.error(error instanceof Error ? error.message : "파일을 포함한 프로젝트 복제에 실패했습니다.");
     } finally {
-      setMediaCopyProgress(null);
+      if (isMountedRef.current) setMediaCopyProgress(null);
     }
-  }, [
-    activateStoryboardId,
-    cancelDraftScopedRequests,
-    currentUser?.uid,
-    flushFocusedWorkspaceField,
-    mediaCopyProgress,
-    persistDraft,
-    replaceDraft,
-  ]);
+  }, [activateSavedStoryboard, currentUser?.uid, isProjectChangeCurrent, mediaCopyProgress, prepareProjectChange]);
 
   const toggleArchiveCurrentStoryboard = useCallback(() => {
     if (!draft) return;
@@ -1827,40 +1819,64 @@ function StoryboardAccountWorkspace({
     );
   }, [draft, updateDraft]);
 
-  const deleteCurrentStoryboard = useCallback(async () => {
-    if (!currentUser?.uid || !activeId || !draft) return;
-    const confirmed = window.confirm(
-      `"${draft.title}" 프로젝트를 영구 삭제할까요?\n장면 이미지·영상·완성본·배경음·버전 기록까지 함께 정리되며 복구할 수 없습니다.`,
-    );
-    if (!confirmed) return;
-    cancelDraftScopedRequests();
-    try {
-      const authToken = await currentUser.getIdToken();
-      await imageStoryboardService.removeWithMedia(authToken, activeId);
-      setStoryboards((current) =>
-        current.filter((storyboard) => storyboard.id !== activeId),
-      );
-      savedRevisionRef.current.delete(activeId);
-      saveConflictRef.current = false;
-      setSaveConflict(false);
-      setLoadError(null);
-      activateStoryboardId(null);
-      replaceDraft(null);
-      isDirtyRef.current = false;
-      setIsDirty(false);
-      toast.success("프로젝트와 연결된 생성 파일을 모두 정리했습니다.");
-    } catch (error) {
-      console.error(error);
-      toast.error("프로젝트를 삭제하지 못했습니다.");
+  const deleteStoryboardProject = useCallback(async (storyboard: Pick<SavedImageStoryboard, "id" | "title">) => {
+    if (!currentUser || !isMountedRef.current || deletingProjectIdRef.current || deletedProjectIdsRef.current.has(storyboard.id)) return;
+    if (isGenerating || isBulkGenerating || generatingSceneId || isPlanning || redesigningSceneId || referenceUploadInProgressRef.current || mediaCopyProgress || videoRequestPendingRef.current) {
+      toast.info("진행 중인 생성·업로드·복사 작업이 끝난 뒤 삭제해 주세요.");
+      return;
     }
-  }, [
-    activeId,
-    activateStoryboardId,
-    cancelDraftScopedRequests,
-    currentUser,
-    draft,
-    replaceDraft,
-  ]);
+    if (!window.confirm(`"${storyboard.title}" 프로젝트를 영구 삭제할까요?\n기획·작업 이력·모든 버전·참조 파일·생성 이미지·영상·완성본·배경음이 함께 삭제됩니다.\n삭제한 내용은 복구할 수 없습니다.`)) return;
+
+    const id = storyboard.id;
+    deletingProjectIdRef.current = id;
+    setDeletingProjectId(id);
+    projectSwitchRequestRef.current += 1;
+    if (activeIdRef.current === id) {
+      cancelDraftScopedRequests();
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      pendingSaveRef.current = null;
+    }
+    try {
+      // A save also writes artifact subcollections. Let it finish before cleanup.
+      await saveOperationRef.current;
+      if (!isMountedRef.current) return;
+      const authToken = await currentUser.getIdToken();
+      if (!isMountedRef.current) return;
+      await imageStoryboardService.removeWithMedia(authToken, id);
+      if (!isMountedRef.current) return;
+      deletedProjectIdsRef.current.add(id);
+      setStoryboards((current) => current.filter((item) => item.id !== id));
+      savedRevisionRef.current.delete(id);
+      projectPositionsRef.current.delete(id);
+      if (dashboardSessionRef.current.focusedProjectId === id) dashboardSessionRef.current.focusedProjectId = null;
+      if (activeIdRef.current === id) {
+        saveConflictRef.current = false;
+        setSaveConflict(false);
+        setLoadError(null);
+        activateStoryboardId(null);
+        replaceDraft(null);
+        isDirtyRef.current = false;
+        setIsDirty(false);
+        historyPastRef.current = [];
+        historyFutureRef.current = [];
+        setHistoryState({ canUndo: false, canRedo: false });
+        setPendingPaidAction(null);
+        setPaidActionAccepted(false);
+        setWorkspaceSurface("dashboard");
+      }
+      toast.success("프로젝트의 작업 기록과 결과물을 모두 삭제했습니다.");
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      toast.error(error instanceof Error ? error.message : "프로젝트를 삭제하지 못했습니다. 다시 시도해 주세요.");
+    } finally {
+      deletingProjectIdRef.current = null;
+      if (isMountedRef.current) setDeletingProjectId(null);
+    }
+  }, [activateStoryboardId, cancelDraftScopedRequests, currentUser, generatingSceneId, isBulkGenerating, isGenerating, isPlanning, mediaCopyProgress, redesigningSceneId, replaceDraft]);
+
+  const deleteCurrentStoryboard = useCallback(async () => {
+    if (activeId && draft) await deleteStoryboardProject({ id: activeId, title: draft.title });
+  }, [activeId, draft, deleteStoryboardProject]);
 
   const renameStoryboardProject = useCallback(
     async (storyboard: SavedImageStoryboard) => {
@@ -2000,37 +2016,6 @@ function StoryboardAccountWorkspace({
     [activeId, currentUser?.uid, draft, toggleArchiveCurrentStoryboard],
   );
 
-  const deleteStoryboardProject = useCallback(
-    async (storyboard: SavedImageStoryboard) => {
-      if (!currentUser) return;
-      if (storyboard.id === activeId && draft) {
-        await deleteCurrentStoryboard();
-        return;
-      }
-      const confirmed = window.confirm(
-        `"${storyboard.title}" 프로젝트를 영구 삭제할까요?\n이미지·영상·완성본·배경음·버전 기록까지 함께 정리됩니다.`,
-      );
-      if (!confirmed) return;
-      try {
-        const authToken = await currentUser.getIdToken();
-        await imageStoryboardService.removeWithMedia(authToken, storyboard.id);
-        setStoryboards((current) =>
-          current.filter((item) => item.id !== storyboard.id),
-        );
-        savedRevisionRef.current.delete(storyboard.id);
-        toast.success("프로젝트와 생성 파일을 정리했습니다.");
-      } catch (error) {
-        console.error(error);
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "프로젝트를 삭제하지 못했습니다.",
-        );
-      }
-    },
-    [activeId, currentUser, deleteCurrentStoryboard, draft],
-  );
-
   const exportCurrentStoryboard = useCallback(() => {
     if (!draft) return;
     const blob = new Blob([JSON.stringify(draft, null, 2)], {
@@ -2047,53 +2032,29 @@ function StoryboardAccountWorkspace({
     toast.success("프로젝트 파일을 내보냈습니다.");
   }, [draft]);
 
-  const importStoryboardFile = useCallback(
-    async (file: File) => {
-      if (!currentUser?.uid) return;
-      cancelDraftScopedRequests();
-      try {
-        const parsed = ImageStoryboardSchema.parse(
-          JSON.parse(await file.text()),
-        );
-        const imported: ImageStoryboard = {
-          ...createIndependentStoryboardCopy(parsed),
-          title: `${parsed.title} 가져옴`.slice(0, 100),
-        };
-        const id = await imageStoryboardService.create(
-          currentUser.uid,
-          imported,
-        );
-        const now = Date.now();
-        setStoryboards((current) =>
-          upsertStoryboard(current, {
-            id,
-            ...imported,
-            createdAt: now,
-            updatedAt: now,
-          }),
-        );
-        savedRevisionRef.current.set(id, imported.revision);
-        saveConflictRef.current = false;
-        setSaveConflict(false);
-        activateStoryboardId(id);
-        replaceDraft(imported);
-        isDirtyRef.current = false;
-        setWorkspaceSurface("editor");
-        setIsDirty(false);
-        setLastSavedAt(now);
-        toast.success("스토리보드 프로젝트를 가져왔습니다.");
-      } catch (error) {
-        console.error(error);
-        toast.error("가져올 수 없는 프로젝트 파일입니다.");
-      }
-    },
-    [
-      activateStoryboardId,
-      cancelDraftScopedRequests,
-      currentUser?.uid,
-      replaceDraft,
-    ],
-  );
+  const importStoryboardFile = useCallback(async (file: File) => {
+    if (!currentUser?.uid) return;
+    const request = await prepareProjectChange();
+    if (!request) return;
+    try {
+      const parsed = ImageStoryboardSchema.parse(JSON.parse(await file.text()));
+      if (!isProjectChangeCurrent(request)) return;
+      const imported = { ...createIndependentStoryboardCopy(parsed), title: `${parsed.title} 가져옴`.slice(0, 100) };
+      const id = await imageStoryboardService.create(currentUser.uid, imported);
+      if (!isMountedRef.current) return;
+      const now = Date.now();
+      const saved = { ...imported, id, createdAt: now, updatedAt: now };
+      setStoryboards((current) => upsertStoryboard(current, saved));
+      if (!isProjectChangeCurrent(request)) return;
+      activateSavedStoryboard(saved);
+      setWorkspaceSurface("editor");
+      toast.success("스토리보드 프로젝트를 가져왔습니다.");
+    } catch (error) {
+      if (!isProjectChangeCurrent(request)) return;
+      console.error(error);
+      toast.error("프로젝트를 가져오지 못했습니다. 파일 형식과 저장 연결 상태를 확인해 주세요.");
+    }
+  }, [activateSavedStoryboard, currentUser?.uid, isProjectChangeCurrent, prepareProjectChange]);
 
   const refreshVersions = useCallback(async () => {
     const userId = currentUser?.uid;
@@ -2186,6 +2147,10 @@ function StoryboardAccountWorkspace({
     ) => {
       const currentStoryboardId = activeIdRef.current;
       const currentDraft = draftRef.current;
+      if (videoRequestPendingRef.current || imageGenerationPendingRef.current || (currentDraft && hasActiveStoryboardVideoWork(currentDraft))) {
+        toast.info("진행 중인 제작이 끝난 뒤 버전을 복원해 주세요.");
+        return;
+      }
       if (
         !currentDraft ||
         !currentStoryboardId ||
@@ -2201,83 +2166,65 @@ function StoryboardAccountWorkspace({
       updateDraft(() => ({
         ...version.storyboard,
         revision: currentDraft.revision,
+        cleanupStatus: currentDraft.cleanupStatus,
+        cleanupErrorMessage: currentDraft.cleanupErrorMessage,
+        reclaimableStorageAssets: currentDraft.reclaimableStorageAssets,
+        videoProduction: resetStoryboardVideoProduction(version.storyboard.videoProduction),
+        scenes: version.storyboard.scenes.map((scene) => ({
+          ...markSceneForReview(scene, "복원한 장면의 이미지와 영상을 확인한 뒤 검토를 완료해 주세요."),
+          approvedVideoArtifactId: null,
+          video: { ...scene.video, jobId: null, replacedClipId: null, status: scene.video.videoUrl ? "review" : "brief", approvedAt: null, errorMessage: null },
+        })),
       }));
       setIsHistoryOpen(false);
       toast.success(`"${version.label}" 상태를 복원했습니다.`, {
-        description: "자동 저장 전에는 되돌리기로 취소할 수 있습니다.",
+        description: "진행 중이던 작업은 다시 실행하지 않습니다. 복원한 결과를 검토해 주세요. 되돌리기로 복원을 취소할 수 있습니다.",
       });
     },
     [updateDraft],
   );
 
   const recoverConflictAsCopy = useCallback(async () => {
-    if (!currentUser?.uid || !draft) return;
+    if (!currentUser?.uid || isProjectNavigationBlocked()) return;
+    await flushFocusedWorkspaceField();
+    const currentDraft = draftRef.current;
+    if (!currentDraft) return;
+    const request = { requestId: ++projectSwitchRequestRef.current, projectId: activeIdRef.current, revision: revisionRef.current };
     try {
-      const copy: ImageStoryboard = {
-        ...draft,
-        revision: 1,
-        archivedAt: null,
-        title: `${draft.title} 충돌 복구본`.slice(0, 100),
-      };
-      const id = await imageStoryboardService.create(currentUser.uid, copy);
-      const now = Date.now();
-      setStoryboards((current) =>
-        upsertStoryboard(current, {
-          id,
-          ...copy,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      );
-      savedRevisionRef.current.set(id, copy.revision);
-      saveConflictRef.current = false;
-      activateStoryboardId(id);
-      replaceDraft(copy);
-      isDirtyRef.current = false;
-      setIsDirty(false);
-      setSaveConflict(false);
-      setLoadError(null);
-      setLastSavedAt(now);
-      toast.success("충돌한 변경을 새 복사본으로 안전하게 보관했습니다.");
+      const id = await imageStoryboardService.duplicateWithMedia(currentUser.uid, {
+        ...currentDraft, title: `${currentDraft.title} 충돌 복구`.slice(0, 80),
+      });
+      const saved = await imageStoryboardService.get(currentUser.uid, id);
+      if (!isMountedRef.current) return;
+      setStoryboards((current) => upsertStoryboard(current, saved));
+      if (!isProjectChangeCurrent(request)) return;
+      activateSavedStoryboard(saved);
+      toast.success("충돌한 변경과 결과물을 독립된 복사본으로 보관했습니다.");
     } catch (error) {
+      if (!isProjectChangeCurrent(request)) return;
       console.error(error);
-      toast.error("복구 복사본을 만들지 못했습니다.");
+      toast.error("복구 복사본을 만들지 못했습니다. 현재 변경 내용은 유지됩니다.");
     }
-  }, [activateStoryboardId, currentUser?.uid, draft, replaceDraft]);
+  }, [activateSavedStoryboard, currentUser?.uid, flushFocusedWorkspaceField, isProjectChangeCurrent, isProjectNavigationBlocked]);
 
   const reloadLatestAfterConflict = useCallback(async () => {
-    if (!currentUser?.uid || !activeId) return;
-    const confirmed = window.confirm(
-      "서버의 최신본을 불러올까요?\n현재 창에서 아직 저장하지 못한 변경은 사라집니다.",
-    );
-    if (!confirmed) return;
+    if (!currentUser?.uid || !activeIdRef.current || isProjectNavigationBlocked()) return;
+    if (!window.confirm("서버의 최신본을 불러올까요?\n현재 창에서 아직 저장하지 못한 변경은 사라집니다.")) return;
+    const projectId = activeIdRef.current;
+    const request = { requestId: ++projectSwitchRequestRef.current, projectId, revision: revisionRef.current };
+    cancelDraftScopedRequests();
     try {
-      const latest = await imageStoryboardService.get(
-        currentUser.uid,
-        activeId,
-      );
+      const latest = await imageStoryboardService.get(currentUser.uid, projectId);
+      if (!isProjectChangeCurrent(request)) return;
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-      historyPastRef.current = [];
-      historyFutureRef.current = [];
-      revisionRef.current = 0;
-      savedRevisionRef.current.set(latest.id, latest.revision);
-      saveConflictRef.current = false;
-      setHistoryState({ canUndo: false, canRedo: false });
-      replaceDraft({
-        ...latest,
-        scenes: latest.scenes.map((scene) => ({ ...scene })),
-      });
-      isDirtyRef.current = false;
-      setIsDirty(false);
-      setSaveConflict(false);
-      setLoadError(null);
-      setLastSavedAt(latest.updatedAt);
+      activateSavedStoryboard(latest);
       toast.success("서버의 최신 버전을 불러왔습니다.");
     } catch (error) {
+      if (!isProjectChangeCurrent(request)) return;
       console.error(error);
       toast.error("최신 버전을 불러오지 못했습니다.");
     }
-  }, [activeId, currentUser?.uid, replaceDraft]);
+  }, [activateSavedStoryboard, cancelDraftScopedRequests, currentUser?.uid, isProjectChangeCurrent, isProjectNavigationBlocked]);
 
   const handleAddProjectReferences = useCallback(
     async (assets: ImageReferenceDraft[]) => {
@@ -2443,18 +2390,18 @@ function StoryboardAccountWorkspace({
         videoProduction: resetStoryboardVideoProduction(
           current.videoProduction,
         ),
-        scenes: current.scenes.map((scene) => ({
-          ...markSceneForReview(
+        scenes: current.scenes.map((scene) => {
+          const reviewed = markSceneForReview(
             scene,
             "시각 기준 사진이 변경되어 기존 결과를 다시 확인해 주세요.",
-          ),
-          video: {
-            ...scene.video,
-            referenceAssetIds: scene.video.referenceAssetIds.filter(
+          );
+          return { ...reviewed, video: {
+            ...reviewed.video,
+            referenceAssetIds: reviewed.video.referenceAssetIds.filter(
               (id) => id !== assetId,
             ),
-          },
-        })),
+          } };
+        }),
       }));
     },
     [projectReferenceAssets, updateDraft],
@@ -2494,23 +2441,10 @@ function StoryboardAccountWorkspace({
             approvedImageArtifactId: scene.generatedImage
               ? `scene-image:${scene.generatedImage.id}`
               : scene.approvedImageArtifactId,
-            approvedVideoArtifactId: scene.video.clipId
-              ? scene.video.artifactId || scene.video.clipId
-              : scene.approvedVideoArtifactId,
-            video: sceneHasVideoResult(scene)
-              ? {
-                  ...scene.video,
-                  status: "approved",
-                  approvedAt: Date.now(),
-                  artifactId:
-                    scene.video.artifactId || scene.video.clipId || null,
-                  errorMessage: null,
-                }
-              : scene.video,
           };
         }),
       }));
-      toast.success("기존 결과를 현재 장면의 기준으로 확정했습니다.");
+      toast.success("현재 이미지를 유지합니다. 영상에 수정 내용이 있으면 별도로 제작·검수해 주세요.");
     },
     [updateDraft],
   );
@@ -3056,7 +2990,11 @@ function StoryboardAccountWorkspace({
 
   const updateScene = useCallback(
     (sceneId: string, patch: Partial<ImageStoryboardScene>) => {
-      updateDraft((current) => ({
+      updateDraft((current) => {
+        const original = current.scenes.find((scene) => scene.id === sceneId);
+        if (!original || Object.entries(patch).every(([key, value]) => original[key as keyof ImageStoryboardScene] === value)) return current;
+        const changesImage = Object.keys(patch).some((key) => !["duration", "dialogueOrCaption", "transition"].includes(key));
+        return {
         ...current,
         videoProduction: resetStoryboardVideoProduction(
           current.videoProduction,
@@ -3069,24 +3007,24 @@ function StoryboardAccountWorkspace({
                 scene.video.durationSeconds,
               )
             : scene.video.durationSeconds;
-          const nextScene = markSceneForReview(
-            {
+          const patched = {
               ...scene,
               ...patch,
-              imageDesignRevision: scene.imageDesignRevision + 1,
-              videoDesignRevision: scene.videoDesignRevision + 1,
+              imageDesignRevision: scene.imageDesignRevision + (changesImage ? 1 : 0),
               approvedVideoArtifactId: null,
               ...(patch.duration ? { duration: `${durationSeconds}초` } : {}),
               video: {
                 ...scene.video,
                 durationSeconds,
               },
-            },
+            };
+          const nextScene = changesImage ? markSceneForReview(
+            markStoryboardSceneVideoForReview(patched),
             "장면 내용이 변경되었습니다. 기존 결과를 유지했으니 다시 확인하거나 재생성해 주세요.",
-          );
+          ) : markStoryboardSceneVideoForReview(patched);
           return { ...nextScene, status: deriveSceneStatus(nextScene) };
         }),
-      }));
+      }; });
     },
     [updateDraft],
   );
@@ -3095,19 +3033,13 @@ function StoryboardAccountWorkspace({
     (sceneId: string | undefined, field: string, value: string) => {
       if (!sceneId) return;
       if (field === "title" && !value.trim()) {
-        updateDraft((current) => ({
-          ...current,
-          scenes: current.scenes.map((scene) =>
-            scene.id === sceneId
-              ? { ...scene, title: `장면 ${scene.order}` }
-              : scene,
-          ),
-        }));
+        const scene = draftRef.current?.scenes.find((item) => item.id === sceneId);
+        if (scene) updateScene(sceneId, { title: `장면 ${scene.order}` });
         return;
       }
       updateScene(sceneId, { [field]: value } as Partial<ImageStoryboardScene>);
     },
-    [updateDraft, updateScene],
+    [updateScene],
   );
 
   const commitSceneRedesignInstruction = useCallback(
@@ -3247,64 +3179,26 @@ function StoryboardAccountWorkspace({
     [downloadingSceneImageId, draft?.title],
   );
 
-  const cleanupReplacedSceneImage = useCallback(
-    async (
-      replacedImage: ImageStoryboardScene["generatedImage"],
-      replacedSceneId: string,
-    ) => {
-      if (!replacedImage || !currentUser?.uid || !activeId) return;
-      const storagePath =
-        replacedImage.storagePath ||
-        storagePathFromFirebaseDownloadUrl(replacedImage.url);
-      const ownedStoryboardPrefix = `users/${currentUser.uid}/storyboards/${activeId}/`;
-      // Shared generation-history files are retired by the artifact audit.
-      // Only a project-private copy is safe to delete immediately.
-      if (!storagePath?.startsWith(ownedStoryboardPrefix)) return;
-      const stillUsed = draft?.scenes.some(
-        (scene) =>
-          scene.id !== replacedSceneId &&
-          scene.generatedImage?.id === replacedImage.id,
-      );
-      if (stillUsed) return;
-      try {
-        await imageStoryboardService.deleteGeneratedImage(
-          currentUser.uid,
-          activeId,
-          { id: replacedImage.id, storagePath },
-        );
-      } catch (error) {
-        console.error("[Storyboard] replaced image cleanup failed:", error);
-        updateDraft((current) => {
-          const isStillCurrent = current.scenes.some(
-            (item) =>
-              item.generatedImage?.id === replacedImage.id ||
-              (storagePath && item.generatedImage?.storagePath === storagePath),
-          );
-          return {
-            ...current,
-            cleanupStatus: "retry",
-            cleanupErrorMessage:
-              "교체된 장면 이미지 파일을 정리하지 못했습니다. 파일 관리에서 다시 정리해 주세요.",
-            reclaimableStorageAssets:
-              storagePath && !isStillCurrent
-                ? queueReclaimableStorageAsset(current, {
-                    storagePath,
-                    label: "교체된 장면 이미지",
-                    kind: "scene-image",
-                  })
-                : current.reclaimableStorageAssets,
-          };
-        });
-        toast.warning("새 이미지는 적용했지만 이전 파일 정리가 필요합니다.");
-      }
-    },
-    [activeId, currentUser?.uid, draft?.scenes, updateDraft],
-  );
+  const cleanupReplacedSceneImage = useCallback(async (
+    replacedImage: ImageStoryboardScene["generatedImage"], replacedSceneId: string,
+  ) => {
+    if (!replacedImage || !currentUser?.uid || !activeId) return;
+    const storagePath = replacedImage.storagePath || storagePathFromFirebaseDownloadUrl(replacedImage.url);
+    if (!storagePath?.startsWith(`users/${currentUser.uid}/storyboards/${activeId}/`)) return;
+    updateDraft((current) => {
+      if (current.scenes.some((scene) => scene.id !== replacedSceneId && scene.generatedImage?.id === replacedImage.id)) return current;
+      // Versions and undo can still refer to this file. Retire it for explicit
+      // cleanup instead of breaking those snapshots as soon as it is replaced.
+      return { ...current, reclaimableStorageAssets: queueReclaimableStorageAsset(current, {
+        storagePath, label: "교체된 장면 이미지", kind: "scene-image",
+      }) };
+    });
+  }, [activeId, currentUser?.uid, updateDraft]);
 
   const handleGenerateScene = useCallback(
     async (scene: ImageStoryboardScene) => {
       if (
-        !draft ||
+        !draft || imageGenerationPendingRef.current || videoRequestPendingRef.current || hasActiveStoryboardVideoWork(draftRef.current ?? draft) ||
         isGenerating ||
         isBulkGenerating ||
         isPlanning ||
@@ -3316,9 +3210,14 @@ function StoryboardAccountWorkspace({
         scene,
         buildSceneReferences(scene.id),
       );
+      const requestId = ++imageGenerationRequestRef.current;
+      const isCurrent = () => isMountedRef.current && imageGenerationRequestRef.current === requestId && activeIdRef.current === activeId;
+      imageGenerationPendingRef.current = true;
       setGeneratingSceneId(scene.id);
       try {
-        const image = await onGenerateScene(payload);
+        const image = await onGenerateScene({ ...payload, artifactProvenance: activeId
+          ? { kind: "storyboard-scene", storyboardId: activeId, sceneId: scene.id } : null });
+        if (!isCurrent()) return;
         updateDraft((current) => ({
           ...current,
           videoProduction: resetStoryboardVideoProduction(
@@ -3326,30 +3225,7 @@ function StoryboardAccountWorkspace({
           ),
           scenes: current.scenes.map((item) =>
             item.id === scene.id
-              ? {
-                  ...item,
-                  status: "generated",
-                  assetFreshness: "current",
-                  staleReason: null,
-                  generatedImage: {
-                    id: image.id,
-                    url: image.url,
-                    generatedAt: Date.now(),
-                    storagePath: image.storagePath ?? null,
-                    provenance: activeId
-                      ? {
-                          kind: "storyboard-scene",
-                          storyboardId: activeId,
-                          sceneId: scene.id,
-                        }
-                      : null,
-                  },
-                  approvedImageArtifactId: `scene-image:${image.id}`,
-                  approvedVideoArtifactId: null,
-                  video: sceneHasVideoResult(item)
-                    ? { ...item.video, status: "review", approvedAt: null }
-                    : resetSceneVideo(item),
-                }
+              ? applyGeneratedStoryboardImage(draft, current, scene, item, image, activeId)
               : item,
           ),
         }));
@@ -3358,7 +3234,8 @@ function StoryboardAccountWorkspace({
       } catch {
         // Generation errors are already surfaced by the image-generation mutation.
       } finally {
-        setGeneratingSceneId(null);
+        if (imageGenerationRequestRef.current === requestId) imageGenerationPendingRef.current = false;
+        if (isCurrent()) setGeneratingSceneId(null);
       }
     },
     [
@@ -3377,7 +3254,7 @@ function StoryboardAccountWorkspace({
 
   const handleGenerateAllScenes = useCallback(async () => {
     if (
-      !draft ||
+      !draft || imageGenerationPendingRef.current || videoRequestPendingRef.current || hasActiveStoryboardVideoWork(draftRef.current ?? draft) ||
       isGenerating ||
       isBulkGenerating ||
       isPlanning ||
@@ -3396,6 +3273,9 @@ function StoryboardAccountWorkspace({
       return;
     }
 
+    const requestId = ++imageGenerationRequestRef.current;
+    const isCurrent = () => isMountedRef.current && imageGenerationRequestRef.current === requestId && activeIdRef.current === activeId;
+    imageGenerationPendingRef.current = true;
     setIsBulkGenerating(true);
     let previousImageUrl: string | undefined;
     let generatedCount = 0;
@@ -3406,8 +3286,13 @@ function StoryboardAccountWorkspace({
       scene: ImageStoryboardScene,
       references: ImageReferenceInput[],
     ) => {
+      if (!isCurrent()) return null;
+      const latestScene = draftRef.current?.scenes.find((item) => item.id === scene.id);
+      if (!latestScene || storyboardImageDesignSignature(draft, scene) !== storyboardImageDesignSignature(draftRef.current!, latestScene)) return null;
       const payload = buildGenerationPayload(draft, scene, references);
-      const image = await onGenerateScene(payload);
+      const image = await onGenerateScene({ ...payload, artifactProvenance: activeId
+        ? { kind: "storyboard-scene", storyboardId: activeId, sceneId: scene.id } : null });
+      if (!isCurrent()) return null;
       generatedCount += 1;
       updateDraft((current) => ({
         ...current,
@@ -3416,30 +3301,7 @@ function StoryboardAccountWorkspace({
         ),
         scenes: current.scenes.map((item) =>
           item.id === scene.id
-            ? {
-                ...item,
-                status: "generated",
-                assetFreshness: "current",
-                staleReason: null,
-                generatedImage: {
-                  id: image.id,
-                  url: image.url,
-                  generatedAt: Date.now(),
-                  storagePath: image.storagePath ?? null,
-                  provenance: activeId
-                    ? {
-                        kind: "storyboard-scene",
-                        storyboardId: activeId,
-                        sceneId: scene.id,
-                      }
-                    : null,
-                },
-                approvedImageArtifactId: `scene-image:${image.id}`,
-                approvedVideoArtifactId: null,
-                video: sceneHasVideoResult(item)
-                  ? { ...item.video, status: "review", approvedAt: null }
-                  : resetSceneVideo(item),
-              }
+            ? applyGeneratedStoryboardImage(draft, current, scene, item, image, activeId)
             : item,
         ),
       }));
@@ -3449,6 +3311,7 @@ function StoryboardAccountWorkspace({
     try {
       if (draft.usePreviousSceneAsReference) {
         for (const scene of draft.scenes) {
+          if (!isCurrent()) break;
           if (scene.generatedImage?.url) {
             previousImageUrl = scene.generatedImage.url;
             continue;
@@ -3467,7 +3330,7 @@ function StoryboardAccountWorkspace({
               : externalReferences;
           setGeneratingSceneId(scene.id);
           const image = await generateScene(scene, references);
-          previousImageUrl = image.url;
+          if (image) previousImageUrl = image.url;
         }
       } else {
         let nextSceneIndex = 0;
@@ -3475,7 +3338,7 @@ function StoryboardAccountWorkspace({
         const workers = Array.from(
           { length: Math.min(2, pendingScenes.length) },
           async () => {
-            while (nextSceneIndex < pendingScenes.length) {
+            while (isCurrent() && nextSceneIndex < pendingScenes.length) {
               const scene = pendingScenes[nextSceneIndex];
               nextSceneIndex += 1;
               try {
@@ -3493,13 +3356,13 @@ function StoryboardAccountWorkspace({
           },
         );
         await Promise.all(workers);
-        if (failures.length) {
+        if (isCurrent() && failures.length) {
           const message = `${failures.map((failure) => failure.order).join(", ")}번 장면은 생성하지 못했습니다. 해당 장면만 다시 시도해 주세요.`;
           setLoadError(message);
           toast.warning(message);
         }
       }
-      if (generatedCount > 0) {
+      if (isCurrent() && generatedCount > 0) {
         toast.success(`${generatedCount}개 장면을 생성했습니다.`, {
           description: draft.usePreviousSceneAsReference
             ? "이전 장면을 다음 장면의 참조로 이어서 일관성을 유지했습니다."
@@ -3507,6 +3370,7 @@ function StoryboardAccountWorkspace({
         });
       }
     } catch (error) {
+      if (!isCurrent()) return;
       const message =
         error instanceof Error
           ? error.message
@@ -3514,8 +3378,11 @@ function StoryboardAccountWorkspace({
       setLoadError(message);
       toast.error(message);
     } finally {
-      setGeneratingSceneId(null);
-      setIsBulkGenerating(false);
+      if (imageGenerationRequestRef.current === requestId) imageGenerationPendingRef.current = false;
+      if (isCurrent()) {
+        setGeneratingSceneId(null);
+        setIsBulkGenerating(false);
+      }
     }
   }, [
     activeId,
@@ -3548,6 +3415,8 @@ function StoryboardAccountWorkspace({
     draft?.scenes.some((scene) => scene.status !== "draft"),
   );
   const isWorkspaceBusy =
+    Boolean(deletingProjectId) ||
+    (workspaceMode === "storyboard" && Boolean(draft && hasActiveStoryboardVideoWork(draft))) ||
     isGenerating ||
     isBulkGenerating ||
     isPlanning ||
@@ -3649,10 +3518,14 @@ function StoryboardAccountWorkspace({
     draft?.scenes[0] ??
     null;
   const approvedVideoCount =
-    draft?.scenes.filter((scene) => scene.video.status === "approved").length ??
+    draft?.scenes.filter((scene) => scene.assetFreshness !== "review" && scene.video.status === "approved" && scene.video.clipId && scene.video.videoUrl).length ??
     0;
   const missingImageScenes = useMemo(
     () => draft?.scenes.filter((scene) => !scene.generatedImage) ?? [],
+    [draft],
+  );
+  const reviewImageScenes = useMemo(
+    () => draft?.scenes.filter((scene) => scene.assetFreshness === "review") ?? [],
     [draft],
   );
   const generatedSceneCount = draft?.scenes.length
@@ -3766,12 +3639,16 @@ function StoryboardAccountWorkspace({
       {
         id: "scenes",
         label: "장면 이미지",
-        description: missingImageScenes.length
+        description: reviewImageScenes.length
+          ? `이미지 ${reviewImageScenes.length}개에 변경 사항이 있습니다. 현재 이미지를 유지하거나 다시 생성해 주세요.`
+          : missingImageScenes.length
           ? `${generatedSceneCount}/${draft.scenes.length}개 장면 이미지가 완성됐습니다. 누락: ${missingImageScenes.map((scene) => `${scene.order}번`).join(", ")}`
           : `${generatedSceneCount}/${draft.scenes.length}개 장면 이미지가 완성됐습니다.`,
-        ready: generatedSceneCount === draft.scenes.length,
+        ready: generatedSceneCount === draft.scenes.length && !reviewImageScenes.length,
         actionLabel:
-          missingImageScenes.length === 1
+          reviewImageScenes.length
+            ? `${reviewImageScenes[0].order}번 이미지 확인`
+            : missingImageScenes.length === 1
             ? `${missingImageScenes[0].order}번 찾기`
             : missingImageScenes.length
               ? `누락 ${missingImageScenes.length}개 찾기`
@@ -3790,10 +3667,12 @@ function StoryboardAccountWorkspace({
         id: "final",
         label: "최종 완성본",
         description:
-          draft.videoProduction.finalStatus === "completed"
-            ? "병합된 최종 영상이 준비됐습니다."
-            : "모든 장면 승인 후 자동 병합할 수 있습니다.",
-        ready: draft.videoProduction.finalStatus === "completed",
+          isStoryboardFinalCurrent(draft)
+            ? "현재 수정 내용이 반영된 최종 영상이 준비됐습니다."
+            : draft.videoProduction.finalVideoUrl
+              ? "이전 완성본이 있습니다. 변경된 장면을 검수한 뒤 다시 조립해 주세요."
+              : "모든 장면 승인 후 최종 영상을 조립할 수 있습니다.",
+        ready: isStoryboardFinalCurrent(draft),
         actionLabel: "결과 관리",
         action: "files",
       },
@@ -3805,6 +3684,7 @@ function StoryboardAccountWorkspace({
     generatedSceneCount,
     hasTopic,
     missingImageScenes,
+    reviewImageScenes,
     qualityReport,
   ]);
   const readinessScore = readinessChecks.length
@@ -3848,7 +3728,8 @@ function StoryboardAccountWorkspace({
   }, []);
 
   const openDashboard = useCallback(async () => {
-    if (videoRequestPendingRef.current) { toast.info("영상 작업 접수가 끝난 뒤 이동할 수 있습니다."); return; }
+    if (isProjectNavigationBlocked()) return;
+    projectSwitchRequestRef.current += 1;
     await flushFocusedWorkspaceField();
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     if (activeId && draftRef.current && isDirtyRef.current) {
@@ -3859,7 +3740,7 @@ function StoryboardAccountWorkspace({
     intentRevealCleanupRef.current?.();
     setWorkspaceSurface("dashboard");
     setDashboardSnapshot({ ...dashboardSessionRef.current });
-  }, [activeId, activeSceneId, workspaceMode, flushFocusedWorkspaceField, persistDraft]);
+  }, [activeId, activeSceneId, workspaceMode, flushFocusedWorkspaceField, isProjectNavigationBlocked, persistDraft]);
 
   const handleGoogleLogin = useCallback(async () => {
     if (!isAuthConfigured) {
@@ -3898,15 +3779,15 @@ function StoryboardAccountWorkspace({
 
   const openProductionConsole = useCallback(() => {
     setWorkspaceSurface("editor");
-    setWorkspaceMode("video");
+    void changeWorkspaceMode("video");
     scrollToWorkspaceTarget("storyboard-video-automation");
-  }, [scrollToWorkspaceTarget]);
+  }, [changeWorkspaceMode, scrollToWorkspaceTarget]);
 
   const openFileManager = useCallback(() => {
     setWorkspaceSurface("editor");
-    setWorkspaceMode("video");
+    void changeWorkspaceMode("video");
     scrollToWorkspaceTarget("storyboard-project-files");
-  }, [scrollToWorkspaceTarget]);
+  }, [changeWorkspaceMode, scrollToWorkspaceTarget]);
 
   const handleReadinessAction = useCallback(
     (action: ReadinessCheck["action"]) => {
@@ -3919,9 +3800,9 @@ function StoryboardAccountWorkspace({
         return;
       }
       setWorkspaceSurface("editor");
-      setWorkspaceMode("storyboard");
-      if (action === "scenes" && missingImageScenes[0]) {
-        focusScene(missingImageScenes[0].id);
+      void changeWorkspaceMode("storyboard");
+      if (action === "scenes" && (reviewImageScenes[0] || missingImageScenes[0])) {
+        focusScene((reviewImageScenes[0] || missingImageScenes[0]).id);
         return;
       }
       const targetByAction: Record<
@@ -3940,8 +3821,10 @@ function StoryboardAccountWorkspace({
     },
     [
       activeScene,
+      changeWorkspaceMode,
       focusScene,
       missingImageScenes,
+      reviewImageScenes,
       openFileManager,
       openProductionConsole,
       scrollToWorkspaceTarget,
@@ -3955,7 +3838,7 @@ function StoryboardAccountWorkspace({
       aria-modal={presentation === "dialog" ? "true" : undefined}
       aria-labelledby="storyboard-workspace-title"
     >
-      <Workspace ref={workspaceRef} $pageView={presentation === "page"}>
+      <Workspace ref={workspaceRef} $pageView={presentation === "page"} aria-busy={Boolean(deletingProjectId)}>
         <WorkspaceHeader
           data-page-view={presentation === "page"}
           data-signed-out={!currentUser}
@@ -4040,6 +3923,7 @@ function StoryboardAccountWorkspace({
             </CloseButton>
           </HeaderActions>
         </WorkspaceHeader>
+        {deletingProjectId ? <p role="status" aria-live="polite">프로젝트의 작업 기록과 결과물을 삭제하고 있습니다…</p> : null}
 
         {authLoading ? (
           <SignInState role="status" aria-live="polite">
@@ -4086,6 +3970,7 @@ function StoryboardAccountWorkspace({
           </SignInState>
         ) : (
           <WorkspaceBody
+            inert={Boolean(deletingProjectId)}
             $dashboardMode={workspaceSurface === "dashboard"}
             $compactVideoMode={
               workspaceSurface === "editor" && workspaceMode === "video"
@@ -4229,6 +4114,7 @@ function StoryboardAccountWorkspace({
                             type="button"
                             role="menuitem"
                             className="danger"
+                            disabled={Boolean(deletingProjectId)}
                             onClick={() =>
                               void deleteStoryboardProject(storyboard)
                             }
@@ -4257,6 +4143,8 @@ function StoryboardAccountWorkspace({
                   void selectStoryboard(storyboard, intent)
                 }
                 onRetry={retryStoryboardSubscription}
+                onDelete={(storyboard) => { void deleteStoryboardProject(storyboard); }}
+                deletingProjectId={deletingProjectId}
               />
             ) : draft ? (
               <>
@@ -4411,6 +4299,7 @@ function StoryboardAccountWorkspace({
                           type="button"
                           className="danger"
                           onClick={() => void deleteCurrentStoryboard()}
+                          disabled={Boolean(deletingProjectId)}
                         >
                           <i className="fas fa-trash" aria-hidden="true" /> 삭제
                         </button>
@@ -4435,7 +4324,7 @@ function StoryboardAccountWorkspace({
                     <button
                       type="button"
                       className={workspaceMode === "storyboard" ? "active" : ""}
-                      onClick={() => setWorkspaceMode("storyboard")}
+                      onClick={() => void changeWorkspaceMode("storyboard")}
                       aria-pressed={workspaceMode === "storyboard"}
                     >
                       <i
@@ -4447,7 +4336,7 @@ function StoryboardAccountWorkspace({
                     <button
                       type="button"
                       className={workspaceMode === "video" ? "active" : ""}
-                      onClick={() => setWorkspaceMode("video")}
+                      onClick={() => void changeWorkspaceMode("video")}
                       aria-pressed={workspaceMode === "video"}
                     >
                       <i className="fas fa-film" aria-hidden="true" />
@@ -5357,7 +5246,7 @@ function StoryboardAccountWorkspace({
                                       aria-hidden="true"
                                     />
                                     <span>
-                                      <strong>기존 결과 확인 필요</strong>
+                                      <strong>현재 이미지 확인 필요</strong>
                                       {scene.staleReason ??
                                         "설정이 변경되어 결과를 다시 확인해 주세요."}
                                     </span>
@@ -5366,9 +5255,9 @@ function StoryboardAccountWorkspace({
                                       onClick={() =>
                                         acceptExistingSceneResult(scene.id)
                                       }
-                                      aria-label={`${scene.order}번 장면의 기존 결과 유지`}
+                                      aria-label={`${scene.order}번 장면의 현재 이미지 유지`}
                                     >
-                                      이 결과 유지
+                                      현재 이미지 유지
                                     </button>
                                   </ResultReviewNotice>
                                 ) : null}
@@ -5963,7 +5852,7 @@ function StoryboardAccountWorkspace({
                           draft.scenes.find(
                             (scene) => !scene.generatedImage?.url,
                           ) ?? draft.scenes[0];
-                        setWorkspaceMode("storyboard");
+                        void changeWorkspaceMode("storyboard");
                         if (missingScene) focusScene(missingScene.id);
                       }}
                       disabled={isWorkspaceBusy}
@@ -6066,7 +5955,7 @@ function StoryboardAccountWorkspace({
                           <button
                             type="button"
                             onClick={() => {
-                              setWorkspaceMode("storyboard");
+                              void changeWorkspaceMode("storyboard");
                               scrollToWorkspaceTarget(
                                 `storyboard-scene-${activeScene.id}`,
                               );
@@ -6086,7 +5975,7 @@ function StoryboardAccountWorkspace({
                           <button
                             type="button"
                             onClick={() => {
-                              setWorkspaceMode("storyboard");
+                              void changeWorkspaceMode("storyboard");
                               setRedesignPanelSceneId(activeScene.id);
                               scrollToWorkspaceTarget(
                                 `storyboard-scene-${activeScene.id}`,
@@ -6103,7 +5992,7 @@ function StoryboardAccountWorkspace({
                           <button
                             type="button"
                             onClick={() =>
-                              void handleGenerateScene(activeScene)
+                              openPaidActionApproval({ kind: "scene", sceneId: activeScene.id, order: activeScene.order, replacing: Boolean(activeScene.generatedImage) })
                             }
                             disabled={isWorkspaceBusy}
                           >
@@ -6117,14 +6006,11 @@ function StoryboardAccountWorkspace({
                           <ReviewAcceptButton
                             type="button"
                             onClick={() =>
-                              updateScene(activeScene.id, {
-                                assetFreshness: "current",
-                                staleReason: null,
-                              })
+                              acceptExistingSceneResult(activeScene.id)
                             }
                           >
                             <i className="fas fa-check" aria-hidden="true" />{" "}
-                            현재 결과 검토 완료
+                            현재 이미지 검토 완료
                           </ReviewAcceptButton>
                         ) : null}
                       </>

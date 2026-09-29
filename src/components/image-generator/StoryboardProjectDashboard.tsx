@@ -25,6 +25,7 @@ import {
   ProjectIdentity,
   ProjectMetric,
   ProjectOpenButton,
+  ProjectDeleteButton,
   ProjectSearchField,
   ProjectStatus,
   ProjectTable,
@@ -56,6 +57,8 @@ type StoryboardProjectDashboardProps = {
     intent: StoryboardOpenIntent,
   ) => void;
   onRetry: () => void;
+  onDelete: (storyboard: SavedImageStoryboard) => void;
+  deletingProjectId: string | null;
   storyboards: SavedImageStoryboard[];
 };
 
@@ -85,6 +88,8 @@ export default function StoryboardProjectDashboard({
   onCreate,
   onOpen,
   onRetry,
+  onDelete,
+  deletingProjectId,
   storyboards,
 }: StoryboardProjectDashboardProps) {
   const dashboardRef = useRef<HTMLElement>(null);
@@ -208,7 +213,7 @@ export default function StoryboardProjectDashboard({
             관리하세요.
           </p>
         </div>
-        <DashboardPrimaryButton type="button" onClick={onCreate}>
+        <DashboardPrimaryButton type="button" onClick={onCreate} disabled={Boolean(deletingProjectId)}>
           <i className="fas fa-plus" aria-hidden="true" />새 프로젝트
         </DashboardPrimaryButton>
       </DashboardHero>
@@ -219,6 +224,9 @@ export default function StoryboardProjectDashboard({
             다시 불러오기
           </button>
         </ErrorNotice>
+      ) : null}
+      {deletingProjectId ? (
+        <p role="status" aria-live="polite">프로젝트의 작업 기록과 파일을 삭제하고 있습니다. 완료될 때까지 기다려 주세요.</p>
       ) : null}
 
       <DashboardKpiGrid role="group" aria-label="프로젝트 핵심 지표">
@@ -394,6 +402,7 @@ export default function StoryboardProjectDashboard({
                   <ProjectActionCell role="cell">
                     <ProjectOpenButton
                       type="button"
+                      disabled={Boolean(deletingProjectId)}
                       data-project-id={storyboard.id}
                       onClick={() =>
                         { sessionRef.current.focusedProjectId = storyboard.id;
@@ -403,6 +412,17 @@ export default function StoryboardProjectDashboard({
                       {nextAction.label}
                       <i className="fas fa-arrow-right" aria-hidden="true" />
                     </ProjectOpenButton>
+                    <ProjectDeleteButton
+                      type="button"
+                      aria-label={`${storyboard.title} 프로젝트 영구 삭제`}
+                      title="작업 기록과 결과물을 모두 영구 삭제"
+                      disabled={Boolean(deletingProjectId)}
+                      aria-busy={deletingProjectId === storyboard.id}
+                      onClick={() => onDelete(storyboard)}
+                    >
+                      <i className={deletingProjectId === storyboard.id ? "fas fa-spinner fa-spin" : "fas fa-trash"} aria-hidden="true" />
+                      {deletingProjectId === storyboard.id ? "삭제 중…" : "삭제"}
+                    </ProjectDeleteButton>
                   </ProjectActionCell>
                 </ProjectTableRow>
               );

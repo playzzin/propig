@@ -202,12 +202,14 @@ const [schema, service, workspace, deleteRoute] = await Promise.all([
 assert.ok(schema.includes("scene.transitionStyle === 'fade'"));
 assert.ok(schema.includes("{ transitionStyle: 'crossfade' }"));
 assert.ok(service.includes("duplicateWithMedia"));
-assert.ok(service.includes("syncStoryboardProductionRecords"));
+assert.ok(service.includes("stageStoryboardProductionRecords(transaction"));
 assert.ok(service.includes("STORYBOARD_ARTIFACT_COLLECTION"));
 assert.ok(workspace.includes("projectSwitchRequestRef"));
 assert.ok(workspace.includes("imageStoryboardService.get("));
 assert.ok(workspace.includes("<ProjectRowMenu>"));
-assert.ok(deleteRoute.includes("db.recursiveDelete(storyboardRef)"));
-assert.ok(deleteRoute.includes("bucket.deleteFiles"));
+assert.ok(deleteRoute.includes("createStoryboardDeletionHandler(db, admin)"));
+const deletionCore = await readFile(new URL("../functions/src/api/storyboardDeletion.ts", import.meta.url), "utf8");
+assert.ok(deletionCore.includes("db.recursiveDelete(collection)"));
+assert.ok(deletionCore.includes("bucket.deleteFiles"));
 
 console.log("Storyboard workflow v2 contracts verified.");

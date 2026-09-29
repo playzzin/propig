@@ -1,13 +1,21 @@
 import type {
+    ImageStoryboard,
     ImageStoryboardScene,
     StoryboardVideoProduction,
 } from '@/schemas/imageStoryboard';
 
-type ReusableScene = Pick<ImageStoryboardScene, 'id' | 'video'>;
+type ReusableScene = Pick<ImageStoryboardScene, 'id' | 'video'> & Partial<Pick<ImageStoryboardScene, 'assetFreshness'>>;
+
+export function hasActiveStoryboardVideoWork(storyboard: ImageStoryboard): boolean {
+    return ['preparing', 'running', 'pausing', 'merging'].includes(storyboard.videoProduction.automationStatus)
+        || ['queued', 'rendering'].includes(storyboard.videoProduction.finalStatus)
+        || storyboard.scenes.some((scene) => ['queued', 'rendering'].includes(scene.video.status));
+}
 
 function isReusableStoryboardScene(scene: ReusableScene): boolean {
     return Boolean(
-        scene.video.status === 'approved'
+        scene.assetFreshness !== 'review'
+        && scene.video.status === 'approved'
         && scene.video.clipId
         && scene.video.videoUrl,
     );
@@ -18,22 +26,14 @@ export function getReusableStoryboardSceneIds(scenes: ReusableScene[]): string[]
 }
 
 /**
- * Returns the next scene that still needs rendering. A persisted completed id
- * is trusted only while its approved clip and playable URL still exist.
+ * Derive the next scene from current approved media. Saved run progress can
+ * lag behind edits, approvals or restored projects and must not trigger a new render.
  */
 export function findNextStoryboardSceneIndex(
     scenes: ReusableScene[],
-    completedSceneIds: Iterable<string>,
-    startIndex = 0,
 ): number {
-    const completed = new Set(completedSceneIds);
-    for (let index = Math.max(0, startIndex); index < scenes.length; index += 1) {
-        const scene = scenes[index];
-        if (!completed.has(scene.id) || !isReusableStoryboardScene(scene)) {
-            return index;
-        }
-    }
-    return scenes.length;
+    const index = scenes.findIndex((scene) => !isReusableStoryboardScene(scene));
+    return index < 0 ? scenes.length : index;
 }
 
 /**

@@ -37,8 +37,9 @@ assertContains(storyboardService, 'isOwnedStoryboardStoragePath(userId, storyboa
 
 assertContains(workspace, 'storagePathFromFirebaseDownloadUrl', 'Legacy generated image path recovery');
 assertContains(workspace, 'kind: "scene-image"', 'Failed replacement cleanup queue');
-assertContains(workspace, 'item.generatedImage?.storagePath === storagePath', 'Current scene image deletion guard');
-assertContains(workspace, 'if (!storagePath?.startsWith(ownedStoryboardPrefix)) return', 'Shared generation history preservation');
+assertContains(workspace, 'scene.id !== replacedSceneId && scene.generatedImage?.id === replacedImage.id', 'Shared scene image retirement guard');
+assertContains(workspace, 'if (!storagePath?.startsWith(`users/${currentUser.uid}/storyboards/${activeId}/`)) return', 'Shared generation history preservation');
+if (workspace.includes('imageStoryboardService.deleteGeneratedImage(')) throw new Error('Replacing an image must preserve version/undo files until explicit cleanup');
 
 assertContains(serverStorage, 'getOwnedVideoStudioStorageSnapshot', 'Server storage inspection');
 assertContains(serverStorage, 'ACTIVE_VIDEO_STUDIO_JOB_STATUSES', 'Server active job lock');
@@ -87,6 +88,6 @@ assertContains(manager, 'window.confirm', 'Destructive cleanup confirmation');
 assertContains(manager, '현재 장면, 최종 완성본, 진행 중 작업이 사용하는 파일은 보호됩니다.', 'Protected file notice');
 assertContains(manager, 'projectBusy', 'UI active-render lock');
 assertContains(manager, 'protectedLocalPaths', 'Current local asset deletion guard');
-assertContains(videoPanel, 'clipRecordAlreadyRemoved', 'Removed clip retry loop recovery');
+if (videoPanel.includes('videoStudioService.deleteClip(')) throw new Error('Replacing a clip must preserve version/undo files until project deletion');
 
 console.log('Storyboard file cleanup verification passed');

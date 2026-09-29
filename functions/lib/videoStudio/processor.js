@@ -373,6 +373,17 @@ async function claimJob(jobId) {
         if (job.cancelRequestedAt) {
             throw new VideoStudioWorkerError(409, 'Cancellation has already been requested for this job.');
         }
+        const projectSnapshot = await transaction.get(firestore_1.db.collection('video_studio_projects').doc(job.projectId));
+        if (!projectSnapshot.exists) {
+            throw new VideoStudioWorkerError(404, 'The selected project no longer exists.');
+        }
+        const project = projectSnapshot.data() || {};
+        if (project.userId !== job.userId) {
+            throw new VideoStudioWorkerError(403, 'You do not have access to this project.');
+        }
+        if (project.cleanupStatus === 'pending' || project.cleanupStatus === 'retry') {
+            throw new VideoStudioWorkerError(409, '프로젝트 삭제를 진행 중입니다. 정리를 완료한 뒤 다시 시도해 주세요.');
+        }
         const currentAttempt = Number((_a = job.attemptCount) !== null && _a !== void 0 ? _a : 0);
         const nextAttempt = hasResumableProviderVideo(job.metadata) ? Math.max(1, currentAttempt) : currentAttempt + 1;
         transaction.update(jobRef, {

@@ -1077,6 +1077,10 @@ const ProjectUpdated = styled.span`
 `;
 
 const ProjectActionCell = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   @media (max-width: 1080px) {
     grid-column: 2;
     grid-row: 1 / span 2;
@@ -2949,6 +2953,11 @@ const SectionHeading = styled.div`
   > div {
     min-width: 0;
   }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   > div:first-child > span {
     display: block;
     color: #6ee7b7;
@@ -3122,6 +3131,16 @@ const SceneCount = styled.span`
 
   @media (max-width: 560px) {
     flex-basis: 100%;
+  }
+`;
+
+const ProjectDeleteButton = styled(ProjectOpenButton)`
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+  background: transparent;
+
+  &:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.12);
   }
 `;
 
@@ -3848,6 +3867,7 @@ export {
   ProjectUpdated,
   ProjectActionCell,
   ProjectOpenButton,
+  ProjectDeleteButton,
   DashboardEmpty,
   ProductionAssistantRail,
   AssistantRailHeader,

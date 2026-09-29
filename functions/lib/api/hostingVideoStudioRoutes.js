@@ -44,13 +44,31 @@ function redactCreditBalance(estimate) {
 function toStoredPreflight(preflight) {
     return Object.assign(Object.assign({}, preflight), { credit: Object.assign(Object.assign({}, preflight.credit), { remainingUsd: null, totalCreditsUsd: null, totalUsageUsd: null }) });
 }
-async function requireOwnedProject(uid, projectId) {
+function assertProjectAcceptsWrites(project) {
+    if (project.cleanupStatus === 'pending' || project.cleanupStatus === 'retry') {
+        throw new hostingCommon_1.ApiError(409, '프로젝트 삭제를 진행 중입니다. 정리를 완료한 뒤 다시 시도해 주세요.');
+    }
+}
+async function requireWritableProjectInTransaction(transaction, uid, projectId) {
+    if (!projectId || projectId.includes('/'))
+        throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
+    const snapshot = await transaction.get(hostingCommon_1.db.collection(PROJECTS).doc(projectId));
+    if (!snapshot.exists)
+        throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
+    const project = snapshot.data() || {};
+    if (project.userId !== uid)
+        throw new hostingCommon_1.ApiError(403, 'You do not have access to this project.');
+    assertProjectAcceptsWrites(project);
+}
+async function requireOwnedProject(uid, projectId, options = {}) {
     const snapshot = await hostingCommon_1.db.collection(PROJECTS).doc(projectId).get();
     if (!snapshot.exists)
         throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
     const data = snapshot.data() || {};
     if (data.userId !== uid)
         throw new hostingCommon_1.ApiError(403, 'You do not have access to this project.');
+    if (!options.allowCleanup)
+        assertProjectAcceptsWrites(data);
     return { id: snapshot.id, data };
 }
 async function requireOwnedJob(uid, jobId) {
@@ -656,6 +674,7 @@ async function handleVideoStudioClips(req, res) {
             throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
         if (((_a = project.data()) === null || _a === void 0 ? void 0 : _a.userId) !== auth.uid)
             throw new hostingCommon_1.ApiError(403, 'You do not have access to this project.');
+        assertProjectAcceptsWrites(project.data() || {});
         let highest = -1;
         for (const clip of clips.docs)
             highest = Math.max(highest, Number((_b = clip.data().sequence) !== null && _b !== void 0 ? _b : -1));
@@ -728,6 +747,7 @@ async function handleVideoStudioClipById(req, res, clipId) {
             throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
         if (((_a = project.data()) === null || _a === void 0 ? void 0 : _a.userId) !== auth.uid)
             throw new hostingCommon_1.ApiError(403, 'You do not have access to this project.');
+        assertProjectAcceptsWrites(project.data() || {});
         const remaining = clips.docs
             .filter((item) => item.id !== clipId)
             .map((item) => (Object.assign({ id: item.id }, item.data())))
@@ -914,12 +934,17 @@ async function createQueuedJob(uid, payload, preflight, idempotency = null) {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (!idempotency) {
-        const ref = await hostingCommon_1.db.collection(JOBS).add(data);
-        return { jobId: ref.id, status: 'queued', deduplicated: false };
+        const ref = hostingCommon_1.db.collection(JOBS).doc();
+        return hostingCommon_1.db.runTransaction(async (transaction) => {
+            await requireWritableProjectInTransaction(transaction, uid, payload.projectId);
+            transaction.create(ref, data);
+            return { jobId: ref.id, status: 'queued', deduplicated: false };
+        });
     }
     const ref = hostingCommon_1.db.collection(JOBS).doc(idempotency.jobId);
     return hostingCommon_1.db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(ref);
+        await requireWritableProjectInTransaction(transaction, uid, payload.projectId);
         if (snapshot.exists) {
             const existing = validateIdempotentQueuedJob({
                 snapshotId: snapshot.id,
@@ -944,6 +969,7 @@ async function handleVideoStudioJobProcess(req, res) {
     const auth = await (0, hostingCommon_1.requireAdmin)(req);
     const payload = (0, hostingCommon_1.parseJson)(req, ProcessJobSchema);
     const existing = await requireOwnedJob(auth.uid, payload.jobId);
+    await requireOwnedProject(auth.uid, String(existing.data.projectId || ''));
     if (queuedJobRequiresProviderWorker(existing.data)) {
         await requireFreshProviderWorker();
     }
@@ -1012,6 +1038,9 @@ async function handleVideoStudioJobById(req, res, jobId) {
     const payload = (0, hostingCommon_1.parseJson)(req, UpdateJobSchema);
     const ref = hostingCommon_1.db.collection(JOBS).doc(jobId);
     const existing = await requireOwnedJob(auth.uid, jobId);
+    if (payload.action === 'requeue') {
+        await requireOwnedProject(auth.uid, String(existing.data.projectId || ''));
+    }
     if (payload.action === 'requeue' && queuedJobRequiresProviderWorker(existing.data)) {
         await requireFreshProviderWorker();
     }
@@ -1033,6 +1062,9 @@ async function handleVideoStudioJobById(req, res, jobId) {
         }
         if (payload.action === 'requeue' && payload.requireProviderResume && !hasResumableProviderVideo(job)) {
             throw new hostingCommon_1.ApiError(409, '저장된 OpenRouter 작업을 안전하게 이어받을 수 없습니다. 새 유료 요청은 전송하지 않았습니다.');
+        }
+        if (payload.action === 'requeue') {
+            await requireWritableProjectInTransaction(transaction, auth.uid, String(job.projectId || ''));
         }
         const activeCancellation = payload.action === 'cancel'
             && (job.status === 'running' || job.status === 'uploading');
@@ -1097,6 +1129,7 @@ async function handleVideoStudioTimeline(req, res, projectId) {
             throw new hostingCommon_1.ApiError(404, 'The selected project no longer exists.');
         if (((_a = project.data()) === null || _a === void 0 ? void 0 : _a.userId) !== auth.uid)
             throw new hostingCommon_1.ApiError(403, 'You do not have access to this project.');
+        assertProjectAcceptsWrites(project.data() || {});
         const ids = clips.docs.map((item) => item.id);
         if (ids.length !== payload.clipIds.length || payload.clipIds.some((id) => !ids.includes(id))) {
             throw new hostingCommon_1.ApiError(400, 'Timeline reorder payload must include every clip in the project exactly once.');
@@ -1134,7 +1167,7 @@ function storedVideoFileKind(path) {
     return 'other';
 }
 async function getOwnedVideoStudioStorageSnapshot(userId, projectId) {
-    const project = await requireOwnedProject(userId, projectId);
+    const project = await requireOwnedProject(userId, projectId, { allowCleanup: true });
     const prefix = videoStudioStoragePrefix(userId, project.id);
     const [clipSnapshot, jobSnapshot] = await Promise.all([
         hostingCommon_1.db.collection(CLIPS).where('projectId', '==', project.id).get(),

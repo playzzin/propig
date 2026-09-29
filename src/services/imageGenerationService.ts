@@ -1,6 +1,6 @@
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db } from '@/firebase/config';
 
 import { storage } from '@/firebase/storage';
@@ -187,17 +187,30 @@ export interface SaveHistoryParams {
 }
 
 export const saveGenerationHistory = async (params: SaveHistoryParams) => {
+    let uploadedPath: string | null = null;
     try {
+        const storyboardRef = params.artifactProvenance
+            ? doc(db, 'users', params.userId, 'imageStoryboards', params.artifactProvenance.storyboardId)
+            : null;
+        const assertWritable = (snapshot: { exists(): boolean; data(): Record<string, unknown> | undefined }) => {
+            const data = snapshot.data();
+            if (!snapshot.exists() || data?.cleanupStatus === 'pending' || (data?.cleanupStatus === 'retry' && data.cleanupManifest)) {
+                throw new Error('삭제 중이거나 삭제된 프로젝트에는 생성 결과를 저장할 수 없습니다.');
+            }
+        };
+        if (storyboardRef) assertWritable(await getDoc(storyboardRef));
         const response = await fetch(params.url);
+        if (!response.ok) throw new Error('생성 이미지를 내려받지 못했습니다.');
         const blob = await response.blob();
 
         const ext = params.type === 'video' ? 'mp4' : 'png';
         const fileName = `ai_generations/${params.userId}/${Date.now()}_${params.generatedId}.${ext}`;
         const storageRef = ref(storage, fileName);
         await uploadBytes(storageRef, blob);
+        uploadedPath = fileName;
         const downloadUrl = await getDownloadURL(storageRef);
 
-        const docRef = await addDoc(collection(db, 'ai_generations'), {
+        const history = {
             userId: params.userId,
             id: params.generatedId,
             url: downloadUrl,
@@ -208,10 +221,20 @@ export const saveGenerationHistory = async (params: SaveHistoryParams) => {
             storagePath: fileName,
             artifactProvenance: params.artifactProvenance ?? null,
             createdAt: serverTimestamp(),
-        });
+        };
+        const docRef = storyboardRef
+            ? doc(collection(db, 'ai_generations'))
+            : await addDoc(collection(db, 'ai_generations'), history);
+        if (storyboardRef) {
+            await runTransaction(db, async (transaction) => {
+                assertWritable(await transaction.get(storyboardRef));
+                transaction.set(docRef, history);
+            });
+        }
 
         return { downloadUrl, historyId: docRef.id, storagePath: fileName };
     } catch (error) {
+        if (uploadedPath) await deleteObject(ref(storage, uploadedPath)).catch(() => undefined);
         console.error('Failed to save generation history:', error);
         throw error;
     }

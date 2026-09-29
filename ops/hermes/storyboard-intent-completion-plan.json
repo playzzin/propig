@@ -1,0 +1,4 @@
+[
+  {"role":"qa","goal":"owner intent_journey_audit. 검수 우선, 첫 조립, 실제 제작 장면 안내, 프리셋 무효화 회귀를 실제 helper로 검사. allowed files에만 쓰고 제품 코드·다른 테스트는 forbidden. acceptance: node scripts/verify-storyboard-intent-journey.cjs 통과. root가 제품 소스를 소유한다.","files":["scripts/verify-storyboard-intent-journey.cjs"]},
+  {"role":"qa","goal":"owner intent_recovery_audit. 준비 중 일시정지와 서버 작업 부재 재확인 복구 콜백을 검증. allowed files에만 쓰고 제품 코드·다른 테스트는 forbidden. acceptance: node scripts/verify-storyboard-video-lifecycle.cjs 통과. root가 제품 소스를 소유한다.","files":["scripts/verify-storyboard-video-lifecycle.cjs"]}
+]

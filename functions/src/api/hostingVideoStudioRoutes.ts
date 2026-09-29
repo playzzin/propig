@@ -71,11 +71,31 @@ function toStoredPreflight<T extends Awaited<ReturnType<typeof preflightOpenRout
     };
 }
 
-async function requireOwnedProject(uid: string, projectId: string) {
+function assertProjectAcceptsWrites(project: Record<string, unknown>): void {
+    if (project.cleanupStatus === 'pending' || project.cleanupStatus === 'retry') {
+        throw new ApiError(409, '프로젝트 삭제를 진행 중입니다. 정리를 완료한 뒤 다시 시도해 주세요.');
+    }
+}
+
+async function requireWritableProjectInTransaction(
+    transaction: FirebaseFirestore.Transaction,
+    uid: string,
+    projectId: string,
+): Promise<void> {
+    if (!projectId || projectId.includes('/')) throw new ApiError(404, 'The selected project no longer exists.');
+    const snapshot = await transaction.get(db.collection(PROJECTS).doc(projectId));
+    if (!snapshot.exists) throw new ApiError(404, 'The selected project no longer exists.');
+    const project = snapshot.data() || {};
+    if (project.userId !== uid) throw new ApiError(403, 'You do not have access to this project.');
+    assertProjectAcceptsWrites(project);
+}
+
+async function requireOwnedProject(uid: string, projectId: string, options: { allowCleanup?: boolean } = {}) {
     const snapshot = await db.collection(PROJECTS).doc(projectId).get();
     if (!snapshot.exists) throw new ApiError(404, 'The selected project no longer exists.');
     const data = snapshot.data() || {};
     if (data.userId !== uid) throw new ApiError(403, 'You do not have access to this project.');
+    if (!options.allowCleanup) assertProjectAcceptsWrites(data);
     return { id: snapshot.id, data };
 }
 
@@ -771,6 +791,7 @@ export async function handleVideoStudioClips(req: Request, res: Response): Promi
         const [project, clips] = await Promise.all([transaction.get(projectRef), transaction.get(query)]);
         if (!project.exists) throw new ApiError(404, 'The selected project no longer exists.');
         if (project.data()?.userId !== auth.uid) throw new ApiError(403, 'You do not have access to this project.');
+        assertProjectAcceptsWrites(project.data() || {});
         let highest = -1;
         for (const clip of clips.docs) highest = Math.max(highest, Number(clip.data().sequence ?? -1));
         const sequence = highest + 1;
@@ -838,6 +859,7 @@ export async function handleVideoStudioClipById(req: Request, res: Response, cli
         const [project, clips] = await Promise.all([transaction.get(projectRef), transaction.get(clipsQuery)]);
         if (!project.exists) throw new ApiError(404, 'The selected project no longer exists.');
         if (project.data()?.userId !== auth.uid) throw new ApiError(403, 'You do not have access to this project.');
+        assertProjectAcceptsWrites(project.data() || {});
         const remaining = clips.docs
             .filter((item) => item.id !== clipId)
             .map(
@@ -1087,13 +1109,18 @@ async function createQueuedJob(
     };
 
     if (!idempotency) {
-        const ref = await db.collection(JOBS).add(data);
-        return { jobId: ref.id, status: 'queued', deduplicated: false };
+        const ref = db.collection(JOBS).doc();
+        return db.runTransaction(async (transaction) => {
+            await requireWritableProjectInTransaction(transaction, uid, payload.projectId);
+            transaction.create(ref, data);
+            return { jobId: ref.id, status: 'queued', deduplicated: false };
+        });
     }
 
     const ref = db.collection(JOBS).doc(idempotency.jobId);
     return db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(ref);
+        await requireWritableProjectInTransaction(transaction, uid, payload.projectId);
         if (snapshot.exists) {
             const existing = validateIdempotentQueuedJob({
                 snapshotId: snapshot.id,
@@ -1121,6 +1148,7 @@ export async function handleVideoStudioJobProcess(req: Request, res: Response): 
     const auth = await requireAdmin(req);
     const payload = parseJson(req, ProcessJobSchema);
     const existing = await requireOwnedJob(auth.uid, payload.jobId);
+    await requireOwnedProject(auth.uid, String(existing.data.projectId || ''));
     if (queuedJobRequiresProviderWorker(existing.data)) {
         await requireFreshProviderWorker();
     }
@@ -1192,6 +1220,9 @@ export async function handleVideoStudioJobById(req: Request, res: Response, jobI
     const payload = parseJson(req, UpdateJobSchema);
     const ref = db.collection(JOBS).doc(jobId);
     const existing = await requireOwnedJob(auth.uid, jobId);
+    if (payload.action === 'requeue') {
+        await requireOwnedProject(auth.uid, String(existing.data.projectId || ''));
+    }
     if (payload.action === 'requeue' && queuedJobRequiresProviderWorker(existing.data)) {
         await requireFreshProviderWorker();
     }
@@ -1222,6 +1253,9 @@ export async function handleVideoStudioJobById(req: Request, res: Response, jobI
                 409,
                 '저장된 OpenRouter 작업을 안전하게 이어받을 수 없습니다. 새 유료 요청은 전송하지 않았습니다.',
             );
+        }
+        if (payload.action === 'requeue') {
+            await requireWritableProjectInTransaction(transaction, auth.uid, String(job.projectId || ''));
         }
         const activeCancellation = payload.action === 'cancel'
             && (job.status === 'running' || job.status === 'uploading');
@@ -1294,6 +1328,7 @@ export async function handleVideoStudioTimeline(req: Request, res: Response, pro
         const [project, clips] = await Promise.all([transaction.get(projectRef), transaction.get(query)]);
         if (!project.exists) throw new ApiError(404, 'The selected project no longer exists.');
         if (project.data()?.userId !== auth.uid) throw new ApiError(403, 'You do not have access to this project.');
+        assertProjectAcceptsWrites(project.data() || {});
         const ids = clips.docs.map((item) => item.id);
         if (ids.length !== payload.clipIds.length || payload.clipIds.some((id) => !ids.includes(id))) {
             throw new ApiError(400, 'Timeline reorder payload must include every clip in the project exactly once.');
@@ -1335,7 +1370,7 @@ function storedVideoFileKind(path: string): 'video' | 'frame' | 'audio' | 'other
 }
 
 async function getOwnedVideoStudioStorageSnapshot(userId: string, projectId: string) {
-    const project = await requireOwnedProject(userId, projectId);
+    const project = await requireOwnedProject(userId, projectId, { allowCleanup: true });
     const prefix = videoStudioStoragePrefix(userId, project.id);
     const [clipSnapshot, jobSnapshot] = await Promise.all([
         db.collection(CLIPS).where('projectId', '==', project.id).get(),

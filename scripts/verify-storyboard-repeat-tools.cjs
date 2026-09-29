@@ -144,15 +144,18 @@ function testDomain() {
   assert.equal(d.applyStoryboardPlanningPreset(board, settings), board, 'Identical settings preserve approvals and object identity');
   const countOnly = d.applyStoryboardPlanningPreset(board, { ...settings, plannedSceneCount: 1, format: 'social-short' });
   assert.equal(countOnly.scenes, board.scenes); assert.equal(countOnly.videoProduction, board.videoProduction); assert.equal(countOnly.scenes.length, 3);
+  const audienceOnly = d.applyStoryboardPlanningPreset(board, { ...settings, audience: '새 대상 시청자' });
+  assert.equal(audienceOnly.scenes, board.scenes); assert.equal(audienceOnly.videoProduction, board.videoProduction);
   const changed = d.applyStoryboardPlanningPreset(board, { ...settings, aspectRatio: '9:16', artDirection: '새 연출' });
   for (const key of ['title', 'topic', 'logline', 'referenceAssets', 'reclaimableStorageAssets']) assert.equal(changed[key], board[key], `Preserve ${key}`);
   assert.equal(changed.scenes.length, board.scenes.length);
   changed.scenes.forEach((scene, index) => {
     const old = board.scenes[index];
     for (const key of ['id', 'order', 'title', 'dialogueOrCaption', 'generatedImage']) assert.equal(scene[key], old[key]);
-    for (const key of ['videoUrl', 'clipId', 'jobId', 'costUsd', 'artifactId']) assert.equal(scene.video[key], old.video[key]);
+    for (const key of ['videoUrl', 'clipId', 'costUsd', 'artifactId']) assert.equal(scene.video[key], old.video[key]);
+    assert.equal(scene.video.jobId, null, 'Old completed jobs cannot restore approval after a visual preset changes');
     assert.equal(scene.approvedImageArtifactId, null); assert.equal(scene.approvedVideoArtifactId, null); assert.equal(scene.video.approvedAt, null);
-    assert.equal(scene.assetFreshness, 'review'); assert.equal(scene.video.status, 'review'); assert.equal(scene.imageDesignRevision, old.imageDesignRevision + 1);
+    assert.equal(scene.assetFreshness, 'review'); assert.equal(scene.video.status, 'brief'); assert.equal(scene.imageDesignRevision, old.imageDesignRevision + 1);
   });
   assert.equal(changed.videoProduction.finalVideoUrl, board.videoProduction.finalVideoUrl); assert.equal(changed.videoProduction.finalFreshness, 'stale');
   assert.equal(changed.videoProduction.maxBudgetUsd, 7); assert.equal(changed.videoProduction.allowUnknownPricing, true);

@@ -138,6 +138,10 @@ async function readImageOperation(uid: string, operationId: string) {
     if (data.uid !== uid || data.operation !== 'image-generation' || data.operationId !== operationId) {
         throw new ImageOperationConflictError('이미지 작업의 소유 정보를 확인할 수 없습니다.');
     }
+    if (data.resultDeleted === true) {
+        completedImageResults.delete(key);
+        return { success: true, status: 'not-found' as const };
+    }
     if (data.status !== 'completed') {
         const status = data.status === 'pending' || data.status === 'failed' ? data.status : 'uncertain';
         return { success: true, status };
@@ -202,6 +206,10 @@ async function reserveImageOperation(uid: string, payload: z.infer<typeof Genera
             throw new ImageOperationConflictError('같은 operationId를 다른 이미지 요청에 사용할 수 없습니다.');
         }
         if (data.status === 'completed') {
+            if (data.resultDeleted === true) {
+                completedImageResults.delete(key);
+                throw new ImageOperationConflictError('삭제된 프로젝트의 이미지 결과는 복구하거나 같은 작업 ID로 다시 생성할 수 없습니다.');
+            }
             // Memory results are usable only after durable identity and completion checks.
             if (cached && cached.expiresAt > Date.now()) return cached.response;
             if (data.result && typeof data.result === 'object') return data.result as ImageGenerationResponse;

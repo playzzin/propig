@@ -210,7 +210,7 @@ function ProjectFileManager({
     const handleDeleteLocalFiles = useCallback(async () => {
         if (!currentUser?.uid || !storyboardId || !reclaimableAssets.length || isDisabled || !localInspectionComplete || isInspectingLocal || isDeletingLocal) return;
         const confirmed = window.confirm(
-            `정리 대기 파일 ${reclaimableAssets.length}개(${formatBytes(localReclaimableBytes)})를 완전히 삭제할까요?\n현재 참조 사진·배경음악·완성 영상은 삭제하지 않습니다.`,
+            `정리 대기 파일 ${reclaimableAssets.length}개(${formatBytes(localReclaimableBytes)})를 완전히 삭제할까요?\n현재 참조 사진·배경음악·완성 영상은 삭제하지 않습니다. 삭제한 파일은 이전 버전이나 되돌리기에서도 다시 열 수 없습니다.`,
         );
         if (!confirmed) return;
 

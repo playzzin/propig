@@ -17,6 +17,10 @@ export type StoryboardGeneratedImage = {
     storagePath?: string;
 };
 
+export type StoryboardImageGenerationInput = ImageStoryboardGenerationPayload & {
+    artifactProvenance?: SaveHistoryParams['artifactProvenance'];
+};
+
 function readStoryboardGenerationProvenance(): SaveHistoryParams['artifactProvenance'] {
     if (typeof window === 'undefined' || window.location.pathname !== '/admin/storyboard') return null;
 
@@ -48,7 +52,7 @@ export function useStoryboardImageGeneration() {
     const { currentUser } = useAuth();
 
     const generateMutation = useMutation({
-        mutationFn: async (payload: ImageStoryboardGenerationPayload): Promise<StoryboardGeneratedImage> => {
+        mutationFn: async (payload: StoryboardImageGenerationInput): Promise<StoryboardGeneratedImage> => {
             const prompt = payload.prompt.trim();
             if (!prompt) {
                 throw new Error('프롬프트를 입력해 주세요.');
@@ -66,6 +70,10 @@ export function useStoryboardImageGeneration() {
                 ].slice(0, MAX_IMAGE_REFERENCE_REQUESTS)
                 : payloadReferences;
             const referenceImage = payload.referenceImage ?? referenceImages[0]?.image;
+            // Navigation may change while the provider is generating the image.
+            const artifactProvenance = payload.artifactProvenance === undefined
+                ? readStoryboardGenerationProvenance()
+                : payload.artifactProvenance;
             const authToken = await currentUser.getIdToken();
             const result = await generateImage({
                 prompt,
@@ -94,7 +102,7 @@ export function useStoryboardImageGeneration() {
                 prompt,
                 negativePrompt: payload.negativePrompt,
                 provider: 'openrouter',
-                artifactProvenance: readStoryboardGenerationProvenance(),
+                artifactProvenance,
             });
             toast.success('이미지 생성과 저장이 완료되었습니다.', {
                 id: 'storyboard-image-save',

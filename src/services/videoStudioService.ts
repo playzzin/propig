@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocFromServer,
   runTransaction,
   serverTimestamp,
   updateDoc,
@@ -10,6 +11,7 @@ import {
 import { db } from "@/firebase/config";
 import {
   VIDEO_STUDIO_CLIPS_COLLECTION,
+  VIDEO_STUDIO_JOBS_COLLECTION,
   VIDEO_STUDIO_DEFAULT_ASPECT_RATIO,
   VIDEO_STUDIO_DEFAULT_RESOLUTION,
   VIDEO_STUDIO_PROJECTS_COLLECTION,
@@ -576,6 +578,13 @@ class VideoStudioService {
     }
 
     return payload as CreateClipViaApiResult;
+  }
+
+  async hasStudioJobOnServer(jobId: string, userId: string): Promise<boolean> {
+    const snapshot = await getDocFromServer(doc(db, VIDEO_STUDIO_JOBS_COLLECTION, jobId));
+    if (!snapshot.exists()) return false;
+    if (snapshot.data().userId !== userId) throw new Error("이 작업을 확인할 권한이 없습니다.");
+    return true;
   }
 
   async submitStudioJob(

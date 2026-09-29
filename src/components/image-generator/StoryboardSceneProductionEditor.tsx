@@ -261,6 +261,8 @@ export default function StoryboardSceneProductionEditor({
         modelPreflight?.canSubmit === false));
   const showApprovalAsPrimary = Boolean(
     scene.video.videoUrl &&
+    scene.video.clipId &&
+    scene.assetFreshness !== "review" &&
     !scene.video.errorMessage &&
     (scene.video.status === "review" || scene.video.status === "approved") &&
     !hasPendingVideoChanges &&
@@ -336,8 +338,6 @@ export default function StoryboardSceneProductionEditor({
                 onClick={() =>
                   onPatchVideo({
                     motionIntensity: preset.value,
-                    status: scene.video.videoUrl ? "brief" : scene.video.status,
-                    approvedAt: null,
                   })
                 }
                 disabled={projectBusy || isSceneBusy}
@@ -382,8 +382,6 @@ export default function StoryboardSceneProductionEditor({
             onCommit={(motionPrompt) =>
               onPatchVideo({
                 motionPrompt,
-                status: scene.video.videoUrl ? "brief" : scene.video.status,
-                approvedAt: null,
               })
             }
             placeholder={suggestedPrompt}
@@ -404,8 +402,6 @@ export default function StoryboardSceneProductionEditor({
                 onClick={() =>
                   onPatchVideo({
                     motionPrompt: suggestedPrompt,
-                    status: scene.video.videoUrl ? "brief" : scene.video.status,
-                    approvedAt: null,
                   })
                 }
                 disabled={projectBusy || isSceneBusy}
@@ -419,10 +415,6 @@ export default function StoryboardSceneProductionEditor({
                   onClick={() =>
                     onPatchVideo({
                       motionPrompt: "",
-                      status: scene.video.videoUrl
-                        ? "brief"
-                        : scene.video.status,
-                      approvedAt: null,
                     })
                   }
                   disabled={projectBusy || isSceneBusy}
@@ -492,11 +484,6 @@ export default function StoryboardSceneProductionEditor({
                     onPatchVideo({
                       audioMode: option.value,
                       generateAudio: option.value !== "silent",
-                      audioApplied: false,
-                      status: scene.video.videoUrl
-                        ? "brief"
-                        : scene.video.status,
-                      approvedAt: null,
                     })
                   }
                   disabled={projectBusy || isSceneBusy}
@@ -678,10 +665,6 @@ export default function StoryboardSceneProductionEditor({
                     onClick={() =>
                       onPatchVideo({
                         referenceAssetIds: [],
-                        status: scene.video.videoUrl
-                          ? "brief"
-                          : scene.video.status,
-                        approvedAt: null,
                       })
                     }
                     disabled={projectBusy || isSceneBusy}
@@ -719,10 +702,6 @@ export default function StoryboardSceneProductionEditor({
                                 ].slice(0, MAX_VIDEO_REFERENCE_IMAGES);
                           onPatchVideo({
                             referenceAssetIds: nextIds,
-                            status: scene.video.videoUrl
-                              ? "brief"
-                              : scene.video.status,
-                            approvedAt: null,
                           });
                         }}
                         disabled={projectBusy || isSceneBusy || isDisabled}
@@ -753,10 +732,6 @@ export default function StoryboardSceneProductionEditor({
                   onChange={(event) =>
                     onPatchVideo({
                       useNextSceneAsEndFrame: event.target.checked,
-                      status: scene.video.videoUrl
-                        ? "brief"
-                        : scene.video.status,
-                      approvedAt: null,
                     })
                   }
                   disabled={

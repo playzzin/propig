@@ -10,8 +10,8 @@ import {
     query,
     runTransaction,
     serverTimestamp,
-    setDoc,
     writeBatch,
+    type DocumentReference,
     type DocumentData,
     type QueryDocumentSnapshot,
     type Unsubscribe,
@@ -93,6 +93,18 @@ function storyboardVersionCollection(userId: string, storyboardId: string) {
     return collection(storyboardDocument(userId, storyboardId), STORYBOARD_VERSION_COLLECTION);
 }
 
+async function ensureStoryboardUploadIsCurrent(userId: string, storyboardId: string, path?: string): Promise<void> {
+    try {
+        const parent = await getDoc(storyboardDocument(userId, storyboardId));
+        if (!parent.exists() || (parent.data().cleanupStatus === 'pending' || (parent.data().cleanupStatus === 'retry' && parent.data().cleanupManifest))) {
+            throw new Error('삭제 중이거나 삭제된 프로젝트에는 파일을 저장할 수 없습니다.');
+        }
+    } catch (error) {
+        if (path) await deleteObject(storageRef(storage, path)).catch(() => undefined);
+        throw error;
+    }
+}
+
 function storyboardSubcollection(
     userId: string,
     storyboardId: string,
@@ -101,29 +113,21 @@ function storyboardSubcollection(
     return collection(storyboardDocument(userId, storyboardId), collectionName);
 }
 
-async function syncStoryboardProductionRecords(
+function stageStoryboardProductionRecords(
+    batch: {
+        set(reference: DocumentReference, data: DocumentData, options: { merge: true }): unknown;
+        delete(reference: DocumentReference): unknown;
+    },
     userId: string,
     storyboardId: string,
     storyboard: ImageStoryboard,
-): Promise<void> {
+    existingArtifacts: QueryDocumentSnapshot<DocumentData>[] = [],
+    existingTransitions: QueryDocumentSnapshot<DocumentData>[] = [],
+): void {
     const artifacts = deriveStoryboardArtifacts(storyboard);
     const transitions = buildStoryboardTransitionLinks(storyboard);
-    const [existingArtifacts, existingTransitions] = await Promise.all([
-        getDocs(storyboardSubcollection(
-            userId,
-            storyboardId,
-            STORYBOARD_ARTIFACT_COLLECTION,
-        )),
-        getDocs(storyboardSubcollection(
-            userId,
-            storyboardId,
-            STORYBOARD_TRANSITION_COLLECTION,
-        )),
-    ]);
     const activeArtifactIds = new Set(artifacts.map((artifact) => artifact.id));
     const activeTransitionIds = new Set(transitions.map((transition) => transition.id));
-    const batch = writeBatch(db);
-
     artifacts.forEach((artifact) => {
         batch.set(
             doc(
@@ -141,8 +145,8 @@ async function syncStoryboardProductionRecords(
             { merge: true },
         );
     });
-    existingArtifacts.docs.forEach((artifact) => {
-        if (activeArtifactIds.has(artifact.id)) return;
+    existingArtifacts.forEach((artifact) => {
+        if (activeArtifactIds.has(artifact.id) || artifact.data().lifecycle === 'retired') return;
         batch.set(artifact.ref, {
             lifecycle: 'retired',
             retiredAt: serverTimestamp(),
@@ -167,7 +171,7 @@ async function syncStoryboardProductionRecords(
             { merge: true },
         );
     });
-    existingTransitions.docs.forEach((transition) => {
+    existingTransitions.forEach((transition) => {
         if (!activeTransitionIds.has(transition.id)) batch.delete(transition.ref);
     });
 
@@ -194,7 +198,6 @@ async function syncStoryboardProductionRecords(
         );
     }
 
-    await batch.commit();
 }
 
 function extensionForContentType(contentType: string): string {
@@ -224,10 +227,12 @@ async function copyRemoteAssetToStoryboard(params: {
     await uploadBytes(reference, blob, {
         contentType: blob.type || 'application/octet-stream',
     });
-    return {
-        url: await getDownloadURL(reference),
-        storagePath,
-    };
+    try {
+        return { url: await getDownloadURL(reference), storagePath };
+    } catch (error) {
+        await deleteObject(reference).catch(() => undefined);
+        throw error;
+    }
 }
 
 function isOwnedStoryboardStoragePath(userId: string, storyboardId: string, storagePath: string): boolean {
@@ -337,12 +342,14 @@ class ImageStoryboardService {
                 buildStoryboardProductionRecordSignature(normalized),
         };
         const reference = doc(storyboardCollection(userId));
-        await setDoc(reference, {
+        const batch = writeBatch(db);
+        batch.set(reference, {
             ...parsed,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
         });
-        await syncStoryboardProductionRecords(userId, reference.id, parsed);
+        stageStoryboardProductionRecords(batch, userId, reference.id, parsed);
+        await batch.commit();
         return reference.id;
     }
 
@@ -372,11 +379,18 @@ class ImageStoryboardService {
                 buildStoryboardProductionRecordSignature(normalized),
         };
         const reference = storyboardDocument(userId, storyboardId);
+        const [existingArtifacts, existingTransitions] = await Promise.all([
+            getDocs(storyboardSubcollection(userId, storyboardId, STORYBOARD_ARTIFACT_COLLECTION)),
+            getDocs(storyboardSubcollection(userId, storyboardId, STORYBOARD_TRANSITION_COLLECTION)),
+        ]);
 
         const saveResult = await runTransaction(db, async (transaction) => {
             const snapshot = await transaction.get(reference);
             if (!snapshot.exists()) {
                 throw new Error('저장할 스토리보드가 존재하지 않습니다.');
+            }
+            if ((snapshot.data().cleanupStatus === 'pending' || (snapshot.data().cleanupStatus === 'retry' && snapshot.data().cleanupManifest))) {
+                throw new Error('프로젝트 삭제가 진행 중입니다. 삭제를 완료한 뒤 다시 시도해 주세요.');
             }
 
             const currentRevision = Number(snapshot.data().revision ?? 1);
@@ -390,29 +404,13 @@ class ImageStoryboardService {
                 revision: nextRevision,
                 updatedAt: serverTimestamp(),
             });
-            return {
-                nextRevision,
-                productionRecordsChanged:
-                    snapshot.data().productionRecordSignature !==
-                    parsed.productionRecordSignature,
-            };
+            if (snapshot.data().productionRecordSignature !== parsed.productionRecordSignature) {
+                stageStoryboardProductionRecords(transaction, userId, storyboardId,
+                    { ...parsed, revision: nextRevision }, existingArtifacts.docs, existingTransitions.docs);
+            }
+            return nextRevision;
         });
-        if (saveResult.productionRecordsChanged) {
-            await syncStoryboardProductionRecords(userId, storyboardId, {
-                ...parsed,
-                revision: saveResult.nextRevision,
-            });
-        }
-        return saveResult.nextRevision;
-    }
-
-    async duplicate(userId: string, data: ImageStoryboard): Promise<string> {
-        return this.create(userId, {
-            ...ImageStoryboardSchema.parse(data),
-            revision: 1,
-            archivedAt: null,
-            title: `${data.title} 복사본`.slice(0, 100),
-        });
+        return saveResult;
     }
 
     async duplicateWithMedia(
@@ -462,14 +460,17 @@ class ImageStoryboardService {
 
         try {
             const referenceAssets = [];
+            const referenceIdMap = new Map<string, string>();
             for (const asset of source.referenceAssets) {
                 const copied = await copyAsset(
                     asset.image,
                     `users/${userId}/storyboards/${storyboardId}/references/${asset.id}`,
                 );
+                const copiedReferenceId = crypto.randomUUID();
+                referenceIdMap.set(asset.id, copiedReferenceId);
                 referenceAssets.push({
                     ...asset,
-                    id: crypto.randomUUID(),
+                    id: copiedReferenceId,
                     image: copied.url,
                     storagePath: copied.storagePath,
                     createdAt: Date.now(),
@@ -517,12 +518,20 @@ class ImageStoryboardService {
                         ? {
                             id: imageArtifactId || crypto.randomUUID(),
                             url: copiedImage.url,
+                            storagePath: copiedImage.storagePath,
+                            provenance: { kind: 'storyboard-scene', storyboardId, sceneId },
                             generatedAt: Date.now(),
                         }
                         : null,
                     video: {
                         ...sourceScene.video,
+                        status: copiedVideo
+                            ? sourceScene.video.status === 'approved' ? 'approved' : sourceScene.video.status === 'brief' ? 'brief' : 'review'
+                            : 'brief',
                         jobId: null,
+                        replacedClipId: null,
+                        errorMessage: null,
+                        referenceAssetIds: sourceScene.video.referenceAssetIds.flatMap((id) => referenceIdMap.get(id) || []),
                         clipId,
                         videoUrl: copiedVideo?.url || null,
                         lastFrameUrl: copiedLastFrame?.url || null,
@@ -576,6 +585,7 @@ class ImageStoryboardService {
                     maxBudgetUsd: source.videoProduction.maxBudgetUsd,
                     allowUnknownPricing: source.videoProduction.allowUnknownPricing,
                     voiceDirection: source.videoProduction.voiceDirection,
+                    voiceProfiles: source.videoProduction.voiceProfiles,
                     backgroundMusicUrl: copiedMusic?.url || null,
                     backgroundMusicName: copiedMusic
                         ? source.videoProduction.backgroundMusicName
@@ -718,12 +728,13 @@ class ImageStoryboardService {
                     updatedAt: serverTimestamp(),
                 });
             }
-            await batch.commit();
-            await syncStoryboardProductionRecords(
+            stageStoryboardProductionRecords(
+                batch,
                 userId,
                 storyboardId,
                 copiedStoryboard,
             );
+            await batch.commit();
             return storyboardId;
         } catch (error) {
             await Promise.allSettled(
@@ -799,10 +810,16 @@ class ImageStoryboardService {
     ): Promise<void> {
         const parsed = ImageStoryboardSchema.parse(storyboard);
         const reference = doc(storyboardVersionCollection(userId, storyboardId));
-        await setDoc(reference, {
-            label: label.trim().slice(0, 120) || '수동 저장',
-            storyboard: parsed,
-            createdAt: serverTimestamp(),
+        await runTransaction(db, async (transaction) => {
+            const parent = await transaction.get(storyboardDocument(userId, storyboardId));
+            if (!parent.exists() || (parent.data().cleanupStatus === 'pending' || (parent.data().cleanupStatus === 'retry' && parent.data().cleanupManifest))) {
+                throw new Error('삭제 중이거나 삭제된 프로젝트에는 버전을 저장할 수 없습니다.');
+            }
+            transaction.set(reference, {
+                label: label.trim().slice(0, 120) || '수동 저장',
+                storyboard: parsed,
+                createdAt: serverTimestamp(),
+            });
         });
 
         const versions = await getDocs(query(
@@ -843,6 +860,7 @@ class ImageStoryboardService {
         storyboardId: string,
         draft: ImageReferenceDraft,
     ): Promise<ImageReferenceAsset> {
+        await ensureStoryboardUploadIsCurrent(userId, storyboardId);
         const id = crypto.randomUUID();
         if (/^https:\/\//i.test(draft.image)) {
             return {
@@ -865,6 +883,7 @@ class ImageStoryboardService {
         const reference = storageRef(storage, path);
         await uploadBytes(reference, blob, { contentType: blob.type });
         const image = await getDownloadURL(reference);
+        await ensureStoryboardUploadIsCurrent(userId, storyboardId, path);
         return {
             id,
             image,
@@ -880,6 +899,7 @@ class ImageStoryboardService {
         storyboardId: string,
         file: File,
     ): Promise<{ url: string; storagePath: string; name: string }> {
+        await ensureStoryboardUploadIsCurrent(userId, storyboardId);
         if (!file.type.startsWith('audio/')) {
             throw new Error('MP3, WAV, M4A 등 오디오 파일을 선택해 주세요.');
         }
@@ -891,6 +911,7 @@ class ImageStoryboardService {
         const path = `users/${userId}/storyboards/${storyboardId}/audio/${id}.${extension}`;
         const reference = storageRef(storage, path);
         await uploadBytes(reference, file, { contentType: file.type || 'audio/mpeg' });
+        await ensureStoryboardUploadIsCurrent(userId, storyboardId, path);
         return {
             url: await getDownloadURL(reference),
             storagePath: path,

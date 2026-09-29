@@ -1,5 +1,5 @@
 import type { ImageStoryboard, ImageStoryboardScene, StoryboardVideoScene } from "@/schemas/imageStoryboard";
-import { resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
+import { hasActiveStoryboardVideoWork, resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
 import { STORYBOARD_VIDEO_DURATION_OPTIONS } from "@/lib/storyboard-video-audio";
 
 export function canBatchEditStoryboardScene(scene: ImageStoryboardScene): boolean {
@@ -11,8 +11,7 @@ export function applyStoryboardSceneBatch(
   sceneIds: string[],
   settings: { durationSeconds?: number; motionIntensity?: StoryboardVideoScene["motionIntensity"] },
 ): ImageStoryboard {
-  if (["preparing", "running", "pausing", "merging"].includes(storyboard.videoProduction.automationStatus)
-    || storyboard.scenes.some((scene) => ["queued", "rendering"].includes(scene.video.status))) return storyboard;
+  if (hasActiveStoryboardVideoWork(storyboard)) return storyboard;
   if (settings.durationSeconds !== undefined && !STORYBOARD_VIDEO_DURATION_OPTIONS.some((value) => value === settings.durationSeconds)) return storyboard;
   if (settings.motionIntensity !== undefined && !["subtle", "balanced", "dynamic"].includes(settings.motionIntensity)) return storyboard;
   const selected = new Set(sceneIds);

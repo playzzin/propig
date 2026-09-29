@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ImageStoryboardSchema, type ImageStoryboard } from "@/schemas/imageStoryboard";
-import { resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
+import { hasActiveStoryboardVideoWork, resetStoryboardVideoProduction } from "@/lib/storyboard-video-production";
+import { markStoryboardSceneVideoForReview } from "@/lib/storyboard-edit-invalidation";
 
 const SettingsSchema = ImageStoryboardSchema.pick({
   format: true, plannedSceneCount: true, aspectRatio: true, stylePreset: true,
@@ -62,9 +63,7 @@ export function upsertStoryboardPreset(
 }
 
 export function isStoryboardPresetApplyBusy(storyboard: ImageStoryboard): boolean {
-  return ["preparing", "running", "pausing", "merging"].includes(storyboard.videoProduction.automationStatus)
-    || ["queued", "rendering"].includes(storyboard.videoProduction.finalStatus)
-    || storyboard.scenes.some((scene) => ["queued", "rendering"].includes(scene.video.status));
+  return hasActiveStoryboardVideoWork(storyboard);
 }
 
 export function getStoryboardPresetChanges(storyboard: ImageStoryboard, settings: StoryboardPresetSettings) {
@@ -78,21 +77,19 @@ export function applyStoryboardPlanningPreset(storyboard: ImageStoryboard, setti
   if (!changes.length) return storyboard;
   const next = { ...storyboard, ...parsed.data };
   // Planning a different count never adds or removes existing scenes.
-  if (changes.every((key) => key === "format" || key === "plannedSceneCount")) return next;
+  if (changes.every((key) => key === "format" || key === "plannedSceneCount" || key === "audience")) return next;
   return {
     ...next,
     transitionLinks: storyboard.transitionLinks.map((link) => ({ ...link, needsReview: true })),
     videoProduction: resetStoryboardVideoProduction(storyboard.videoProduction),
     scenes: storyboard.scenes.map((scene) => {
       const hasResult = Boolean(scene.generatedImage || scene.video.videoUrl || scene.video.clipId);
-      return {
-        ...scene, imageDesignRevision: scene.imageDesignRevision + 1, videoDesignRevision: scene.videoDesignRevision + 1,
+      return markStoryboardSceneVideoForReview({
+        ...scene, imageDesignRevision: scene.imageDesignRevision + 1,
         approvedImageArtifactId: null, approvedVideoArtifactId: null,
         assetFreshness: hasResult ? "review" : "current",
         staleReason: hasResult ? "기획 프리셋이 변경되었습니다. 기존 결과와 새 설정을 비교해 주세요." : null,
-        video: { ...scene.video, approvedAt: null,
-          status: scene.video.videoUrl || scene.video.clipId ? "review" : scene.video.status },
-      };
+      });
     }),
   };
 }
