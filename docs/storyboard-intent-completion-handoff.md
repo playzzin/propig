@@ -66,3 +66,13 @@ PROPIG_QA_TOOLS=/home/hermes/.local/share/propig-tools node scripts/verify-story
 - 전체 lint 오류 0, 기존 무관 경고 3개. 로컬 FFmpeg 합성·프레임·오디오·품질 검사 PASS.
 - 실제 정적 산출물의 스토리보드 PC/390px·키보드 메뉴·콘솔 검사와 corp/blog/propig/admin PC/390px 가로 넘침·페이지 오류·선정 접근성 검사 PASS.
 - 배포 대상은 `propig-63524` Hosting과 `hostingApi(us-central1)`, `onVideoStudioJobQueued(asia-northeast3)`, `onVideoStudioJobRequeued(asia-northeast3)`이다. 실제 운영 적용 여부는 후속 배포 확인 기록으로 구분한다.
+
+### 운영 적용 확인
+
+- 2026-09-30 08:44 KST 확인 완료. 기능 커밋 `a758cc14e1427a6f830479b3c06e7f2bdca2aa52`를 기존 `codex/add-founding-background-to-introduction` 브랜치에 푸시했다. 커밋된 전체 소스와 검증한 격리 소스의 차이는 0개다.
+- 첫 Functions 배포는 PowerShell에서 함수 목록이 분리되어 대상 선택 단계에서 중단됐다. 목록을 하나의 인자로 전달해 재시도했고, 함수 3개 모두 업데이트 성공 및 `ACTIVE` 확인. 나머지 25개 함수의 metadata는 변경되지 않았고, 변경한 함수의 기존 환경·비밀 참조·서비스 계정·런타임·트리거 설정도 유지됐다.
+- Hosting 정적 파일 531개 게시 성공. [운영 스토리보드](https://propig-63524.web.app/admin/storyboard).
+- 운영 HTML 4개 및 연결 JS/CSS 43개의 SHA-256이 배포 산출물과 일치한다. 스토리보드 HTML 해시: `ee9b813f704afec98d63fb3480e3ff1965354f628d38b3c53a024b1331701136`.
+- 인증 없이 admin/check·video-studio/status·이미지 결과 조회는 401, 가짜 프로젝트 경로의 GET은 405, DELETE는 401로 차단됐다. 실제 사용자 프로젝트 ID·인증·데이터 작업은 사용하지 않았다.
+- 운영 스토리보드 PC/390px·키보드 메뉴·엄격한 콘솔 검사 PASS. 운영 corp/blog/propig/admin PC/390px 가로 넘침·페이지 오류·선정 접근성 검사 PASS.
+- 운영 사용자 데이터 삭제·유료 생성·실제 공급자 영상 품질 검사는 실행하지 않았다. 개발 3002·CY 3000과 무관한 작업 변경을 보존했다. 위 이전 단계의 '미배포' 기록은 해당 시점의 이력이며, 운영 적용 여부는 이 기록이 최신이다.
