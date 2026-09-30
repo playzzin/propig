@@ -32,4 +32,14 @@
 
 - 실제 유료 생성, 실제 사용자 프로젝트 삭제, 운영 인증·데이터 변경은 실행하지 않았다. 외부 YouTube 영상의 실제 재생은 이번 자동 검증에 포함하지 않았다.
 - 이번 추가 변경은 Hosting 대상이다. 이미 배포된 스토리보드 서버 기능, Functions 설정, Firestore·Storage 규칙에는 추가 변경이 없다.
-- 운영 배포 및 파일 대조 결과는 배포 완료 후 기록한다. 이전 스토리보드 배포 기록은 `docs/storyboard-intent-completion-handoff.md`에 있다.
+- 이전 스토리보드 배포 기록은 `docs/storyboard-intent-completion-handoff.md`에 있다.
+
+### 운영 적용 완료
+
+- 제품 커밋: `e919a061c61fdc449127de6e1c82a5e52fdfb443` — `feat: release corporate pages and unified site navigation`.
+- 기존 `codex/add-founding-background-to-introduction` 브랜치에 55개 변경 파일을 커밋하고 GitHub에 일반 푸시했다. 커밋의 전체 소스 1,191개 파일과 검증한 Linux 빌드 소스를 대조했으며 차이는 없었다.
+- 2026-09-30 09:39 KST까지 Firebase `propig-63524` Hosting의 519개 파일 배포와 운영 검증을 완료했다. 운영 주소: https://propig-63524.web.app .
+- 운영 HTML 8개(스토리보드, AI 설정, 사용량, 기업 소개, 대표 소개, 제품 소개, shop 홈, blog 홈)와 연결 JS·CSS 및 새 공개 파일 56개의 SHA-256이 배포 산출물과 일치했다.
+- 제거한 `/corp/project`, `/corp/portfolio`는 HTTP 404이며 비로그인 API 보호 3개는 HTTP 401이다. 조회 검증에서 유료 호출과 데이터 변경은 없었다.
+- 실제 운영 사이트에서 스토리보드 비로그인 PC·390px 화면, 기업 화면 5개 × PC·모바일 브라우저 검사가 모두 통과했다.
+- 로컬 증거: `output/daily-release-20260930/`의 `deploy.log`, `source-verification.json`, `production-http.json`, `production-browser.log`. 이 폴더는 Git 대상에서 제외된다.
