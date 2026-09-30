@@ -65,15 +65,6 @@ export const StickyNoteCard = ({
         }
     }, [note.content, isEditing, localContent]);
 
-    React.useEffect(() => {
-        if (localContent === note.content || isComposingRef.current) return;
-
-        const timer = window.setTimeout(() => {
-            commitContent(localContent);
-        }, 500);
-
-        return () => window.clearTimeout(timer);
-    }, [commitContent, localContent, note.content]);
 
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: note.id,
@@ -98,7 +89,7 @@ export const StickyNoteCard = ({
     };
 
     const finishComposition = (content: string) => {
-        const nextContent = content.slice(0, MAX_NOTE_LENGTH);
+        const nextContent = content.slice(0, Math.max(MAX_NOTE_LENGTH, note.content.length));
         isComposingRef.current = false;
         setLocalContent(nextContent);
         commitContent(nextContent);
@@ -258,9 +249,13 @@ export const StickyNoteCard = ({
                         placeholder={`제목\n메모 내용을 입력하세요...`}
                         onFocus={beginEditing}
                         onBlur={finishEditing}
-                        maxLength={MAX_NOTE_LENGTH}
+                        maxLength={Math.max(MAX_NOTE_LENGTH, note.content.length)}
                         aria-label="메모 내용"
-                        onChange={(e) => setLocalContent(e.target.value.slice(0, MAX_NOTE_LENGTH))}
+                        onChange={(e) => {
+                            const next = e.target.value.slice(0, Math.max(MAX_NOTE_LENGTH, note.content.length));
+                            setLocalContent(next);
+                            if (!isComposingRef.current) commitContent(next);
+                        }}
                         onCompositionStart={beginComposition}
                         onCompositionEnd={(e) => finishComposition(e.currentTarget.value)}
                         onPointerDown={(e) => e.stopPropagation()}

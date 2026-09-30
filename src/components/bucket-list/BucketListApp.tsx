@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled, { css } from 'styled-components';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
@@ -32,7 +32,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { ensureFirestorePersistence } from '@/firebase/config';
+import { auth, ensureFirestorePersistence } from '@/firebase/config';
 import {
   bucketListService,
   type BucketCategory,
@@ -286,6 +286,11 @@ function sortItems(items: BucketListItem[]): BucketListItem[] {
 }
 
 export function BucketListApp() {
+  const { currentUser } = useAuth();
+  return <BucketListAccount key={currentUser?.uid ?? 'guest'} />;
+}
+
+function BucketListAccount() {
   const { currentUser, loading: authLoading, loginWithGoogle, isConfigured } = useAuth();
   const [items, setItems] = useState<BucketListItem[]>([]);
   const [categories, setCategories] = useState<BucketCategoryOption[]>([]);
@@ -304,6 +309,15 @@ export function BucketListApp() {
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const readyRef = useRef({ items: false, categories: false });
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const canMutate = () => mountedRef.current && !authLoading &&
+    !!currentUser && auth.currentUser?.uid === currentUser.uid &&
+    readyRef.current.items && readyRef.current.categories;
 
   useEffect(() => {
     if (authLoading) return;
@@ -317,23 +331,28 @@ export function BucketListApp() {
     let unsubscribeItems: (() => void) | undefined;
     let unsubscribeCategories: (() => void) | undefined;
     let didCancel = false;
+    readyRef.current = { items: false, categories: false };
 
     const connect = async () => {
       try {
         setIsLoading(true);
         await ensureFirestorePersistence();
+        if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
         await bucketListService.ensureDefaultCategories(currentUser.uid);
+        if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
 
         unsubscribeItems = bucketListService.subscribe(
           currentUser.uid,
           (nextItems) => {
             if (didCancel) return;
+            readyRef.current.items = true;
             setItems(nextItems);
             setError(null);
             setIsLoading(false);
           },
           (nextError) => {
             if (didCancel) return;
+            readyRef.current = { items: false, categories: false };
             setError(nextError.message);
             setIsLoading(false);
           },
@@ -342,6 +361,7 @@ export function BucketListApp() {
           currentUser.uid,
           (nextCategories) => {
             if (didCancel) return;
+            readyRef.current.categories = true;
             setCategories(nextCategories);
             setDraft((prev) => (nextCategories.some((category) => category.id === prev.category) ? prev : { ...prev, category: nextCategories[0]?.id ?? '' }));
             setEditDraft((prev) =>
@@ -355,6 +375,7 @@ export function BucketListApp() {
           },
           (nextError) => {
             if (didCancel) return;
+            readyRef.current = { items: false, categories: false };
             setError(nextError.message);
             setIsLoading(false);
           },
@@ -402,11 +423,11 @@ export function BucketListApp() {
   }, [items]);
   const hasItemRecords = items.some((item) => item.status !== 'planned' || Boolean(item.completedAt));
   const hasWorkspaceData = items.length > 0 || categories.length > 0;
-  const controlsDisabled = isSaving || isLoading;
+  const controlsDisabled = isSaving || isLoading || !!error;
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!currentUser || isSaving) return;
+    if (!currentUser || !canMutate() || isSaving) return;
 
     try {
       setIsSaving(true);
@@ -423,7 +444,7 @@ export function BucketListApp() {
   };
 
   const updateStatus = async (item: BucketListItem, nextStatus: BucketStatus) => {
-    if (!currentUser) return;
+    if (!currentUser || !canMutate()) return;
     if (item.status === nextStatus) return;
     try {
       await bucketListService.update(currentUser.uid, item.id, { status: nextStatus });
@@ -434,9 +455,9 @@ export function BucketListApp() {
   };
 
   const removeItem = async (item: BucketListItem) => {
-    if (!currentUser) return;
+    if (!currentUser || !canMutate()) return;
     const ok = window.confirm(`'${item.title}' 항목을 삭제할까요?`);
-    if (!ok) return;
+    if (!ok || !canMutate()) return;
 
     try {
       await bucketListService.remove(currentUser.uid, item.id);
@@ -458,7 +479,7 @@ export function BucketListApp() {
   };
 
   const saveEdit = async (item: BucketListItem) => {
-    if (!currentUser) return;
+    if (!currentUser || !canMutate()) return;
     try {
       await bucketListService.update(currentUser.uid, item.id, editDraft);
       setEditingId(null);
@@ -469,7 +490,7 @@ export function BucketListApp() {
   };
 
   const createCategory = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !canMutate()) return;
     try {
       const categoryId = await bucketListService.createCategory(currentUser.uid, newCategoryName, newCategoryColor);
       setDraft((prev) => ({ ...prev, category: categoryId }));
@@ -488,7 +509,7 @@ export function BucketListApp() {
   };
 
   const saveCategoryEdit = async (categoryId: string) => {
-    if (!currentUser) return;
+    if (!currentUser || !canMutate()) return;
     try {
       await bucketListService.updateCategory(currentUser.uid, categoryId, {
         label: editingCategoryName,
@@ -502,7 +523,7 @@ export function BucketListApp() {
   };
 
   const removeCategory = async (category: BucketCategoryOption) => {
-    if (!currentUser) return;
+    if (!currentUser || !canMutate()) return;
     const inUse = items.some((item) => item.category === category.id);
     if (inUse) {
       toast.error('사용 중인 분류는 삭제할 수 없습니다.');
@@ -510,7 +531,7 @@ export function BucketListApp() {
     }
 
     const ok = window.confirm(`'${category.label}' 분류를 삭제할까요?`);
-    if (!ok) return;
+    if (!ok || !canMutate()) return;
 
     try {
       await bucketListService.removeCategory(currentUser.uid, category.id);
@@ -521,7 +542,7 @@ export function BucketListApp() {
   };
 
   const resetItemRecords = async () => {
-    if (!currentUser || controlsDisabled) return;
+    if (!currentUser || !canMutate() || controlsDisabled) return;
 
     if (!hasItemRecords) {
       toast.info('초기화할 진행 기록이 없습니다.');
@@ -541,7 +562,7 @@ export function BucketListApp() {
       confirmButtonText: '기록만 초기화',
       confirmButtonColor: '#f8c64e',
     });
-    if (!confirmed) return;
+    if (!confirmed || !canMutate()) return;
 
     try {
       setIsSaving(true);
@@ -555,7 +576,7 @@ export function BucketListApp() {
   };
 
   const resetItems = async () => {
-    if (!currentUser || controlsDisabled) return;
+    if (!currentUser || !canMutate() || controlsDisabled) return;
 
     if (items.length === 0) {
       toast.info('초기화할 목표 항목이 없습니다.');
@@ -573,7 +594,7 @@ export function BucketListApp() {
       inputText: '항목 초기화',
       confirmButtonText: '항목 초기화',
     });
-    if (!confirmed) return;
+    if (!confirmed || !canMutate()) return;
 
     try {
       setIsSaving(true);
@@ -589,7 +610,7 @@ export function BucketListApp() {
   };
 
   const resetWorkspace = async () => {
-    if (!currentUser || controlsDisabled) return;
+    if (!currentUser || !canMutate() || controlsDisabled) return;
 
     if (!hasWorkspaceData) {
       toast.info('초기화할 버킷리스트 데이터가 없습니다.');
@@ -608,7 +629,7 @@ export function BucketListApp() {
       inputText: '초기화',
       confirmButtonText: '전체 초기화',
     });
-    if (!confirmed) return;
+    if (!confirmed || !canMutate()) return;
 
     try {
       setIsSaving(true);

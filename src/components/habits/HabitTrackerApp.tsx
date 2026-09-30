@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled, { css } from 'styled-components';
 import Swal from 'sweetalert2';
 import { toast } from 'sonner';
@@ -52,14 +52,13 @@ import {
   Line,
   Pie,
   PieChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import { useAuth } from '@/contexts/AuthContext';
-import { db, ensureFirestorePersistence } from '@/firebase/config';
+import { auth, db, ensureFirestorePersistence } from '@/firebase/config';
 import {
   getGoalScore,
   normalizeMetricGoalConfig,
@@ -74,10 +73,31 @@ import {
   type TrendValueSummary,
 } from './habitMetricStats';
 import { HabitStatsDashboard } from './HabitStatsDashboard';
+import { useDailyRecordLayout, type DailyRecordLayout } from './useDailyRecordLayout';
+import {
+  DATE_LABELS,
+  addCalendarMonths,
+  addDays,
+  addMonths,
+  formatMonthDay,
+  formatStatsRange,
+  formatYearMonth,
+  getDateBandColor,
+  getDateKeysBetween,
+  getPreviousDateKeys,
+  getRangeDateKeys,
+  getStartOfMonth,
+  getStartOfWeek,
+  getWeekendAccent,
+  getWeekendTone,
+  parseDateKey,
+  toDateKey,
+  type StatsPeriod,
+  type WeekendTone,
+} from './habitTrackerDateUtils';
 
-type HabitView = 'daily' | 'stats' | 'manage' | 'manual';
+export type HabitView = 'daily' | 'stats' | 'manage' | 'manual';
 type ManageSection = 'habits' | 'categories';
-type DailyRecordLayout = 'detail' | 'simple';
 type RecordMode =
   | 'check'
   | 'cardio'
@@ -89,8 +109,6 @@ type RecordMode =
   | 'singleChoice'
   | 'multiChoice'
   | 'note';
-type StatsPeriod = 'weekly' | 'monthly';
-type WeekendTone = 'weekday' | 'saturday' | 'sunday';
 type ItemStatsChartMode = 'progress' | 'value';
 
 interface HabitTrackerAppProps {
@@ -262,23 +280,7 @@ interface HabitPreset {
   options?: string[];
 }
 
-const DATE_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
-const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 const CATEGORY_COLORS = ['#42d392', '#ff7a59', '#63b3ff', '#f8c64e', '#a78bfa', '#2dd4bf'];
-const WEEKEND_ACCENTS: Record<Exclude<WeekendTone, 'weekday'>, { text: string; border: string; background: string; solid: string }> = {
-  saturday: {
-    text: '#0ea5e9',
-    border: 'rgba(2, 132, 199, 0.72)',
-    background: 'rgba(2, 132, 199, 0.14)',
-    solid: '#0284c7',
-  },
-  sunday: {
-    text: '#f43f5e',
-    border: 'rgba(225, 29, 72, 0.72)',
-    background: 'rgba(225, 29, 72, 0.14)',
-    solid: '#e11d48',
-  },
-};
 const EMPTY_WORKSPACE: HabitWorkspace = {
   categories: [],
   habits: [],
@@ -303,7 +305,6 @@ const SELECTABLE_RECORD_MODES: RecordMode[] = ['check', 'duration', 'number', 'r
 const TREND_RECORD_MODES: RecordMode[] = ['cardio', 'strength', 'number', 'sets', 'duration', 'rating'];
 const DEFAULT_CHOICE_LABELS = ['선택 항목 1', '선택 항목 2', '선택 항목 3'];
 const TREND_METRIC_COLORS = ['#42d392', '#63b3ff', '#f8c64e', '#ff7a59', '#a78bfa'];
-const DAILY_RECORD_LAYOUT_STORAGE_KEY = 'habit-tracker:daily-record-layout';
 const QUICK_HABIT_PRESETS: HabitPreset[] = [
   { id: 'supplement', label: '영양제', summary: '체크만 하기', categoryName: '건강', categoryColor: '#42d392', mode: 'check' },
   { id: 'meditation', label: '명상', summary: '10분 기록', categoryName: '마음', categoryColor: '#a78bfa', mode: 'duration', target: 10, unit: '분' },
@@ -342,63 +343,6 @@ const METRIC_AGGREGATION_META: Record<MetricAggregationMode, { label: string; sh
 const METRIC_AGGREGATION_OPTIONS = Object.keys(METRIC_AGGREGATION_META) as MetricAggregationMode[];
 const HISTORY_ROW_LIMIT = 80;
 
-function toDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function parseDateKey(dateKey: string): Date {
-  return new Date(`${dateKey}T00:00:00`);
-}
-
-function getWeekendTone(date: Date): WeekendTone {
-  const day = date.getDay();
-  if (day === 6) return 'saturday';
-  if (day === 0) return 'sunday';
-  return 'weekday';
-}
-
-function getWeekendAccent(tone: WeekendTone, key: keyof (typeof WEEKEND_ACCENTS)['saturday'], fallback: string): string {
-  if (tone === 'weekday') return fallback;
-  return WEEKEND_ACCENTS[tone][key];
-}
-
-function getDateBandColor(tone: WeekendTone, active: boolean): string {
-  if (tone === 'weekday') return active ? 'var(--habit-green)' : '#059669';
-  return WEEKEND_ACCENTS[tone].solid;
-}
-
-function addDays(date: Date, amount: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
-
-function addMonths(date: Date, amount: number): Date {
-  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
-}
-
-function addCalendarMonths(date: Date, amount: number): Date {
-  const day = date.getDate();
-  const next = new Date(date.getFullYear(), date.getMonth() + amount, 1);
-  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-  next.setDate(Math.min(day, lastDay));
-  return next;
-}
-
-function getStartOfWeek(date: Date): Date {
-  const next = new Date(date);
-  const offset = (next.getDay() + 6) % 7;
-  next.setDate(next.getDate() - offset);
-  return next;
-}
-
-function getStartOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -428,10 +372,6 @@ function normalizeGoalDirection(mode: RecordMode, value: unknown): GoalDirection
 
 function isStatsPeriodValue(value: string | null): value is StatsPeriod {
   return value === 'weekly' || value === 'monthly';
-}
-
-function isDailyRecordLayoutValue(value: string | null): value is DailyRecordLayout {
-  return value === 'detail' || value === 'simple';
 }
 
 function isItemStatsChartModeValue(value: string | null): value is ItemStatsChartMode {
@@ -482,39 +422,6 @@ function normalizeChoiceOptions(options: unknown): ChoiceOption[] {
 
 function getHabitChoiceOptions(habit: Pick<HabitItem, 'mode' | 'options'>): ChoiceOption[] {
   return normalizeChoiceOptions(habit.options);
-}
-
-function formatMonthDay(dateKey: string): string {
-  const date = parseDateKey(dateKey);
-  return `${date.getMonth() + 1}.${date.getDate()}`;
-}
-
-function formatYearMonth(date: Date): string {
-  return `${String(date.getFullYear()).slice(2)}.${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatStatsRange(period: StatsPeriod, dateKey: string): string {
-  const date = parseDateKey(dateKey);
-
-  if (period === 'weekly') {
-    const start = getStartOfWeek(date);
-    const end = addDays(start, 6);
-    return `${formatMonthDay(toDateKey(start))} - ${formatMonthDay(toDateKey(end))}`;
-  }
-
-  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
-}
-
-function getDateKeysBetween(start: Date, end: Date): string[] {
-  const keys: string[] = [];
-  let current = new Date(start);
-
-  while (current <= end) {
-    keys.push(toDateKey(current));
-    current = addDays(current, 1);
-  }
-
-  return keys;
 }
 
 function getModeDefaults(mode: RecordMode): Pick<HabitItem, 'target' | 'unit' | 'secondaryTarget' | 'secondaryUnit' | 'tertiaryTarget' | 'tertiaryUnit'> {
@@ -2066,17 +1973,6 @@ function calculateHabitTrendStats(
   };
 }
 
-function getRangeDateKeys(baseDateKey: string, count: number): string[] {
-  const baseDate = parseDateKey(baseDateKey);
-  return Array.from({ length: count }, (_, index) => toDateKey(addDays(baseDate, index - count + 1)));
-}
-
-function getPreviousDateKeys(dateKeys: string[]): string[] {
-  if (dateKeys.length === 0) return [];
-  const startDate = parseDateKey(dateKeys[0]);
-  return Array.from({ length: dateKeys.length }, (_, index) => toDateKey(addDays(startDate, index - dateKeys.length)));
-}
-
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -3622,6 +3518,162 @@ const DailyHeader = styled.div`
   }
 `;
 
+const DailyPulse = styled.section`
+  border: 1px solid rgba(66, 211, 146, 0.22);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(136px, 0.42fr) minmax(220px, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  background:
+    linear-gradient(100deg, rgba(66, 211, 146, 0.12), rgba(99, 179, 255, 0.055) 52%, transparent),
+    rgba(255, 255, 255, 0.025);
+
+  @media (max-width: 840px) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  @media (max-width: 560px) {
+    padding: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+`;
+
+const DailyPulseIntro = styled.div`
+  display: grid;
+  gap: 2px;
+
+  small {
+    color: var(--habit-muted);
+    font-size: 0.72rem;
+    font-weight: 900;
+  }
+
+  strong {
+    color: var(--habit-text);
+    font-size: 1.38rem;
+    line-height: 1.08;
+    font-weight: 950;
+  }
+
+  span {
+    color: var(--habit-green);
+    font-size: 0.72rem;
+    font-weight: 950;
+  }
+`;
+
+const DailyPulseProgress = styled.div`
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+`;
+
+const DailyPulseProgressTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--habit-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+
+  strong {
+    color: var(--habit-text);
+    font: inherit;
+    font-weight: 950;
+    white-space: nowrap;
+  }
+`;
+
+const DailyPulseTrack = styled.div`
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.22);
+`;
+
+const DailyPulseFill = styled.div<{ $percent: number }>`
+  --habit-pulse-progress: ${(props) => getScoreTrackPercent(props.$percent) / 100};
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  transform: scaleX(var(--habit-pulse-progress));
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--habit-green), #63b3ff);
+  box-shadow: 0 0 16px rgba(66, 211, 146, 0.38);
+  animation: habitDailyPulseIn 0.56s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: transform 0.32s ease;
+
+  @keyframes habitDailyPulseIn {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(var(--habit-pulse-progress));
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    transition: none;
+  }
+`;
+
+const DailyPulseDetail = styled.div`
+  color: var(--habit-muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+
+  strong {
+    color: var(--habit-text);
+    font-weight: 950;
+  }
+`;
+
+const DailyStreak = styled.div`
+  min-width: 92px;
+  padding-left: 16px;
+  border-left: 1px solid var(--habit-line);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+
+  svg {
+    color: var(--habit-yellow);
+  }
+
+  strong {
+    color: var(--habit-text);
+    font-size: 1rem;
+    font-weight: 950;
+    font-variant-numeric: tabular-nums;
+  }
+
+  span {
+    grid-column: 2;
+    color: var(--habit-muted);
+    font-size: 0.64rem;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 840px) {
+    grid-row: 1 / span 2;
+  }
+
+  @media (max-width: 560px) {
+    min-width: 0;
+    padding: 9px 0 0;
+    border-top: 1px solid var(--habit-line);
+    border-left: 0;
+  }
+`;
+
 const DailyHeaderActions = styled.div`
   display: inline-flex;
   align-items: center;
@@ -4618,118 +4670,11 @@ const StatsToolbar = styled.div`
   flex-wrap: wrap;
 `;
 
-const PeriodSwitch = styled.div`
-  height: 40px;
-  padding: 3px;
-  border: 1px solid var(--habit-line);
-  border-radius: 8px;
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(74px, 1fr));
-  gap: 3px;
-  background: rgba(255, 255, 255, 0.04);
-`;
-
-const PeriodButton = styled.button<{ $active: boolean }>`
-  border: 0;
-  border-radius: 6px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  color: ${(props) => (props.$active ? '#07100c' : 'var(--habit-muted)')};
-  background: ${(props) => (props.$active ? 'var(--habit-green)' : 'transparent')};
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 950;
-  cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
-
-  &:hover {
-    color: ${(props) => (props.$active ? '#07100c' : 'var(--habit-text)')};
-    background: ${(props) => (props.$active ? 'var(--habit-green)' : 'rgba(255, 255, 255, 0.07)')};
-  }
-
-  @media (max-width: 560px) {
-    padding: 0 8px;
-    font-size: 0.72rem;
-  }
-`;
-
 const RangeNavigator = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-`;
-
-const RangeLabel = styled.div`
-  min-height: 38px;
-  min-width: 150px;
-  border: 1px solid var(--habit-line);
-  border-radius: 8px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--habit-text);
-  background: rgba(255, 255, 255, 0.035);
-  font-size: 0.82rem;
-  font-weight: 950;
-`;
-
-const WeekdayStrip = styled.div`
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 7px;
-
-  @media (max-width: 720px) {
-    grid-template-columns: repeat(7, minmax(42px, 1fr));
-    overflow-x: auto;
-  }
-`;
-
-const WeekdayCell = styled.div<{ $percent: number; $weekendTone: WeekendTone }>`
-  min-height: 72px;
-  border: 1px solid
-    ${(props) => getWeekendAccent(props.$weekendTone, 'border', props.$percent > 0 ? 'rgba(66, 211, 146, 0.36)' : 'var(--habit-line)')};
-  border-radius: 8px;
-  padding: 9px 8px;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 3px;
-  color: var(--habit-muted);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
-    ${(props) => {
-      if (props.$weekendTone !== 'weekday' && props.$percent === 0) return getWeekendAccent(props.$weekendTone, 'background', 'rgba(255, 255, 255, 0.03)');
-      if (props.$percent >= 80) return 'rgba(66, 211, 146, 0.14)';
-      if (props.$percent >= 45) return 'rgba(99, 179, 255, 0.11)';
-      if (props.$percent > 0) return 'rgba(248, 198, 78, 0.1)';
-      return 'rgba(255, 255, 255, 0.03)';
-    }};
-
-  strong {
-    color: ${(props) => getWeekendAccent(props.$weekendTone, 'text', 'var(--habit-text)')};
-    font-size: 0.9rem;
-    font-weight: 950;
-  }
-
-  span,
-  small {
-    font-size: 0.72rem;
-    font-weight: 900;
-  }
-
-  small {
-    color: ${(props) => (props.$percent > 0 ? 'var(--habit-green)' : 'var(--habit-dim)')};
-  }
-
-  span {
-    color: ${(props) => getWeekendAccent(props.$weekendTone, 'text', 'inherit')};
-  }
 `;
 
 const StatsColumn = styled.div`
@@ -4819,14 +4764,17 @@ const SyncPill = styled.span<{ $state: 'ready' | 'saving' | 'locked' }>`
 `;
 
 const GatePanel = styled.section`
-  min-height: 360px;
+  min-height: 390px;
   border: 1px solid var(--habit-line);
   border-radius: 8px;
-  padding: 28px;
+  padding: 26px;
   display: grid;
-  place-items: center;
-  text-align: center;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.7fr);
+  gap: 28px;
+  align-items: center;
   background:
+    linear-gradient(118deg, rgba(66, 211, 146, 0.09), transparent 45%),
+    linear-gradient(315deg, rgba(99, 179, 255, 0.08), transparent 46%),
     linear-gradient(180deg, rgba(17, 25, 36, 0.92), rgba(9, 14, 21, 0.95)),
     var(--habit-panel);
 
@@ -4836,29 +4784,235 @@ const GatePanel = styled.section`
     border-radius: var(--codeit-radius);
     box-shadow: var(--codeit-shadow-md);
   }
+
+  @media (max-width: 860px) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  @media (max-width: 560px) {
+    min-height: 0;
+    padding: 16px;
+    gap: 16px;
+  }
 `;
 
 const GateContent = styled.div`
-  width: min(520px, 100%);
+  width: min(560px, 100%);
   display: grid;
-  justify-items: center;
-  gap: 14px;
+  justify-items: start;
+  gap: 12px;
+  text-align: left;
 
-  svg {
+  > svg {
     color: var(--habit-green);
   }
 
   h2 {
     margin: 0;
     color: var(--habit-text);
-    font-size: 1.35rem;
+    font-size: clamp(1.45rem, 2.6vw, 2.1rem);
+    line-height: 1.18;
     font-weight: 950;
+    word-break: keep-all;
+    text-wrap: balance;
   }
 
   p {
     margin: 0;
+    max-width: 520px;
     color: var(--habit-muted);
+    font-size: 0.9rem;
     line-height: 1.6;
+    word-break: keep-all;
+  }
+
+  @media (max-width: 560px) {
+    gap: 9px;
+
+    p {
+      font-size: 0.82rem;
+    }
+  }
+`;
+
+const GateMark = styled.div`
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(66, 211, 146, 0.38);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--habit-green);
+  background: rgba(66, 211, 146, 0.1);
+  box-shadow: 0 12px 28px rgba(66, 211, 146, 0.12);
+`;
+
+const GateEyebrow = styled.span`
+  color: var(--habit-green);
+  font-size: 0.7rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+`;
+
+const GateTrustLine = styled.p`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--habit-dim) !important;
+  font-size: 0.72rem !important;
+  font-weight: 850;
+
+  svg {
+    color: var(--habit-green);
+  }
+`;
+
+const GatePreview = styled.aside`
+  min-width: 0;
+  border-left: 1px solid var(--habit-line);
+  padding-left: 28px;
+  display: grid;
+  gap: 18px;
+
+  @media (max-width: 860px) {
+    border-top: 1px solid var(--habit-line);
+    border-left: 0;
+    padding: 20px 0 0;
+  }
+
+  @media (max-width: 560px) {
+    gap: 13px;
+    padding-top: 15px;
+  }
+`;
+
+const GatePreviewHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  strong {
+    color: var(--habit-text);
+    font-size: 0.92rem;
+    font-weight: 950;
+  }
+
+  span {
+    border: 1px solid rgba(66, 211, 146, 0.26);
+    border-radius: 999px;
+    padding: 4px 8px;
+    color: var(--habit-green);
+    background: rgba(66, 211, 146, 0.08);
+    font-size: 0.64rem;
+    font-weight: 950;
+    white-space: nowrap;
+  }
+`;
+
+const GatePreviewProgress = styled.div`
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+
+  > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  small {
+    color: var(--habit-muted);
+    font-size: 0.7rem;
+    font-weight: 850;
+  }
+
+  strong {
+    color: var(--habit-green);
+    font-size: 1.35rem;
+    font-weight: 950;
+    font-variant-numeric: tabular-nums;
+  }
+`;
+
+const GatePreviewTrack = styled.div`
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+
+  &::before {
+    width: 68%;
+    height: 100%;
+    display: block;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--habit-green), var(--habit-blue));
+    content: '';
+  }
+`;
+
+const GateFeatureList = styled.div`
+  display: grid;
+  gap: 11px;
+`;
+
+const GateFeature = styled.div`
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+
+  svg {
+    color: var(--habit-green);
+  }
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    color: var(--habit-text);
+    font-size: 0.76rem;
+    font-weight: 950;
+  }
+
+  span {
+    margin-top: 2px;
+    color: var(--habit-muted);
+    font-size: 0.7rem;
+    line-height: 1.45;
+  }
+`;
+
+const GateLoadingPanel = styled(GatePanel)`
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  text-align: center;
+
+  ${GateContent} {
+    justify-items: center;
+    text-align: center;
+
+    > svg {
+      animation: habitGateLoading 1.1s linear infinite;
+    }
+  }
+
+  @keyframes habitGateLoading {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    ${GateContent} > svg {
+      animation: none;
+    }
   }
 `;
 
@@ -5946,7 +6100,12 @@ const tooltipStyle = {
   color: '#eef5f0',
 } as const;
 
-export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps) {
+export function HabitTrackerApp(props: HabitTrackerAppProps) {
+  const { currentUser } = useAuth();
+  return <HabitTrackerAccount key={currentUser?.uid ?? 'guest'} {...props} />;
+}
+
+function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   const {
     currentUser,
     loading: authLoading,
@@ -5955,9 +6114,15 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
   } = useAuth();
   const [workspace, setWorkspace] = useState<HabitWorkspace>(() => createInitialWorkspace());
   const [hasLoaded, setHasLoaded] = useState(false);
+  const readyRef = useRef(false);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; readyRef.current = false; };
+  }, []);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
-  const [dailyRecordLayout, setDailyRecordLayout] = useState<DailyRecordLayout>('simple');
+  const { dailyRecordLayout, setDailyRecordLayout } = useDailyRecordLayout('simple');
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('weekly');
   const [selectedStatsHabitId, setSelectedStatsHabitId] = useState('');
   const [itemStatsChartMode, setItemStatsChartMode] = useState<ItemStatsChartMode>('progress');
@@ -5970,17 +6135,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
   const [habitDraft, setHabitDraft] = useState<HabitDraft>(() => createHabitDraft());
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [showAdvancedHabitSettings, setShowAdvancedHabitSettings] = useState(false);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const storedLayout = window.localStorage.getItem(DAILY_RECORD_LAYOUT_STORAGE_KEY);
-      if (isDailyRecordLayoutValue(storedLayout)) {
-        setDailyRecordLayout(storedLayout);
-      }
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, []);
 
   const orderedCategories = useMemo(() => sortCategoriesByOrder(workspace.categories), [workspace.categories]);
   const orderedHabits = useMemo(() => sortHabitsByOrder(workspace.habits, workspace.categories), [workspace.categories, workspace.habits]);
@@ -5995,16 +6149,19 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     }
 
     let didCancel = false;
+    readyRef.current = false;
     setHasLoaded(false);
 
     const bootstrap = async () => {
       try {
         await ensureFirestorePersistence();
-        if (didCancel) return;
+        if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
 
         return onSnapshot(
           createWorkspaceDocRef(currentUser.uid),
           (snapshot) => {
+            if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
+            readyRef.current = true;
             const nextWorkspace = snapshot.exists()
               ? normalizeWorkspace(snapshot.data())
               : createInitialWorkspace();
@@ -6012,15 +6169,18 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
             setHasLoaded(true);
           },
           (error) => {
+            if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
+            readyRef.current = false;
             console.error('Failed to subscribe habit tracker workspace:', error);
             toast.error('습관 데이터를 불러오지 못했습니다.');
-            setHasLoaded(true);
+            setHasLoaded(false);
           },
         );
       } catch (error) {
         console.error('Failed to initialize habit tracker workspace:', error);
+        readyRef.current = false;
         toast.error('습관 데이터베이스 연결에 실패했습니다.');
-        setHasLoaded(true);
+        setHasLoaded(false);
         return undefined;
       }
     };
@@ -6062,12 +6222,15 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
         return false;
       }
 
+      if (!hasLoaded || !readyRef.current || !mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
+
       const safeWorkspace = sanitizeWorkspaceForFirestore(nextWorkspace);
       setWorkspace(safeWorkspace);
       setIsSaving(true);
 
       try {
         await ensureFirestorePersistence();
+        if (!readyRef.current || !mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
         await setDoc(
           createWorkspaceDocRef(currentUser.uid),
           {
@@ -6078,6 +6241,7 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
           },
           { merge: true },
         );
+        if (!mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
         toast.success(message, { id: toastId });
         return true;
       } catch (error) {
@@ -6088,7 +6252,7 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
         setIsSaving(false);
       }
     },
-    [currentUser],
+    [currentUser, hasLoaded],
   );
 
   const habitCountByCategory = useMemo(() => {
@@ -6175,18 +6339,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
   const previousRangeKeys = useMemo(() => getPreviousDateKeys(rangeKeys), [rangeKeys]);
   const activeRecordDays = useMemo(() => {
     return activeStatsDateKeys.filter((dateKey) => calculateDayStats(workspace, dateKey).touched > 0).length;
-  }, [activeStatsDateKeys, workspace]);
-  const weeklyDayData = useMemo(() => {
-    return activeStatsDateKeys.slice(0, 7).map((dateKey, index) => {
-      const date = parseDateKey(dateKey);
-      return {
-        dateKey,
-        dayLabel: WEEKDAY_LABELS[index] ?? DATE_LABELS[date.getDay()],
-        dateLabel: formatMonthDay(dateKey),
-        weekendTone: getWeekendTone(date),
-        stats: calculateDayStats(workspace, dateKey),
-      };
-    });
   }, [activeStatsDateKeys, workspace]);
 
   const bestStreak = useMemo(() => {
@@ -6306,16 +6458,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     const total = selectedScoredMetricSummaries.reduce((sum, metric) => sum + metric.progress, 0);
     return Math.round(total / selectedScoredMetricSummaries.length);
   }, [selectedScoredMetricSummaries]);
-  const selectedMetricComparableCount = useMemo(() => {
-    return selectedScoredMetricSummaries.filter((metric) => metric.average !== undefined && metric.previousAverage !== undefined).length;
-  }, [selectedScoredMetricSummaries]);
-  const selectedMetricImprovedCount = useMemo(() => {
-    return selectedScoredMetricSummaries.filter((metric) => (
-      metric.average !== undefined &&
-      metric.previousAverage !== undefined &&
-      metric.progress > metric.previousProgress
-    )).length;
-  }, [selectedScoredMetricSummaries]);
   const selectedHabitRecordData = useMemo<HabitRecordPoint[]>(() => {
     if (!selectedStatsHabit) return [];
 
@@ -6406,20 +6548,12 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     () => selectedHabitRecordRows.slice(0, HISTORY_ROW_LIMIT),
     [selectedHabitRecordRows],
   );
-  const selectedHabitBestScore = useMemo(
-    () => selectedHabitRecordData.reduce((best, point) => Math.max(best, point.score), 0),
-    [selectedHabitRecordData],
-  );
   const selectedHabitOverGoalPercent = useMemo(() => {
     const progress = selectedHabitHasMetricBreakdown && selectedMetricProgressAverage !== undefined
       ? selectedMetricProgressAverage
       : selectedHabitTrendStats?.progress ?? selectedHabitStats.percent;
     return Math.max(progress - 100, 0);
   }, [selectedHabitHasMetricBreakdown, selectedHabitStats.percent, selectedHabitTrendStats, selectedMetricProgressAverage]);
-  const selectedHabitBestOverGoalPoint = useMemo(
-    () => selectedHabitRecordData.filter((point) => point.score > 100).sort((a, b) => b.score - a.score)[0],
-    [selectedHabitRecordData],
-  );
   const chartAccessibilitySummary = useMemo(() => {
     if (!selectedStatsHabit) return '선택된 항목이 없습니다.';
     const overGoalText = selectedHabitOverGoalPercent > 0 ? ` 목표를 ${selectedHabitOverGoalPercent}% 초과했습니다.` : '';
@@ -6524,10 +6658,6 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
     },
     [persistWorkspace, workspace],
   );
-  const handleExportWorkspaceJson = useCallback(() => {
-    const payload = JSON.stringify(sanitizeWorkspaceForFirestore(workspace), null, 2);
-    downloadTextFile(`habit-tracker-backup-${selectedDate}.json`, payload, 'application/json;charset=utf-8');
-  }, [selectedDate, workspace]);
   const handleExportSelectedHabitCsv = useCallback(() => {
     if (!selectedStatsHabit) return;
 
@@ -6995,26 +7125,12 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
 
   const handleDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
     setDailyRecordLayout(layout);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(DAILY_RECORD_LAYOUT_STORAGE_KEY, layout);
-    }
-  }, []);
+  }, [setDailyRecordLayout]);
 
   const handleDefaultDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
     handleDailyRecordLayoutChange(layout);
     toast.success('기록 기본 방식이 저장되었습니다.', { id: 'habit-default-record-layout' });
   }, [handleDailyRecordLayoutChange]);
-
-  const shiftStatsPeriod = useCallback(
-    (amount: number) => {
-      setSelectedDate((prev) => {
-        const current = parseDateKey(prev);
-        if (statsPeriod === 'weekly') return toDateKey(addDays(current, amount * 7));
-        return toDateKey(addMonths(current, amount));
-      });
-    },
-    [statsPeriod],
-  );
 
   const addHabitDraftOption = useCallback(() => {
     setHabitDraft((prev) => ({
@@ -9222,24 +9338,67 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
         {initialView !== 'manual' && !currentUser ? (
           <GatePanel>
             <GateContent>
-              <LogIn size={42} />
-              <h2>로그인 후 습관 데이터를 저장합니다</h2>
-              <p>카테고리, 항목, 날짜별 기록과 통계를 내 계정 기록장에 저장합니다.</p>
+              <GateMark>
+                <LogIn size={23} aria-hidden="true" />
+              </GateMark>
+              <GateEyebrow>PERSONAL HABIT SPACE</GateEyebrow>
+              <h2>오늘의 작은 기록을<br />내 리듬으로 쌓아보세요.</h2>
+              <p>로그인하면 카테고리, 습관 항목, 날짜별 기록과 통계가 내 계정 기록장에 안전하게 이어집니다.</p>
               <IconButton type="button" $tone="primary" onClick={() => void handleLogin()} disabled={!isConfigured || authLoading}>
                 <LogIn size={16} />
                 Google 로그인
               </IconButton>
+              <GateTrustLine>
+                <Check size={14} aria-hidden="true" />
+                한 번 로그인하면 언제든 같은 기록을 이어서 볼 수 있어요.
+              </GateTrustLine>
               {!isConfigured ? <PanelHint>Firebase 환경 설정이 필요합니다.</PanelHint> : null}
             </GateContent>
+            <GatePreview aria-label="로그인 후 사용할 수 있는 습관 기록 기능">
+              <GatePreviewHeader>
+                <strong>로그인 뒤 바로 시작할 수 있어요</strong>
+                <span>1분 시작</span>
+              </GatePreviewHeader>
+              <GatePreviewProgress>
+                <div>
+                  <small>오늘의 기록 예시</small>
+                  <strong>68%</strong>
+                </div>
+                <GatePreviewTrack aria-hidden="true" />
+              </GatePreviewProgress>
+              <GateFeatureList>
+                <GateFeature>
+                  <CalendarDays size={18} aria-hidden="true" />
+                  <div>
+                    <strong>오늘에 집중해 빠르게 체크</strong>
+                    <span>날짜별 흐름에서 필요한 습관만 바로 기록합니다.</span>
+                  </div>
+                </GateFeature>
+                <GateFeature>
+                  <Target size={18} aria-hidden="true" />
+                  <div>
+                    <strong>프리셋으로 손쉽게 시작</strong>
+                    <span>물 마시기, 운동, 루틴 등 자주 쓰는 항목을 바로 추가합니다.</span>
+                  </div>
+                </GateFeature>
+                <GateFeature>
+                  <TrendingUp size={18} aria-hidden="true" />
+                  <div>
+                    <strong>기록이 쌓일수록 보이는 패턴</strong>
+                    <span>주간·월간 통계로 꾸준함과 연속 기록을 확인합니다.</span>
+                  </div>
+                </GateFeature>
+              </GateFeatureList>
+            </GatePreview>
           </GatePanel>
         ) : initialView !== 'manual' && !hasLoaded ? (
-          <GatePanel>
+          <GateLoadingPanel>
             <GateContent>
-              <RefreshCcw size={42} />
-              <h2>저장된 기록을 불러오는 중</h2>
+              <RefreshCcw size={42} aria-hidden="true" />
+              <h2>저장된 기록을 불러오는 중…</h2>
               <p>전에 만든 카테고리, 항목, 날짜별 기록을 가져오고 있습니다.</p>
             </GateContent>
-          </GatePanel>
+          </GateLoadingPanel>
         ) : (
           <>
         {initialView !== 'daily' ? (
@@ -9739,6 +9898,34 @@ export function HabitTrackerApp({ initialView = 'daily' }: HabitTrackerAppProps)
                       </IconButton>
                     </DailyHeaderActions>
                   </PanelHeading>
+                  <DailyPulse aria-label={`${formatMonthDay(selectedDate)} 기록 현황`}>
+                    <DailyPulseIntro>
+                      <small>{formatMonthDay(selectedDate)} 기록 현황</small>
+                      <strong>{selectedDayStats.percent}% 달성</strong>
+                      <span>{selectedDayStats.percent >= 100 ? '오늘 목표를 모두 채웠어요.' : '지금 기록을 이어가 보세요.'}</span>
+                    </DailyPulseIntro>
+                    <DailyPulseProgress>
+                      <DailyPulseProgressTop>
+                        <span>오늘의 달성률</span>
+                        <strong>{selectedDayStats.touched}개 기록 · {selectedDayStats.completed}개 완료</strong>
+                      </DailyPulseProgressTop>
+                      <DailyPulseTrack>
+                        <DailyPulseFill $percent={selectedDayStats.percent} />
+                      </DailyPulseTrack>
+                      <DailyPulseDetail>
+                        {selectedDayStats.total === 0
+                          ? '먼저 습관을 추가하면 오늘의 흐름을 확인할 수 있어요.'
+                          : selectedDayStats.completed === selectedDayStats.total
+                            ? '모든 항목을 완료했습니다. 내일도 같은 리듬으로 이어가 보세요.'
+                            : <><strong>{selectedDayStats.total - selectedDayStats.completed}개</strong> 항목이 남아 있어요.</>}
+                      </DailyPulseDetail>
+                    </DailyPulseProgress>
+                    <DailyStreak>
+                      <Flame size={19} aria-hidden="true" />
+                      <strong>{bestStreak}일</strong>
+                      <span>가장 긴 연속 기록</span>
+                    </DailyStreak>
+                  </DailyPulse>
                   <MonthNavigator aria-label="월 이동">
                     <IconOnlyButton type="button" onClick={() => shiftMonth(-1)} title="이전 월" aria-label="이전 월">
                       <ChevronLeft size={17} />

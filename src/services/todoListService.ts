@@ -1,5 +1,7 @@
 import {
   addDoc,
+  arrayRemove,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -408,6 +410,20 @@ class TodoListService {
     } as Partial<TodoTaskDocument>);
   }
 
+  async setOccurrenceCompleted(uid: string, taskId: string, dateKey: string, completed: boolean): Promise<void> {
+    if (uniqueSortedCompletionKeys([dateKey]).length !== 1) {
+      throw new Error('올바른 완료 날짜를 선택해 주세요.');
+    }
+
+    // Firestore applies the transform locally too, preserving optimistic snapshots.
+    // Never replace other dates using a potentially stale tab's task snapshot.
+    await updateDoc(todoTaskDoc(uid, taskId), {
+      completedDates: completed ? arrayUnion(dateKey) : arrayRemove(dateKey),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  /** @deprecated Full replacement; occurrence toggles must use setOccurrenceCompleted. */
   async setCompletedDates(uid: string, taskId: string, completedDates: string[]): Promise<void> {
     await updateDoc(todoTaskDoc(uid, taskId), {
       completedDates: uniqueSortedCompletionKeys(completedDates),

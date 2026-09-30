@@ -1,5 +1,6 @@
 {
   "firestore": {
+    "database": "pppp",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
@@ -35,12 +36,20 @@
         "function": "analyzeBookmark"
       },
       {
-        "source": "/api/generate-mandalart",
-        "function": "generateMandalart"
+        "source": "/api/admin/check",
+        "function": "adminCheck"
       },
       {
         "source": "/api/admin/storage",
         "function": "adminStorage"
+      },
+      {
+        "source": "/api/openrouter-usage",
+        "function": "openRouterUsage"
+      },
+      {
+        "source": "/api/**",
+        "function": "hostingApi"
       }
     ]
   },

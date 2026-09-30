@@ -1,19 +1,27 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import styled from 'styled-components';
-import { CompanySectionNav } from './CompanySectionNav';
+import { isDashboardStyleCorpPath } from '@/constants/dashboardStyleCorpRoutes';
 
 interface CompanyPageShellProps {
   children: ReactNode;
 }
 
 export function CompanyPageShell({ children }: CompanyPageShellProps) {
+  const pathname = usePathname();
+
+  if (isDashboardStyleCorpPath(pathname)) {
+    return <>{children}</>;
+  }
+
   return (
     <Shell>
-      <CompanySectionNav />
       <Content>
-        <RouteFrame data-company-route-frame>{children}</RouteFrame>
+        <RouteFrame key={pathname} data-company-route-frame>
+          {children}
+        </RouteFrame>
       </Content>
     </Shell>
   );
@@ -26,7 +34,10 @@ const Shell = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #06110f;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(110, 231, 183, 0.12), transparent 28%),
+    radial-gradient(circle at 84% 12%, rgba(96, 165, 250, 0.14), transparent 30%),
+    #06090f;
 `;
 
 const Content = styled.div`

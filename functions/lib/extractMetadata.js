@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractBatchMetadata = exports.extractMetadata = void 0;
 const v2_1 = require("firebase-functions/v2");
-const generative_ai_1 = require("@google/generative-ai");
 const zod_1 = require("zod");
+const openrouter_1 = require("./openrouter");
 // 메타데이터 스키마
 const MetadataSchema = zod_1.z.object({
     title: zod_1.z.string().optional(),
@@ -14,7 +14,6 @@ const MetadataSchema = zod_1.z.object({
     author: zod_1.z.string().optional(),
     publishedDate: zod_1.z.string().optional(),
 });
-const genAI = new generative_ai_1.GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // URL에서 메타데이터 추출
 exports.extractMetadata = v2_1.https.onCall(async (request) => {
     const { url } = request.data;
@@ -22,8 +21,12 @@ exports.extractMetadata = v2_1.https.onCall(async (request) => {
         throw new v2_1.https.HttpsError('invalid-argument', 'URL is required');
     }
     try {
-        // Gemini Pro 모델 초기화
-        const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+        // OpenRouter 모델 초기화
+        const runtimeConfig = (0, openrouter_1.getOpenRouterRuntimeConfig)();
+        if (!runtimeConfig.apiKey) {
+            throw new v2_1.https.HttpsError('failed-precondition', 'OPENROUTER_API_KEY is not configured');
+        }
+        const model = (0, openrouter_1.createOpenRouterModel)(runtimeConfig.model);
         const prompt = `다음 URL의 웹페이지 내용을 분석하여 메타데이터를 추출해주세요:
 URL: ${url}
 
@@ -78,7 +81,11 @@ exports.extractBatchMetadata = v2_1.https.onCall(async (request) => {
         throw new v2_1.https.HttpsError('invalid-argument', 'Maximum 10 URLs per batch');
     }
     try {
-        const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+        const runtimeConfig = (0, openrouter_1.getOpenRouterRuntimeConfig)();
+        if (!runtimeConfig.apiKey) {
+            throw new v2_1.https.HttpsError('failed-precondition', 'OPENROUTER_API_KEY is not configured');
+        }
+        const model = (0, openrouter_1.createOpenRouterModel)(runtimeConfig.model);
         const results = [];
         for (const url of urls) {
             const prompt = `URL의 메타데이터를 JSON 형식으로 추출: ${url}`;

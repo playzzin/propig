@@ -1,46 +1,58 @@
 'use client';
 
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'framer-motion';
+import Link from 'next/link';
 import {
+  ArrowDown,
   ArrowRight,
   BadgeCheck,
-  Building2,
-  CalendarDays,
-  Cpu,
+  BrainCircuit,
+  BriefcaseBusiness,
+  ChartNoAxesCombined,
+  CheckCircle2,
+  CircleDollarSign,
+  Code2,
   Crown,
-  Database,
-  Handshake,
+  Gavel,
   Headphones,
-  HeartHandshake,
-  Mail,
+  Layers3,
   Megaphone,
+  Network,
   Palette,
-  Quote,
+  Rocket,
+  Scale,
+  ShieldCheck,
   Sparkles,
-  Star,
   Target,
+  UserRound,
+  UserRoundCheck,
+  UserRoundPlus,
   UsersRound,
   Workflow,
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import styled, { createGlobalStyle } from 'styled-components';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import styled, { createGlobalStyle, css } from 'styled-components';
 import { CorpEditableSection, type CorpSectionEditorState } from '@/components/corp/CorpSectionEditOverlay';
-import type { CorpPage } from '@/schemas/corpPageSchema';
 
-type DepartmentKey = 'leadership' | 'product' | 'technology' | 'experience' | 'growth' | 'operation';
-type DrawerTab = 'profile' | 'journey' | 'voice';
+type ExecutiveRole = 'CTO' | 'CMO' | 'CFO' | 'CLO';
 
-type ProfileMetric = {
-  label: string;
-  value: string;
-};
+type DepartmentId =
+  | 'platform'
+  | 'ai-data'
+  | 'product-experience'
+  | 'brand-marketing'
+  | 'growth-sales'
+  | 'customer-success'
+  | 'finance-accounting'
+  | 'strategy-operations'
+  | 'legal-compliance'
+  | 'people-culture';
 
-type ProfileMilestone = {
-  year: string;
+type OpenPosition = {
+  code: string;
   title: string;
-  detail: string;
 };
 
 type StaffProfile = {
@@ -49,559 +61,391 @@ type StaffProfile = {
   englishName: string;
   role: string;
   department: string;
-  departmentKey: DepartmentKey;
-  location: string;
-  status: string;
-  summary: string;
+  status: '운영중' | '구인중';
+  bio: string;
   quote: string;
+  reportsTo: string;
+  avatarIndex: number | null;
   accent: string;
-  image: string;
+  skills: string[];
+  responsibilities: string[];
+};
+
+type Department = {
+  id: DepartmentId;
+  label: string;
+  englishLabel: string;
+  executiveRole: ExecutiveRole;
+  lead: StaffProfile;
+  mandate: string;
+  accent: string;
+  soft: string;
   icon: LucideIcon;
   skills: string[];
-  metrics: ProfileMetric[];
-  milestones: ProfileMilestone[];
-  cheers: string[];
+  openings: OpenPosition[];
 };
 
-type DepartmentOption = {
-  id: DepartmentKey;
-  label: string;
-  description: string;
+type ExecutiveGroup = {
+  role: ExecutiveRole;
+  profile: StaffProfile;
+  focus: string;
+  departmentIds: DepartmentId[];
+};
+
+type OperatingStep = {
+  index: string;
+  title: string;
+  body: string;
   icon: LucideIcon;
-};
-
-type StaffFlowStep = {
-  number: string;
-  label: string;
-  owner: string;
-  icon: LucideIcon;
-  details: string[];
-};
-
-type StaffFlowSummaryItem = {
-  label: string;
-  value: string;
-};
-
-export type StaffIntroConfig = {
-  heroKicker: string;
-  heroTitle: string;
-  heroBody: string;
-  heroActionLabel: string;
-  heroActionHref: string;
-  heroMediaUrl: string;
-  heroSignalLabel: string;
-  departmentTitle: string;
-  departmentOptions: DepartmentOption[];
-  peopleTitle: string;
-  staffProfiles: StaffProfile[];
-  featuredKeywords: string[];
-  flowTitle: string;
-  flowBody: string;
-  flowSummaryItems: StaffFlowSummaryItem[];
-  flowSteps: StaffFlowStep[];
 };
 
 interface StaffIntroOrgChartProps {
-  config?: StaffIntroConfig;
   editor?: CorpSectionEditorState;
 }
 
-const departmentOptions: DepartmentOption[] = [
-  { id: 'leadership', label: '리더십', description: '전략과 의사결정 흐름을 설계하는 경영 리드', icon: Crown },
-  { id: 'product', label: '제품', description: '고객 문제를 제품 로드맵과 출시 기준으로 전환', icon: Building2 },
-  { id: 'technology', label: '기술', description: '플랫폼, AI, 서비스 안정성을 만드는 엔지니어링 조직', icon: Cpu },
-  { id: 'experience', label: '경험', description: '브랜드와 사용 흐름을 시각적 경험으로 정리', icon: Palette },
-  { id: 'growth', label: '성장', description: '시장, 고객, 파트너 접점을 확장하는 성장 조직', icon: Megaphone },
-  { id: 'operation', label: '운영', description: '일정, 리스크, 피플 프로세스를 안정화하는 운영 조직', icon: Workflow },
-];
-
-const staffProfiles: StaffProfile[] = [
-  {
-    id: 'yoon-taeo',
-    name: '윤태오',
-    englishName: 'Taeo Yoon',
-    role: 'CEO',
-    department: 'Executive Office',
-    departmentKey: 'leadership',
-    location: 'Seoul HQ',
-    status: '전사 전략 총괄',
-    summary: '사업 방향, 파트너십, 투자 판단을 하나의 실행 언어로 정렬합니다.',
-    quote: '좋은 전략은 팀이 다음 행동을 바로 고를 수 있게 만들어야 합니다.',
-    accent: '#2dd4bf',
-    image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=520&q=80',
-    icon: Crown,
-    skills: ['전략 설계', '파트너십', '조직 리듬', '의사결정'],
-    metrics: [
-      { label: '전략 리뷰', value: '42' },
-      { label: '파트너 미팅', value: '18' },
-      { label: '분기 OKR', value: '96%' },
-    ],
-    milestones: [
-      { year: '2022', title: '프로픽 설립', detail: '핵심 사업 모델과 초기 조직 구조를 수립했습니다.' },
-      { year: '2024', title: 'AI 운영 체계 전환', detail: '제품과 운영 전반에 자동화 기준을 도입했습니다.' },
-      { year: '2026', title: 'B2B 확장 리드', detail: '파트너십 기반의 신규 매출 라인을 확장하고 있습니다.' },
-    ],
-    cheers: ['결정이 빠르고 기준이 명확합니다.', '회의 후 다음 액션이 분명해집니다.', '복잡한 이슈를 한 문장으로 정리합니다.'],
-  },
-  {
-    id: 'park-geonwoo',
-    name: '박건우',
-    englishName: 'Geonwoo Park',
-    role: 'CTO',
-    department: 'Technology Lab',
-    departmentKey: 'technology',
-    location: 'Seoul HQ',
-    status: '플랫폼 아키텍처',
-    summary: '프론트엔드, 백엔드, 보안, 배포 체계를 안정적인 제품 기반으로 연결합니다.',
-    quote: '기술 부채는 숨기는 것이 아니라 우선순위로 다루는 운영 과제입니다.',
-    accent: '#60a5fa',
-    image: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=520&q=80',
-    icon: Cpu,
-    skills: ['시스템 설계', '보안', 'Next.js', '인프라'],
-    metrics: [
-      { label: '릴리즈 안정도', value: '99.8%' },
-      { label: '자동화 파이프라인', value: '21' },
-      { label: '리뷰 처리', value: '63' },
-    ],
-    milestones: [
-      { year: '2021', title: '플랫폼 엔지니어링 리드', detail: '공통 API와 배포 표준을 정립했습니다.' },
-      { year: '2023', title: '보안 기준 고도화', detail: '관리자 권한과 데이터 접근 흐름을 재설계했습니다.' },
-      { year: '2025', title: 'AI 워크플로우 통합', detail: '사내 도구와 생성형 AI 기능을 서비스에 연결했습니다.' },
-    ],
-    cheers: ['장애 대응 때 가장 먼저 흐름을 잡아줍니다.', '리뷰가 날카롭지만 적용하기 쉽습니다.', '복잡한 구조도 차분하게 설명합니다.'],
-  },
-  {
-    id: 'jung-seoyeon',
-    name: '정서연',
-    englishName: 'Seoyeon Jung',
-    role: 'COO',
-    department: 'Operations Office',
-    departmentKey: 'operation',
-    location: 'Seoul HQ',
-    status: '운영 체계 총괄',
-    summary: '일정, 예산, 리스크, 문서 체계를 정리해 팀의 실행 속도를 유지합니다.',
-    quote: '운영의 목표는 사람이 덜 기억해도 시스템이 놓치지 않게 만드는 것입니다.',
-    accent: '#f5b84b',
-    image: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=520&q=80',
-    icon: BadgeCheck,
-    skills: ['프로세스', '리스크 관리', '예산', '거버넌스'],
-    metrics: [
-      { label: '운영 자동화', value: '34' },
-      { label: '리스크 닫힘', value: '91%' },
-      { label: '문서 표준', value: '28' },
-    ],
-    milestones: [
-      { year: '2020', title: '운영 컨설팅', detail: '성장 조직의 업무 흐름과 회의 체계를 설계했습니다.' },
-      { year: '2023', title: '프로픽 운영 합류', detail: '전사 운영 대시보드와 문서 기준을 만들었습니다.' },
-      { year: '2026', title: '실행 리듬 고도화', detail: '팀별 의사결정 기록과 리스크 추적을 자동화하고 있습니다.' },
-    ],
-    cheers: ['일정이 흔들릴 때 가장 믿을 수 있습니다.', '복잡한 요청도 깔끔하게 정리됩니다.', '회의가 짧아지고 결과가 남습니다.'],
-  },
-  {
-    id: 'han-jimin',
-    name: '한지민',
-    englishName: 'Jimin Han',
-    role: 'CMO',
-    department: 'Brand Growth',
-    departmentKey: 'growth',
-    location: 'Seoul HQ',
-    status: '브랜드 성장',
-    summary: '시장 메시지, 콘텐츠, 캠페인 지표를 연결해 고객 접점을 확장합니다.',
-    quote: '브랜드는 멋진 문장이 아니라 고객이 반복해서 기억하는 경험입니다.',
-    accent: '#fb7185',
-    image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=520&q=80',
-    icon: Megaphone,
-    skills: ['브랜드 전략', '콘텐츠', '퍼널 분석', '캠페인'],
-    metrics: [
-      { label: '캠페인 실험', value: '56' },
-      { label: '콘텐츠 전환', value: '+31%' },
-      { label: '브랜드 세션', value: '24' },
-    ],
-    milestones: [
-      { year: '2019', title: '그로스 마케팅 시작', detail: '데이터 기반 캠페인 운영을 담당했습니다.' },
-      { year: '2022', title: '브랜드 리뉴얼', detail: '프로픽의 메시지와 콘텐츠 톤을 재정의했습니다.' },
-      { year: '2025', title: 'B2B 채널 확장', detail: '기업 고객을 위한 리드 생성 흐름을 구축했습니다.' },
-    ],
-    cheers: ['고객 관점으로 메시지를 바꿔줍니다.', '아이디어가 빠르게 실험으로 이어집니다.', '말보다 숫자로 설득합니다.'],
-  },
-  {
-    id: 'lee-dohyun',
-    name: '이도현',
-    englishName: 'Dohyun Lee',
-    role: 'Head of Product',
-    department: 'Product Strategy',
-    departmentKey: 'product',
-    location: 'Pangyo Studio',
-    status: '제품 로드맵',
-    summary: '고객 문제를 기능 요구사항과 출시 기준으로 바꾸고 우선순위를 조율합니다.',
-    quote: '제품 결정은 모두가 좋아하는 답보다 고객 문제가 줄어드는 답을 골라야 합니다.',
-    accent: '#38bdf8',
-    image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=520&q=80',
-    icon: Building2,
-    skills: ['로드맵', 'PRD', '고객 인터뷰', '우선순위'],
-    metrics: [
-      { label: '출시 기획', value: '17' },
-      { label: '고객 인터뷰', value: '84' },
-      { label: '스프린트 정렬', value: '92%' },
-    ],
-    milestones: [
-      { year: '2020', title: 'SaaS PM', detail: '업무 자동화 제품의 초기 PM을 맡았습니다.' },
-      { year: '2023', title: '프로픽 제품 합류', detail: '사용자 흐름과 기능 우선순위 체계를 정리했습니다.' },
-      { year: '2026', title: '멀티 제품 로드맵', detail: '기업, 생산성, AI 도구 라인을 통합 관리합니다.' },
-    ],
-    cheers: ['요구사항이 명확해서 개발 속도가 납니다.', '고객 이야기를 제품 언어로 잘 바꿉니다.', '우선순위 논쟁을 잘 정리합니다.'],
-  },
-  {
-    id: 'choi-minjun',
-    name: '최민준',
-    englishName: 'Minjun Choi',
-    role: 'Engineering Lead',
-    department: 'Platform Engineering',
-    departmentKey: 'technology',
-    location: 'Remote Core',
-    status: '서비스 개발',
-    summary: '서비스 UI, API, 배포 품질을 챙기며 제품팀의 실험 속도를 높입니다.',
-    quote: '빠른 개발은 많은 코드를 쓰는 일이 아니라 되돌릴 수 있는 구조를 만드는 일입니다.',
-    accent: '#2dd4bf',
-    image: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=520&q=80',
-    icon: Cpu,
-    skills: ['React', 'Firebase', 'API 설계', '배포'],
-    metrics: [
-      { label: '릴리즈', value: '73' },
-      { label: '성능 개선', value: '+44%' },
-      { label: '리뷰 승인', value: '118' },
-    ],
-    milestones: [
-      { year: '2021', title: '풀스택 전환', detail: '프론트엔드와 서버 운영을 함께 담당했습니다.' },
-      { year: '2024', title: '플랫폼 리드', detail: '공통 컴포넌트와 서비스 템플릿을 만들었습니다.' },
-      { year: '2026', title: 'AI 기능 생산화', detail: '생성형 AI 워크플로우를 운영 가능한 제품 기능으로 전환합니다.' },
-    ],
-    cheers: ['코드 리뷰가 실질적인 품질 개선으로 이어집니다.', '문제가 생기면 끝까지 재현합니다.', '제품 맥락을 이해하고 개발합니다.'],
-  },
-  {
-    id: 'moon-harin',
-    name: '문하린',
-    englishName: 'Harin Moon',
-    role: 'AI Lead',
-    department: 'Data and AI',
-    departmentKey: 'technology',
-    location: 'Seoul HQ',
-    status: '데이터 자동화',
-    summary: '데이터 파이프라인, 모델 실험, 프롬프트 평가 체계를 운영합니다.',
-    quote: 'AI 기능은 신기함보다 재현성과 평가 기준이 먼저입니다.',
-    accent: '#a78bfa',
-    image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=520&q=80',
-    icon: Database,
-    skills: ['LLM 평가', '데이터 파이프라인', '분석', '자동화'],
-    metrics: [
-      { label: '모델 실험', value: '129' },
-      { label: '평가 세트', value: '11' },
-      { label: '자동 리포트', value: '37' },
-    ],
-    milestones: [
-      { year: '2021', title: '데이터 분석가', detail: '사용자 행동과 전환 지표 분석을 담당했습니다.' },
-      { year: '2023', title: 'AI 실험 환경 구축', detail: '프롬프트, 모델, 결과 평가 흐름을 표준화했습니다.' },
-      { year: '2026', title: '에이전트 평가 체계', detail: '업무 자동화 에이전트의 품질 기준을 고도화합니다.' },
-    ],
-    cheers: ['모호한 데이터를 실행 가능한 지표로 바꿉니다.', 'AI 기능의 과장을 잘 걷어냅니다.', '실험 결과를 믿을 수 있게 만듭니다.'],
-  },
-  {
-    id: 'seo-jiwoo',
-    name: '서지우',
-    englishName: 'Jiwoo Seo',
-    role: 'Design Lead',
-    department: 'Design Experience',
-    departmentKey: 'experience',
-    location: 'Pangyo Studio',
-    status: 'UX 품질',
-    summary: '브랜드, 화면 구조, 접근성 기준을 실제 사용감으로 연결합니다.',
-    quote: '좋은 화면은 설명을 덜어도 사용자가 다음 행동을 알게 만듭니다.',
-    accent: '#f97316',
-    image: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=520&q=80',
-    icon: Palette,
-    skills: ['UX 설계', '디자인 시스템', '프로토타입', '접근성'],
-    metrics: [
-      { label: '화면 개선', value: '68' },
-      { label: '컴포넌트', value: '52' },
-      { label: 'QA 통과', value: '97%' },
-    ],
-    milestones: [
-      { year: '2020', title: '제품 디자이너', detail: 'B2B 업무 도구의 핵심 화면을 설계했습니다.' },
-      { year: '2023', title: '디자인 시스템 구축', detail: '반복 UI의 토큰과 컴포넌트 기준을 만들었습니다.' },
-      { year: '2026', title: '고품질 인터랙션 확장', detail: '제품별 핵심 경험을 더 정교하게 다듬고 있습니다.' },
-    ],
-    cheers: ['디자인 리뷰가 사용자 관점으로 돌아옵니다.', '작은 디테일까지 집요하게 봅니다.', '복잡한 기능도 화면이 차분해집니다.'],
-  },
-  {
-    id: 'kang-soyoon',
-    name: '강소윤',
-    englishName: 'Soyoon Kang',
-    role: 'Customer Success Lead',
-    department: 'Customer Success',
-    departmentKey: 'growth',
-    location: 'Seoul HQ',
-    status: '고객 성공',
-    summary: '고객 요청과 반복 이슈를 수집해 제품 개선 흐름으로 되돌립니다.',
-    quote: '고객 지원은 문제를 해결하는 동시에 제품이 배워야 할 신호를 찾는 일입니다.',
-    accent: '#22c55e',
-    image: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=520&q=80',
-    icon: Headphones,
-    skills: ['VOC', '온보딩', '고객 교육', '문제 추적'],
-    metrics: [
-      { label: '고객 세션', value: '142' },
-      { label: '해결 리드타임', value: '-36%' },
-      { label: '제품 피드백', value: '89' },
-    ],
-    milestones: [
-      { year: '2021', title: '고객 운영 담당', detail: 'B2B 고객의 온보딩과 운영 지원을 담당했습니다.' },
-      { year: '2024', title: 'VOC 체계화', detail: '고객 요청을 제품 개선 티켓으로 연결했습니다.' },
-      { year: '2026', title: '고객 성공 지표 운영', detail: '사용성, 만족도, 유지율 지표를 통합 관리합니다.' },
-    ],
-    cheers: ['고객의 말을 팀이 이해하는 언어로 바꿉니다.', '문제 상황에서도 톤이 안정적입니다.', '피드백 루프를 놓치지 않습니다.'],
-  },
-  {
-    id: 'oh-junhyuk',
-    name: '오준혁',
-    englishName: 'Junhyuk Oh',
-    role: 'Business Lead',
-    department: 'Business Development',
-    departmentKey: 'growth',
-    location: 'Seoul HQ',
-    status: '제휴 개발',
-    summary: '파트너십, 제휴, 신규 수익 기회를 검토하고 실행 조건을 만듭니다.',
-    quote: '좋은 제휴는 서로의 부족한 부분이 아니라 강한 부분을 더 크게 만듭니다.',
-    accent: '#f59e0b',
-    image: 'https://images.unsplash.com/photo-1557862921-37829c790f19?auto=format&fit=crop&w=520&q=80',
-    icon: Handshake,
-    skills: ['파트너십', '영업 전략', '계약 협의', '시장 검증'],
-    metrics: [
-      { label: '제휴 제안', value: '31' },
-      { label: '계약 전환', value: '14' },
-      { label: '신규 파이프라인', value: '+48%' },
-    ],
-    milestones: [
-      { year: '2019', title: 'B2B 세일즈', detail: '기업 고객 대상 솔루션 영업을 담당했습니다.' },
-      { year: '2023', title: '사업개발 리드', detail: '파트너 세그먼트와 제안 프로세스를 정리했습니다.' },
-      { year: '2026', title: '채널 파트너 확장', detail: '외부 채널과 공동 사업 구조를 설계합니다.' },
-    ],
-    cheers: ['상대방의 니즈를 빠르게 파악합니다.', '협상 후 내부 액션이 명확합니다.', '기회를 숫자로 검증합니다.'],
-  },
-  {
-    id: 'shin-areum',
-    name: '신아름',
-    englishName: 'Areum Shin',
-    role: 'Operations Lead',
-    department: 'Business Operations',
-    departmentKey: 'operation',
-    location: 'Remote Core',
-    status: '프로세스 관리',
-    summary: '일정, 문서, 품질 체크리스트를 표준화해 반복 업무의 부담을 낮춥니다.',
-    quote: '체크리스트는 사람을 통제하는 도구가 아니라 놓침을 줄이는 합의입니다.',
-    accent: '#94a3b8',
-    image: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=520&q=80',
-    icon: Workflow,
-    skills: ['PMO', '문서화', '품질 기준', '업무 자동화'],
-    metrics: [
-      { label: '운영 템플릿', value: '45' },
-      { label: '누락 감소', value: '-52%' },
-      { label: '프로젝트 지원', value: '26' },
-    ],
-    milestones: [
-      { year: '2020', title: '프로젝트 매니저', detail: '다부서 협업 프로젝트의 일정과 리스크를 관리했습니다.' },
-      { year: '2024', title: '운영 표준화', detail: '반복 업무 템플릿과 체크 기준을 만들었습니다.' },
-      { year: '2026', title: '운영 자동화 확장', detail: '문서, 일정, 알림 흐름을 더 촘촘하게 자동화합니다.' },
-    ],
-    cheers: ['마감 전에 위험 신호를 먼저 알려줍니다.', '자료가 항상 찾기 쉬운 곳에 있습니다.', '운영이 조용하고 안정적입니다.'],
-  },
-  {
-    id: 'kim-yerin',
-    name: '김예린',
-    englishName: 'Yerin Kim',
-    role: 'People Lead',
-    department: 'People and Culture',
-    departmentKey: 'operation',
-    location: 'Seoul HQ',
-    status: '피플 컬처',
-    summary: '채용, 온보딩, 평가, 조직문화 프로그램을 팀의 성장 속도에 맞춰 설계합니다.',
-    quote: '좋은 문화는 문구가 아니라 팀이 반복해서 선택하는 행동입니다.',
-    accent: '#e879f9',
-    image: 'https://images.unsplash.com/photo-1551836022-deb4988cc6c0?auto=format&fit=crop&w=520&q=80',
-    icon: HeartHandshake,
-    skills: ['채용', '온보딩', '평가', '조직문화'],
-    metrics: [
-      { label: '온보딩 만족', value: '4.8' },
-      { label: '채용 파이프라인', value: '64' },
-      { label: '컬처 세션', value: '19' },
-    ],
-    milestones: [
-      { year: '2020', title: 'HRBP', detail: '성장 조직의 채용과 평가 운영을 맡았습니다.' },
-      { year: '2023', title: '프로픽 피플 리드', detail: '온보딩과 리뷰 체계를 회사에 맞게 설계했습니다.' },
-      { year: '2026', title: '성장 문화 고도화', detail: '피드백, 학습, 협업 기준을 일상에 녹이고 있습니다.' },
-    ],
-    cheers: ['새 구성원이 빠르게 적응하게 돕습니다.', '피드백을 부담 없이 나누게 만듭니다.', '팀의 분위기를 세심하게 살핍니다.'],
-  },
-];
-
-const featuredKeywords = ['전략', 'AI', '고객', '운영', '브랜드'];
-
-const departmentKeySet = new Set<DepartmentKey>(['leadership', 'product', 'technology', 'experience', 'growth', 'operation']);
-
-const iconMap: Record<string, LucideIcon> = {
-  BadgeCheck,
-  Building2,
-  Cpu,
-  Crown,
-  Database,
-  Handshake,
-  Headphones,
-  HeartHandshake,
-  Megaphone,
-  Palette,
-  Sparkles,
-  Star,
-  Target,
-  UsersRound,
-  Workflow,
+const CEO_PROFILE: StaffProfile = {
+  id: 'ceo-just-pig',
+  name: '그냥돼지',
+  englishName: 'JUST PIG',
+  role: 'CEO · Chief Executive Officer',
+  department: '대표실',
+  status: '운영중',
+  bio: '회사 전체의 비전과 우선순위를 결정하고, AI 조직이 사람의 판단 기준 안에서 일하도록 최종 책임을 맡습니다.',
+  quote: '복잡한 조직일수록 결정 기준은 더 단순하고 선명해야 합니다.',
+  reportsTo: '이사회 · 최종 책임',
+  avatarIndex: 0,
+  accent: '#77d7bd',
+  skills: ['비전 설계', '최종 의사결정', '조직 운영', 'Human-in-the-loop'],
+  responsibilities: ['전사 목표와 우선순위 승인', 'C-Suite 성과 기준 정렬', 'AI 권한과 리스크 최종 통제'],
 };
 
-function findEnabledBlock(page: CorpPage | null | undefined, blockId: string) {
-  return page?.blocks.find((block) => block.id === blockId && block.enabled !== false);
-}
+const executiveGroups: ExecutiveGroup[] = [
+  {
+    role: 'CTO',
+    focus: '제품·플랫폼·AI 기술 총괄',
+    departmentIds: ['platform', 'ai-data', 'product-experience'],
+    profile: {
+      id: 'executive-cto',
+      name: 'ATLAS',
+      englishName: 'ATLAS',
+      role: 'CTO · Chief Technology Officer',
+      department: 'Technology Office',
+      status: '운영중',
+      bio: '플랫폼, AI 데이터, 제품 경험 조직의 기술 전략과 출시 품질을 총괄합니다.',
+      quote: '좋은 기술은 복잡함을 감추는 것이 아니라 안전하게 관리합니다.',
+      reportsTo: 'CEO · 그냥돼지',
+      avatarIndex: 1,
+      accent: '#2f6fed',
+      skills: ['기술 전략', 'AI 아키텍처', '제품 품질', '보안'],
+      responsibilities: ['기술 로드맵 승인', '아키텍처·보안 기준 수립', '3개 기술 부서 성과 검수'],
+    },
+  },
+  {
+    role: 'CMO',
+    focus: '브랜드·성장·고객 경험 총괄',
+    departmentIds: ['brand-marketing', 'growth-sales', 'customer-success'],
+    profile: {
+      id: 'executive-cmo',
+      name: 'SIGNAL',
+      englishName: 'SIGNAL',
+      role: 'CMO · Chief Marketing Officer',
+      department: 'Growth Office',
+      status: '운영중',
+      bio: '브랜드 메시지부터 영업 전환, 고객 성공까지 모든 시장 접점을 하나의 성장 흐름으로 연결합니다.',
+      quote: '고객이 보내는 신호를 놓치지 않는 것이 성장의 시작입니다.',
+      reportsTo: 'CEO · 그냥돼지',
+      avatarIndex: 2,
+      accent: '#cf5576',
+      skills: ['브랜드 전략', 'Growth', '고객 데이터', '파트너십'],
+      responsibilities: ['시장 포지셔닝 결정', '고객 획득·유지 지표 관리', '3개 성장 부서 캠페인 승인'],
+    },
+  },
+  {
+    role: 'CFO',
+    focus: '재무·예산·전략 운영 총괄',
+    departmentIds: ['finance-accounting', 'strategy-operations'],
+    profile: {
+      id: 'executive-cfo',
+      name: 'VAULT',
+      englishName: 'VAULT',
+      role: 'CFO · Chief Financial Officer',
+      department: 'Finance Office',
+      status: '운영중',
+      bio: '재무 건전성과 운영 효율을 수치로 관리하고, 중요한 투자 판단에 신뢰할 수 있는 기준을 제공합니다.',
+      quote: '숫자는 결과를 설명하고, 기준은 다음 결정을 만듭니다.',
+      reportsTo: 'CEO · 그냥돼지',
+      avatarIndex: 3,
+      accent: '#0d8f73',
+      skills: ['재무 전략', 'FP&A', '예산 통제', '운영 효율'],
+      responsibilities: ['현금 흐름과 손익 감독', '예산·투자안 검토', '전사 운영 효율 지표 관리'],
+    },
+  },
+  {
+    role: 'CLO',
+    focus: '법무·준법·조직 문화 총괄',
+    departmentIds: ['legal-compliance', 'people-culture'],
+    profile: {
+      id: 'executive-clo',
+      name: 'LEX',
+      englishName: 'LEX',
+      role: 'CLO · Chief Legal Officer',
+      department: 'Legal & People Office',
+      status: '운영중',
+      bio: '계약과 규제, 개인정보, 피플 정책을 함께 살펴 조직이 안전하고 지속 가능하게 성장하도록 돕습니다.',
+      quote: '빠르게 움직일수록 지켜야 할 경계는 더 분명해야 합니다.',
+      reportsTo: 'CEO · 그냥돼지',
+      avatarIndex: 4,
+      accent: '#9a6b26',
+      skills: ['기업 법무', '컴플라이언스', '개인정보', 'People Policy'],
+      responsibilities: ['계약·규제 리스크 승인', 'AI 준법 정책 관리', '조직 문화와 피플 정책 감독'],
+    },
+  },
+];
 
-function getIconByName(name: string | null | undefined, fallback: LucideIcon) {
-  return name ? iconMap[name] ?? fallback : fallback;
-}
+const departments: Department[] = [
+  {
+    id: 'platform',
+    label: '플랫폼개발부',
+    englishLabel: 'Platform Engineering',
+    executiveRole: 'CTO',
+    lead: {
+      id: 'lead-platform', name: 'ARCHI', englishName: 'ARCHI', role: 'AI 플랫폼팀장', department: '플랫폼개발부', status: '운영중',
+      bio: '서비스 아키텍처와 배포 체계를 설계하고 안정적인 제품 기반을 책임집니다.', quote: '빠른 개발은 흔들리지 않는 기반 위에서 가능합니다.',
+      reportsTo: 'CTO · ATLAS', avatarIndex: 5, accent: '#2f6fed', skills: ['시스템 설계', 'Backend', 'DevOps', '보안'],
+      responsibilities: ['플랫폼 아키텍처 설계', '배포·관측 기준 관리', '9개 AI 전문 좌석 검수'],
+    },
+    mandate: '제품이 안정적으로 확장될 수 있는 플랫폼과 개발 운영 체계를 만듭니다.',
+    accent: '#2f6fed',
+    soft: '#edf3ff',
+    icon: Code2,
+    skills: ['시스템 설계', '개발', 'DevOps'],
+    openings: [
+      { code: 'PL-02', title: 'AI 시스템 엔지니어' }, { code: 'PL-03', title: 'AI 프론트엔드' },
+      { code: 'PL-04', title: 'AI 백엔드' }, { code: 'PL-05', title: 'AI DevOps' },
+      { code: 'PL-06', title: 'AI 클라우드 엔지니어' }, { code: 'PL-07', title: 'AI QA 자동화' },
+      { code: 'PL-08', title: 'AI 보안 엔지니어' }, { code: 'PL-09', title: 'AI SRE' },
+      { code: 'PL-10', title: 'AI 기술지원' },
+    ],
+  },
+  {
+    id: 'ai-data', label: 'AI데이터부', englishLabel: 'AI & Data Lab', executiveRole: 'CTO',
+    lead: {
+      id: 'lead-ai-data', name: 'NEURAL', englishName: 'NEURAL', role: 'AI 데이터팀장', department: 'AI데이터부', status: '운영중',
+      bio: '데이터 품질과 AI 모델 운영 기준을 세워 재사용 가능한 지능형 업무 기반을 만듭니다.', quote: '좋은 AI는 좋은 데이터와 명확한 평가 기준에서 시작합니다.',
+      reportsTo: 'CTO · ATLAS', avatarIndex: 6, accent: '#5f65d8', skills: ['Data', 'LLM', 'MLOps', '평가'],
+      responsibilities: ['AI 모델·데이터 전략 수립', '평가·안전 기준 운영', '자동화 성과 품질 검수'],
+    },
+    mandate: '데이터 수집부터 AI 모델 평가와 운영 자동화까지 하나의 품질 체계로 관리합니다.',
+    accent: '#5f65d8', soft: '#f0f1ff', icon: BrainCircuit, skills: ['AI', '데이터', '자동화'],
+    openings: [
+      { code: 'AD-02', title: 'AI ML 엔지니어' }, { code: 'AD-03', title: 'AI 데이터 엔지니어' },
+      { code: 'AD-04', title: 'AI 분석가' }, { code: 'AD-05', title: 'AI 프롬프트 엔지니어' },
+      { code: 'AD-06', title: 'AI MLOps' }, { code: 'AD-07', title: 'AI 평가 전문가' },
+      { code: 'AD-08', title: 'AI 데이터 거버넌스' }, { code: 'AD-09', title: 'AI 자동화 설계자' },
+      { code: 'AD-10', title: 'AI 리서처' },
+    ],
+  },
+  {
+    id: 'product-experience', label: '제품경험부', englishLabel: 'Product Experience', executiveRole: 'CTO',
+    lead: {
+      id: 'lead-product', name: 'CANVAS', englishName: 'CANVAS', role: 'AI 제품경험팀장', department: '제품경험부', status: '운영중',
+      bio: '사용자 문제를 제품 로드맵과 명확한 인터페이스로 바꾸어 출시 경험을 완성합니다.', quote: '좋은 경험은 사용자가 고민할 필요 없는 흐름을 만듭니다.',
+      reportsTo: 'CTO · ATLAS', avatarIndex: 7, accent: '#7659bd', skills: ['Product', 'UX', 'Design System', '리서치'],
+      responsibilities: ['제품 로드맵 설계', 'UX·디자인 품질 관리', '사용자 검증과 출시 기준 운영'],
+    },
+    mandate: '고객 문제를 제품 전략, UX, 디자인 시스템으로 연결합니다.',
+    accent: '#7659bd', soft: '#f5f0ff', icon: Palette, skills: ['제품', 'UX', '디자인'],
+    openings: [
+      { code: 'PX-02', title: 'AI 프로덕트 매니저' }, { code: 'PX-03', title: 'AI UX 리서처' },
+      { code: 'PX-04', title: 'AI UX 디자이너' }, { code: 'PX-05', title: 'AI UI 디자이너' },
+      { code: 'PX-06', title: 'AI 콘텐츠 디자이너' }, { code: 'PX-07', title: 'AI 디자인시스템' },
+      { code: 'PX-08', title: 'AI 접근성 전문가' }, { code: 'PX-09', title: 'AI 프로토타이퍼' },
+      { code: 'PX-10', title: 'AI 제품 분석가' },
+    ],
+  },
+  {
+    id: 'brand-marketing', label: '브랜드마케팅부', englishLabel: 'Brand Marketing', executiveRole: 'CMO',
+    lead: {
+      id: 'lead-brand', name: 'MUSE', englishName: 'MUSE', role: 'AI 브랜드마케팅팀장', department: '브랜드마케팅부', status: '운영중',
+      bio: '브랜드 언어와 콘텐츠 품질을 관리해 모든 고객 접점에서 같은 인상을 만듭니다.', quote: '브랜드는 말하는 방식이 아니라 기억되는 방식입니다.',
+      reportsTo: 'CMO · SIGNAL', avatarIndex: 8, accent: '#cf5576', skills: ['Brand', 'Content', 'Campaign', 'Creative'],
+      responsibilities: ['브랜드 가이드 운영', '콘텐츠·캠페인 기획', '크리에이티브 품질 승인'],
+    },
+    mandate: '브랜드 전략과 콘텐츠, 캠페인을 일관된 고객 메시지로 통합합니다.',
+    accent: '#cf5576', soft: '#fff0f4', icon: Megaphone, skills: ['브랜드', '콘텐츠', '캠페인'],
+    openings: [
+      { code: 'BM-02', title: 'AI 브랜드 전략가' }, { code: 'BM-03', title: 'AI 콘텐츠 에디터' },
+      { code: 'BM-04', title: 'AI 카피라이터' }, { code: 'BM-05', title: 'AI 크리에이티브' },
+      { code: 'BM-06', title: 'AI 영상 기획자' }, { code: 'BM-07', title: 'AI 소셜 매니저' },
+      { code: 'BM-08', title: 'AI 캠페인 매니저' }, { code: 'BM-09', title: 'AI PR 매니저' },
+      { code: 'BM-10', title: 'AI 브랜드 분석가' },
+    ],
+  },
+  {
+    id: 'growth-sales', label: '성장영업부', englishLabel: 'Growth & Sales', executiveRole: 'CMO',
+    lead: {
+      id: 'lead-growth', name: 'PULSE', englishName: 'PULSE', role: 'AI 성장영업팀장', department: '성장영업부', status: '운영중',
+      bio: '고객 획득 실험과 영업 파이프라인을 연결해 측정 가능한 성장을 만듭니다.', quote: '성장은 감이 아니라 반복 가능한 실험의 결과입니다.',
+      reportsTo: 'CMO · SIGNAL', avatarIndex: 9, accent: '#d25f45', skills: ['Growth', 'Sales', 'CRM', 'Analytics'],
+      responsibilities: ['성장 실험 우선순위 관리', '영업 파이프라인 운영', '매출 전환 지표 검수'],
+    },
+    mandate: '시장 기회를 실험하고 영업 파이프라인과 매출 전환으로 연결합니다.',
+    accent: '#d25f45', soft: '#fff2ee', icon: Rocket, skills: ['성장', '영업', 'CRM'],
+    openings: [
+      { code: 'GS-02', title: 'AI Growth Manager' }, { code: 'GS-03', title: 'AI 퍼포먼스 마케터' },
+      { code: 'GS-04', title: 'AI 세일즈 개발' }, { code: 'GS-05', title: 'AI Account Executive' },
+      { code: 'GS-06', title: 'AI CRM 매니저' }, { code: 'GS-07', title: 'AI Revenue Ops' },
+      { code: 'GS-08', title: 'AI 파트너십' }, { code: 'GS-09', title: 'AI 시장 리서처' },
+      { code: 'GS-10', title: 'AI Growth Analyst' },
+    ],
+  },
+  {
+    id: 'customer-success', label: '고객성공부', englishLabel: 'Customer Success', executiveRole: 'CMO',
+    lead: {
+      id: 'lead-customer', name: 'CARE', englishName: 'CARE', role: 'AI 고객성공팀장', department: '고객성공부', status: '운영중',
+      bio: '고객이 제품 가치를 빠르게 경험하도록 온보딩, 지원, 피드백 흐름을 관리합니다.', quote: '고객의 성공이 반복될 때 제품의 성장도 지속됩니다.',
+      reportsTo: 'CMO · SIGNAL', avatarIndex: 10, accent: '#a05f8f', skills: ['Onboarding', 'Support', 'VOC', 'Retention'],
+      responsibilities: ['고객 온보딩 기준 운영', 'VOC·지원 품질 관리', '유지율과 만족도 개선'],
+    },
+    mandate: '온보딩부터 지원과 리텐션까지 고객이 성공하는 전체 여정을 운영합니다.',
+    accent: '#a05f8f', soft: '#fbf0f8', icon: Headphones, skills: ['고객지원', 'VOC', '리텐션'],
+    openings: [
+      { code: 'CS-02', title: 'AI 온보딩 매니저' }, { code: 'CS-03', title: 'AI 고객지원' },
+      { code: 'CS-04', title: 'AI VOC 분석가' }, { code: 'CS-05', title: 'AI 리텐션 매니저' },
+      { code: 'CS-06', title: 'AI 교육 콘텐츠' }, { code: 'CS-07', title: 'AI 기술지원 코디네이터' },
+      { code: 'CS-08', title: 'AI 커뮤니티 매니저' }, { code: 'CS-09', title: 'AI 고객품질 담당' },
+      { code: 'CS-10', title: 'AI Success Analyst' },
+    ],
+  },
+  {
+    id: 'finance-accounting', label: '재무회계부', englishLabel: 'Finance & Accounting', executiveRole: 'CFO',
+    lead: {
+      id: 'lead-finance', name: 'FIN', englishName: 'FIN', role: 'AI 재무회계팀장', department: '재무회계부', status: '운영중',
+      bio: '현금 흐름과 손익, 회계 기준을 투명하게 관리해 신뢰할 수 있는 숫자를 제공합니다.', quote: '정확한 숫자는 더 나은 판단을 가능하게 합니다.',
+      reportsTo: 'CFO · VAULT', avatarIndex: 11, accent: '#0d8f73', skills: ['Accounting', 'FP&A', 'Tax', 'Treasury'],
+      responsibilities: ['회계·결산 기준 운영', '현금 흐름과 예산 관리', '재무 리포트 품질 검수'],
+    },
+    mandate: '재무 건전성과 회계 투명성을 관리하고 모든 경영 판단의 수치 기준을 제공합니다.',
+    accent: '#0d8f73', soft: '#ebfaf5', icon: CircleDollarSign, skills: ['재무', '회계', '세무'],
+    openings: [
+      { code: 'FA-02', title: 'AI FP&A' }, { code: 'FA-03', title: 'AI 회계 담당' },
+      { code: 'FA-04', title: 'AI 세무 담당' }, { code: 'FA-05', title: 'AI 자금관리' },
+      { code: 'FA-06', title: 'AI 예산관리' }, { code: 'FA-07', title: 'AI 원가분석' },
+      { code: 'FA-08', title: 'AI 매출관리' }, { code: 'FA-09', title: 'AI 구매분석' },
+      { code: 'FA-10', title: 'AI 재무리스크' },
+    ],
+  },
+  {
+    id: 'strategy-operations', label: '전략운영부', englishLabel: 'Strategy & Operations', executiveRole: 'CFO',
+    lead: {
+      id: 'lead-operations', name: 'ORBIT', englishName: 'ORBIT', role: 'AI 전략운영팀장', department: '전략운영부', status: '운영중',
+      bio: '전사 목표를 실행 계획과 운영 지표로 전환해 부서 간 우선순위를 맞춥니다.', quote: '전략은 실행 순서와 책임자가 정해질 때 비로소 작동합니다.',
+      reportsTo: 'CFO · VAULT', avatarIndex: 12, accent: '#247f91', skills: ['Strategy', 'PMO', 'Process', 'KPI'],
+      responsibilities: ['전사 실행계획 관리', '운영 프로세스 최적화', '부서별 KPI 정렬'],
+    },
+    mandate: '전사 전략을 프로젝트, 프로세스, 운영 지표로 연결해 실행력을 높입니다.',
+    accent: '#247f91', soft: '#edf8fa', icon: Workflow, skills: ['전략', 'PMO', '프로세스'],
+    openings: [
+      { code: 'SO-02', title: 'AI 전략기획' }, { code: 'SO-03', title: 'AI PMO' },
+      { code: 'SO-04', title: 'AI 프로세스 설계' }, { code: 'SO-05', title: 'AI KPI 분석가' },
+      { code: 'SO-06', title: 'AI 운영 매니저' }, { code: 'SO-07', title: 'AI 문서관리' },
+      { code: 'SO-08', title: 'AI 구매운영' }, { code: 'SO-09', title: 'AI 리스크 운영' },
+      { code: 'SO-10', title: 'AI Business Analyst' },
+    ],
+  },
+  {
+    id: 'legal-compliance', label: '법무준법부', englishLabel: 'Legal & Compliance', executiveRole: 'CLO',
+    lead: {
+      id: 'lead-legal', name: 'GUARD', englishName: 'GUARD', role: 'AI 법무준법팀장', department: '법무준법부', status: '운영중',
+      bio: '계약과 규제 리스크를 사전에 점검하고 안전하게 실행할 수 있는 기준을 만듭니다.', quote: '예방 가능한 리스크는 실행 전에 제거해야 합니다.',
+      reportsTo: 'CLO · LEX', avatarIndex: 13, accent: '#9a6b26', skills: ['Contract', 'Compliance', 'Privacy', 'IP'],
+      responsibilities: ['계약 검토 기준 운영', '규제·준법 모니터링', 'AI 법무 결과물 승인'],
+    },
+    mandate: '계약, 규제, 개인정보, 지식재산 리스크를 사전에 통제합니다.',
+    accent: '#9a6b26', soft: '#fff7e7', icon: Scale, skills: ['법무', '준법', '개인정보'],
+    openings: [
+      { code: 'LC-02', title: 'AI 계약관리' }, { code: 'LC-03', title: 'AI 컴플라이언스' },
+      { code: 'LC-04', title: 'AI 개인정보보호' }, { code: 'LC-05', title: 'AI 지식재산' },
+      { code: 'LC-06', title: 'AI 정책 리서치' }, { code: 'LC-07', title: 'AI 규제 모니터링' },
+      { code: 'LC-08', title: 'AI 분쟁관리' }, { code: 'LC-09', title: 'AI 문서심사' },
+      { code: 'LC-10', title: 'AI Legal Ops' },
+    ],
+  },
+  {
+    id: 'people-culture', label: '피플문화부', englishLabel: 'People & Culture', executiveRole: 'CLO',
+    lead: {
+      id: 'lead-people', name: 'HARMONY', englishName: 'HARMONY', role: 'AI 피플문화팀장', department: '피플문화부', status: '운영중',
+      bio: '채용과 온보딩, 성과, 학습 체계를 연결해 사람과 AI가 함께 일하는 문화를 설계합니다.', quote: '좋은 문화는 누구나 같은 기준으로 성장할 수 있게 합니다.',
+      reportsTo: 'CLO · LEX', avatarIndex: 14, accent: '#8f668c', skills: ['Recruiting', 'Culture', 'L&D', 'People Ops'],
+      responsibilities: ['AI·인재 채용 체계 운영', '온보딩·학습 프로그램 관리', '성과·문화 지표 검수'],
+    },
+    mandate: '채용부터 성장과 문화까지 사람과 AI가 함께 일하는 운영 체계를 만듭니다.',
+    accent: '#8f668c', soft: '#faf1f8', icon: UsersRound, skills: ['채용', '문화', 'People Ops'],
+    openings: [
+      { code: 'PC-02', title: 'AI 채용 매니저' }, { code: 'PC-03', title: 'AI People Ops' },
+      { code: 'PC-04', title: 'AI 온보딩 매니저' }, { code: 'PC-05', title: 'AI L&D 매니저' },
+      { code: 'PC-06', title: 'AI 성과관리' }, { code: 'PC-07', title: 'AI 조직문화 담당' },
+      { code: 'PC-08', title: 'AI 노무 담당' }, { code: 'PC-09', title: 'AI People Analyst' },
+      { code: 'PC-10', title: 'AI Engagement Manager' },
+    ],
+  },
+];
 
-function getDepartmentKey(value: string | null | undefined, fallback: DepartmentKey) {
-  return value && departmentKeySet.has(value as DepartmentKey) ? (value as DepartmentKey) : fallback;
-}
-
-export function buildStaffIntroConfig(page?: CorpPage | null): StaffIntroConfig {
-  const heroBlock = findEnabledBlock(page, 'staff-hero');
-  const departmentBlock = findEnabledBlock(page, 'staff-departments');
-  const peopleBlock = findEnabledBlock(page, 'staff-people');
-  const flowBlock = findEnabledBlock(page, 'staff-flow');
-  const departmentFeatures = departmentBlock?.type === 'feature-grid' ? departmentBlock.data.features : [];
-  const people = peopleBlock?.type === 'people-grid' ? peopleBlock.data.people : [];
-
-  const nextDepartmentOptions = departmentOptions.map((department, index) => {
-    const feature = departmentFeatures[index];
-
-    return {
-      ...department,
-      id: getDepartmentKey(feature?.meta, department.id),
-      label: feature?.title?.trim() || department.label,
-      description: feature?.body?.trim() || department.description,
-      icon: getIconByName(feature?.icon, department.icon),
-    };
-  });
-
-  const nextStaffProfiles =
-    people.length > 0
-      ? people.map((person, index) => {
-          const fallback = staffProfiles[index] ?? staffProfiles[index % staffProfiles.length]!;
-          const personSkills = person.skills ?? [];
-          const personMetrics = person.metrics ?? [];
-          const personMilestones = person.milestones ?? [];
-          const personCheers = person.cheers ?? [];
-          const departmentKey = getDepartmentKey(person.departmentKey, fallback.departmentKey);
-          const department =
-            nextDepartmentOptions.find((option) => option.id === departmentKey) ??
-            nextDepartmentOptions.find((option) => option.label === person.department) ??
-            nextDepartmentOptions[0]!;
-          const name = person.name.trim() || fallback.name;
-          const role = person.role.trim() || fallback.role;
-
-          return {
-            ...fallback,
-            id: fallback.id || `staff-${index + 1}`,
-            name,
-            role,
-            englishName: person.englishName?.trim() || fallback.englishName,
-            departmentKey: department.id,
-            department: person.department?.trim() || department.label,
-            location: person.location?.trim() || fallback.location,
-            status: person.status?.trim() || role,
-            summary: person.bio.trim() || fallback.summary,
-            quote: person.quote?.trim() || person.bio.trim() || fallback.quote,
-            accent: person.accent?.trim() || fallback.accent,
-            image: person.imageUrl?.trim() || fallback.image,
-            icon: getIconByName(person.icon, fallback.icon),
-            skills: personSkills.length > 0 ? personSkills : fallback.skills,
-            metrics: personMetrics.length > 0 ? personMetrics : fallback.metrics,
-            milestones: personMilestones.length > 0 ? personMilestones : fallback.milestones,
-            cheers: personCheers.length > 0 ? personCheers : fallback.cheers,
-          };
-        })
-      : staffProfiles;
-
-  const nextFeaturedKeywords = Array.from(new Set(nextStaffProfiles.flatMap((profile) => profile.skills.map((skill) => skill.trim()).filter(Boolean)))).slice(
-    0,
-    5,
-  );
-
+function getOpenPositionProfile(department: Department, position: OpenPosition): StaffProfile {
   return {
-    heroKicker: heroBlock?.type === 'hero' ? heroBlock.data.kicker : 'Premium Team Directory',
-    heroTitle: heroBlock?.type === 'hero' ? heroBlock.data.headline : '직원소개',
-    heroBody:
-      heroBlock?.type === 'hero'
-        ? heroBlock.data.body
-        : '프로픽의 핵심 구성원을 리더십, 제품, 기술, 경험, 성장, 운영 카테고리로 정리한 팀 프로필입니다. 각 전문 영역의 역할과 협업 흐름을 한눈에 보고, 상세 프로필에서 업무 히스토리까지 확인할 수 있습니다.',
-    heroActionLabel: heroBlock?.type === 'hero' ? heroBlock.data.primaryLabel || '오늘의 직원 추천' : '오늘의 직원 추천',
-    heroActionHref: heroBlock?.type === 'hero' ? heroBlock.data.primaryHref?.trim() || '' : '',
-    heroMediaUrl:
-      heroBlock?.type === 'hero'
-        ? heroBlock.data.mediaUrl?.trim() || ''
-        : 'https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=1100&q=82',
-    heroSignalLabel: peopleBlock?.type === 'people-grid' ? peopleBlock.data.title : 'Live Overview',
-    departmentTitle: departmentBlock?.type === 'feature-grid' ? departmentBlock.data.title : '전문 영역별 구성',
-    departmentOptions: nextDepartmentOptions,
-    peopleTitle: peopleBlock?.type === 'people-grid' ? peopleBlock.data.title : '현재 적용 인물 카드',
-    staffProfiles: nextStaffProfiles,
-    featuredKeywords: nextFeaturedKeywords.length > 0 ? nextFeaturedKeywords : featuredKeywords,
-    flowTitle: flowBlock?.type === 'timeline' ? flowBlock.data.title : '협업이 이어지는 방식',
-    flowBody:
-      flowBlock?.type === 'timeline'
-        ? flowBlock.data.body.trim()
-        : '전략 결정부터 제품 정의, 기술 실행, 고객 검증, 운영 정착까지 직원들이 이어받는 협업 흐름을 정리했습니다.',
-    flowSummaryItems:
-      flowBlock?.type === 'timeline'
-        ? flowBlock.data.summaryItems.filter((item) => item.label.trim() || item.value.trim())
-        : [
-            { label: '협업 단계', value: '5 steps' },
-            { label: '핵심 부서', value: '6 teams' },
-            { label: '운영 축', value: '전략 · 제품 · 기술 · 검증 · 운영' },
-          ],
-    flowSteps:
-      flowBlock?.type === 'timeline' && flowBlock.data.items.length > 0
-        ? flowBlock.data.items.map((item, index) => ({
-            number: item.date.trim() || String(index + 1).padStart(2, '0'),
-            label: item.title.trim() || `단계 ${index + 1}`,
-            owner: item.body.trim(),
-            icon: getIconByName(item.icon, Workflow),
-            details: (item.details ?? []).map((detail) => detail.trim()).filter(Boolean),
-          }))
-        : [
-            { number: '01', label: '전략', owner: 'Executive Office가 방향과 의사결정 기준을 세웁니다.', icon: Crown, details: ['목표와 우선순위를 정리합니다.'] },
-            { number: '02', label: '제품 정의', owner: 'Product Strategy가 고객 문제와 출시 기준을 정리합니다.', icon: Target, details: ['기능 범위와 출시 기준을 맞춥니다.'] },
-            { number: '03', label: '기술 실행', owner: 'Technology Lab이 안정적인 서비스 구조로 구현합니다.', icon: Cpu, details: ['개발, 배포, 보안 기준을 연결합니다.'] },
-            { number: '04', label: '고객 검증', owner: 'Customer Success가 피드백을 수집해 개선으로 연결합니다.', icon: Headphones, details: ['사용자 반응과 개선 요청을 수집합니다.'] },
-            { number: '05', label: '운영 정착', owner: 'Operations Office가 반복 가능한 프로세스로 고정합니다.', icon: Workflow, details: ['반복 가능한 운영 절차로 정리합니다.'] },
-          ],
+    id: `opening-${department.id}-${position.code}`,
+    name: position.title,
+    englishName: position.code,
+    role: `${position.code} · AI STAFF`,
+    department: department.label,
+    status: '구인중',
+    bio: `${department.label}에서 ${position.title} 전문 과업을 맡을 예정인 AI 직원 좌석입니다. 현재 역할과 권한 범위를 설계하고 있습니다.`,
+    quote: '팀장 검수 기준과 승인된 권한 안에서 정확하고 반복 가능한 결과를 만듭니다.',
+    reportsTo: `${department.lead.role} · ${department.lead.name}`,
+    avatarIndex: null,
+    accent: department.accent,
+    skills: [position.title.replace(/^AI\s*/, ''), ...department.skills],
+    responsibilities: [`${position.title} 전문 과업 수행`, '팀장 검수 기준에 따른 결과물 제출', '보안·준법·데이터 정책 준수'],
   };
 }
+
+const operatingSteps: OperatingStep[] = [
+  {
+    index: '01',
+    title: 'CEO · 방향 결정',
+    body: '비전과 우선순위, 최종 책임의 기준을 한 문장으로 정렬합니다.',
+    icon: Crown,
+  },
+  {
+    index: '02',
+    title: 'C-Suite · 전략 번역',
+    body: 'CTO·CMO·CFO·CLO가 목표를 각 전문 영역의 실행 기준으로 바꿉니다.',
+    icon: BriefcaseBusiness,
+  },
+  {
+    index: '03',
+    title: 'Team Lead · 업무 배분',
+    body: '10개 부서의 AI 팀장이 각 10개 좌석의 역할, 품질, 협업 순서를 관리합니다.',
+    icon: Workflow,
+  },
+  {
+    index: '04',
+    title: 'AI Staff · 결과 전달',
+    body: '채용된 AI 직원은 승인된 권한 안에서 반복 업무와 전문 과업을 수행합니다.',
+    icon: BrainCircuit,
+  },
+];
 
 const pageVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { staggerChildren: 0.05, delayChildren: 0.08 },
+    transition: { staggerChildren: 0.06, delayChildren: 0.06 },
   },
 };
 
 const sectionVariants: Variants = {
-  hidden: { opacity: 0, y: 18 },
+  hidden: { opacity: 0, y: 16 },
   visible: {
     opacity: 1,
     y: 0,
@@ -609,1748 +453,2456 @@ const sectionVariants: Variants = {
   },
 };
 
-const cardVariants: Variants = {
-  hidden: { opacity: 0, y: 18, scale: 0.98 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: { duration: 0.34, ease: 'easeOut' },
-  },
-  exit: {
-    opacity: 0,
-    y: 12,
-    scale: 0.98,
-    transition: { duration: 0.2, ease: 'easeIn' },
-  },
-};
+const PROFILE_ATLAS_PATH = '/corp/staff-ai-leaders-v1.webp';
 
-export function StaffIntroOrgChart({ config, editor }: StaffIntroOrgChartProps = {}) {
-  const activeConfig = config ?? buildStaffIntroConfig();
-  const reduceMotion = useReducedMotion();
-  const [activeDepartment, setActiveDepartment] = useState<DepartmentKey>('leadership');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>('profile');
-  const [spotlightCursor, setSpotlightCursor] = useState(0);
-  const [spotlight, setSpotlight] = useState({ x: 68, y: 12 });
+function ProfilePhoto({ profile, size = 56, eager = false }: { profile: StaffProfile; size?: number; eager?: boolean }) {
+  if (profile.avatarIndex === null) {
+    return (
+      <VacantPhotoFrame $accent={profile.accent} $size={size} aria-label="프로필 사진 등록 예정">
+        <UserRoundPlus size={Math.max(18, Math.round(size * 0.32))} strokeWidth={1.9} aria-hidden="true" />
+      </VacantPhotoFrame>
+    );
+  }
 
-  const categorySections = useMemo(
-    () =>
-      activeConfig.departmentOptions.map((option) => ({
-        ...option,
-        profiles: activeConfig.staffProfiles.filter((profile) => profile.departmentKey === option.id),
-      })),
-    [activeConfig.departmentOptions, activeConfig.staffProfiles],
+  const column = profile.avatarIndex % 4;
+  const row = Math.floor(profile.avatarIndex / 4);
+
+  return (
+    <ProfilePhotoFrame $accent={profile.accent} $size={size}>
+      <ProfilePhotoFallback aria-hidden="true">
+        <UserRound size={Math.max(18, Math.round(size * 0.34))} strokeWidth={1.8} />
+      </ProfilePhotoFallback>
+      <ProfileAtlasImage
+        src={PROFILE_ATLAS_PATH}
+        alt={`${profile.name} 프로필 사진`}
+        width={1024}
+        height={1024}
+        loading={eager ? 'eager' : 'lazy'}
+        fetchPriority={eager ? 'high' : 'auto'}
+        $column={column}
+        $row={row}
+        onError={(event) => {
+          event.currentTarget.style.display = 'none';
+        }}
+      />
+    </ProfilePhotoFrame>
   );
+}
 
-  const activeCategorySection = categorySections.find((category) => category.id === activeDepartment) ?? categorySections[0]!;
-  const featuredPool = activeCategorySection.profiles.length > 0 ? activeCategorySection.profiles : activeConfig.staffProfiles;
-  const selectedProfile = selectedId ? activeConfig.staffProfiles.find((profile) => profile.id === selectedId) ?? null : null;
-  const featuredProfile = featuredPool[spotlightCursor % featuredPool.length] ?? activeConfig.staffProfiles[0]!;
-  const activeTotalMilestones = activeConfig.staffProfiles.reduce((sum, profile) => sum + profile.milestones.length, 0);
+export function StaffIntroOrgChart({ editor }: StaffIntroOrgChartProps = {}) {
+  const reduceMotion = useReducedMotion();
+  const [activeDepartmentId, setActiveDepartmentId] = useState<DepartmentId>('platform');
+  const [selectedProfile, setSelectedProfile] = useState<StaffProfile | null>(null);
+  const lastProfileTriggerRef = useRef<HTMLElement | null>(null);
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
+  const activeDepartment = departments.find((department) => department.id === activeDepartmentId) ?? departments[0];
+  const activeExecutive = executiveGroups.find((group) => group.departmentIds.includes(activeDepartmentId)) ?? executiveGroups[0];
+  const ActiveDepartmentIcon = activeDepartment.icon;
 
-  const openProfile = (profileId: string) => {
-    setSelectedId(profileId);
-    setDrawerTab('profile');
-  };
+  const closeProfile = useCallback(() => {
+    setSelectedProfile(null);
+    window.setTimeout(() => lastProfileTriggerRef.current?.focus(), 0);
+  }, []);
 
-  const openSpotlightProfile = () => {
-    const profile = featuredPool[spotlightCursor % featuredPool.length] ?? staffProfiles[0]!;
-    setSpotlightCursor((current) => current + 1);
-    openProfile(profile.id);
-  };
+  const openProfile = useCallback((profile: StaffProfile, trigger: HTMLElement) => {
+    lastProfileTriggerRef.current = trigger;
+    setSelectedProfile(profile);
+  }, []);
 
-  const handleHeroAction = () => {
-    if (activeConfig.heroActionHref) {
-      window.location.assign(activeConfig.heroActionHref);
+  useEffect(() => {
+    if (!selectedProfile) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => drawerCloseRef.current?.focus(), 0);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeProfile();
+    };
+
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [closeProfile, selectedProfile]);
+
+  const handleDrawerKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return;
+
+    const focusableElements = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'),
+    ).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
       return;
     }
 
-    openSpotlightProfile();
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    if (!firstElement || !lastElement) return;
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
   };
 
   return (
-    <Page
-      id="staff-intro-page"
-      aria-labelledby="staff-intro-title"
-      $spotlightX={spotlight.x}
-      $spotlightY={spotlight.y}
-      onPointerMove={(event) => {
-        if (reduceMotion) return;
-        const rect = event.currentTarget.getBoundingClientRect();
-        const x = Math.round(((event.clientX - rect.left) / rect.width) * 100);
-        const y = Math.round(((event.clientY - rect.top) / rect.height) * 100);
-        setSpotlight({ x, y });
-      }}
-    >
+    <Page id="staff-intro-page" aria-labelledby="staff-intro-title">
       <StaffIntroMotionStyles />
       <PageMotion variants={pageVariants} initial={reduceMotion ? false : 'hidden'} animate="visible">
         <CorpEditableSection blockId="staff-hero" label="첫 화면 수정" editor={editor}>
-        <Hero variants={sectionVariants}>
-          <HeroCopy>
-            <SectionPill>
-              <UsersRound size={15} strokeWidth={2.4} aria-hidden="true" />
-              {activeConfig.heroKicker}
-            </SectionPill>
-            <HeroTitle id="staff-intro-title">{activeConfig.heroTitle}</HeroTitle>
-            <HeroText>{activeConfig.heroBody}</HeroText>
-            <HeroActions>
-              <PrimaryButton type="button" onClick={handleHeroAction}>
-                <Sparkles size={17} strokeWidth={2.5} aria-hidden="true" />
-                {activeConfig.heroActionLabel}
-              </PrimaryButton>
-              <HeroSignal>
-                <span>{featuredProfile.name}</span>
-                <strong>{featuredProfile.role}</strong>
-              </HeroSignal>
-            </HeroActions>
-          </HeroCopy>
+          <Hero variants={sectionVariants}>
+            <HeroGridPattern aria-hidden="true" />
+            <HeroCopy>
+              <Eyebrow $inverse>
+                <Sparkles size={15} strokeWidth={2.4} aria-hidden="true" />
+                Premium Team Directory
+              </Eyebrow>
+              <HeroTitle id="staff-intro-title">
+                직원소개
+                <span>AI 조직을 역할부터 설계합니다.</span>
+              </HeroTitle>
+              <HeroDescription>
+                CEO의 최종 결정이 네 명의 임원과 10개 전문 부서의 AI 팀장에게 이어지는 피라미드 조직입니다. 각 부서는
+                팀장 1명과 구인중인 AI 팀원 9명, 총 10명 정원으로 운영됩니다.
+              </HeroDescription>
+              <HeroActions>
+                <PrimaryLink href="#organization-chart">
+                  조직도 보기
+                  <ArrowDown size={17} strokeWidth={2.4} aria-hidden="true" />
+                </PrimaryLink>
+                <HeroStatus>
+                  <span aria-hidden="true" />
+                  90개 포지션 구인중
+                </HeroStatus>
+              </HeroActions>
+            </HeroCopy>
 
-          <HeroPanel aria-label="직원소개 요약">
-            <HeroPanelHeader>
-              <span>{activeConfig.heroSignalLabel}</span>
-              <BadgeCheck size={18} strokeWidth={2.5} aria-hidden="true" />
-            </HeroPanelHeader>
-            {activeConfig.heroMediaUrl ? (
-              <HeroPanelMedia>
-                <img src={activeConfig.heroMediaUrl} alt={`${activeConfig.heroTitle} 대표 이미지`} />
-              </HeroPanelMedia>
-            ) : null}
-            <StatGrid>
-              <StatItem>
-                <strong>{activeConfig.staffProfiles.length}</strong>
-                <span>핵심 구성원</span>
-              </StatItem>
-              <StatItem>
-                <strong>{activeConfig.departmentOptions.length}</strong>
-                <span>전문 영역</span>
-              </StatItem>
-              <StatItem>
-                <strong>{activeTotalMilestones}</strong>
-                <span>주요 이력</span>
-              </StatItem>
-              <StatItem>
-                <strong>{activeConfig.featuredKeywords.length}</strong>
-                <span>대표 역량</span>
-              </StatItem>
-            </StatGrid>
-            <KeywordRail aria-label="대표 역량">
-              {activeConfig.featuredKeywords.map((keyword) => (
-                <span key={keyword}>{keyword}</span>
-              ))}
-            </KeywordRail>
-          </HeroPanel>
-        </Hero>
+            <CapacityPanel aria-label="AI 조직 정원 요약">
+              <CapacityTopline>
+                <span>AI Workforce Plan</span>
+                <BadgeCheck size={19} strokeWidth={2.4} aria-hidden="true" />
+              </CapacityTopline>
+              <CapacityMain>
+                <CapacityNumber>
+                  <strong>105</strong>
+                  <span>total seats</span>
+                </CapacityNumber>
+                <CapacityLegend>
+                  <li>
+                    <span />
+                    CEO · C-Suite <strong>5</strong>
+                  </li>
+                  <li>
+                    <span />
+                    AI 부서 정원 <strong>100</strong>
+                  </li>
+                  <li>
+                    <span />
+                    현재 구인중 <strong>90</strong>
+                  </li>
+                </CapacityLegend>
+              </CapacityMain>
+              <CapacityProgress aria-label="전체 105개 좌석 중 15개 핵심 리더 좌석 운영중">
+                <span style={{ width: '14.3%' }} />
+              </CapacityProgress>
+              <CapacityFootnote>
+                <UserRoundCheck size={15} strokeWidth={2.4} aria-hidden="true" />
+                핵심 구성원 15명 배치 완료
+              </CapacityFootnote>
+            </CapacityPanel>
+          </Hero>
         </CorpEditableSection>
 
-        <CorpEditableSection blockId="staff-departments" label="부서 수정" editor={editor}>
-        <CategoryBar variants={sectionVariants} aria-label="직원 카테고리">
-          <CategoryBarIntro>
-            <span>Category Map</span>
-            <strong>{activeConfig.departmentTitle}</strong>
-          </CategoryBarIntro>
+        <MetricRail variants={sectionVariants} aria-label="조직 현황">
+          <MetricItem>
+            <MetricIcon><Crown size={19} aria-hidden="true" /></MetricIcon>
+            <div><strong>1</strong><span>CEO</span></div>
+          </MetricItem>
+          <MetricItem>
+            <MetricIcon><BriefcaseBusiness size={19} aria-hidden="true" /></MetricIcon>
+            <div><strong>4</strong><span>C-Suite 임원</span></div>
+          </MetricItem>
+          <MetricItem>
+            <MetricIcon><Layers3 size={19} aria-hidden="true" /></MetricIcon>
+            <div><strong>10</strong><span>AI 전문 부서</span></div>
+          </MetricItem>
+          <MetricItem>
+            <MetricIcon><UsersRound size={19} aria-hidden="true" /></MetricIcon>
+            <div><strong>10</strong><span>부서별 정원</span></div>
+          </MetricItem>
+          <MetricItem $highlight>
+            <MetricIcon><UserRoundPlus size={19} aria-hidden="true" /></MetricIcon>
+            <div><strong>90</strong><span>구인중</span></div>
+          </MetricItem>
+        </MetricRail>
 
-          <CategoryScroller>
-            {categorySections.map((option) => {
-              const Icon = option.icon;
-              const isActive = activeDepartment === option.id;
+        <CorpEditableSection blockId="staff-people" label="조직도 수정" editor={editor}>
+          <OrganizationSection id="organization-chart" variants={sectionVariants} aria-labelledby="org-chart-title">
+            <SectionHeader>
+              <div>
+                <Eyebrow>
+                  <Network size={15} strokeWidth={2.4} aria-hidden="true" />
+                  Pyramid Org Chart
+                </Eyebrow>
+                <h2 id="org-chart-title">CEO에서 팀까지, 책임이 선명한 조직</h2>
+                <p>직원을 선택하면 상세 프로필을, 팀장을 선택하면 담당 부서의 10개 AI 좌석을 함께 확인할 수 있습니다.</p>
+              </div>
+              <HierarchyLegend aria-label="조직도 단계">
+                <span><i />CEO</span>
+                <ArrowRight size={14} aria-hidden="true" />
+                <span><i />EXECUTIVE</span>
+                <ArrowRight size={14} aria-hidden="true" />
+                <span><i />TEAM LEAD</span>
+              </HierarchyLegend>
+            </SectionHeader>
 
-              return (
-                <CategoryButton
-                  key={option.id}
-                  type="button"
-                  $active={isActive}
-                  onClick={() => setActiveDepartment(option.id)}
-                  aria-pressed={isActive}
-                >
-                  <Icon size={15} strokeWidth={2.5} aria-hidden="true" />
-                  <span>{option.label}</span>
-                  <em>{option.profiles.length}</em>
-                </CategoryButton>
-              );
-            })}
-          </CategoryScroller>
-        </CategoryBar>
-        </CorpEditableSection>
+            <OrgCanvas aria-label="CEO, 4명 임원, 10개 부서 팀장 피라미드 조직도">
+              <LevelMarker><span>LEVEL 01</span><strong>Decision</strong></LevelMarker>
+              <CeoNode
+                type="button"
+                onClick={(event) => openProfile(CEO_PROFILE, event.currentTarget)}
+                aria-label="그냥돼지 CEO 상세 프로필 열기"
+              >
+                <ProfilePhoto profile={CEO_PROFILE} size={66} eager />
+                <NodeIdentity>
+                  <span>CHIEF EXECUTIVE OFFICER</span>
+                  <strong>그냥돼지 <em>CEO</em></strong>
+                  <p>비전 · 우선순위 · 최종 책임</p>
+                </NodeIdentity>
+                <NodeStatus><span />프로필 보기</NodeStatus>
+              </CeoNode>
 
-        <CorpEditableSection blockId="staff-people" label="인물 카드 수정" editor={editor}>
-        <DirectoryHeader variants={sectionVariants}>
-          <div>
-            <SectionLabel>{activeConfig.peopleTitle}</SectionLabel>
-            <h2>{activeCategorySection.label} 구성원</h2>
-          </div>
-          <DirectoryMeta>
-            <strong>{activeCategorySection.profiles.length}</strong>
-            <span>명 · 선택됨</span>
-          </DirectoryMeta>
-        </DirectoryHeader>
+              <BranchGrid role="list" aria-label="C-Suite 및 부서 팀장">
+                {executiveGroups.map((group) => {
+                  const isActive = group.role === activeExecutive.role;
+                  const groupDepartments = departments.filter((department) => group.departmentIds.includes(department.id));
 
-        <CategoryDirectory variants={sectionVariants}>
-          {(() => {
-            const category = activeCategorySection;
-            const CategoryIconComponent = category.icon;
-
-            return (
-              <CategorySection key={category.id} id={`staff-category-${category.id}`}>
-                <CategoryHeader>
-                  <CategoryTitle>
-                    <CategoryIcon>
-                      <CategoryIconComponent size={19} strokeWidth={2.5} aria-hidden="true" />
-                    </CategoryIcon>
-                    <div>
-                      <span>전문 영역</span>
-                      <h3>{category.label}</h3>
-                      <p>{category.description}</p>
-                    </div>
-                  </CategoryTitle>
-                  <CategoryCount>
-                    <strong>{category.profiles.length}</strong>
-                    <span>명</span>
-                  </CategoryCount>
-                </CategoryHeader>
-
-                <ProfileGrid>
-                  {category.profiles.map((profile) => {
-                    const Icon = profile.icon;
-
-                    return (
-                      <ProfileCard
-                        key={profile.id}
+                  return (
+                    <BranchColumn
+                      key={group.role}
+                      role="listitem"
+                      $accent={group.profile.accent}
+                      $active={isActive}
+                      data-performance-region="staff-org-node"
+                    >
+                      <ExecutiveButton
                         type="button"
-                        $accent={profile.accent}
-                        variants={cardVariants}
-                        initial={reduceMotion ? false : 'hidden'}
-                        animate="visible"
-                        exit="exit"
-                        layout={!reduceMotion}
-                        onClick={() => openProfile(profile.id)}
-                        aria-label={`${profile.name} 상세 프로필 열기`}
+                        $accent={group.profile.accent}
+                        $soft={`color-mix(in srgb, ${group.profile.accent} 8%, white)`}
+                        $active={isActive}
+                        onClick={(event) => openProfile(group.profile, event.currentTarget)}
+                        aria-label={`${group.profile.name} ${group.role} 상세 프로필 열기`}
                       >
-                        <CardMedia $accent={profile.accent}>
-                          <img src={profile.image} alt={`${profile.name} 프로필 사진`} loading="lazy" />
-                          <CardStatus>
-                            <Star size={13} strokeWidth={2.8} aria-hidden="true" />
-                            {profile.status}
-                          </CardStatus>
-                        </CardMedia>
-                        <CardBody>
-                          <ProfileIdentity>
-                            <span>{profile.department}</span>
-                            <h3>{profile.name}</h3>
-                            <strong>{profile.role}</strong>
-                          </ProfileIdentity>
-                          <ProfileSummary>{profile.summary}</ProfileSummary>
-                          <SkillList aria-label={`${profile.name} 핵심 역량`}>
-                            {profile.skills.slice(0, 3).map((skill) => (
-                              <SkillChip key={skill}>{skill}</SkillChip>
-                            ))}
-                          </SkillList>
-                          <CardBottom>
-                            <Icon size={18} strokeWidth={2.5} aria-hidden="true" />
-                            <span>프로필 보기</span>
-                            <ArrowRight size={16} strokeWidth={2.5} aria-hidden="true" />
-                          </CardBottom>
-                        </CardBody>
-                      </ProfileCard>
-                    );
-                  })}
-                </ProfileGrid>
-              </CategorySection>
-            );
-          })()}
-        </CategoryDirectory>
+                        <ExecutiveTopline>
+                          <ProfilePhoto profile={group.profile} size={52} eager />
+                          <ExecutiveStatus><span />EXECUTIVE AI</ExecutiveStatus>
+                        </ExecutiveTopline>
+                        <ExecutiveRole>{group.role}</ExecutiveRole>
+                        <ExecutiveName>{group.profile.name}</ExecutiveName>
+                        <ExecutiveFocus>{group.focus}</ExecutiveFocus>
+                        <ViewBranch>
+                          상세정보
+                          <ArrowRight size={15} strokeWidth={2.5} aria-hidden="true" />
+                        </ViewBranch>
+                      </ExecutiveButton>
+
+                      <BranchConnector aria-hidden="true"><ArrowDown size={14} strokeWidth={2.4} /></BranchConnector>
+
+                      <DepartmentBranchList>
+                        {groupDepartments.map((department) => {
+                          const departmentIsActive = department.id === activeDepartmentId;
+
+                          return (
+                            <LeadNode
+                              key={department.id}
+                              type="button"
+                              $accent={department.accent}
+                              $active={departmentIsActive}
+                              onClick={(event) => {
+                                setActiveDepartmentId(department.id);
+                                openProfile(department.lead, event.currentTarget);
+                              }}
+                              aria-label={`${department.lead.name} ${department.lead.role} 상세 프로필 열기`}
+                              aria-pressed={departmentIsActive}
+                            >
+                              <ProfilePhoto profile={department.lead} size={42} />
+                              <LeadNodeBody>
+                                <LeadNodeTopline>
+                                  <span>TEAM LEAD · {department.label}</span>
+                                  <UserRoundCheck size={14} strokeWidth={2.4} aria-hidden="true" />
+                                </LeadNodeTopline>
+                                <strong>{department.lead.name}</strong>
+                                <p>{department.lead.role}</p>
+                                <LeadCapacity>
+                                  <span><i />1 운영</span>
+                                  <span><i />9 구인중</span>
+                                </LeadCapacity>
+                              </LeadNodeBody>
+                            </LeadNode>
+                          );
+                        })}
+                      </DepartmentBranchList>
+                    </BranchColumn>
+                  );
+                })}
+              </BranchGrid>
+            </OrgCanvas>
+          </OrganizationSection>
         </CorpEditableSection>
 
-        <CorpEditableSection blockId="staff-flow" label="협업 흐름 수정" editor={editor}>
-        <FlowSection variants={sectionVariants} aria-labelledby="staff-flow-title">
-          <FlowHeader>
-            <div>
-              <SectionLabel>Collaboration Flow</SectionLabel>
-              <h2 id="staff-flow-title">{activeConfig.flowTitle}</h2>
-              {activeConfig.flowBody ? <FlowIntro>{activeConfig.flowBody}</FlowIntro> : null}
-            </div>
-            {activeConfig.flowSummaryItems.length > 0 ? (
-              <FlowSummaryGrid>
-                {activeConfig.flowSummaryItems.map((item) => (
-                  <FlowSummaryItem key={`${item.label}-${item.value}`}>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </FlowSummaryItem>
-                ))}
-              </FlowSummaryGrid>
-            ) : null}
-          </FlowHeader>
-          <FlowList>
-            {activeConfig.flowSteps.map((step, index, list) => {
-              const Icon = step.icon;
+        <CorpEditableSection blockId="staff-departments" label="부서 정원 수정" editor={editor}>
+          <DepartmentSection variants={sectionVariants} aria-labelledby="department-roster-title">
+            <DepartmentHeading>
+              <div>
+                <Eyebrow>
+                  <UsersRound size={15} strokeWidth={2.4} aria-hidden="true" />
+                  Department Roster
+                </Eyebrow>
+                <h2 id="department-roster-title">10개 부서 · 각 10명의 AI 직원 구성</h2>
+                <p>부서 탭을 선택해 팀장 프로필과 구인중인 9개 전문 포지션을 확인할 수 있습니다.</p>
+              </div>
+              <RosterSummary>
+                <strong>1 / 10</strong>
+                <span>부서별 현재 충원율</span>
+              </RosterSummary>
+            </DepartmentHeading>
 
-              return (
-                <FlowStep key={`${step.number}-${step.label}`}>
-                  <FlowIcon>
-                    <Icon size={18} strokeWidth={2.5} aria-hidden="true" />
-                  </FlowIcon>
+            <DepartmentTabs role="tablist" aria-label="AI 부서 선택">
+              {departments.map((department) => {
+                const Icon = department.icon;
+                const isActive = department.id === activeDepartmentId;
+
+                return (
+                  <DepartmentTab
+                    key={department.id}
+                    id={`department-tab-${department.id}`}
+                    type="button"
+                    role="tab"
+                    $accent={department.accent}
+                    $active={isActive}
+                    aria-selected={isActive}
+                    aria-controls="active-department-panel"
+                    onClick={() => setActiveDepartmentId(department.id)}
+                  >
+                    <Icon size={17} strokeWidth={2.3} aria-hidden="true" />
+                    <span>{department.label}</span>
+                    <em>1/10</em>
+                  </DepartmentTab>
+                );
+              })}
+            </DepartmentTabs>
+
+            <TeamPanel
+              id="active-department-panel"
+              role="tabpanel"
+              aria-labelledby={`department-tab-${activeDepartment.id}`}
+              $accent={activeDepartment.accent}
+              $soft={activeDepartment.soft}
+            >
+              <TeamPanelHeader>
+                <DepartmentTitleGroup>
+                  <DepartmentMark $accent={activeDepartment.accent} $soft={activeDepartment.soft}>
+                    <ActiveDepartmentIcon size={24} strokeWidth={2.2} aria-hidden="true" />
+                  </DepartmentMark>
                   <div>
-                    <FlowIndex>{step.number}</FlowIndex>
-                    <strong>{step.label}</strong>
-                    {step.owner ? <span>{step.owner}</span> : null}
-                    {step.details.length > 0 ? (
-                      <FlowDetailList>
-                        {step.details.slice(0, 3).map((detail) => (
-                          <li key={detail}>{detail}</li>
-                        ))}
-                      </FlowDetailList>
-                    ) : null}
+                    <span>{activeDepartment.englishLabel}</span>
+                    <h3>{activeDepartment.label}</h3>
+                    <p>{activeDepartment.mandate}</p>
                   </div>
-                  {index < list.length - 1 && <ArrowRight size={18} strokeWidth={2.5} aria-hidden="true" />}
-                </FlowStep>
-              );
-            })}
-          </FlowList>
-        </FlowSection>
+                </DepartmentTitleGroup>
+                <WorkforceMeter>
+                  <div><span>운영 좌석</span><strong>1 / 10</strong></div>
+                  <MeterTrack
+                    role="progressbar"
+                    aria-label={`${activeDepartment.label} 충원율 10%`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={10}
+                  >
+                    <span />
+                  </MeterTrack>
+                  <small>9명 구인중</small>
+                </WorkforceMeter>
+              </TeamPanelHeader>
+
+              <RosterGrid>
+                <LeadProfile
+                  type="button"
+                  $accent={activeDepartment.accent}
+                  onClick={(event) => openProfile(activeDepartment.lead, event.currentTarget)}
+                  aria-label={`${activeDepartment.lead.name} ${activeDepartment.lead.role} 상세 프로필 열기`}
+                >
+                  <LeadProfileBadge><BadgeCheck size={14} strokeWidth={2.5} aria-hidden="true" />배치 완료</LeadProfileBadge>
+                  <ProfilePhoto profile={activeDepartment.lead} size={82} />
+                  <span>SEAT 01 · TEAM LEAD</span>
+                  <h4>{activeDepartment.lead.name}</h4>
+                  <p>{activeDepartment.lead.role}</p>
+                  <LeadProfileMeta>
+                    <span><Target size={14} aria-hidden="true" />품질 기준 수립</span>
+                    <span><Workflow size={14} aria-hidden="true" />업무 배분·검수</span>
+                  </LeadProfileMeta>
+                  <LeadProfileAction>상세 프로필 <ArrowRight size={15} aria-hidden="true" /></LeadProfileAction>
+                </LeadProfile>
+
+                <OpenRoster>
+                  <OpenRosterHeader>
+                    <div>
+                      <span>OPEN POSITIONS</span>
+                      <strong>AI 팀원 9명 · 구인중</strong>
+                    </div>
+                    <HiringBadge><span />채용 설계중</HiringBadge>
+                  </OpenRosterHeader>
+                  <OpenSeatGrid>
+                    {activeDepartment.openings.map((position) => (
+                      <OpenSeatCard
+                        key={position.code}
+                        type="button"
+                        onClick={(event) => openProfile(getOpenPositionProfile(activeDepartment, position), event.currentTarget)}
+                        aria-label={`${position.title}, 구인중 상세정보 열기`}
+                      >
+                        <SeatTopline>
+                          <SeatCode>{position.code}</SeatCode>
+                          <UserRoundPlus size={15} strokeWidth={2.2} aria-hidden="true" />
+                        </SeatTopline>
+                        <strong>{position.title}</strong>
+                        <span><i />구인중</span>
+                      </OpenSeatCard>
+                    ))}
+                  </OpenSeatGrid>
+                </OpenRoster>
+              </RosterGrid>
+
+              <GovernanceNote>
+                <ShieldCheck size={19} strokeWidth={2.3} aria-hidden="true" />
+                <div>
+                  <strong>Human-in-the-loop 운영 원칙</strong>
+                  <span>모든 AI 직원은 팀장 검수와 임원 승인 범위 안에서만 업무를 수행합니다.</span>
+                </div>
+              </GovernanceNote>
+            </TeamPanel>
+          </DepartmentSection>
+        </CorpEditableSection>
+
+        <CorpEditableSection blockId="staff-flow" label="운영 흐름 수정" editor={editor}>
+          <OperatingSection variants={sectionVariants} aria-labelledby="operating-model-title">
+            <OperatingHeader>
+              <div>
+                <Eyebrow $inverse>
+                  <ChartNoAxesCombined size={15} strokeWidth={2.4} aria-hidden="true" />
+                  Operating Model
+                </Eyebrow>
+                <h2 id="operating-model-title">결정은 위에서, 실행은 빠르게</h2>
+              </div>
+              <p>의사결정 권한과 검수 책임을 분리해 AI 조직의 속도와 안전성을 함께 관리합니다.</p>
+            </OperatingHeader>
+            <FlowGrid>
+              {operatingSteps.map((step) => {
+                const Icon = step.icon;
+
+                return (
+                  <FlowStep key={step.index} data-performance-region="staff-flow-step">
+                    <FlowStepTopline><span>{step.index}</span><Icon size={19} strokeWidth={2.2} aria-hidden="true" /></FlowStepTopline>
+                    <strong>{step.title}</strong>
+                    <p>{step.body}</p>
+                  </FlowStep>
+                );
+              })}
+            </FlowGrid>
+            <HiringCallout>
+              <div>
+                <Gavel size={22} strokeWidth={2.2} aria-hidden="true" />
+                <span><strong>90개의 AI 포지션</strong>을 단계적으로 채용할 준비가 되어 있습니다.</span>
+              </div>
+              <HiringLink href="/corp/careers/jobs">
+                채용 계획 보기
+                <ArrowRight size={16} strokeWidth={2.4} aria-hidden="true" />
+              </HiringLink>
+            </HiringCallout>
+          </OperatingSection>
         </CorpEditableSection>
       </PageMotion>
 
       <AnimatePresence>
-        {selectedProfile && (
-          <>
-            <DrawerBackdrop
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setSelectedId(null)}
-            />
-            <Drawer
-              $accent={selectedProfile.accent}
-              initial={reduceMotion ? false : { x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
+        {selectedProfile ? (
+          <ProfileDrawerLayer
+            key={selectedProfile.id}
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0.01 : 0.18 }}
+          >
+            <DrawerScrimClose type="button" onClick={closeProfile} aria-label="상세 프로필 닫기" />
+            <ProfileDrawer
               role="dialog"
               aria-modal="true"
               aria-labelledby="staff-drawer-title"
+              initial={reduceMotion ? false : { x: 36, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 36, opacity: 0 }}
+              transition={{ duration: reduceMotion ? 0.01 : 0.22, ease: 'easeOut' }}
+              onKeyDown={handleDrawerKeyDown}
             >
-              <DrawerTop>
-                <span>Employee Spotlight</span>
-                <IconButton type="button" onClick={() => setSelectedId(null)} aria-label="상세 프로필 닫기">
-                  <X size={18} strokeWidth={2.5} />
-                </IconButton>
-              </DrawerTop>
+              <DrawerHeader>
+                <div>
+                  <span>AI STAFF PROFILE</span>
+                  <strong>{selectedProfile.department}</strong>
+                </div>
+                <DrawerCloseButton ref={drawerCloseRef} type="button" onClick={closeProfile} aria-label="상세 프로필 닫기">
+                  <X size={20} strokeWidth={2.2} aria-hidden="true" />
+                </DrawerCloseButton>
+              </DrawerHeader>
 
-              <DrawerContent>
-                <DrawerHero>
-                  <DrawerAvatar $accent={selectedProfile.accent}>
-                    <img src={selectedProfile.image} alt={`${selectedProfile.name} 프로필 사진`} />
-                  </DrawerAvatar>
-                  <DrawerIdentity>
-                    <span>{selectedProfile.department}</span>
+              <DrawerBody>
+                <DrawerIdentity $accent={selectedProfile.accent}>
+                  <ProfilePhoto profile={selectedProfile} size={128} eager />
+                  <DrawerIdentityCopy>
+                    <DrawerStatus $open={selectedProfile.status === '구인중'}>
+                      <span />{selectedProfile.status}
+                    </DrawerStatus>
+                    <span>{selectedProfile.englishName}</span>
                     <h2 id="staff-drawer-title">{selectedProfile.name}</h2>
                     <strong>{selectedProfile.role}</strong>
-                    <p>{selectedProfile.englishName} · {selectedProfile.location}</p>
-                  </DrawerIdentity>
-                </DrawerHero>
+                  </DrawerIdentityCopy>
+                </DrawerIdentity>
 
-                <DrawerTabs aria-label="상세 프로필 탭">
-                  {[
-                    { id: 'profile' as const, label: '소개' },
-                    { id: 'journey' as const, label: '이력' },
-                    { id: 'voice' as const, label: '응원' },
-                  ].map((tab) => (
-                    <DrawerTabButton key={tab.id} type="button" $active={drawerTab === tab.id} onClick={() => setDrawerTab(tab.id)}>
-                      {tab.label}
-                    </DrawerTabButton>
-                  ))}
-                </DrawerTabs>
+                <DrawerQuote>
+                  <Sparkles size={18} strokeWidth={2.1} aria-hidden="true" />
+                  <p>{selectedProfile.quote}</p>
+                </DrawerQuote>
 
-                {drawerTab === 'profile' && (
-                  <TabPanel>
-                    <QuotePanel>
-                      <Quote size={18} strokeWidth={2.5} aria-hidden="true" />
-                      <p>{selectedProfile.quote}</p>
-                    </QuotePanel>
-                    <MetricGrid>
-                      {selectedProfile.metrics.map((metric) => (
-                        <DrawerMetric key={metric.label}>
-                          <strong>{metric.value}</strong>
-                          <span>{metric.label}</span>
-                        </DrawerMetric>
-                      ))}
-                    </MetricGrid>
-                    <DrawerSection>
-                      <h3>핵심 역량</h3>
-                      <SkillList>
-                        {selectedProfile.skills.map((skill) => (
-                          <SkillChip key={skill}>{skill}</SkillChip>
-                        ))}
-                      </SkillList>
-                    </DrawerSection>
-                    <ContactRow>
-                      <a href={`mailto:${selectedProfile.id}@propig.co.kr`}>
-                        <Mail size={16} strokeWidth={2.5} aria-hidden="true" />
-                        이메일
-                      </a>
-                      <a href="#staff-intro-page">
-                        <CalendarDays size={16} strokeWidth={2.5} aria-hidden="true" />
-                        미팅 요청
-                      </a>
-                    </ContactRow>
-                  </TabPanel>
+                <DrawerSection>
+                  <span>PROFILE SUMMARY</span>
+                  <p>{selectedProfile.bio}</p>
+                </DrawerSection>
+
+                <DrawerMetaGrid>
+                  <DrawerMetaItem>
+                    <span>소속</span>
+                    <strong>{selectedProfile.department}</strong>
+                  </DrawerMetaItem>
+                  <DrawerMetaItem>
+                    <span>보고 체계</span>
+                    <strong>{selectedProfile.reportsTo}</strong>
+                  </DrawerMetaItem>
+                </DrawerMetaGrid>
+
+                <DrawerSection>
+                  <span>CORE SKILLS</span>
+                  <DrawerSkillList>
+                    {selectedProfile.skills.map((skill) => <li key={skill}>{skill}</li>)}
+                  </DrawerSkillList>
+                </DrawerSection>
+
+                <DrawerSection>
+                  <span>RESPONSIBILITIES</span>
+                  <ResponsibilityList>
+                    {selectedProfile.responsibilities.map((responsibility) => (
+                      <li key={responsibility}>
+                        <CheckCircle2 size={16} strokeWidth={2.2} aria-hidden="true" />
+                        <span>{responsibility}</span>
+                      </li>
+                    ))}
+                  </ResponsibilityList>
+                </DrawerSection>
+              </DrawerBody>
+
+              <DrawerFooter>
+                {selectedProfile.status === '구인중' ? (
+                  <DrawerPrimaryLink href="/corp/careers/jobs">
+                    채용정보 확인
+                    <ArrowRight size={16} strokeWidth={2.4} aria-hidden="true" />
+                  </DrawerPrimaryLink>
+                ) : (
+                  <DrawerPrimaryButton type="button" onClick={closeProfile}>프로필 확인 완료</DrawerPrimaryButton>
                 )}
-
-                {drawerTab === 'journey' && (
-                  <TabPanel>
-                    <Timeline>
-                      {selectedProfile.milestones.map((milestone) => (
-                        <TimelineItem key={`${selectedProfile.id}-${milestone.year}-${milestone.title}`} $accent={selectedProfile.accent}>
-                          <span>{milestone.year}</span>
-                          <div>
-                            <strong>{milestone.title}</strong>
-                            <p>{milestone.detail}</p>
-                          </div>
-                        </TimelineItem>
-                      ))}
-                    </Timeline>
-                  </TabPanel>
-                )}
-
-                {drawerTab === 'voice' && (
-                  <TabPanel>
-                    <CheerList>
-                      {selectedProfile.cheers.map((cheer) => (
-                        <CheerItem key={cheer}>
-                          <Sparkles size={17} strokeWidth={2.5} aria-hidden="true" />
-                          <p>{cheer}</p>
-                        </CheerItem>
-                      ))}
-                    </CheerList>
-                  </TabPanel>
-                )}
-              </DrawerContent>
-            </Drawer>
-          </>
-        )}
+              </DrawerFooter>
+            </ProfileDrawer>
+          </ProfileDrawerLayer>
+        ) : null}
       </AnimatePresence>
     </Page>
   );
 }
 
-const Page = styled.main<{ $spotlightX: number; $spotlightY: number }>`
-  --spotlight-x: ${(props) => props.$spotlightX}%;
-  --spotlight-y: ${(props) => props.$spotlightY}%;
+const Page = styled.main`
+  --org-ink: #13201d;
+  --org-muted: #66736f;
+  --org-line: #d9e1de;
+  --org-surface: #ffffff;
+  --org-canvas: #f3f6f5;
+  --org-primary: #0f6b58;
+  --org-primary-strong: #084c3f;
   position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
   overflow-x: hidden;
-  padding: 28px;
-  color: #edf8f4;
+  overflow-y: auto;
+  color: var(--org-ink);
   background:
-    radial-gradient(circle at var(--spotlight-x) var(--spotlight-y), rgba(45, 212, 191, 0.18), transparent 28rem),
-    linear-gradient(135deg, rgba(5, 18, 17, 0.98), rgba(18, 15, 13, 0.98)),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 72px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 72px);
-  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-
-  &::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.18;
-    background-image: linear-gradient(rgba(255, 255, 255, 0.32) 1px, transparent 1px);
-    background-size: 100% 6px;
-    mix-blend-mode: overlay;
-  }
-
-  @media (max-width: 760px) {
-    padding: 14px;
-  }
+    linear-gradient(rgba(19, 32, 29, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(19, 32, 29, 0.025) 1px, transparent 1px),
+    #edf1f0;
+  background-size: 32px 32px;
+  font-family: 'Pretendard Variable', Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 `;
 
 const PageMotion = styled(motion.div)`
   position: relative;
-  z-index: 1;
-  width: min(1200px, 100%);
-  margin: 0 auto;
+  width: min(1180px, 100%);
   display: grid;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  margin: 0 auto;
+  padding: 32px 28px 72px;
+
+  @media (max-width: 760px) {
+    gap: 18px;
+    padding: 16px 14px 48px;
+  }
+`;
+
+const ProfilePhotoFrame = styled.div<{ $accent: string; $size: number }>`
+  position: relative;
+  flex: 0 0 auto;
+  width: ${(props) => props.$size}px;
+  height: ${(props) => props.$size}px;
+  overflow: hidden;
+  border: 2px solid color-mix(in srgb, ${(props) => props.$accent} 34%, white);
+  border-radius: 28%;
+  background: #dce6e2;
+  box-shadow: 0 8px 20px color-mix(in srgb, ${(props) => props.$accent} 14%, transparent);
+`;
+
+const ProfilePhotoFallback = styled.span`
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #697a74;
+  background: linear-gradient(145deg, #edf3f1, #d9e4e0);
+`;
+
+const ProfileAtlasImage = styled.img<{ $column: number; $row: number }>`
+  position: absolute;
+  z-index: 1;
+  top: ${(props) => props.$row * -100}%;
+  left: ${(props) => props.$column * -100}%;
+  width: 400%;
+  max-width: none;
+  height: 400%;
+  object-fit: cover;
+  display: block;
+`;
+
+const VacantPhotoFrame = styled.div<{ $accent: string; $size: number }>`
+  flex: 0 0 auto;
+  width: ${(props) => props.$size}px;
+  height: ${(props) => props.$size}px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed color-mix(in srgb, ${(props) => props.$accent} 50%, #c6d2ce);
+  border-radius: 28%;
+  color: ${(props) => props.$accent};
+  background:
+    linear-gradient(135deg, color-mix(in srgb, ${(props) => props.$accent} 10%, white), #ffffff);
 `;
 
 const Hero = styled(motion.section)`
-  min-height: 410px;
+  position: relative;
+  min-height: 430px;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
-  gap: 18px;
-  padding: 30px;
-  border: 1px solid rgba(174, 194, 184, 0.18);
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035)),
-    rgba(5, 14, 13, 0.82);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
-  backdrop-filter: blur(18px);
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 36px;
+  align-items: center;
   overflow: hidden;
+  padding: 48px;
+  border: 1px solid rgba(119, 215, 189, 0.2);
+  border-radius: 30px;
+  color: #f5fbf9;
+  background:
+    radial-gradient(circle at 80% 15%, rgba(119, 215, 189, 0.14), transparent 32%),
+    linear-gradient(135deg, #071313 0%, #102422 58%, #0b1918 100%);
+  box-shadow: 0 24px 70px rgba(15, 39, 34, 0.16);
 
   @media (max-width: 980px) {
     grid-template-columns: 1fr;
+    gap: 32px;
   }
 
   @media (max-width: 760px) {
     min-height: auto;
-    padding: 22px;
+    padding: 28px 22px 22px;
+    border-radius: 24px;
   }
+`;
+
+const HeroGridPattern = styled.div`
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(119, 215, 189, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(119, 215, 189, 0.055) 1px, transparent 1px);
+  background-size: 38px 38px;
+  mask-image: linear-gradient(90deg, #000, transparent 72%);
 `;
 
 const HeroCopy = styled.div`
+  position: relative;
+  z-index: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
 `;
 
-const SectionPill = styled.span`
+const Eyebrow = styled.span<{ $inverse?: boolean }>`
   width: fit-content;
-  min-height: 30px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 11px;
-  border: 1px solid rgba(45, 212, 191, 0.42);
-  border-radius: 8px;
-  color: #bdfef4;
-  background: rgba(45, 212, 191, 0.12);
-  font-size: 0.78rem;
+  color: ${(props) => (props.$inverse ? '#8de6cd' : 'var(--org-primary)')};
+  font-size: 0.74rem;
   font-weight: 900;
-  letter-spacing: 0;
+  line-height: 1;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 `;
 
 const HeroTitle = styled.h1`
-  max-width: 760px;
-  margin: 18px 0 0;
-  color: #fbfffd;
-  font-size: 4rem;
+  display: grid;
+  gap: 10px;
+  margin: 20px 0 0;
+  color: #ffffff;
+  font-size: 4.1rem;
   font-weight: 950;
-  line-height: 1.02;
-  letter-spacing: 0;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
   word-break: keep-all;
+  text-wrap: balance;
 
-  @media (max-width: 760px) {
-    font-size: 2.8rem;
+  span {
+    max-width: 650px;
+    color: rgba(232, 246, 241, 0.74);
+    font-size: 1.08rem;
+    font-weight: 760;
+    line-height: 1.5;
+    letter-spacing: 0;
   }
 
-  @media (max-width: 420px) {
-    font-size: 2.25rem;
+  @media (max-width: 760px) {
+    margin-top: 16px;
+    font-size: 2.7rem;
+
+    span {
+      font-size: 0.94rem;
+    }
   }
 `;
 
-const HeroText = styled.p`
-  max-width: 760px;
-  margin: 18px 0 0;
-  color: rgba(237, 248, 244, 0.72);
-  font-size: 1rem;
+const HeroDescription = styled.p`
+  max-width: 670px;
+  margin: 22px 0 0;
+  color: rgba(226, 240, 235, 0.72);
+  font-size: 0.97rem;
   font-weight: 650;
-  line-height: 1.72;
-  letter-spacing: 0;
+  line-height: 1.82;
   word-break: keep-all;
+
+  @media (max-width: 760px) {
+    margin-top: 18px;
+    font-size: 0.9rem;
+    line-height: 1.72;
+  }
 `;
 
 const HeroActions = styled.div`
-  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   margin-top: 28px;
 `;
 
-const PrimaryButton = styled.button`
-  min-height: 44px;
+const PrimaryLink = styled(Link)`
+  min-height: 46px;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 8px;
-  color: #06110f;
-  background: linear-gradient(90deg, #5eead4, #f5b84b);
-  font-size: 0.92rem;
-  font-weight: 950;
-  letter-spacing: 0;
-  cursor: pointer;
-  box-shadow: 0 14px 30px rgba(45, 212, 191, 0.2);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 18px;
+  border-radius: 12px;
+  color: #062c24;
+  background: #84e5ca;
+  box-shadow: 0 12px 28px rgba(56, 189, 153, 0.2);
+  font-size: 0.84rem;
+  font-weight: 900;
+  text-decoration: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(132, 229, 202, 0.22);
+  transition: transform 160ms ease, background 160ms ease;
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 18px 38px rgba(245, 184, 75, 0.2);
+    background: #a1efd9;
   }
 
   &:focus-visible {
-    outline: 2px solid #f8fffc;
+    outline: 3px solid #ffffff;
     outline-offset: 3px;
   }
 `;
 
-const HeroSignal = styled.div`
-  min-height: 44px;
+const HeroStatus = styled.span`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 13px;
-  border: 1px solid rgba(174, 194, 184, 0.18);
-  border-radius: 8px;
-  color: rgba(237, 248, 244, 0.74);
-  background: rgba(255, 255, 255, 0.045);
-  font-size: 0.86rem;
+  color: rgba(237, 248, 245, 0.72);
+  font-size: 0.8rem;
   font-weight: 800;
 
-  span {
-    color: #ffffff;
-    font-weight: 950;
-  }
-
-  strong {
-    color: #f5b84b;
-    font-weight: 900;
+  > span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ffbf69;
+    box-shadow: 0 0 0 5px rgba(255, 191, 105, 0.12);
   }
 `;
 
-const HeroPanel = styled.aside`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 22px;
-  border: 1px solid rgba(174, 194, 184, 0.18);
-  border-radius: 8px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
-    rgba(7, 18, 17, 0.86);
-  overflow: hidden;
-`;
-
-const HeroPanelHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: #5eead4;
-
-  span {
-    color: #f8fffc;
-    font-size: 0.84rem;
-    font-weight: 950;
-    letter-spacing: 0;
-  }
-`;
-
-const HeroPanelMedia = styled.figure`
+const CapacityPanel = styled.aside`
   position: relative;
+  z-index: 1;
   min-width: 0;
-  height: clamp(120px, 14vw, 168px);
-  margin: 0;
-  border: 1px solid rgba(174, 194, 184, 0.14);
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.06);
-
-  img {
-    width: 100%;
-    height: 100%;
-    display: block;
-    object-fit: cover;
-  }
-
-  &::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, transparent 45%, rgba(5, 14, 13, 0.48));
-    pointer-events: none;
-  }
-`;
-
-const StatGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-`;
-
-const StatItem = styled.div`
-  min-width: 0;
-  min-height: 104px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 14px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.052);
-
-  strong {
-    color: #ffffff;
-    font-size: 2.25rem;
-    font-weight: 950;
-    line-height: 1;
-    letter-spacing: 0;
-  }
-
-  span {
-    margin-top: 8px;
-    color: rgba(237, 248, 244, 0.64);
-    font-size: 0.8rem;
-    font-weight: 850;
-    letter-spacing: 0;
-  }
-`;
-
-const KeywordRail = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-
-  span {
-    min-height: 30px;
-    display: inline-flex;
-    align-items: center;
-    padding: 0 10px;
-    border: 1px solid rgba(245, 184, 75, 0.28);
-    border-radius: 8px;
-    color: #ffe0a0;
-    background: rgba(245, 184, 75, 0.1);
-    font-size: 0.8rem;
-    font-weight: 900;
-    letter-spacing: 0;
-  }
-`;
-
-const CategoryBar = styled(motion.nav)`
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  display: grid;
-  grid-template-columns: minmax(190px, 260px) minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-  padding: 12px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(5, 16, 15, 0.82);
-  backdrop-filter: blur(18px);
-
-  @media (max-width: 980px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const CategoryBarIntro = styled.div`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-
-  span {
-    color: #5eead4;
-    font-size: 0.72rem;
-    font-weight: 950;
-    text-transform: uppercase;
-    letter-spacing: 0;
-  }
-
-  strong {
-    color: #ffffff;
-    font-size: 0.98rem;
-    font-weight: 950;
-    line-height: 1.2;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-`;
-
-const IconButton = styled.button`
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(174, 194, 184, 0.14);
-  border-radius: 8px;
-  color: rgba(237, 248, 244, 0.72);
-  background: rgba(255, 255, 255, 0.06);
-  cursor: pointer;
-  transition: color 0.2s ease, background 0.2s ease;
-
-  &:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.12);
-  }
-
-  &:focus-visible {
-    outline: 2px solid #5eead4;
-    outline-offset: 2px;
-  }
-`;
-
-const CategoryScroller = styled.div`
-  min-width: 0;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 1px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(94, 234, 212, 0.48) transparent;
-
-  &::-webkit-scrollbar {
-    height: 5px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(94, 234, 212, 0.38);
-    border-radius: 999px;
-  }
-
-  @media (max-width: 980px) {
-    justify-content: flex-start;
-  }
-`;
-
-const CategoryButton = styled.button<{ $active: boolean }>`
-  flex: 0 0 auto;
-  min-height: 38px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border: 1px solid ${(props) => (props.$active ? 'rgba(94, 234, 212, 0.78)' : 'rgba(174, 194, 184, 0.16)')};
-  border-radius: 8px;
-  color: ${(props) => (props.$active ? '#effffb' : 'rgba(237, 248, 244, 0.72)')};
-  background: ${(props) => (props.$active ? 'rgba(45, 212, 191, 0.18)' : 'rgba(255, 255, 255, 0.045)')};
-  font-size: 0.82rem;
-  font-weight: 850;
-  letter-spacing: 0;
-  cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    border-color: rgba(94, 234, 212, 0.64);
-    color: #effffb;
-    background: rgba(45, 212, 191, 0.14);
-  }
-
-  em {
-    min-width: 22px;
-    height: 22px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    color: ${(props) => (props.$active ? '#06110f' : 'rgba(237, 248, 244, 0.68)')};
-    background: ${(props) => (props.$active ? '#5eead4' : 'rgba(255, 255, 255, 0.08)')};
-    font-style: normal;
-    font-size: 0.74rem;
-    font-weight: 950;
-  }
-
-  &:focus-visible {
-    outline: 2px solid #5eead4;
-    outline-offset: 2px;
-  }
-`;
-
-const DirectoryHeader = styled(motion.section)`
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 16px;
-
-  h2 {
-    margin: 8px 0 0;
-    color: #ffffff;
-    font-size: 1.8rem;
-    font-weight: 950;
-    line-height: 1.18;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-`;
-
-const SectionLabel = styled.span`
-  width: fit-content;
-  min-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 10px;
-  border-radius: 8px;
-  color: #06110f;
-  background: linear-gradient(90deg, #5eead4, #f5b84b);
-  font-size: 0.76rem;
-  font-weight: 950;
-  letter-spacing: 0;
-`;
-
-const DirectoryMeta = styled.div`
-  min-height: 42px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 0 12px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.045);
-
-  strong {
-    color: #ffffff;
-    font-size: 1.6rem;
-    font-weight: 950;
-    letter-spacing: 0;
-  }
-
-  span {
-    color: rgba(237, 248, 244, 0.64);
-    font-size: 0.82rem;
-    font-weight: 850;
-  }
-`;
-
-const CategoryDirectory = styled(motion.div)`
-  display: grid;
-  gap: 18px;
-`;
-
-const CategorySection = styled.section`
-  scroll-margin-top: 92px;
-  min-width: 0;
-  display: grid;
-  gap: 14px;
-  padding: 20px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025)),
-    rgba(255, 255, 255, 0.035);
-
-  @media (max-width: 760px) {
-    scroll-margin-top: 130px;
-    padding: 16px;
-  }
-`;
-
-const CategoryHeader = styled.div`
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-
-  @media (max-width: 620px) {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-`;
-
-const CategoryTitle = styled.div`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-
-  span {
-    color: #5eead4;
-    font-size: 0.8rem;
-    font-weight: 950;
-    letter-spacing: 0;
-  }
-
-  h3 {
-    margin: 4px 0 0;
-    color: #ffffff;
-    font-size: 1.34rem;
-    font-weight: 950;
-    line-height: 1.16;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-
-  p {
-    margin: 7px 0 0;
-    color: rgba(237, 248, 244, 0.66);
-    font-size: 0.88rem;
-    font-weight: 700;
-    line-height: 1.45;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-`;
-
-const CategoryIcon = styled.div`
-  width: 42px;
-  height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(94, 234, 212, 0.3);
-  border-radius: 8px;
-  color: #5eead4;
-  background: rgba(45, 212, 191, 0.12);
-`;
-
-const CategoryCount = styled.div`
-  flex: 0 0 auto;
-  min-height: 40px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 0 11px;
-  border: 1px solid rgba(245, 184, 75, 0.24);
-  border-radius: 8px;
-  color: #ffe0a0;
-  background: rgba(245, 184, 75, 0.08);
-
-  strong {
-    color: #ffffff;
-    font-size: 1.35rem;
-    font-weight: 950;
-    letter-spacing: 0;
-  }
-
-  span {
-    font-size: 0.78rem;
-    font-weight: 900;
-  }
-`;
-
-const ProfileGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-
-  @media (max-width: 1160px) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  @media (max-width: 880px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @media (max-width: 580px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const ProfileCard = styled(motion.button)<{ $accent: string }>`
-  min-width: 0;
-  min-height: 430px;
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  color: inherit;
-  background:
-    linear-gradient(145deg, color-mix(in srgb, ${(props) => props.$accent} 12%, transparent), transparent 52%),
-    rgba(255, 255, 255, 0.055);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.24);
-  overflow: hidden;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
-
-  &:hover {
-    transform: translateY(-4px);
-    border-color: color-mix(in srgb, ${(props) => props.$accent} 72%, transparent);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
-  }
-
-  &:focus-visible {
-    outline: 2px solid ${(props) => props.$accent};
-    outline-offset: 3px;
-  }
-`;
-
-const CardMedia = styled.div<{ $accent: string }>`
-  position: relative;
-  min-height: 180px;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, transparent 42%, rgba(0, 0, 0, 0.66)),
-    color-mix(in srgb, ${(props) => props.$accent} 22%, #07100f);
-
-  img {
-    width: 100%;
-    height: 220px;
-    display: block;
-    object-fit: cover;
-    filter: saturate(0.96) contrast(1.03);
-    transform: scale(1.01);
-    transition: transform 0.32s ease;
-  }
-
-  ${ProfileCard}:hover & img {
-    transform: scale(1.05);
-  }
-`;
-
-const CardStatus = styled.span`
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.26);
-  border-radius: 8px;
-  color: #ffffff;
-  background: rgba(5, 14, 13, 0.68);
+  padding: 24px;
+  border: 1px solid rgba(137, 228, 203, 0.18);
+  border-radius: 22px;
+  background: rgba(235, 250, 245, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(12px);
-  font-size: 0.8rem;
-  font-weight: 900;
-  letter-spacing: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-`;
-
-const CardBody = styled.div`
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 18px;
-`;
-
-const ProfileIdentity = styled.div`
-  min-width: 0;
-
-  span {
-    display: block;
-    color: #5eead4;
-    font-size: 0.78rem;
-    font-weight: 950;
-    letter-spacing: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  h3 {
-    margin: 7px 0 0;
-    color: #ffffff;
-    font-size: 1.45rem;
-    font-weight: 950;
-    line-height: 1.15;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-
-  strong {
-    display: block;
-    margin-top: 7px;
-    color: rgba(237, 248, 244, 0.72);
-    font-size: 0.9rem;
-    font-weight: 850;
-    line-height: 1.35;
-    letter-spacing: 0;
-    overflow-wrap: anywhere;
-  }
-`;
-
-const ProfileSummary = styled.p`
-  margin: 14px 0 0;
-  color: rgba(237, 248, 244, 0.66);
-  font-size: 0.9rem;
-  font-weight: 650;
-  line-height: 1.58;
-  letter-spacing: 0;
-  word-break: keep-all;
-`;
-
-const SkillList = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 16px;
-`;
-
-const SkillChip = styled.span`
-  min-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 9px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  color: rgba(237, 248, 244, 0.82);
-  background: rgba(255, 255, 255, 0.06);
-  font-size: 0.76rem;
-  font-weight: 850;
-  letter-spacing: 0;
-`;
-
-const CardBottom = styled.div`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 18px;
-  align-items: center;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 18px;
-  color: rgba(237, 248, 244, 0.74);
-
-  svg:first-child {
-    color: #f5b84b;
-  }
-
-  span {
-    min-width: 0;
-    font-size: 0.84rem;
-    font-weight: 900;
-    letter-spacing: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-`;
-
-const FlowSection = styled(motion.section)`
-  scroll-margin-top: 96px;
-  min-width: 0;
-  padding: 28px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.052);
-
-  h2 {
-    margin: 10px 0 0;
-    color: #ffffff;
-    font-size: 1.8rem;
-    font-weight: 950;
-    line-height: 1.18;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
 
   @media (max-width: 760px) {
     padding: 20px;
   }
 `;
 
-const FlowHeader = styled.div`
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
-  gap: 18px;
-  align-items: start;
-  margin-bottom: 22px;
-
-  @media (max-width: 860px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const FlowIntro = styled.p`
-  max-width: 720px;
-  margin: 12px 0 0;
-  color: rgba(237, 248, 244, 0.68);
-  font-size: 0.94rem;
-  font-weight: 700;
-  line-height: 1.62;
-  letter-spacing: 0;
-  word-break: keep-all;
-`;
-
-const FlowSummaryGrid = styled.div`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
-
-  @media (max-width: 520px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const FlowSummaryItem = styled.div`
-  min-width: 0;
-  min-height: 72px;
+const CapacityTopline = styled.div`
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 12px;
-  border: 1px solid rgba(245, 184, 75, 0.18);
-  border-radius: 8px;
-  background: rgba(245, 184, 75, 0.075);
-
-  span {
-    color: rgba(255, 232, 186, 0.72);
-    font-size: 0.74rem;
-    font-weight: 900;
-    letter-spacing: 0;
-  }
-
-  strong {
-    margin-top: 5px;
-    color: #ffffff;
-    font-size: 1.08rem;
-    font-weight: 950;
-    line-height: 1.2;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-`;
-
-const FlowList = styled.div`
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-
-  @media (max-width: 980px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const FlowStep = styled.div`
-  min-width: 0;
-  min-height: 126px;
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 22px;
-  align-items: start;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(5, 14, 13, 0.44);
-
-  strong,
-  span {
-    display: block;
-    min-width: 0;
-  }
-
-  strong {
-    color: #ffffff;
-    font-size: 0.95rem;
-    font-weight: 950;
-    line-height: 1.24;
-    letter-spacing: 0;
-    word-break: keep-all;
-  }
-
-  span {
-    margin-top: 5px;
-    color: rgba(237, 248, 244, 0.58);
-    font-size: 0.78rem;
-    font-weight: 750;
-    line-height: 1.42;
-    word-break: keep-all;
-  }
-
-  > svg {
-    align-self: center;
-    color: rgba(245, 184, 75, 0.88);
-  }
-
-  @media (max-width: 980px) {
-    grid-template-columns: 38px minmax(0, 1fr);
-
-    > svg {
-      display: none;
-    }
-  }
-`;
-
-const FlowIndex = styled.b`
-  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  min-height: 22px;
-  margin-bottom: 9px;
-  padding: 0 8px;
-  border-radius: 8px;
-  color: #06110f;
-  background: #f5b84b;
-  font-size: 0.72rem;
-  font-weight: 950;
-  line-height: 1;
-  letter-spacing: 0;
+  justify-content: space-between;
+  gap: 16px;
+  color: #8de6cd;
+
+  span {
+    font-size: 0.69rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
 `;
 
-const FlowDetailList = styled.ul`
+const CapacityMain = styled.div`
   display: grid;
-  gap: 5px;
-  margin: 10px 0 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  margin-top: 28px;
+
+  @media (max-width: 420px) {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+`;
+
+const CapacityNumber = styled.div`
+  display: grid;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+
+  strong {
+    color: #ffffff;
+    font-size: 4rem;
+    font-weight: 950;
+    line-height: 0.9;
+  }
+
+  span {
+    color: rgba(224, 240, 235, 0.52);
+    font-size: 0.65rem;
+    font-weight: 850;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+`;
+
+const CapacityLegend = styled.ul`
+  display: grid;
+  gap: 10px;
+  margin: 0;
   padding: 0;
   list-style: none;
 
   li {
-    position: relative;
-    padding-left: 11px;
-    color: rgba(237, 248, 244, 0.54);
+    display: grid;
+    grid-template-columns: 7px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    color: rgba(232, 244, 240, 0.68);
     font-size: 0.72rem;
-    font-weight: 700;
-    line-height: 1.38;
+    font-weight: 720;
+  }
+
+  li > span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #77d7bd;
+  }
+
+  li:nth-child(2) > span { background: #75a6ff; }
+  li:nth-child(3) > span { background: #ffbf69; }
+  strong { color: #ffffff; font-size: 0.82rem; }
+`;
+
+const CapacityProgress = styled.div`
+  height: 5px;
+  margin-top: 26px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #77d7bd, #b4f1df);
+  }
+`;
+
+const CapacityFootnote = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 13px;
+  color: rgba(230, 244, 239, 0.66);
+  font-size: 0.72rem;
+  font-weight: 800;
+`;
+
+const MetricRail = styled(motion.section)`
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--org-line);
+  border-radius: 18px;
+  background: var(--org-line);
+  box-shadow: 0 12px 36px rgba(25, 50, 43, 0.06);
+
+  @media (max-width: 860px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+`;
+
+const MetricItem = styled.article<{ $highlight?: boolean }>`
+  min-width: 0;
+  min-height: 98px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 20px;
+  background: ${(props) => (props.$highlight ? '#fff8ed' : '#ffffff')};
+  font-variant-numeric: tabular-nums;
+
+  &:last-child {
+    @media (max-width: 860px) {
+      grid-column: 1 / -1;
+    }
+  }
+
+  > div:last-child {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  strong {
+    color: var(--org-ink);
+    font-size: 1.55rem;
+    font-weight: 950;
+    line-height: 1;
+  }
+
+  span {
+    color: var(--org-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 520px) {
+    min-height: 86px;
+    padding: 16px;
+  }
+`;
+
+const MetricIcon = styled.div`
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--org-primary);
+  background: #eaf5f1;
+`;
+
+const OrganizationSection = styled(motion.section)`
+  padding: 34px;
+  border: 1px solid var(--org-line);
+  border-radius: 26px;
+  background: var(--org-surface);
+  box-shadow: 0 18px 50px rgba(25, 50, 43, 0.07);
+  scroll-margin-top: 20px;
+
+  @media (max-width: 760px) {
+    padding: 22px 16px;
+    border-radius: 22px;
+  }
+`;
+
+const SectionHeader = styled.header`
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+
+  > div:first-child { min-width: 0; }
+
+  h2 {
+    margin: 12px 0 0;
+    color: var(--org-ink);
+    font-size: 2rem;
+    font-weight: 950;
+    line-height: 1.22;
+    letter-spacing: -0.015em;
+    word-break: keep-all;
+    text-wrap: balance;
+  }
+
+  p {
+    margin: 10px 0 0;
+    color: var(--org-muted);
+    font-size: 0.86rem;
+    font-weight: 650;
+    line-height: 1.65;
     word-break: keep-all;
   }
 
-  li::before {
-    content: "";
-    position: absolute;
-    top: 0.58em;
-    left: 0;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: #5eead4;
+  @media (max-width: 820px) {
+    align-items: start;
+    flex-direction: column;
+
+    h2 { font-size: 1.55rem; }
   }
 `;
 
-const FlowIcon = styled.div`
-  width: 38px;
-  height: 38px;
+const HierarchyLegend = styled.div`
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  color: #5eead4;
-  background: rgba(45, 212, 191, 0.12);
-`;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--org-line);
+  border-radius: 11px;
+  background: #f7f9f8;
+  color: #7b8783;
 
-const DrawerBackdrop = styled(motion.div)`
-  --staff-drawer-top-offset: calc(var(--header-h, 64px) + 64px);
-  position: fixed;
-  inset: var(--staff-drawer-top-offset) 0 0;
-  z-index: 30;
-  background: rgba(0, 0, 0, 0.44);
-  backdrop-filter: blur(4px);
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.59rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+  }
 
-  @media (max-width: 768px) {
-    --staff-drawer-top-offset: calc(var(--header-h, 64px) + 58px);
+  i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--org-primary);
+  }
+
+  @media (max-width: 520px) {
+    width: 100%;
+    justify-content: space-between;
+    gap: 4px;
   }
 `;
 
-const Drawer = styled(motion.aside)<{ $accent: string }>`
-  --staff-drawer-top-offset: calc(var(--header-h, 64px) + 64px);
-  position: fixed;
-  top: var(--staff-drawer-top-offset);
-  right: 0;
-  bottom: 0;
-  z-index: 31;
-  width: min(620px, 100%);
+const OrgCanvas = styled.div`
+  position: relative;
+  margin-top: 28px;
+  padding: 34px 20px 26px;
+  overflow: hidden;
+  border: 1px solid #e2e8e5;
+  border-radius: 20px;
+  background:
+    linear-gradient(rgba(23, 70, 58, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 70, 58, 0.035) 1px, transparent 1px),
+    #f6f8f7;
+  background-size: 24px 24px;
+
+  @media (max-width: 760px) {
+    padding: 24px 14px 18px;
+  }
+`;
+
+const LevelMarker = styled.div`
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: grid;
+  gap: 3px;
+
+  span {
+    color: var(--org-primary);
+    font-size: 0.58rem;
+    font-weight: 950;
+    letter-spacing: 0.12em;
+  }
+
+  strong {
+    color: #8b9692;
+    font-size: 0.66rem;
+    font-weight: 800;
+  }
+
+  @media (max-width: 760px) { display: none; }
+`;
+
+const CeoNode = styled.button`
+  position: relative;
+  width: min(420px, 100%);
+  min-height: 118px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 15px;
+  align-items: center;
+  margin: 0 auto;
+  padding: 20px;
+  border: 1px solid rgba(119, 215, 189, 0.28);
+  border-radius: 18px;
+  color: #f1f8f5;
+  background: #0c201c;
+  box-shadow: 0 16px 34px rgba(14, 39, 32, 0.15);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+
+  &:hover {
+    transform: translateY(-3px);
+    border-color: rgba(119, 215, 189, 0.62);
+    box-shadow: 0 20px 40px rgba(14, 39, 32, 0.22);
+  }
+
+  &:focus-visible {
+    outline: 3px solid #77d7bd;
+    outline-offset: 4px;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    width: 1px;
+    height: 34px;
+    background: #9bb3ab;
+  }
+
+  @media (max-width: 640px) {
+    grid-template-columns: auto minmax(0, 1fr);
+
+    &::after { left: 28px; height: 32px; }
+  }
+`;
+
+const NodeIdentity = styled.div`
+  min-width: 0;
+
+  > span {
+    color: #8de6cd;
+    font-size: 0.58rem;
+    font-weight: 900;
+    letter-spacing: 0.11em;
+  }
+
+  strong {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 5px;
+    color: #ffffff;
+    font-size: 1.25rem;
+    font-weight: 950;
+  }
+
+  em {
+    color: #8de6cd;
+    font-size: 0.78rem;
+    font-style: normal;
+    font-weight: 900;
+  }
+
+  p {
+    margin: 5px 0 0;
+    color: rgba(230, 242, 238, 0.62);
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+`;
+
+const NodeStatus = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid rgba(141, 230, 205, 0.2);
+  border-radius: 999px;
+  color: rgba(225, 242, 236, 0.75);
+  background: rgba(141, 230, 205, 0.07);
+  font-size: 0.6rem;
+  font-weight: 850;
+  white-space: nowrap;
+
+  span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #77d7bd;
+  }
+
+  @media (max-width: 640px) { display: none; }
+`;
+
+const BranchGrid = styled.div`
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 66px;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: -34px;
+    left: 12.5%;
+    right: 12.5%;
+    height: 1px;
+    background: #9bb3ab;
+  }
+
+  @media (max-width: 1000px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+
+    &::before { display: none; }
+  }
+
+  @media (max-width: 620px) {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-top: 32px;
+    padding-left: 28px;
+
+    &::before {
+      display: block;
+      top: 0;
+      bottom: 34px;
+      left: 0;
+      right: auto;
+      width: 1px;
+      height: auto;
+    }
+  }
+`;
+
+const BranchColumn = styled.article<{ $accent: string; $active: boolean }>`
+  position: relative;
+  min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 430px;
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    width: 1px;
+    height: 34px;
+    background: ${(props) => (props.$active ? props.$accent : '#9bb3ab')};
+  }
+
+  @media (max-width: 1000px) and (min-width: 621px) {
+    &::before { display: none; }
+  }
+
+  @media (max-width: 620px) {
+    &::before {
+      left: -28px;
+      bottom: auto;
+      top: 36px;
+      width: 28px;
+      height: 1px;
+    }
+  }
+`;
+
+const ExecutiveButton = styled.button<{ $accent: string; $soft: string; $active: boolean }>`
+  width: 100%;
+  min-height: 214px;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid rgba(174, 194, 184, 0.18);
-  color: #edf8f4;
-  background:
-    linear-gradient(145deg, color-mix(in srgb, ${(props) => props.$accent} 10%, transparent), transparent 44%),
-    rgba(7, 18, 17, 0.98);
-  box-shadow: -28px 0 70px rgba(0, 0, 0, 0.4);
+  align-items: stretch;
+  padding: 16px;
+  border: 1px solid ${(props) => (props.$active ? props.$accent : '#dfe6e3')};
+  border-radius: 16px;
+  color: var(--org-ink);
+  background: ${(props) => (props.$active ? props.$soft : '#ffffff')};
+  box-shadow: ${(props) => (props.$active ? `0 14px 30px color-mix(in srgb, ${props.$accent} 16%, transparent)` : '0 8px 22px rgba(32, 54, 48, 0.05)')};
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
 
-  @media (max-width: 768px) {
-    --staff-drawer-top-offset: calc(var(--header-h, 64px) + 58px);
+  &:hover { transform: translateY(-3px); border-color: ${(props) => props.$accent}; }
+  &:focus-visible { outline: 3px solid ${(props) => props.$accent}; outline-offset: 3px; }
+`;
+
+const ExecutiveTopline = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+`;
+
+const ExecutiveStatus = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #73807c;
+  font-size: 0.54rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+
+  span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #23a986;
   }
 `;
 
-const DrawerTop = styled.header`
-  min-height: 70px;
+const ExecutiveRole = styled.strong`
+  margin-top: 18px;
+  color: var(--org-ink);
+  font-size: 1.65rem;
+  font-weight: 950;
+  line-height: 1;
+`;
+
+const ExecutiveName = styled.span`
+  margin-top: 5px;
+  color: #78837f;
+  font-size: 0.63rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+`;
+
+const ExecutiveFocus = styled.p`
+  margin: 11px 0 0;
+  color: #66736f;
+  font-size: 0.7rem;
+  font-weight: 720;
+  line-height: 1.45;
+  word-break: keep-all;
+`;
+
+const ViewBranch = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+  color: var(--org-primary);
+  font-size: 0.68rem;
+  font-weight: 900;
+`;
+
+const BranchConnector = styled.div`
+  position: relative;
+  width: 1px;
+  height: 34px;
+  display: grid;
+  place-items: end center;
+  margin: 0 auto;
+  color: #7f928c;
+  background: #b5c3be;
+
+  svg { transform: translateY(7px); background: #f6f8f7; }
+`;
+
+const DepartmentBranchList = styled.div`
+  display: grid;
+  gap: 8px;
+`;
+
+const LeadNode = styled.button<{ $accent: string; $active: boolean }>`
+  width: 100%;
+  min-height: 112px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+  padding: 13px;
+  border: 1px solid ${(props) => (props.$active ? props.$accent : '#dfe6e3')};
+  border-radius: 15px;
+  color: var(--org-ink);
+  background: ${(props) => (props.$active ? `color-mix(in srgb, ${props.$accent} 7%, white)` : '#ffffff')};
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: ${(props) => props.$accent};
+    box-shadow: 0 10px 24px rgba(34, 58, 51, 0.08);
+  }
+
+  &:focus-visible {
+    outline: 3px solid ${(props) => props.$accent};
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 620px) {
+    min-height: 104px;
+  }
+`;
+
+const LeadNodeBody = styled.div`
+  min-width: 0;
+
+  > strong {
+    display: block;
+    margin-top: 8px;
+    color: var(--org-ink);
+    font-size: 0.92rem;
+    font-weight: 950;
+  }
+
+  > p {
+    margin: 3px 0 0;
+    color: #697571;
+    font-size: 0.7rem;
+    font-weight: 750;
+  }
+`;
+
+const LeadNodeTopline = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--org-primary);
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.55rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+  }
+`;
+
+const LeadCapacity = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 13px;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #78847f;
+    font-size: 0.6rem;
+    font-weight: 820;
+  }
+
+  i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #24a784;
+  }
+
+  span:last-child i { background: #f0a34a; }
+`;
+
+const DepartmentSection = styled(motion.section)`
+  padding: 34px;
+  border: 1px solid var(--org-line);
+  border-radius: 26px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(25, 50, 43, 0.07);
+
+  @media (max-width: 760px) {
+    padding: 22px 16px;
+    border-radius: 22px;
+  }
+`;
+
+const DepartmentHeading = styled.header`
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+
+  h2 {
+    margin: 12px 0 0;
+    color: var(--org-ink);
+    font-size: 2rem;
+    font-weight: 950;
+    line-height: 1.22;
+    letter-spacing: -0.015em;
+    word-break: keep-all;
+    text-wrap: balance;
+  }
+
+  p {
+    margin: 9px 0 0;
+    color: var(--org-muted);
+    font-size: 0.84rem;
+    font-weight: 650;
+    line-height: 1.6;
+    word-break: keep-all;
+  }
+
+  @media (max-width: 760px) {
+    align-items: start;
+    flex-direction: column;
+
+    h2 { font-size: 1.55rem; }
+  }
+`;
+
+const RosterSummary = styled.div`
+  flex: 0 0 auto;
+  display: grid;
+  gap: 3px;
+  min-width: 142px;
+  padding: 13px 15px;
+  border: 1px solid #ead7bb;
+  border-radius: 12px;
+  background: #fff9ef;
+
+  strong { color: #8d5f1d; font-size: 1.2rem; font-weight: 950; }
+  span { color: #8c7a61; font-size: 0.61rem; font-weight: 800; }
+`;
+
+const DepartmentTabs = styled.div`
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 24px;
+
+  @media (max-width: 1000px) and (min-width: 761px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 760px) {
+    display: flex;
+    overflow-x: auto;
+    padding: 2px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar { display: none; }
+  }
+`;
+
+const DepartmentTab = styled.button<{ $accent: string; $active: boolean }>`
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 0 13px;
+  border: 1px solid ${(props) => (props.$active ? props.$accent : '#dce4e1')};
+  border-radius: 12px;
+  color: ${(props) => (props.$active ? props.$accent : '#5f6d68')};
+  background: ${(props) => (props.$active ? `color-mix(in srgb, ${props.$accent} 8%, white)` : '#ffffff')};
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+
+  &:hover { transform: translateY(-2px); border-color: ${(props) => props.$accent}; }
+  &:focus-visible { outline: 3px solid ${(props) => props.$accent}; outline-offset: 2px; }
+
+  span { overflow: hidden; font-size: 0.72rem; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+  em { color: #84908c; font-size: 0.62rem; font-style: normal; font-weight: 850; }
+
+  @media (max-width: 760px) {
+    flex: 0 0 190px;
+    scroll-snap-align: start;
+  }
+`;
+
+const TeamPanel = styled.div<{ $accent: string; $soft: string }>`
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid ${(props) => `color-mix(in srgb, ${props.$accent} 36%, #dbe3e0)`};
+  border-radius: 20px;
+  background: linear-gradient(180deg, ${(props) => props.$soft} 0, #ffffff 220px);
+`;
+
+const TeamPanelHeader = styled.header`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 28px;
+  border-bottom: 1px solid rgba(117, 134, 128, 0.16);
+
+  @media (max-width: 760px) {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 22px;
+  }
+`;
+
+const DepartmentTitleGroup = styled.div`
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
+  > div:last-child { min-width: 0; }
+
+  span {
+    color: #71807b;
+    font-size: 0.61rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  h3 {
+    margin: 4px 0 0;
+    color: var(--org-ink);
+    font-size: 1.55rem;
+    font-weight: 950;
+    line-height: 1.15;
+  }
+
+  p {
+    max-width: 620px;
+    margin: 8px 0 0;
+    color: #66736f;
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1.6;
+    word-break: keep-all;
+  }
+
+  @media (max-width: 520px) { align-items: flex-start; }
+`;
+
+const DepartmentMark = styled.div<{ $accent: string; $soft: string }>`
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border: 1px solid ${(props) => `color-mix(in srgb, ${props.$accent} 28%, white)`};
+  border-radius: 17px;
+  color: ${(props) => props.$accent};
+  background: ${(props) => props.$soft};
+`;
+
+const WorkforceMeter = styled.div`
+  flex: 0 0 190px;
+  padding: 14px;
+  border: 1px solid rgba(99, 117, 110, 0.16);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.76);
+
+  > div:first-child {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  span, small { color: #74817c; font-size: 0.61rem; font-weight: 800; }
+  strong { color: var(--org-ink); font-size: 0.88rem; font-weight: 950; }
+  small { display: block; margin-top: 7px; text-align: right; }
+
+  @media (max-width: 760px) { flex-basis: auto; }
+`;
+
+const MeterTrack = styled.div`
+  height: 5px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6ece9;
+
+  span {
+    display: block;
+    width: 10%;
+    height: 100%;
+    border-radius: inherit;
+    background: #1ca27f;
+  }
+`;
+
+const RosterGrid = styled.div`
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 18px;
+  padding: 24px;
+
+  @media (max-width: 900px) { grid-template-columns: 1fr; }
+  @media (max-width: 760px) { padding: 18px; }
+`;
+
+const LeadProfile = styled.button<{ $accent: string }>`
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid ${(props) => `color-mix(in srgb, ${props.$accent} 36%, #d8e0dd)`};
+  border-radius: 17px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(35, 60, 53, 0.07);
+  color: var(--org-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+
+  &:hover {
+    transform: translateY(-3px);
+    border-color: ${(props) => props.$accent};
+    box-shadow: 0 16px 36px rgba(35, 60, 53, 0.12);
+  }
+
+  &:focus-visible {
+    outline: 3px solid ${(props) => props.$accent};
+    outline-offset: 3px;
+  }
+
+  > ${ProfilePhotoFrame} {
+    margin-top: 20px;
+  }
+
+  > span {
+    display: block;
+    margin-top: 20px;
+    color: #7b8883;
+    font-size: 0.58rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+  }
+
+  h4 {
+    margin: 6px 0 0;
+    color: var(--org-ink);
+    font-size: 1.5rem;
+    font-weight: 950;
+  }
+
+  > p {
+    margin: 4px 0 0;
+    color: #65726e;
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+`;
+
+const LeadProfileBadge = styled.div`
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  color: #0a745b;
+  background: #e7f7f2;
+  font-size: 0.6rem;
+  font-weight: 900;
+`;
+
+const LeadProfileAction = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+  padding-top: 18px;
+  color: var(--org-primary);
+  font-size: 0.68rem;
+  font-weight: 900;
+`;
+
+const LeadProfileMeta = styled.div`
+  display: grid;
+  gap: 9px;
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid #e5ebe8;
+
+  span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #687671;
+    font-size: 0.68rem;
+    font-weight: 780;
+  }
+`;
+
+const OpenRoster = styled.div`
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #e0e7e4;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.78);
+`;
+
+const OpenRosterHeader = styled.header`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+
+  > div { display: grid; gap: 4px; }
+  > div > span { color: #8a9692; font-size: 0.56rem; font-weight: 900; letter-spacing: 0.11em; }
+  strong { color: var(--org-ink); font-size: 0.9rem; font-weight: 920; }
+`;
+
+const HiringBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #efd9b8;
+  border-radius: 999px;
+  color: #8f631f;
+  background: #fff8ec;
+  font-size: 0.58rem;
+  font-weight: 900;
+  white-space: nowrap;
+
+  span { width: 6px; height: 6px; border-radius: 50%; background: #efa441; }
+`;
+
+const OpenSeatGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+
+  @media (max-width: 620px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 350px) { grid-template-columns: 1fr; }
+`;
+
+const OpenSeatCard = styled.button`
+  min-width: 0;
+  width: 100%;
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border: 1px dashed #cbd6d1;
+  border-radius: 12px;
+  color: var(--org-ink);
+  background: #fbfcfc;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+
+  &:hover { transform: translateY(-2px); border-color: #e3a44e; background: #fffaf2; }
+  &:focus-visible { outline: 3px solid #e3a44e; outline-offset: 2px; }
+
+  > strong {
+    min-height: 2.7em;
+    margin-top: 12px;
+    color: #4f5d58;
+    font-size: 0.68rem;
+    font-weight: 850;
+    line-height: 1.35;
+    word-break: keep-all;
+  }
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: auto;
+    color: #9a6a22;
+    font-size: 0.59rem;
+    font-weight: 850;
+  }
+
+  i { width: 5px; height: 5px; border-radius: 50%; background: #eda03a; }
+`;
+
+const SeatTopline = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #98a39f;
+`;
+
+const SeatCode = styled.span`
+  color: #8d9995;
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+`;
+
+const GovernanceNote = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 24px 24px;
+  padding: 14px 16px;
+  border: 1px solid #d8e5e0;
+  border-radius: 13px;
+  color: #0d745e;
+  background: #eff8f5;
+
+  div { min-width: 0; display: grid; gap: 3px; }
+  strong { font-size: 0.72rem; font-weight: 920; }
+  span { color: #58716a; font-size: 0.68rem; font-weight: 680; line-height: 1.45; }
+
+  @media (max-width: 760px) { align-items: flex-start; margin: 0 18px 18px; }
+`;
+
+const OperatingSection = styled(motion.section)`
+  overflow: hidden;
+  padding: 36px;
+  border: 1px solid rgba(117, 215, 188, 0.18);
+  border-radius: 26px;
+  color: #eef8f5;
+  background: #0b1b18;
+  box-shadow: 0 18px 50px rgba(18, 45, 38, 0.14);
+
+  @media (max-width: 760px) { padding: 24px 18px; border-radius: 22px; }
+`;
+
+const OperatingHeader = styled.header`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+  gap: 32px;
+  align-items: end;
+
+  h2 {
+    margin: 12px 0 0;
+    color: #ffffff;
+    font-size: 2rem;
+    font-weight: 950;
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  > p {
+    margin: 0;
+    color: rgba(222, 240, 234, 0.62);
+    font-size: 0.82rem;
+    font-weight: 650;
+    line-height: 1.65;
+    word-break: keep-all;
+  }
+
+  @media (max-width: 760px) {
+    grid-template-columns: 1fr;
+    gap: 16px;
+
+    h2 { font-size: 1.55rem; }
+  }
+`;
+
+const FlowGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 28px;
+
+  @media (max-width: 860px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 520px) { grid-template-columns: 1fr; }
+`;
+
+const FlowStep = styled.article`
+  min-height: 174px;
+  padding: 18px;
+  border: 1px solid rgba(151, 222, 203, 0.13);
+  border-radius: 15px;
+  background: rgba(229, 247, 241, 0.045);
+  content-visibility: auto;
+  contain-intrinsic-size: 174px;
+
+  > strong {
+    display: block;
+    margin-top: 24px;
+    color: #f4fbf8;
+    font-size: 0.84rem;
+    font-weight: 900;
+  }
+
+  > p {
+    margin: 9px 0 0;
+    color: rgba(220, 237, 232, 0.59);
+    font-size: 0.7rem;
+    font-weight: 640;
+    line-height: 1.6;
+    word-break: keep-all;
+  }
+`;
+
+const FlowStepTopline = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 22px;
-  border-bottom: 1px solid rgba(174, 194, 184, 0.14);
+  color: #83dec5;
 
-  span {
-    color: #5eead4;
-    font-size: 0.78rem;
-    font-weight: 950;
-    text-transform: uppercase;
-    letter-spacing: 0;
-  }
+  span { font-size: 0.62rem; font-weight: 900; letter-spacing: 0.1em; }
 `;
 
-const DrawerContent = styled.div`
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px;
-
-  @media (max-width: 520px) {
-    padding: 18px;
-  }
-`;
-
-const DrawerHero = styled.section`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  gap: 18px;
+const HiringCallout = styled.div`
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 196, 112, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 190, 96, 0.07);
 
-  @media (max-width: 520px) {
-    grid-template-columns: 1fr;
+  > div { display: flex; align-items: center; gap: 11px; color: #ffc575; }
+  > div span { color: rgba(239, 246, 244, 0.7); font-size: 0.75rem; font-weight: 680; }
+  > div strong { color: #ffffff; font-weight: 900; }
+
+  @media (max-width: 680px) { align-items: stretch; flex-direction: column; }
+`;
+
+const HiringLink = styled(Link)`
+  flex: 0 0 auto;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: #0c332b;
+  background: #e8f8f3;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-decoration: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(141, 230, 205, 0.2);
+  transition: transform 150ms ease, background 150ms ease;
+
+  &:hover { transform: translateY(-2px); background: #ffffff; }
+  &:focus-visible { outline: 3px solid #8de6cd; outline-offset: 3px; }
+`;
+
+const ProfileDrawerLayer = styled(motion.div)`
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: flex;
+  justify-content: flex-end;
+`;
+
+const DrawerScrimClose = styled.button`
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: rgba(5, 18, 16, 0.58);
+  backdrop-filter: blur(5px);
+  cursor: default;
+
+  &:focus-visible {
+    outline: 3px solid #8de6cd;
+    outline-offset: -6px;
   }
 `;
 
-const DrawerAvatar = styled.div<{ $accent: string }>`
-  width: 132px;
-  height: 132px;
-  padding: 4px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, ${(props) => props.$accent}, #f5b84b);
-  box-shadow: 0 18px 34px color-mix(in srgb, ${(props) => props.$accent} 22%, transparent);
+const ProfileDrawer = styled(motion.aside)`
+  position: relative;
+  z-index: 1;
+  width: min(500px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--org-ink);
+  background: #f7f9f8;
+  box-shadow: -28px 0 80px rgba(8, 28, 23, 0.24);
 
-  img {
+  @media (max-width: 560px) {
     width: 100%;
-    height: 100%;
-    display: block;
-    object-fit: cover;
-    border-radius: 6px;
   }
 `;
 
-const DrawerIdentity = styled.div`
-  min-width: 0;
+const DrawerHeader = styled.header`
+  flex: 0 0 auto;
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 18px 14px 24px;
+  border-bottom: 1px solid #dce4e1;
+  background: rgba(255, 255, 255, 0.94);
+
+  > div {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
 
   span {
-    color: #5eead4;
-    font-size: 0.78rem;
+    color: var(--org-primary);
+    font-size: 0.58rem;
     font-weight: 950;
-    letter-spacing: 0;
-  }
-
-  h2 {
-    margin: 8px 0 0;
-    color: #ffffff;
-    font-size: 2.15rem;
-    font-weight: 950;
-    line-height: 1.08;
-    letter-spacing: 0;
-    word-break: keep-all;
+    letter-spacing: 0.12em;
   }
 
   strong {
-    display: block;
-    margin-top: 8px;
-    color: rgba(237, 248, 244, 0.82);
-    font-size: 1rem;
-    font-weight: 900;
-    letter-spacing: 0;
+    overflow: hidden;
+    color: #53615c;
+    font-size: 0.76rem;
+    font-weight: 850;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+
+const DrawerCloseButton = styled.button`
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d8e1de;
+  border-radius: 12px;
+  color: #4f5f5a;
+  background: #ffffff;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+
+  &:hover {
+    color: #0c6e58;
+    border-color: #77cbb5;
+    background: #eef8f5;
   }
 
-  p {
-    margin: 8px 0 0;
-    color: rgba(237, 248, 244, 0.56);
-    font-size: 0.86rem;
-    font-weight: 750;
+  &:focus-visible {
+    outline: 3px solid #0f8067;
+    outline-offset: 2px;
+  }
+`;
+
+const DrawerBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+
+  @media (max-width: 560px) {
+    padding: 20px 18px;
+  }
+`;
+
+const DrawerIdentity = styled.section<{ $accent: string }>`
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, ${(props) => props.$accent} 30%, #dce4e1);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, ${(props) => props.$accent} 14%, transparent), transparent 38%),
+    #ffffff;
+
+  @media (max-width: 420px) {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+`;
+
+const DrawerIdentityCopy = styled.div`
+  min-width: 0;
+
+  > span:not(:first-child) {
+    display: block;
+    margin-top: 14px;
+    color: #7c8884;
+    font-size: 0.6rem;
+    font-weight: 900;
+    letter-spacing: 0.13em;
+  }
+
+  h2 {
+    margin: 4px 0 0;
+    color: var(--org-ink);
+    font-size: 1.9rem;
+    font-weight: 950;
+    line-height: 1.08;
+    word-break: keep-all;
+    text-wrap: balance;
+  }
+
+  > strong {
+    display: block;
+    margin-top: 8px;
+    color: #5f6e69;
+    font-size: 0.76rem;
+    font-weight: 800;
     line-height: 1.45;
   }
 `;
 
-const DrawerTabs = styled.nav`
-  display: flex;
-  gap: 8px;
-  margin-top: 26px;
-  border-bottom: 1px solid rgba(174, 194, 184, 0.14);
-`;
+const DrawerStatus = styled.span<{ $open: boolean }>`
+  width: fit-content;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 7px;
+  margin: 0 !important;
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: ${(props) => (props.$open ? '#8d611e' : '#087057')} !important;
+  background: ${(props) => (props.$open ? '#fff5e5' : '#e8f7f2')};
+  font-size: 0.62rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
 
-const DrawerTabButton = styled.button<{ $active: boolean }>`
-  min-height: 42px;
-  padding: 0 4px;
-  border: 0;
-  border-bottom: 2px solid ${(props) => (props.$active ? '#5eead4' : 'transparent')};
-  color: ${(props) => (props.$active ? '#ffffff' : 'rgba(237, 248, 244, 0.56)')};
-  background: transparent;
-  font-size: 0.9rem;
-  font-weight: 950;
-  letter-spacing: 0;
-  cursor: pointer;
-
-  &:focus-visible {
-    outline: 2px solid #5eead4;
-    outline-offset: 3px;
+  span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: ${(props) => (props.$open ? '#eca33f' : '#19a17e')};
   }
 `;
 
-const TabPanel = styled.section`
+const DrawerQuote = styled.blockquote`
   display: grid;
-  gap: 16px;
-  margin-top: 20px;
-`;
-
-const QuotePanel = styled.figure`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 11px;
   margin: 0;
-  padding: 18px;
-  border: 1px solid rgba(245, 184, 75, 0.2);
-  border-radius: 8px;
-  color: #ffe3ad;
-  background: rgba(245, 184, 75, 0.08);
+  padding: 16px 18px;
+  border-left: 3px solid #28a884;
+  border-radius: 0 14px 14px 0;
+  color: #0d715b;
+  background: #eaf7f3;
 
   p {
     margin: 0;
-    color: rgba(255, 245, 225, 0.9);
-    font-size: 0.96rem;
-    font-weight: 750;
+    color: #48645c;
+    font-size: 0.77rem;
+    font-weight: 740;
     line-height: 1.65;
     word-break: keep-all;
   }
 `;
 
-const MetricGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-
-  @media (max-width: 520px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const DrawerMetric = styled.div`
-  min-height: 88px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 14px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.055);
-
-  strong {
-    color: #ffffff;
-    font-size: 1.7rem;
-    font-weight: 950;
-    line-height: 1;
-    letter-spacing: 0;
-  }
-
-  span {
-    margin-top: 7px;
-    color: rgba(237, 248, 244, 0.6);
-    font-size: 0.78rem;
-    font-weight: 850;
-  }
-`;
-
 const DrawerSection = styled.section`
-  min-width: 0;
+  padding: 18px;
+  border: 1px solid #dfe6e3;
+  border-radius: 16px;
+  background: #ffffff;
 
-  h3 {
-    margin: 0;
-    color: #ffffff;
-    font-size: 1rem;
+  > span {
+    color: var(--org-primary);
+    font-size: 0.58rem;
     font-weight: 950;
-    letter-spacing: 0;
+    letter-spacing: 0.11em;
+  }
+
+  > p {
+    margin: 11px 0 0;
+    color: #5e6c67;
+    font-size: 0.77rem;
+    font-weight: 650;
+    line-height: 1.7;
+    word-break: keep-all;
   }
 `;
 
-const ContactRow = styled.div`
+const DrawerMetaGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 
-  a {
-    min-height: 42px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border: 1px solid rgba(174, 194, 184, 0.16);
-    border-radius: 8px;
-    color: rgba(237, 248, 244, 0.82);
-    background: rgba(255, 255, 255, 0.055);
-    font-size: 0.86rem;
-    font-weight: 900;
-    text-decoration: none;
-  }
-
-  @media (max-width: 520px) {
+  @media (max-width: 420px) {
     grid-template-columns: 1fr;
   }
 `;
 
-const Timeline = styled.div`
-  display: grid;
-  gap: 12px;
-`;
-
-const TimelineItem = styled.article<{ $accent: string }>`
+const DrawerMetaItem = styled.div`
   min-width: 0;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-left: 3px solid ${(props) => props.$accent};
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.052);
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #dfe6e3;
+  border-radius: 13px;
+  background: #ffffff;
 
   span {
-    color: ${(props) => props.$accent};
-    font-size: 0.9rem;
-    font-weight: 950;
-    letter-spacing: 0;
+    color: #85918d;
+    font-size: 0.58rem;
+    font-weight: 850;
   }
 
   strong {
-    display: block;
-    color: #ffffff;
-    font-size: 0.96rem;
-    font-weight: 950;
-    line-height: 1.35;
-  }
-
-  p {
-    margin: 6px 0 0;
-    color: rgba(237, 248, 244, 0.64);
-    font-size: 0.86rem;
-    font-weight: 650;
-    line-height: 1.55;
-    word-break: keep-all;
+    overflow: hidden;
+    color: #34443f;
+    font-size: 0.71rem;
+    font-weight: 880;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 `;
 
-const CheerList = styled.div`
-  display: grid;
-  gap: 12px;
+const DrawerSkillList = styled.ul`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    padding: 7px 9px;
+    border: 1px solid #dce6e2;
+    border-radius: 999px;
+    color: #46615a;
+    background: #f5f8f7;
+    font-size: 0.64rem;
+    font-weight: 820;
+  }
 `;
 
-const CheerItem = styled.article`
-  min-width: 0;
+const ResponsibilityList = styled.ul`
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
   gap: 10px;
-  align-items: start;
-  padding: 16px;
-  border: 1px solid rgba(174, 194, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.052);
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
 
-  svg {
-    color: #5eead4;
+  li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 9px;
+    align-items: start;
+    color: #0d765e;
   }
 
-  p {
-    margin: 0;
-    color: rgba(237, 248, 244, 0.74);
-    font-size: 0.9rem;
-    font-weight: 700;
-    line-height: 1.55;
-    word-break: keep-all;
+  li span {
+    color: #586862;
+    font-size: 0.72rem;
+    font-weight: 720;
+    line-height: 1.5;
   }
+`;
+
+const DrawerFooter = styled.footer`
+  flex: 0 0 auto;
+  padding: 14px 24px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid #dce4e1;
+  background: rgba(255, 255, 255, 0.96);
+
+  @media (max-width: 560px) {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+`;
+
+const drawerPrimaryStyles = css`
+  width: 100%;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 12px;
+  color: #ffffff;
+  background: #0d705a;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 150ms ease, background 150ms ease;
+
+  &:hover { transform: translateY(-2px); background: #095744; }
+  &:focus-visible { outline: 3px solid #43c29f; outline-offset: 3px; }
+`;
+
+const DrawerPrimaryLink = styled(Link)`
+  ${drawerPrimaryStyles}
+`;
+
+const DrawerPrimaryButton = styled.button`
+  ${drawerPrimaryStyles}
 `;
 
 const StaffIntroMotionStyles = createGlobalStyle`

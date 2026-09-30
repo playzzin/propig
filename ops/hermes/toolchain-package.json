@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "esbuild": "0.28.1",
+    "playwright-core": "1.61.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-test-renderer": "19.2.3"
+  }
+}

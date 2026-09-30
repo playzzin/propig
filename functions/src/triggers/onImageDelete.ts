@@ -1,12 +1,16 @@
 import { onDocumentDeleted } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
+import { FIRESTORE_DATABASE_ID } from '../firestore';
 
 if (!admin.apps.length) {
     admin.initializeApp();
 }
 
-export const onImageDelete = onDocumentDeleted('generated_images/{imageId}', async (event) => {
+export const onImageDelete = onDocumentDeleted({
+    document: 'generated_images/{imageId}',
+    database: FIRESTORE_DATABASE_ID,
+}, async (event) => {
     const snap = event.data;
     if (!snap) {
         logger.warn('No data associated with the event');

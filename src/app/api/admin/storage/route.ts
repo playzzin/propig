@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import admin, { getFirebaseAdminStatus } from '@/lib/firebase-admin';
 import { requireAdminAuth } from '@/lib/server/admin-auth';
+import { writeActivityLogSafely } from '@/lib/server/activity-log';
 import type {
   AdminStorageErrorResponse,
   AdminStorageCreateFolderResponse,
@@ -76,6 +77,24 @@ function encodeContentDispositionFileName(fileName: string): string {
   return `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
 
+function buildFirebaseTokenUrl(
+  bucketName: string,
+  fileName: string,
+  metadata: Record<string, unknown>,
+): string | null {
+  const customMetadata =
+    metadata.metadata && typeof metadata.metadata === 'object'
+      ? (metadata.metadata as Record<string, unknown>)
+      : {};
+  const tokenValue = customMetadata.firebaseStorageDownloadTokens;
+  const token = typeof tokenValue === 'string'
+    ? tokenValue.split(',').map((item) => item.trim()).find(Boolean)
+    : null;
+  if (!token) return null;
+
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(fileName)}?alt=media&token=${encodeURIComponent(token)}`;
+}
+
 function parseSize(value: unknown): number {
   const size = typeof value === 'number' ? value : Number(value ?? 0);
   return Number.isFinite(size) && size > 0 ? size : 0;
@@ -121,19 +140,25 @@ export async function GET(request: NextRequest) {
         return jsonError('요청한 Storage 파일을 찾을 수 없습니다.', 404);
       }
 
-      const expiresAt = new Date(Date.now() + SIGNED_URL_TTL_MS);
-      const [url] = await file.getSignedUrl({
+      const [metadata] = await file.getMetadata();
+      const tokenUrl = buildFirebaseTokenUrl(
+        bucket.name,
+        file.name,
+        metadata as Record<string, unknown>,
+      );
+      const expiresAt = tokenUrl ? null : new Date(Date.now() + SIGNED_URL_TTL_MS);
+      const url = tokenUrl || (await file.getSignedUrl({
         action: 'read',
-        expires: expiresAt,
+        expires: expiresAt!,
         responseDisposition: forceDownload ? encodeContentDispositionFileName(readFileName(downloadPath)) : undefined,
-      });
+      }))[0];
 
       return NextResponse.json<AdminStorageUrlResponse>({
         ok: true,
         bucket: bucket.name,
         path: downloadPath,
         url,
-        expiresAt: expiresAt.toISOString(),
+        expiresAt: expiresAt?.toISOString() ?? null,
       });
     }
 
@@ -218,6 +243,23 @@ export async function POST(request: NextRequest) {
     await markerFile.save('', {
       resumable: false,
       contentType: 'application/x-directory',
+    });
+
+    await writeActivityLogSafely({
+      auth: authResult,
+      request,
+      action: 'admin.storage.folder.create',
+      target: {
+        type: 'storageFolder',
+        path: folderPath,
+        label: folderName,
+      },
+      summary: `Storage 폴더를 생성했습니다: ${folderPath}`,
+      metadata: {
+        bucket: bucket.name,
+        parentPath,
+        folderName,
+      },
     });
 
     return NextResponse.json<AdminStorageCreateFolderResponse>({

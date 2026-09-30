@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "project": "propig",
+  "max_parallel": 3,
+  "max_depth": 1,
+  "dispatch": "on-demand; no persistent worker or unattended paid loop",
+  "roles": {
+    "lead": {"name":"Hermes 통합 책임자","scope":"계약·파일 소유권·통합·배포 승인 관리","write":["*"],"skills":["propig-project-operations"],"gates":["verify:release-static","verify:release-browser"]},
+    "corp": {"name":"기업 사이트 담당","scope":"기업 콘텐츠·제휴·채용·프로젝트 화면. workspace provider 보존","write":["src/app/corp/**","src/components/corp/**"],"skills":["propig-autonomous-product-improvement","product-ui-flow-refinement"],"gates":["verify:corp-pages","verify:careers-experience","verify:partnership-inquiry"]},
+    "blog": {"name":"블로그 담당","scope":"블로그 공개 경험 및 관련 화면. 공유 북마크·계정은 별도 협의","write":["src/app/blog/**"],"skills":["propig-autonomous-product-improvement","nextjs-rendering-performance-audits"],"gates":["verify:route-shell","verify:admin-menu"]},
+    "shop": {"name":"propig 생활·업무 모드 담당","scope":"내부 mode ID shop, 홈 /propig. 레거시 /shop과 계정 메뉴를 별도 모드로 복제하지 않음","write":["src/app/propig/**","src/app/habit-tracker/**","src/app/todo-list/**","src/app/sticky-notes/**","src/app/bucket-list/**","src/hooks/useStickyNotes.ts","src/components/bookmarks/BookmarkApp.tsx","src/components/bookmarks/AddBookmarkModal.tsx","src/components/bookmarks/CategoryManagerModal.tsx","scripts/verify-bookmark-modal-lifecycle.cjs","scripts/verify-bookmark-account-lifecycle.cjs","src/hooks/usePropigAppRegistry.ts","src/components/habits/HabitTrackerApp.tsx","src/components/bucket-list/BucketListApp.tsx","src/components/todo-list/TodoListApp.tsx","src/services/todoListService.ts"],"skills":["propig-autonomous-product-improvement","product-ui-flow-refinement"],"gates":["verify:calculator","test:habit-stats","verify:admin-menu"]},
+    "admin": {"name":"관리자·제작 도구 담당","scope":"권한·메뉴 편집·사진·이모티콘/영상 제작 UI. 서버 보안은 security에 인계","write":["src/app/admin/**","src/components/admin/**"],"skills":["propig-autonomous-product-improvement","async-client-workflow-audits"],"gates":["verify:admin-menu","verify:admin-menu-browser","verify:emoticon-studio-ui","verify:emoticon-studio-complete"]},
+    "shell": {"name":"공통 메뉴·브랜드·성능 담당","scope":"사이트 모드 상태·레이아웃·로고·파비콘·접근성. 모든 모드 회귀 필수","write":["src/components/Sidebar.tsx","src/components/Header.tsx","src/components/AppLayout.tsx","src/components/SiteModeSwitcher.tsx","src/components/DynamicFavicon.tsx","src/lib/siteFavicon.ts","src/contexts/MenuContext.tsx","src/contexts/SystemContext.tsx","src/hooks/useMenu.ts","src/services/menuService.ts","src/constants/siteHome.ts","src/constants/brandAssets.ts","src/app/globals.css"],"skills":["product-ui-flow-refinement","nextjs-rendering-performance-audits"],"gates":["verify:admin-menu","verify:sidebar-refinement","verify:site-favicon","verify:navigation-performance"]},
+    "security": {"name":"보안·데이터·AI 비용 담당","scope":"서버 인증·tenant·규칙·idempotency·quota·개인정보. 유료 실행/운영 삭제는 별도 승인","write":["functions/src/**","src/app/api/**","src/lib/server/**","firestore.rules","storage.rules","firestore.indexes.json"],"skills":["propig-security-cost-boundaries","application-security-operations-audits"],"gates":["verify:security","verify:firestore-boundary","verify:deployment-boundary"]},
+    "qa": {"name":"독립 품질·릴리스 담당","scope":"독립 재현·회귀·실제 브라우저. 구현자의 PASS를 그대로 신뢰하지 않음","write":["scripts/**","docs/**"],"skills":["propig-release-browser-verification","code-deletion-safety-audits"],"gates":["verify:release-static","verify:release-browser"]}
+  }
+}

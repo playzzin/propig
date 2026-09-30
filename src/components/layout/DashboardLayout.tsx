@@ -1,5 +1,6 @@
 'use client';
 
+import '@/lib/fontawesome';
 import React, { useState, ReactNode } from 'react';
 import { MenuProvider } from '@/contexts/MenuContext';
 import { DynamicSidebar } from '@/components/layout/DynamicSidebar';

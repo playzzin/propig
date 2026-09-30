@@ -90,20 +90,12 @@ function MemoEditor({ note, textareaFocusRef, onFocusMemo, onChangeContent }: Me
     onChangeContent(note.id, nextContent);
   }, [note.content, note.id, onChangeContent]);
 
-  useEffect(() => {
-    if (!isEditing || draftContent === note.content || isComposingRef.current) return;
-
-    const timerId = window.setTimeout(() => {
-      commitDraft(draftContent);
-    }, 350);
-
-    return () => window.clearTimeout(timerId);
-  }, [commitDraft, draftContent, isEditing, note.content]);
-
   const activeContent = isEditing ? draftContent : note.content;
 
   const updateDraftContent = (nextContent: string) => {
-    setDraftContent(nextContent.slice(0, MAX_MEMO_LENGTH));
+    const next = nextContent.slice(0, MAX_MEMO_LENGTH);
+    setDraftContent(next);
+    if (!isComposingRef.current) commitDraft(next);
   };
 
   const openOnFocus = () => {
@@ -199,6 +191,7 @@ export default function BasicMemoAccordion() {
     return applyPinnedAndSort(visible, sortMode);
   }, [colorFilter, notes, pinnedOnly, searchText, sortMode]);
   const pinnedCount = notes.filter((note) => note.isPinned).length;
+  const hasActiveFilters = searchText.trim().length > 0 || colorFilter !== 'all' || pinnedOnly;
 
   const allVisibleOpen = filteredNotes.length > 0 && filteredNotes.every((note) => openIds.has(note.id));
 
@@ -220,6 +213,25 @@ export default function BasicMemoAccordion() {
     setOpenIds((current) => new Set(current).add(noteId));
     focusMemoTextarea(noteId);
   }, [createNote, focusMemoTextarea]);
+
+  useEffect(() => {
+    const handleKeyboardShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'n') {
+        return;
+      }
+
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) {
+        return;
+      }
+
+      event.preventDefault();
+      handleCreateMemo();
+    };
+
+    window.addEventListener('keydown', handleKeyboardShortcut);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcut);
+  }, [handleCreateMemo]);
 
   const toggleMemo = useCallback((noteId: string) => {
     setOpenIds((current) => {
@@ -384,16 +396,17 @@ export default function BasicMemoAccordion() {
           <span>관리</span>
         </GhostButton>
 
-        <GhostButton
-          type="button"
-          onClick={() => setPinnedOnly((prev) => !prev)}
-          disabled={pinnedCount === 0}
-          title="상단 고정 메모만 보기"
-          aria-pressed={pinnedOnly}
-        >
-          <Pin size={16} strokeWidth={2.2} />
-          <span>고정 {pinnedCount}</span>
-        </GhostButton>
+        {pinnedCount > 0 ? (
+          <GhostButton
+            type="button"
+            onClick={() => setPinnedOnly((prev) => !prev)}
+            title="상단 고정 메모만 보기"
+            aria-pressed={pinnedOnly}
+          >
+            <Pin size={16} strokeWidth={2.2} />
+            <span>고정 {pinnedCount}</span>
+          </GhostButton>
+        ) : null}
 
         <SearchField>
           <Search size={16} strokeWidth={2.2} aria-hidden="true" />
@@ -457,6 +470,18 @@ export default function BasicMemoAccordion() {
         </MemoMeta>
       </MemoToolbar>
 
+      {hasActiveFilters ? (
+        <ActiveFilterBar aria-live="polite">
+          <span>
+            현재 조건에서 <strong>{filteredNotes.length.toLocaleString('ko-KR')}개</strong>의 메모를 보고 있습니다.
+          </span>
+          <button type="button" onClick={resetFilters}>
+            <RotateCcw size={14} strokeWidth={2.3} aria-hidden="true" />
+            필터 초기화
+          </button>
+        </ActiveFilterBar>
+      ) : null}
+
       {isManageOpen ? (
         <MemoManagementPanel id="basic-memo-management" aria-label="메모장 관리">
           <ManagementCopy>
@@ -486,10 +511,12 @@ export default function BasicMemoAccordion() {
           <EmptyState>
             <FileText size={34} strokeWidth={1.8} />
             <strong>메모가 없습니다</strong>
+            <p>제목을 먼저 적고, 다음 줄부터 내용을 이어서 기록해 보세요.</p>
             <PrimaryButton type="button" onClick={handleCreateMemo} title="새 메모 만들기">
               <Plus size={17} strokeWidth={2.3} />
               <span>새 메모 만들기</span>
             </PrimaryButton>
+            <EmptyStateHint>⌘/Ctrl + N으로도 바로 시작할 수 있습니다.</EmptyStateHint>
           </EmptyState>
         ) : null}
 
@@ -497,6 +524,7 @@ export default function BasicMemoAccordion() {
           <EmptyState>
             <Search size={34} strokeWidth={1.8} />
             <strong>조건에 맞는 메모가 없습니다</strong>
+            <p>검색어와 색상·고정 필터를 모두 지우면 전체 메모를 다시 볼 수 있습니다.</p>
             <GhostButton type="button" onClick={resetFilters} title="필터 초기화">
               <RotateCcw size={16} strokeWidth={2.2} />
               <span>필터 초기화</span>
@@ -599,6 +627,17 @@ const MemoWorkspace = styled.section`
     linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)),
     var(--bg-card);
 
+  button,
+  select {
+    touch-action: manipulation;
+  }
+
+  button:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--primary-light);
+    outline-offset: 2px;
+  }
+
   body[data-propig-design='codeit'] & {
     background: rgba(255, 255, 255, 0.92);
     border-color: rgba(28, 39, 76, 0.1);
@@ -616,6 +655,17 @@ const MemoWorkspace = styled.section`
       transform: translateY(0);
     }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 `;
 
 const MemoToolbar = styled.div`
@@ -626,7 +676,9 @@ const MemoToolbar = styled.div`
   padding: 12px 14px;
   border-bottom: 1px solid var(--border-subtle);
   background: rgba(0, 0, 0, 0.1);
-  overflow-x: auto;
+  flex-wrap: wrap;
+  align-content: center;
+  overflow: visible;
   scrollbar-width: none;
 
   body[data-propig-design='codeit'] & {
@@ -636,6 +688,10 @@ const MemoToolbar = styled.div`
 
   &::-webkit-scrollbar {
     display: none;
+  }
+
+  @media (max-width: 1500px) {
+    min-height: 0;
   }
 
   @media (max-width: 760px) {
@@ -912,7 +968,7 @@ const SelectControl = styled.label`
 const ToolbarSpacer = styled.div`
   flex: 1 0 12px;
 
-  @media (max-width: 1180px) {
+  @media (max-width: 1500px) {
     display: none;
   }
 `;
@@ -992,6 +1048,61 @@ const StorageNotice = styled.div`
   white-space: nowrap;
 `;
 
+const ActiveFilterBar = styled.div`
+  margin: 10px 14px 0;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+
+  strong {
+    color: var(--primary-light);
+    font-variant-numeric: tabular-nums;
+  }
+
+  button {
+    flex: 0 0 auto;
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 9px;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 8px;
+    background: rgba(16, 185, 129, 0.08);
+    color: var(--primary-light);
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 850;
+    cursor: pointer;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+
+    &:hover {
+      border-color: rgba(16, 185, 129, 0.48);
+      background: rgba(16, 185, 129, 0.16);
+      color: var(--text-main);
+    }
+  }
+
+  @media (max-width: 760px) {
+    margin: 8px 8px 0;
+    align-items: flex-start;
+    flex-direction: column;
+
+    button {
+      width: 100%;
+    }
+  }
+`;
+
 const MemoList = styled.div`
   flex: 1;
   min-height: 0;
@@ -1021,6 +1132,20 @@ const EmptyState = styled.div`
     color: var(--text-main);
     font-size: 1.02rem;
   }
+
+  p {
+    max-width: 360px;
+    margin: -4px 0 2px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    line-height: 1.55;
+  }
+`;
+
+const EmptyStateHint = styled.span`
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-weight: 750;
 `;
 
 const MemoItem = styled.article<{ $open: boolean }>`
@@ -1028,6 +1153,8 @@ const MemoItem = styled.article<{ $open: boolean }>`
   border-radius: 12px;
   background: ${({ $open }) => ($open ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255, 255, 255, 0.03)')};
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 68px;
   transition: border-color 0.18s ease, background 0.18s ease;
 
   body[data-propig-design='codeit'] & {
@@ -1198,7 +1325,7 @@ const MemoPanel = styled.div`
     color: var(--text-dim);
   }
 
-  textarea:focus {
+  textarea:focus-visible {
     border-color: rgba(16, 185, 129, 0.42);
     box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
   }

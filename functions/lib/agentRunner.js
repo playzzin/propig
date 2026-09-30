@@ -6,6 +6,7 @@ const admin = require("firebase-admin");
 const Orchestrator_1 = require("./agents/Orchestrator");
 const AgentManager_1 = require("./agents/AgentManager");
 const secrets_1 = require("./secrets");
+const firestore_2 = require("./firestore");
 const isPlainRecord = (value) => {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 };
@@ -19,7 +20,8 @@ if (!admin.apps.length) {
  */
 exports.onAgentJobCreated = (0, firestore_1.onDocumentCreated)({
     document: 'agent_jobs/{jobId}',
-    secrets: [secrets_1.geminiApiKey],
+    database: firestore_2.FIRESTORE_DATABASE_ID,
+    secrets: [secrets_1.openRouterApiKey],
     timeoutSeconds: 540,
     memory: '1GiB',
     region: 'asia-northeast3',
@@ -40,9 +42,9 @@ exports.onAgentJobCreated = (0, firestore_1.onDocumentCreated)({
         startedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     try {
-        process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-        process.env.LLM_PROVIDER = 'gemini';
-        process.env.GEMINI_MODEL = 'gemini-2.5-flash';
+        process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+        process.env.LLM_PROVIDER = 'openrouter';
+        process.env.OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini';
         const orchestrator = new Orchestrator_1.OrchestratorAgent();
         const response = await orchestrator.execute({
             role: 'orchestrator',
@@ -79,7 +81,8 @@ exports.onAgentJobCreated = (0, firestore_1.onDocumentCreated)({
  */
 exports.onSubAgentJobCreated = (0, firestore_1.onDocumentCreated)({
     document: 'sub_agent_jobs/{jobId}',
-    secrets: [secrets_1.geminiApiKey],
+    database: firestore_2.FIRESTORE_DATABASE_ID,
+    secrets: [secrets_1.openRouterApiKey],
     timeoutSeconds: 540,
     memory: '1GiB',
     region: 'asia-northeast3',
@@ -101,9 +104,9 @@ exports.onSubAgentJobCreated = (0, firestore_1.onDocumentCreated)({
         startedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     try {
-        process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-        process.env.LLM_PROVIDER = 'gemini';
-        process.env.GEMINI_MODEL = 'gemini-2.5-flash';
+        process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+        process.env.LLM_PROVIDER = 'openrouter';
+        process.env.OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini';
         // Use AgentManager for sub-agent orchestration
         const agentManager = new AgentManager_1.AgentManager();
         const response = await agentManager.execute({

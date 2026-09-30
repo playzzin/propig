@@ -14,7 +14,8 @@ import {
     updateDoc,
     writeBatch,
 } from 'firebase/firestore';
-import { db, functions } from '@/firebase/config';
+import { db } from '@/firebase/config';
+import { functions } from '@/firebase/functions';
 import { useAuth } from '@/contexts/AuthContext';
 import { buildJsonAuthHeaders } from '@/lib/client-auth';
 
@@ -76,13 +77,14 @@ export type YoutubeCategory = z.infer<typeof CategorySchema> & { id: string };
 
 // Default categories (used when user has no custom ones)
 export const DEFAULT_CATEGORIES = ['업무', '학습', '개인', '참고', '엔터테인먼트', '기술'];
+// Escaped mojibake keys keep legacy saved records readable without showing corrupted labels in source/UI.
 const LEGACY_CATEGORY_NAME_MAP: Record<string, string> = {
-    '?낅Т': '업무',
-    '?숈뒿': '학습',
-    '媛쒖씤': '개인',
-    '李멸퀬': '참고',
-    '?뷀꽣?뚯씤癒쇳듃': '엔터테인먼트',
-    '湲곗닠': '기술',
+    '\u{3f}\u{b085}\u{422}': '업무',
+    '\u{3f}\u{c208}\u{b4bf}': '학습',
+    '\u{5a9b}\u{c496}\u{c524}': '개인',
+    '\u{f9e1}\u{ba78}\u{d02c}': '참고',
+    '\u{3f}\u{bdc0}\u{af63}\u{3f}\u{b6af}\u{c524}\u{7652}\u{c1f3}\u{b4c3}': '엔터테인먼트',
+    '\u{6e72}\u{acd7}\u{b2e0}': '기술',
 };
 const DEFAULT_CATEGORY_ID_PREFIX = '__default__:';
 export type YoutubeTargetType = 'video' | 'channel';
@@ -812,7 +814,7 @@ export function useYoutubeAnalyze() {
         if (normalized._meta.status === 'fallback') {
             throw new Error(
                 normalized._meta.message ||
-                '분석 엔진이 fallback 모드로 응답했습니다. Gemini 설정을 확인하세요.',
+                '분석 엔진이 fallback 모드로 응답했습니다. OpenRouter 설정을 확인하세요.',
             );
         }
 
@@ -941,7 +943,7 @@ export function useYoutubeAnalyze() {
         }
     }, [currentUser?.uid]);
 
-    // Re-analyze an existing item using Gemini API
+    // Re-analyze an existing item using the managed AI provider.
     const reAnalyze = useCallback(async (item: SavedYoutubeArchive) => {
         try {
             const targetUrl = pickFirstString(
