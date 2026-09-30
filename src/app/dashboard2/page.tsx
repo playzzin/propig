@@ -1,5 +1,5 @@
-import Dashboard2Experience from '@/components/dashboard/Dashboard2Experience';
+import { redirect } from 'next/navigation';
 
 export default function Dashboard2Page() {
-  return <Dashboard2Experience />;
+  redirect('/corp/company/introduction');
 }

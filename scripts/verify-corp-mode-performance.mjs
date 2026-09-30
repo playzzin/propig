@@ -15,9 +15,9 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH,
 const results = [];
 
 async function switchMode(page, mobile, name, pathname, heading) {
-  const trigger = page.locator('.site-mode-switcher-trigger');
-  await trigger.click();
-  const button = page.locator('.site-mode-switcher-list button').filter({ hasText: name });
+  await page.getByRole('button', { name: '로그인', exact: true }).click();
+  await page.getByRole('radio', { name: new RegExp(name) }).check();
+  const button = page.getByRole('button', { name: new RegExp(`로그인 없이 ${name} 둘러보기`) });
   await button.waitFor({ state: 'visible' });
   // Wait for the actual handler, not a fixed hydration/stabilization delay.
   const buttonHandle = await button.elementHandle();
@@ -65,9 +65,9 @@ async function switchMode(page, mobile, name, pathname, heading) {
         .map((entry) => ({ path: new URL(entry.name).pathname, durationMs: Math.round(entry.duration), bytes: entry.transferSize })),
     };
   });
-  assert.equal(await page.locator('.site-mode-switcher[open]').count(), 0, 'mode popup must close');
+  assert.equal(await page.getByRole('dialog').count(), 0, 'login site dialog must close');
   assert.equal(await page.locator('#sidebar').count(), 1, 'site navigation must survive');
-  assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 1);
+  assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 0);
   return measurement;
 }
 

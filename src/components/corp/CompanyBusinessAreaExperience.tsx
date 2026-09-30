@@ -11,12 +11,13 @@ interface CompanyBusinessAreaSectionsProps {
   id?: string;
   pageLabel?: string;
   showBusinessVideoSection?: boolean;
+  onPreviewReady?: (ready: boolean) => void;
 }
 
 const BUSINESS_VIDEO_ID = 'M0q4Q2pWedU';
 const BUSINESS_VIDEO_EMBED_URL = `https://www.youtube-nocookie.com/embed/${BUSINESS_VIDEO_ID}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&loop=1&modestbranding=1&playsinline=1&playlist=${BUSINESS_VIDEO_ID}&rel=0`;
 const BUSINESS_VIDEO_POSTER_URL = `https://i.ytimg.com/vi/${BUSINESS_VIDEO_ID}/maxresdefault.jpg`;
-const BUSINESS_PREVIEW_MIN_HEIGHT = 680;
+const BUSINESS_PREVIEW_MIN_HEIGHT = 320;
 const BUSINESS_PREVIEW_MAX_HEIGHT = 50_000;
 const BUSINESS_PREVIEW_HEIGHT_MESSAGE = 'propig-business-preview-height';
 const BUSINESS_PREVIEW_MEASURE_MESSAGE = 'propig-business-preview-measure';
@@ -26,11 +27,17 @@ export function CompanyBusinessAreaSections({
   id,
   showBusinessVideoSection = true,
   pageLabel = '사업영역',
+  onPreviewReady,
 }: CompanyBusinessAreaSectionsProps = {}) {
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const previewObserverRef = useRef<ResizeObserver | null>(null);
   const previewStabilizationTimerRef = useRef<number | null>(null);
   const [previewHeight, setPreviewHeight] = useState(BUSINESS_PREVIEW_MIN_HEIGHT);
+  const [previewReady, setPreviewReady] = useState(false);
+
+  useLayoutEffect(() => {
+    onPreviewReady?.(previewReady);
+  }, [onPreviewReady, previewReady]);
 
   const syncPreviewHeight = useCallback((frame: HTMLIFrameElement) => {
     if (!frame.isConnected) return;
@@ -46,12 +53,12 @@ export function CompanyBusinessAreaSections({
         BUSINESS_PREVIEW_MIN_HEIGHT,
         body?.scrollHeight ?? 0,
         body?.offsetHeight ?? 0,
-        documentElement.scrollHeight,
-        documentElement.offsetHeight,
+        body?.getBoundingClientRect().height ?? 0,
       ),
     );
 
     setPreviewHeight((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
+    if (frameDocument.getElementById('heroTabs')?.childElementCount) setPreviewReady(true);
   }, []);
 
   const handlePreviewLoad = useCallback(
@@ -65,6 +72,8 @@ export function CompanyBusinessAreaSections({
         window.clearInterval(previewStabilizationTimerRef.current);
       }
       syncPreviewHeight(frame);
+      // A failed preview must not prevent access to the rest of the company page.
+      if (frameDocument && !frameDocument.getElementById('main-content')) setPreviewReady(true);
       frame.contentWindow?.postMessage(
         { type: BUSINESS_PREVIEW_MEASURE_MESSAGE },
         window.location.origin,
@@ -91,6 +100,7 @@ export function CompanyBusinessAreaSections({
   );
 
   useLayoutEffect(() => {
+    const fallbackTimer = window.setTimeout(() => setPreviewReady(true), 5000);
     const handlePreviewHeightMessage = (event: MessageEvent<unknown>) => {
       const frame = previewFrameRef.current;
       if (event.origin !== window.location.origin || !frame || event.source !== frame.contentWindow) return;
@@ -111,19 +121,27 @@ export function CompanyBusinessAreaSections({
 
       const nextHeight = Math.max(BUSINESS_PREVIEW_MIN_HEIGHT, Math.ceil(message.height));
       setPreviewHeight((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
+      if (frame.contentDocument?.getElementById('heroTabs')?.childElementCount) setPreviewReady(true);
     };
 
     window.addEventListener('message', handlePreviewHeightMessage);
 
+    const handleViewportResize = () => {
+      if (previewFrameRef.current) syncPreviewHeight(previewFrameRef.current);
+    };
+    window.addEventListener('resize', handleViewportResize);
+
     return () => {
+      window.clearTimeout(fallbackTimer);
       window.removeEventListener('message', handlePreviewHeightMessage);
+      window.removeEventListener('resize', handleViewportResize);
       previewObserverRef.current?.disconnect();
       if (previewStabilizationTimerRef.current !== null) {
         window.clearInterval(previewStabilizationTimerRef.current);
         previewStabilizationTimerRef.current = null;
       }
     };
-  }, []);
+  }, [syncPreviewHeight]);
 
   useLayoutEffect(() => {
     const frame = previewFrameRef.current;
@@ -144,7 +162,7 @@ export function CompanyBusinessAreaSections({
     <>
       제품소개<br />
       AI로 연결하는<br />
-      4대 제품·서비스
+      5대 제품·서비스
     </>
   ) : (
     <>
@@ -153,7 +171,7 @@ export function CompanyBusinessAreaSections({
     </>
   );
   const lead = isProductIntroduction
-    ? '웹·앱 개발, 업무자동화, 영상제작, 리셀러 파트너 운영까지. 각 제품·서비스를 하나의 실행 흐름으로 연결해 필요한 결과를 빠르게 만듭니다.'
+    ? '웹·앱 개발, 업무자동화, 생성형 콘텐츠, 리셀러 파트너, 기획 에이전트 봇까지. 각 제품·서비스를 하나의 실행 흐름으로 연결해 필요한 결과를 빠르게 만듭니다.'
     : '아직은 우리 안에서 부지런히 뛰는 팀이지만, 목표는 지구 반대편에서도 통하는 서비스와 콘텐츠를 만드는 것입니다. 커질수록 더 민첩하고, 덜 거만한 돼지로 남겠습니다.';
   const quote = isProductIntroduction
     ? '“필요한 제품을, 필요한 속도로, 끝까지 운영합니다.”'
@@ -161,15 +179,6 @@ export function CompanyBusinessAreaSections({
 
   return (
     <BusinessAreaSections id={id} aria-label={`${pageLabel} 상세 섹션`}>
-      <VerificationMarkers aria-hidden="true">
-        <h1>
-          {pageLabel} 웹 앱 개발 업무자동화 영상편집 리셀러 파트너 GLOBAL BUSINESS UNIVERSE GLOBAL COMMAND PANEL Business
-          Expansion Command Center
-        </h1>
-        <button type="button" tabIndex={-1}>
-          사업제휴 문의
-        </button>
-      </VerificationMarkers>
       {showBusinessVideoSection ? (
         <BusinessNewsSection aria-labelledby="business-news-title">
         <BusinessHero aria-label={`${pageLabel} 소개 영상`}>
@@ -227,9 +236,12 @@ export function CompanyBusinessAreaSections({
         </BusinessNewsSection>
       ) : null}
       <PreviewFrame
-        title={`프로피그 4대 ${pageLabel} 전체 섹션`}
+        title={`프로피그 5대 ${pageLabel} 전체 섹션`}
         src="/corp-business-area-preview.html"
+        allow="autoplay; encrypted-media"
+        referrerPolicy="strict-origin-when-cross-origin"
         data-business-area-preview
+        data-preview-ready={previewReady ? 'true' : 'false'}
         $height={previewHeight}
         ref={previewFrameRef}
         onLoad={handlePreviewLoad}
@@ -503,50 +515,14 @@ const NewsMeta = styled.div`
   }
 `;
 
-const VerificationMarkers = styled.div`
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  clip-path: inset(50%);
-  overflow: hidden;
-
-  h1 {
-    position: absolute;
-    left: 30px;
-    top: 136px;
-    width: min(620px, calc(100vw - 48px));
-    min-height: 250px;
-    margin: 0;
-    font-size: 20px;
-    line-height: 1.2;
-  }
-
-  button {
-    position: absolute;
-    left: 30px;
-    top: 420px;
-    width: 120px;
-    min-height: 40px;
-    border: 0;
-    padding: 0;
-    font: inherit;
-  }
-`;
-
 const PreviewFrame = styled.iframe<{ $height: number }>`
   display: block;
   flex: 0 0 auto;
   width: 100%;
-  height: ${(props) => `max(${props.$height}px, 1360px)`};
+  height: ${(props) => `${props.$height}px`};
   min-height: 0;
   border: 0;
   background: #030712;
   overflow: hidden;
 
-  @media (max-width: 720px) {
-    height: ${(props) => `max(${props.$height}px, 1160px)`};
-  }
 `;

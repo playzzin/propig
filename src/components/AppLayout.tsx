@@ -75,7 +75,7 @@ function getRouteViewState(pathname: string | null, menuTitle: string | null): V
   if (pathname === '/corp') {
     return {
       title: '기업 사이트 홈',
-      description: '회사소개, 프로젝트, 제휴, 채용 콘텐츠를 관리합니다.',
+      description: '회사소개, 제휴, 채용 콘텐츠를 관리합니다.',
     };
   }
 
@@ -111,20 +111,6 @@ function getRouteViewState(pathname: string | null, menuTitle: string | null): V
     return {
       title: 'propig 자기관리',
       description: '개인 성장 워크스페이스를 점검합니다.',
-    };
-  }
-
-  if (pathname === '/corp/project') {
-    return {
-      title: '프로젝트',
-      description: '계획, 과제, 목표를 사진형 보드로 관리합니다.',
-    };
-  }
-
-  if (pathname === '/corp/portfolio') {
-    return {
-      title: '포트폴리오',
-      description: '청연ENG ERP와 앱 자동화 프로그램의 운영 경험을 소개합니다.',
     };
   }
 
@@ -274,7 +260,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   const viewState = React.useMemo(() => getRouteViewState(pathname, menuTitle), [menuTitle, pathname]);
   const isCorpRoute = Boolean(pathname?.startsWith('/corp'));
   const shouldUseCorpChrome = isCorpRoute && !isDashboardStyleCorpPath(pathname);
-  const isImmersiveStudio = pathname === '/admin/emoticon-studio';
 
   useEffect(() => {
     const root = document.documentElement;
@@ -368,7 +353,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <div className="app-wrapper" style={{ display: 'flex', width: '100vw', height: '100vh' }}>
       <DynamicFavicon />
 
-      {!isImmersiveStudio && isMobileSidebarOpen ? (
+      {isMobileSidebarOpen ? (
         <button
           type="button"
           className="mobile-sidebar-backdrop active"
@@ -377,7 +362,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         />
       ) : null}
 
-      {!isImmersiveStudio ? <Sidebar
+      <Sidebar
         currentEnv={currentSite}
         isCollapsed={isSidebarCollapsed}
         isMobileOpen={isMobileSidebarOpen}
@@ -385,7 +370,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         closeMobileSidebar={closeMobileSidebar}
         setViewTitle={() => undefined}
         toggleSidebar={toggleSidebar}
-      /> : null}
+      />
 
       <div
         className="main-view"
@@ -403,12 +388,12 @@ export function AppLayout({ children }: AppLayoutProps) {
           position: 'relative',
         }}
       >
-        {!isImmersiveStudio ? <Header
+        <Header
           isMobileSidebarOpen={isMobileSidebarOpen}
           toggleMobileSidebar={toggleMobileSidebar}
           title={viewState.title}
           description={viewState.description}
-        /> : null}
+        />
 
         {children}
       </div>

@@ -21,12 +21,17 @@ class MenuService implements MenuServiceInterface {
     '/admin/ai-workforce',
     '/admin/image-generator',
     '/corp/company/history',
+    '/corp/project',
+    '/corp/portfolio',
   ]);
   private readonly RETIRED_MENU_ITEM_IDS = new Set([
     'admin-5',
     'admin-6',
     'admin-20',
     'corp-company-intro-history',
+    'corp-project',
+    'corp-project-1',
+    'corp-project-2',
   ]);
   private readonly DEPRECATED_CORP_COMPANY_MENU_PATHS = new Set([
     '/corp/company/history',
@@ -703,7 +708,7 @@ class MenuService implements MenuServiceInterface {
     for (const item of items) {
       if (
         this.RETIRED_MENU_ITEM_IDS.has(item.id) ||
-        (typeof item.path === 'string' && this.RETIRED_MENU_PATHS.has(item.path))
+        (typeof item.path === 'string' && this.RETIRED_MENU_PATHS.has(item.path.split(/[?#]/)[0].replace(/\/+$/, '')))
       ) {
         changed = true;
         continue;
@@ -2169,32 +2174,6 @@ class MenuService implements MenuServiceInterface {
         roles: [],
         position: ['ceo', 'manager', 'staff'],
         sub: this.getCorpCompanyTemplateMenuItems(),
-      },
-      {
-        id: 'corp-project',
-        text: '프로젝트',
-        icon: 'diagram-project',
-        type: 'folder',
-        roles: [],
-        position: ['ceo', 'manager', 'staff'],
-        sub: [
-          {
-            id: 'corp-project-1',
-            text: '프로젝트',
-            path: '/corp/project',
-            icon: 'folder-open',
-            type: 'link',
-            roles: [],
-          },
-          {
-            id: 'corp-project-2',
-            text: '포트폴리오',
-            path: '/corp/portfolio',
-            icon: 'images',
-            type: 'link',
-            roles: [],
-          },
-        ],
       },
       {
         id: 'corp-partnership',

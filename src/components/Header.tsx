@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -16,10 +16,6 @@ const LoginModal = dynamic(
 );
 const ProfileButton = dynamic(
     () => import('./ProfileButton').then((module) => module.ProfileButton),
-    { ssr: false },
-);
-const SiteModeSwitcher = dynamic(
-    () => import('./SiteModeSwitcher').then((module) => module.SiteModeSwitcher),
     { ssr: false },
 );
 const MemoNotificationBell = dynamic(() => import('./propig/memos/MemoNotificationBell'), { ssr: false });
@@ -46,8 +42,8 @@ export default function Header({
     const siteName = siteData[currentSite]?.name || currentSite.toUpperCase();
     const { settings } = useSystem();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
-
-    const canOpenLogin = isConfigured;
+    const openLogin = useCallback(() => setIsLoginOpen(true), []);
+    const closeLogin = useCallback(() => setIsLoginOpen(false), []);
     const rawLogoUrl = settings.envLogos?.[currentSite] || settings.logoUrl;
     const logoImage = useBrandImageFallback(rawLogoUrl);
     const menuLabel = isMobileSidebarOpen ? '메뉴 닫기' : '메뉴 열기';
@@ -123,21 +119,16 @@ export default function Header({
                 </div>
 
                 <div className="header-actions">
-                    <SiteModeSwitcher />
                     {currentUser && <MemoNotificationBell key={currentUser.uid} uid={currentUser.uid} />}
                     {currentUser ? (
-                        <ProfileButton />
+                        <ProfileButton onOpenSiteSelection={openLogin} />
                     ) : (
                         <button
                             type="button"
-                            onClick={() => {
-                                if (!canOpenLogin) return;
-                                setIsLoginOpen(true);
-                            }}
+                            onClick={openLogin}
                             className="toggle-btn auth-login-btn"
-                            title={canOpenLogin ? '로그인' : error ?? 'Firebase가 설정되지 않았습니다'}
+                            title={isConfigured ? '로그인 및 사이트 선택' : error ?? '사이트 선택'}
                             aria-label="로그인"
-                            disabled={!canOpenLogin}
                         >
                             <i className="fa-solid fa-user"></i>
                         </button>
@@ -148,7 +139,7 @@ export default function Header({
             {isLoginOpen ? (
                 <LoginModal
                     isOpen
-                    onClose={() => setIsLoginOpen(false)}
+                    onClose={closeLogin}
                 />
             ) : null}
         </>

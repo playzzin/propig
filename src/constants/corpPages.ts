@@ -1,6 +1,6 @@
 export interface CorpPageDefinition {
   path: string;
-  category: '회사소개' | '프로젝트' | '제휴하기' | '인재채용';
+  category: '회사소개' | '제휴하기' | '인재채용';
   menuLabel: string;
   title: string;
   description: string;
@@ -54,30 +54,6 @@ export const CORP_PAGE_DEFINITIONS: CorpPageDefinition[] = [
       '제품·서비스별 제공 범위와 운영 상태를 주기적으로 업데이트합니다.',
       '신규 제품 검증 단계(탐색/실험/확장)를 명확히 구분합니다.',
       '시장 진입 전략과 파트너십 전략을 함께 관리합니다.',
-    ],
-  },
-  {
-    path: '/corp/project',
-    category: '프로젝트',
-    menuLabel: '프로젝트',
-    title: '프로젝트',
-    description: '진행 중/예정 프로젝트의 일정, 책임자, 리스크를 통합 관리합니다.',
-    checkpoints: [
-      '프로젝트별 목표, 산출물, 일정 베이스라인을 확정합니다.',
-      '주간 리스크 리뷰와 의사결정 로그를 남깁니다.',
-      '완료 후 회고를 통해 재사용 가능한 템플릿을 축적합니다.',
-    ],
-  },
-  {
-    path: '/corp/portfolio',
-    category: '프로젝트',
-    menuLabel: '포트폴리오',
-    title: '포트폴리오',
-    description: '완료된 프로젝트의 결과물과 핵심 성과를 포트폴리오 형태로 관리합니다.',
-    checkpoints: [
-      '사례별 문제/해결/성과를 동일한 구조로 정리합니다.',
-      '수치 성과와 고객 피드백을 함께 아카이빙합니다.',
-      '영업 제안서에서 재사용 가능한 자료 단위를 유지합니다.',
     ],
   },
   {

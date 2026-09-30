@@ -70,7 +70,7 @@ async function inspectJobs(browser, viewport) {
   assert.equal(evidence.overflow, 0, `${viewport.width}px careers jobs overflowed horizontally`);
   assert.equal(evidence.hasLegacyExamCopy, false, 'legacy mock-exam copy leaked into careers jobs');
   assert.equal(evidence.hasSidebar, true, 'careers jobs must preserve the site navigation');
-  assert.equal(evidence.hasSiteModeSwitcher, true, 'careers jobs must preserve site-mode switching');
+  assert.equal(evidence.hasSiteModeSwitcher, false, 'site selection belongs in the login dialog');
   assert.ok(evidence.scrollMax > 100, 'careers jobs must expose a scrollable content area');
   assert.deepEqual(evidence.tooSmall, [], `${viewport.width}px careers jobs has undersized controls`);
   assert.deepEqual(observed.pageErrors, [], 'careers jobs emitted page errors');

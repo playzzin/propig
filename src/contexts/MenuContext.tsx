@@ -6,18 +6,24 @@ import { SiteId, Position, Role, MenuContextType } from '@/types/menu';
 import { useMenu } from '@/hooks/useMenu';
 import { useCurrentUserAccess } from '@/hooks/useCurrentUserAccess';
 import { getFirstAccessibleSiteId } from '@/utils/menuAccess';
+import { getRouteSite } from '@/constants/siteHome';
 
 const MenuContext = createContext<MenuContextType | undefined>(undefined);
 const SELECTED_SITE_STORAGE_KEY = 'propig_selected_menu_site';
 
-function getRouteSite(pathname: string | null): SiteId | null {
-  if (!pathname) return null;
-  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'admin';
-  if (pathname === '/blog' || pathname.startsWith('/blog/')) return 'blog';
-  if (pathname === '/corp' || pathname.startsWith('/corp/')) return 'corp';
-  if (pathname === '/propig' || pathname.startsWith('/propig/')) return 'shop';
-  if (pathname === '/shop' || pathname.startsWith('/shop/')) return 'shop';
-  return null;
+function readHistorySite(pathname: string | null): SiteId | null {
+  if (typeof window === 'undefined') return null;
+  const entry = window.history?.state?.propigSite;
+  return entry?.pathname === pathname && typeof entry.siteId === 'string' ? entry.siteId : null;
+}
+
+function writeHistorySite(pathname: string | null, siteId: SiteId): void {
+  if (typeof window === 'undefined' || !window.history) return;
+  try {
+    window.history.replaceState({ ...window.history.state, propigSite: { pathname, siteId } }, '');
+  } catch {
+    // Navigation still works if browser history storage is unavailable.
+  }
 }
 
 function readStoredSite(): SiteId | null {
@@ -92,6 +98,7 @@ export function MenuProvider({
     if (currentAccess.isLoading || menuData.isLoading || Object.keys(menuData.siteData).length === 0) return;
     const routeChanged = syncedPath.current !== pathname;
     const firstSync = syncedPath.current === undefined;
+    const preferredSite = readHistorySite(pathname) ?? (firstSync ? readStoredSite() : currentSite);
     const targetSite = getFirstAccessibleSiteId(
       menuData.siteData,
       {
@@ -100,7 +107,7 @@ export function MenuProvider({
         permissions: currentAccess.access.permissions,
       },
       routeChanged
-        ? [getRouteSite(pathname), firstSync ? readStoredSite() : currentSite, initialSite]
+        ? [getRouteSite(pathname, menuData.siteData, preferredSite), preferredSite, initialSite]
         : [currentSite, readStoredSite(), initialSite],
     );
     const revision = selectionRevision.current;
@@ -108,9 +115,10 @@ export function MenuProvider({
     queueMicrotask(() => {
       if (cancelled || revision !== selectionRevision.current) return;
       syncedPath.current = pathname;
-      if (!targetSite || targetSite === currentSite) return;
-      setCurrentSite(targetSite);
+      if (!targetSite) return;
+      if (targetSite !== currentSite) setCurrentSite(targetSite);
       writeStoredSite(targetSite);
+      if (routeChanged) writeHistorySite(pathname, targetSite);
     });
     return () => { cancelled = true; };
   }, [

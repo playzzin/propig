@@ -1,128 +1,51 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
-import type { CSSProperties } from 'react';
-import { useRouter } from 'next/navigation';
 import { getSwitchableSiteEntries } from '@/constants/accountMenu';
-import { getSiteHomePath } from '@/constants/siteHome';
-import { useMenuContext } from '@/contexts/MenuContext';
-import { canAccessSiteMode } from '@/utils/menuAccess';
+import type { SiteDataType } from '@/types/menu';
+import { BookOpen, Building2, CircleCheck, Globe, LayoutDashboard, ShieldCheck } from 'lucide-react';
 
-export function SiteModeSwitcher() {
-  const router = useRouter();
-  const detailsRef = useRef<HTMLDetailsElement | null>(null);
-  const {
-    currentSite,
-    setCurrentSite,
-    siteData,
-    userRole,
-    siteAccess,
-    permissions,
-    isLoading,
-  } = useMenuContext();
+const SITE_DESCRIPTIONS: Record<string, string> = {
+  corp: '회사 소개와 사업 · 소식',
+  blog: '콘텐츠와 관심사 기록',
+  shop: '일상과 업무를 한곳에서',
+  admin: '사이트와 콘텐츠 관리',
+};
+const SITE_ICONS: Record<string, typeof Globe> = { corp: Building2, blog: BookOpen, shop: LayoutDashboard, admin: ShieldCheck };
 
-  const availableSites = useMemo(
-    () =>
-      getSwitchableSiteEntries(siteData).filter(([siteId]) =>
-        canAccessSiteMode(siteId, siteData, {
-          role: userRole,
-          siteAccess,
-          permissions,
-        }),
-      ),
-    [permissions, siteAccess, siteData, userRole],
-  );
+interface SiteModeSwitcherProps {
+  sites: SiteDataType;
+  selectedSite: string;
+  onSelect: (siteId: string) => void;
+  disabled?: boolean;
+}
 
-  const currentSiteData = siteData[currentSite];
-  const currentName = currentSiteData?.name || currentSite.toUpperCase();
-  const currentIcon = currentSiteData?.icon || 'globe';
-
-  useEffect(() => {
-    const close = () => detailsRef.current?.removeAttribute('open');
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!detailsRef.current?.contains(event.target as Node)) close();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
-
-  const selectSite = (siteId: string) => {
-    if (siteId === currentSite) {
-      detailsRef.current?.removeAttribute('open');
-      return;
-    }
-
-    const href = getSiteHomePath(siteId, siteData);
-    if (!window.dispatchEvent(new CustomEvent('propig:before-navigation', {
-      cancelable: true,
-      detail: { href },
-    }))) return;
-    setCurrentSite(siteId);
-    detailsRef.current?.removeAttribute('open');
-    router.push(href);
-  };
-
+// Selection stays in the dialog until the user continues.
+export function SiteModeSwitcher({ sites, selectedSite, onSelect, disabled }: SiteModeSwitcherProps) {
+  const entries = getSwitchableSiteEntries(sites);
   return (
-    <details ref={detailsRef} className="site-mode-switcher">
-      <summary
-        className="site-mode-switcher-trigger"
-        aria-label={`현재 사이트 모드: ${currentName}. 다른 사이트 모드 보기`}
-        title="사이트 모드 전환"
-      >
-        <i className={`fa-solid fa-${currentIcon}`} aria-hidden="true" />
-        <span className="site-mode-switcher-current">
-          <small>사이트 모드</small>
-          <strong>{currentName}</strong>
-        </span>
-        <i className="fa-solid fa-chevron-down site-mode-switcher-caret" aria-hidden="true" />
-      </summary>
-
-      <section className="site-mode-switcher-panel" aria-label="사이트 모드 선택">
-        <header>
-          <strong>사이트 모드</strong>
-          <span>이동할 사이트를 선택하세요.</span>
-        </header>
-
-        {isLoading && availableSites.length === 0 ? (
-          <p className="site-mode-switcher-empty" role="status">사이트 목록을 불러오는 중입니다.</p>
-        ) : (
-          <div className="site-mode-switcher-list" role="list">
-            {availableSites.map(([siteId, site]) => {
-              const active = siteId === currentSite;
-              return (
-                <button
-                  key={siteId}
-                  type="button"
-                  role="listitem"
-                  className={active ? 'active' : undefined}
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => selectSite(siteId)}
-                  onMouseEnter={() => router.prefetch(getSiteHomePath(siteId, siteData))}
-                  onFocus={() => router.prefetch(getSiteHomePath(siteId, siteData))}
-                >
-                  <span
-                    className="site-mode-switcher-icon"
-                    style={{ '--site-mode-color': site.color || '#3b82f6' } as CSSProperties}
-                    aria-hidden="true"
-                  >
-                    <i className={`fa-solid fa-${site.icon || 'globe'}`} />
-                  </span>
-                  <span>{site.name || siteId}</span>
-                  {active ? <small>현재</small> : <i className="fa-solid fa-arrow-right" aria-hidden="true" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    </details>
+    <fieldset className="auth-site-picker" disabled={disabled}>
+      <legend>사이트 모드</legend>
+      <p className="auth-site-hint">이용할 사이트를 선택해 주세요.</p>
+      <div className="auth-site-grid">
+        {entries.map(([siteId, site]) => {
+          const Icon = SITE_ICONS[siteId] || Globe;
+          return (
+          <label key={siteId} className="auth-site-option">
+            <input type="radio" name="login-site-mode" value={siteId}
+              checked={siteId === selectedSite} onChange={() => onSelect(siteId)} />
+            <span className="auth-site-option-content">
+              <Icon size={18} aria-hidden="true" />
+              <span>
+                <strong>{site.name}</strong>
+                <small>{SITE_DESCRIPTIONS[siteId] || '이 사이트의 홈으로 이동'}</small>
+              </span>
+              <CircleCheck size={14} className="auth-site-check" aria-hidden="true" />
+            </span>
+          </label>
+          );
+        })}
+      </div>
+      {entries.length === 0 ? <p role="status">이용 가능한 사이트가 없습니다.</p> : null}
+    </fieldset>
   );
 }

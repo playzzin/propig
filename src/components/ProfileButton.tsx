@@ -3,12 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
-import { ACCOUNT_MENU_SITE_ID, getSwitchableSiteEntries } from '@/constants/accountMenu';
-import { getSiteHomePath } from '@/constants/siteHome';
+import { ACCOUNT_MENU_SITE_ID } from '@/constants/accountMenu';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { MenuItem } from '@/types/menu';
 import type { ManagedUserPermissionKey } from '@/types/userAccess';
-import { canAccessSiteMode, filterMenuItemsForAccess } from '@/utils/menuAccess';
+import { filterMenuItemsForAccess } from '@/utils/menuAccess';
 
 type AccountMenuRenderItem = {
   item: MenuItem;
@@ -61,17 +60,15 @@ function flattenAccountMenu(items: MenuItem[], depth = 0): AccountMenuRenderItem
   });
 }
 
-export const ProfileButton: React.FC = () => {
+export const ProfileButton: React.FC<{ onOpenSiteSelection: () => void }> = ({ onOpenSiteSelection }) => {
   const { currentUser, logout } = useAuth();
-  const { currentSite, setCurrentSite, siteData, userRole, currentPosition, siteAccess, menuAccess, permissions } = useMenuContext();
+  const { currentSite, siteData, userRole, currentPosition, menuAccess, permissions } = useMenuContext();
   const router = useRouter();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [error, setError] = useState('');
-
-  const availableSites = siteData;
 
   const accountMenu = useMemo(
     () =>
@@ -83,19 +80,6 @@ export const ProfileButton: React.FC = () => {
         menuAccess,
       }),
     [currentPosition, menuAccess, permissions, siteData, userRole],
-  );
-
-  const siteEntries = useMemo(
-    () =>
-      getSwitchableSiteEntries(availableSites).filter(
-        ([siteId]) =>
-          canAccessSiteMode(siteId, availableSites, {
-            role: userRole,
-            siteAccess,
-            permissions,
-          }),
-      ),
-    [availableSites, permissions, siteAccess, userRole],
   );
 
   const accountMenuItems = useMemo(() => flattenAccountMenu(accountMenu), [accountMenu]);
@@ -142,22 +126,6 @@ export const ProfileButton: React.FC = () => {
     userRole === 'admin'
       ? ['전체 관리']
       : PERMISSION_LABELS.filter(([key]) => permissions[key] === true).map(([, label]) => label);
-
-  const handleSwitchEnvironment = (siteId: string) => {
-    if (
-      !canAccessSiteMode(siteId, availableSites, {
-        role: userRole,
-        siteAccess,
-        permissions,
-      })
-    ) {
-      return;
-    }
-
-    setCurrentSite(siteId);
-    setIsMenuOpen(false);
-    router.push(getSiteHomePath(siteId, availableSites));
-  };
 
   const handleOpenMenuRegistration = (targetSiteId: string) => {
     if (!canManageMenu) return;
@@ -260,29 +228,22 @@ export const ProfileButton: React.FC = () => {
             </div>
 
             <div className="auth-account-section">
-              <div className="auth-account-section-title">작업 환경 전환</div>
-              <div className="auth-account-env-grid">
-                {siteEntries.map(([siteId, site]) => (
-                  <button
-                    key={siteId}
-                    type="button"
-                    className={`auth-account-env ${siteId === currentSite ? 'active' : ''}`}
-                    onClick={() => handleSwitchEnvironment(siteId)}
-                    role="menuitem"
-                  >
-                    <i
-                      className={`fa-solid fa-${site.icon || 'globe'}`}
-                      style={{ color: site.color || 'var(--primary)' }}
-                      aria-hidden="true"
-                    />
-                    <span>{site.name}</span>
-                  </button>
-                ))}
-              </div>
-
-              {siteEntries.length === 0 ? (
-                <p className="auth-account-empty">등록된 사이트모드가 없습니다.</p>
-              ) : null}
+              <button
+                type="button"
+                className="auth-account-action"
+                role="menuitem"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  onOpenSiteSelection();
+                }}
+              >
+                <span className="auth-account-action-icon" aria-hidden="true"><i className="fa-solid fa-globe" /></span>
+                <span className="auth-account-action-copy">
+                  <strong>사이트 선택</strong>
+                  <span>현재 {siteData[currentSite]?.name || currentSite}</span>
+                </span>
+                <i className="fa-solid fa-chevron-right auth-account-action-caret" aria-hidden="true" />
+              </button>
             </div>
 
             <div className="auth-account-section">

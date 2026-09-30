@@ -30,8 +30,6 @@ export const MENU_PAGE_OPTIONS: MenuPageOption[] = [
   { path: '/corp/company/ceo-intro', label: '대표소개', group: '기업', icon: 'user-tie', keywords: ['ceo intro', 'greeting', 'leader'] },
   { path: '/corp/company/staff-intro', label: '직원소개', group: '기업', icon: 'users', keywords: ['staff intro', 'organization', 'people'] },
   { path: '/corp/company/product-introduction', label: '제품소개', group: '기업', icon: 'briefcase', keywords: ['product introduction', 'products', 'business area'] },
-  { path: '/corp/project', label: '프로젝트 개요', group: '프로젝트', icon: 'diagram-project', keywords: ['project overview'] },
-  { path: '/corp/portfolio', label: '포트폴리오', group: '프로젝트', icon: 'briefcase', keywords: ['portfolio'] },
   { path: '/corp/partnership/business', label: '사업 제휴', group: '제휴', icon: 'handshake', keywords: ['business partnership'] },
   { path: '/corp/partnership/advertising', label: '광고 제휴', group: '제휴', icon: 'bullhorn', keywords: ['advertising partnership'] },
   { path: '/corp/partnership/investment', label: '투자 제휴', group: '제휴', icon: 'chart-line', keywords: ['investment partnership'] },

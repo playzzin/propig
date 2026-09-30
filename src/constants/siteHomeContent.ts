@@ -87,7 +87,7 @@ export const ADMIN_HOME_CONTENT: SiteHomePageProps = {
   ],
 };
 
-const corpProjectLinks = CORP_PAGE_DEFINITIONS
+const corpOperationLinks = CORP_PAGE_DEFINITIONS
   .filter((page) => page.category !== '회사소개')
   .filter((page) => page.category !== '제휴하기' || page.path === '/corp/partnership/business')
   .slice(0, 6);
@@ -95,14 +95,14 @@ const corpProjectLinks = CORP_PAGE_DEFINITIONS
 export const CORP_HOME_CONTENT: SiteHomePageProps = {
   eyebrow: 'CORPORATE SITE',
   title: '기업 사이트 홈',
-  description: '회사소개, 프로젝트, 제휴, 채용 콘텐츠를 방문자 관점의 기업 사이트처럼 구성합니다.',
+  description: '회사소개, 제휴, 채용 콘텐츠를 방문자 관점의 기업 사이트처럼 구성합니다.',
   accent: '#60a5fa',
   accentAlt: '#a78bfa',
   icon: 'building',
   prefetchLinks: false,
   metrics: [
     { label: '소개 섹션', value: String(COMPANY_MENU_ITEMS.length), caption: '회사 핵심 콘텐츠' },
-    { label: '콘텐츠 그룹', value: '4', caption: '소개, 프로젝트, 제휴, 채용' },
+    { label: '콘텐츠 그룹', value: '3', caption: '소개, 제휴, 채용' },
     { label: '운영 목적', value: '브랜드', caption: '외부 공개형 흐름' },
   ],
   primaryLinks: COMPANY_MENU_ITEMS.map((page) => ({
@@ -114,11 +114,11 @@ export const CORP_HOME_CONTENT: SiteHomePageProps = {
   sections: [
     {
       title: '기업 운영 메뉴',
-      description: '프로젝트와 제휴, 채용 화면으로 이어지는 주요 진입점입니다.',
-      links: corpProjectLinks.map((page) => ({
+      description: '제휴와 채용 화면으로 이어지는 주요 진입점입니다.',
+      links: corpOperationLinks.map((page) => ({
         label: page.menuLabel,
         path: page.path,
-        icon: page.category === '프로젝트' ? 'diagram-project' : page.category === '제휴하기' ? 'handshake' : 'user-plus',
+        icon: page.category === '제휴하기' ? 'handshake' : 'user-plus',
         description: page.description,
       })),
     },

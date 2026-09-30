@@ -1,0 +1,6 @@
+/* Keep the execution section and catalog in place while the film is measured. */
+@media (scripting: enabled) {
+  main#content-area[aria-labelledby='product-catalog-title']:not(:has(iframe[data-business-area-preview][data-preview-ready='true'])) > :is(#company-introduction-execution, [data-product-catalog]) {
+    visibility: hidden;
+  }
+}

@@ -83,7 +83,7 @@ async function verifyViewport(browser, viewport) {
   assert.ok(dimensions.documentWidth <= dimensions.viewport + 1, `Document overflows: ${JSON.stringify(dimensions)}`);
   assert.ok(dimensions.bodyWidth <= dimensions.viewport + 1, `Body overflows: ${JSON.stringify(dimensions)}`);
   assert.equal(dimensions.mainScrollable, true, 'Partnership page must retain its explicit scroll owner.');
-  assert.equal(dimensions.siteModeVisible, true, 'Public corporate page must retain the site-mode switcher.');
+  assert.equal(dimensions.siteModeVisible, false, 'Site selection belongs in the login dialog.');
   assert.deepEqual(errors, [], `Browser errors: ${errors.join('\n')}`);
 
   if (process.env.PARTNERSHIP_SCREENSHOT_DIR) {

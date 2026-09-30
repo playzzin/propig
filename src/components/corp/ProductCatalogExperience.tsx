@@ -19,6 +19,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import styled from 'styled-components';
+import { CompanyBusinessAreaSections } from '@/components/corp/CompanyBusinessAreaExperience';
+import CompanyExecutionSystem from '@/components/corp/CompanyExecutionSystem';
 
 type ProductScreen = {
   src: string;
@@ -527,6 +529,7 @@ function findProductCategory(categoryId: string) {
 }
 
 export default function ProductCatalogExperience() {
+  const [showcaseReady, setShowcaseReady] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(PRODUCT_CATEGORIES[0]!.id);
   const [openProductId, setOpenProductId] = useState(PRODUCT_CATEGORIES[0]!.products[0]!.id);
   const activeCategory = findProductCategory(activeCategoryId) ?? PRODUCT_CATEGORIES[0]!;
@@ -542,18 +545,31 @@ export default function ProductCatalogExperience() {
   };
 
   useEffect(() => {
+    let frameId = 0;
     const syncCategoryFromHash = () => {
-      const category = findProductCategory(window.location.hash.slice(1));
-      if (!category) return;
-
-      setActiveCategoryId(category.id);
-      setOpenProductId(category.products[0]!.id);
+      window.cancelAnimationFrame(frameId);
+      const hash = window.location.hash.slice(1);
+      const category = findProductCategory(hash);
+      if (category) {
+        setActiveCategoryId(category.id);
+        setOpenProductId(category.products[0]!.id);
+      }
+      if (!showcaseReady) return;
+      const target = category ? 'product-catalog'
+        : ['product-catalog', 'product-business-panorama', 'company-introduction-execution'].includes(hash) ? hash : null;
+      // Native hash navigation happens before the iframe has its final height.
+      if (target) frameId = window.requestAnimationFrame(() => {
+        document.getElementById(target)?.scrollIntoView({ block: 'start', behavior: 'instant' });
+      });
     };
 
     syncCategoryFromHash();
     window.addEventListener('hashchange', syncCategoryFromHash);
-    return () => window.removeEventListener('hashchange', syncCategoryFromHash);
-  }, []);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('hashchange', syncCategoryFromHash);
+    };
+  }, [showcaseReady]);
 
   const handleCategoryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const currentIndex = PRODUCT_CATEGORIES.findIndex((category) => category.id === activeCategory.id);
@@ -585,6 +601,9 @@ export default function ProductCatalogExperience() {
   return (
     <CatalogPage id="content-area" aria-labelledby="product-catalog-title">
       <SkipLink href="#product-catalog">제품 목록으로 건너뛰기</SkipLink>
+      <CompanyBusinessAreaSections id="product-business-panorama" showBusinessVideoSection={false} pageLabel="제품소개" onPreviewReady={setShowcaseReady} />
+      <CompanyExecutionSystem readyToReveal={showcaseReady} />
+      <CatalogContent data-product-catalog>
       <CatalogHeader>
         <HeaderCopy>
           <CatalogKicker>
@@ -807,6 +826,7 @@ export default function ProductCatalogExperience() {
           </ProductAccordions>
         </ProductPanel>
       </CatalogSection>
+      </CatalogContent>
     </CatalogPage>
   );
 }
@@ -821,6 +841,9 @@ const CatalogPage = styled.main`
   overscroll-behavior-y: contain;
   background: #061126;
   color: #f4f7ef;
+`;
+
+const CatalogContent = styled.div`
   padding: clamp(20px, 3vw, 40px) clamp(16px, 3vw, 54px) 64px;
 `;
 

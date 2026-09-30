@@ -12,6 +12,7 @@ const menuContractSource = read('src/constants/menuSettingsContract.ts');
 const sidebarSource = read('src/components/Sidebar.tsx');
 const menuContextSource = read('src/contexts/MenuContext.tsx');
 const profileButtonSource = read('src/components/ProfileButton.tsx');
+const loginModalSource = read('src/components/LoginModal.tsx');
 const erpHomeSource = read('src/components/erp/ErpHomePage.tsx');
 const menuPagesSource = read('src/constants/menuPages.ts');
 const siteHomeSource = read('src/constants/siteHome.ts');
@@ -38,9 +39,11 @@ assert.ok(
   'MenuContext must restore currentSite through the shared site-access helper',
 );
 assert.ok(
-  profileButtonSource.includes('canAccessSiteMode'),
-  'ProfileButton site switcher must use the shared site-access helper',
+  loginModalSource.includes('canAccessSiteMode'),
+  'Login dialog site navigation must use the shared site-access helper',
 );
+assert.ok(profileButtonSource.includes('onOpenSiteSelection'), 'Profile menu must open the shared selection dialog');
+assert.ok(!profileButtonSource.includes('setCurrentSite'), 'Profile menu must not have a separate mode switcher');
 assert.ok(
   erpHomeSource.includes('filterMenuItemsForAccess'),
   'ERP home must derive menu commands from the shared menu-access filter',
@@ -88,7 +91,7 @@ assert.ok(
   'workspace-files menu entries must be removed from stored menu data',
 );
 assert.ok(siteHomeSource.includes("blog: '/blog'"), 'Blog mode must resolve to the blog dashboard route');
-assert.ok(menuContextSource.includes("return 'blog'"), 'Blog routes must activate blog mode in MenuContext');
+assert.ok(menuContextSource.includes('getRouteSite(pathname, menuData.siteData, preferredSite)'), 'MenuContext must resolve routes through the canonical site helper');
 assert.ok(menuPagesSource.includes("path: '/blog'"), 'The blog dashboard must be available in menu page options');
 
 const menuPagePaths = [...menuPagesSource.matchAll(/path:\s*'([^']+)'/g)].map((match) => match[1]);

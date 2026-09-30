@@ -16,10 +16,17 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const modules = new Map();
 let pathname = '/corp/company/introduction';
 let stored = null;
+const history = {
+  state: { __NA: true, tree: 'preserved-router-state' },
+  replaceState(value) { this.state = value; },
+};
 const sites = Object.fromEntries(['corp', 'blog', 'shop', 'admin'].map((id) => [id, {
   name: id, menu: [{ id: `${id}-home`, text: id, path: `/${id}` }],
 }]));
 let access = { isLoading: false, access: { role: 'guest', position: 'staff', permissions: {}, siteAccess: {} } };
+sites.blog.menu.push({ id: 'blog-bookmarks', text: '북마크', path: '/bookmarks' });
+sites.shop.menu.push({ id: 'shop-habit', text: '습관', path: '/habit-tracker' });
+sites.admin.menu.push({ id: 'admin-habit', text: '습관', path: '/habit-tracker' });
 let resolveBootstrap;
 let loadCount = 0;
 const subscriptions = new Map();
@@ -59,7 +66,7 @@ function load(relative) {
     return require(id);
   };
   vm.runInNewContext(output, { module, exports: module.exports, require: localRequire, queueMicrotask, console,
-    window: { localStorage: { getItem: () => stored, setItem: (_, value) => { stored = value; } } },
+    window: { history, localStorage: { getItem: () => stored, setItem: (_, value) => { stored = value; } } },
   }, { filename });
   return module.exports;
 }
@@ -98,6 +105,48 @@ await act(async () => { pathname = '/admin/menu'; renderer.update(tree()); });
 assert.notEqual(current.currentSite, 'admin', 'guest route sync must not activate admin');
 await act(async () => { renderer.unmount(); });
 assert.equal(subscriptions.size, 0);
+
+// Canonical entry persists even when the provider's initial state already matches.
+stored = 'corp'; pathname = '/blog';
+history.state = { __NA: true, tree: 'preserved-router-state' };
+await act(async () => { renderer = create(tree()); });
+assert.equal(stored, 'blog', 'direct entry persists the resolved mode');
+await act(async () => { pathname = '/bookmarks'; renderer.update(tree()); });
+assert.equal(current.currentSite, 'blog');
+await act(async () => { renderer.unmount(); renderer = create(tree()); });
+assert.equal(current.currentSite, 'blog', 'shared app reload keeps its originating site');
+assert.equal(history.state.tree, 'preserved-router-state', 'Next history metadata is preserved');
+await act(async () => { renderer.unmount(); });
+
+stored = 'corp'; pathname = '/habit-tracker/stats'; history.state = {};
+access = { isLoading: false, access: { role: 'guest', position: 'staff', permissions: {}, siteAccess: {} } };
+await act(async () => { renderer = create(tree()); });
+assert.equal(current.currentSite, 'shop', 'direct shared app uses its default owner, not stale corp mode');
+const habitHistory = history.state;
+await act(async () => { pathname = '/corp'; history.state = {}; renderer.update(tree()); });
+assert.equal(current.currentSite, 'corp');
+await act(async () => { pathname = '/habit-tracker/stats'; history.state = habitHistory; renderer.update(tree()); });
+assert.equal(current.currentSite, 'shop', 'back to shared app restores its mode');
+await act(async () => {
+  access = { isLoading: false, access: { role: 'admin', position: 'staff', permissions: {}, siteAccess: {} } };
+  pathname = '/admin'; history.state = {}; renderer.update(tree());
+});
+assert.equal(current.currentSite, 'admin');
+await act(async () => { pathname = '/habit-tracker'; history.state = {}; renderer.update(tree()); });
+assert.equal(current.currentSite, 'admin', 'shared admin tools preserve authorized admin context');
+const adminHabitHistory = history.state;
+await act(async () => { pathname = '/corp'; history.state = {}; renderer.update(tree()); });
+await act(async () => { pathname = '/habit-tracker'; history.state = adminHabitHistory; renderer.update(tree()); });
+assert.equal(current.currentSite, 'admin', 'back restores admin owner of shared app');
+await act(async () => { renderer.unmount(); });
+
+const { getSiteHomePath, getRouteSite } = load('src/constants/siteHome.ts');
+assert.equal(getSiteHomePath('custom', { custom: { menu: [
+  { path: '/hidden', hidden: true }, { path: '//external.invalid' }, { path: 'javascript:alert(1)' },
+  { path: '/visible' },
+] } }), '/visible', 'custom home skips hidden and unsafe destinations');
+assert.equal(getRouteSite('/corpse'), null, 'site prefix matching respects path boundaries');
+assert.equal(getRouteSite('/shop'), 'shop', 'legacy shop URL resolves to canonical mode ID');
 
 const sidebar = fs.readFileSync('src/components/Sidebar.tsx', 'utf8');
 assert.ok(!sidebar.includes('ensureCorpMenuItems'), 'Sidebar must not reinsert hidden/deleted pages');

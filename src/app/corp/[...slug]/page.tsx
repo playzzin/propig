@@ -53,17 +53,5 @@ export default async function CorpDynamicPage({ params }: CorpDynamicPageProps) 
     );
   }
 
-  if (slugPath === 'project') {
-    const { ProjectBoardDirectPage } = await import('@/components/corp/ProjectBoardDirectPage');
-    return <ProjectBoardDirectPage page={page} mode="project" />;
-  }
-
-  if (slugPath === 'portfolio') {
-    const { PortfolioUnderConstructionPage } = await import(
-      '@/components/corp/PortfolioUnderConstructionPage'
-    );
-    return <PortfolioUnderConstructionPage page={page} />;
-  }
-
   return <CorpInfoPage page={page} />;
 }

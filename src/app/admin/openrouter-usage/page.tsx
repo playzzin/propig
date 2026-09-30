@@ -145,15 +145,20 @@ const operationIcon = (operation: UsageOperation) => {
 
 export default function OpenRouterUsagePage() {
   const session = useAdminUsersSession();
-  if (session.loading) return <PageShell><p role="status">사용량 조회 권한을 확인하고 있습니다.</p></PageShell>;
-  if (session.currentUser && (!session.allowed || !session.isFullAdmin)) return <PageShell><h1>전체 관리자 권한이 필요합니다</h1><Link href="/admin">관리자 홈</Link></PageShell>;
-  return <OpenRouterUsageWorkspace key={session.sessionKey} sessionKey={session.sessionKey} />;
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  return <>
+    <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+    {session.loading
+      ? <PageShell><p role="status">사용량 조회 권한을 확인하고 있습니다.</p></PageShell>
+      : session.currentUser && (!session.allowed || !session.isFullAdmin)
+        ? <PageShell><h1>전체 관리자 권한이 필요합니다</h1><Link href="/admin">관리자 홈</Link></PageShell>
+        : <OpenRouterUsageWorkspace key={session.sessionKey} sessionKey={session.sessionKey} onOpenLogin={() => setIsLoginOpen(true)} />}
+  </>;
 }
 
-function OpenRouterUsageWorkspace({ sessionKey }: { sessionKey: string }) {
+function OpenRouterUsageWorkspace({ sessionKey, onOpenLogin }: { sessionKey: string; onOpenLogin: () => void }) {
   const { currentUser, loading: authLoading, isConfigured: authConfigured, error: authError } = useAuth();
   const [range, setRange] = useState<RangeDays>(30);
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
 
   useEffect(() => {
@@ -188,12 +193,11 @@ function OpenRouterUsageWorkspace({ sessionKey }: { sessionKey: string }) {
           <LockCopy>
             OpenRouter의 실제 호출 비용, 토큰, 모델별 사용 현황은 관리자만 확인할 수 있습니다.
           </LockCopy>
-          <Button type="button" onClick={() => setIsLoginOpen(true)} disabled={!canOpenLogin}>
+          <Button type="button" onClick={onOpenLogin} disabled={!canOpenLogin}>
             로그인하기
           </Button>
           {!canOpenLogin ? <ErrorText role="status">{authError ?? 'Firebase 인증 설정을 확인해 주세요.'}</ErrorText> : null}
         </LockedCard>
-        {isLoginOpen ? <LoginModal isOpen onClose={() => setIsLoginOpen(false)} /> : null}
       </PageWrap>
     );
   }

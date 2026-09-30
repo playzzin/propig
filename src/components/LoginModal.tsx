@@ -1,8 +1,15 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { usePathname, useRouter } from 'next/navigation';
+import { ArrowRight, Eye, EyeOff, Info, LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useMenuContext } from '@/contexts/MenuContext';
+import { getRouteSite, getSiteHomePath } from '@/constants/siteHome';
+import { getSwitchableSiteEntries } from '@/constants/accountMenu';
+import { canAccessSiteMode } from '@/utils/menuAccess';
+import { SiteModeSwitcher } from './SiteModeSwitcher';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -10,18 +17,32 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+  return isOpen ? <LoginDialog onClose={onClose} /> : null;
+};
+
+const LoginDialog: React.FC<Pick<LoginModalProps, 'onClose'>> = ({ onClose }) => {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isAnimating, setIsAnimating] = useState(false);
   const [mode, setMode] = useState<'sign_in' | 'sign_up'>('sign_in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const { currentSite, setCurrentSite, siteData, userRole, siteAccess, permissions, isLoading: accessLoading } = useMenuContext();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [selectedSite, setSelectedSite] = useState(() => getRouteSite(pathname, siteData, currentSite) ?? currentSite);
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const alive = useRef(false);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  const handleClose = useCallback(() => onCloseRef.current(), []);
 
   const {
+    currentUser,
     loginWithEmail,
     loginWithGoogle,
     signUpWithEmail,
@@ -29,6 +50,37 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     isConfigured,
     error: configError,
   } = useAuth();
+
+  const busy = loading || isGoogleLoading || pendingUserId !== null;
+  const availableSites = currentUser && !accessLoading
+    ? Object.fromEntries(getSwitchableSiteEntries(siteData).filter(([id]) =>
+      canAccessSiteMode(id, siteData, { role: userRole, siteAccess, permissions })))
+    : siteData;
+  const selectedName = siteData[selectedSite]?.name || '사이트';
+  const canEnter = canAccessSiteMode(selectedSite, siteData, { role: userRole, siteAccess, permissions });
+
+  const enterSite = useCallback(() => {
+    if (accessLoading) return;
+    if (!canAccessSiteMode(selectedSite, siteData, { role: userRole, siteAccess, permissions })) {
+      setError('선택한 사이트에 접근 권한이 없습니다. 다른 사이트를 선택해 주세요.');
+      return;
+    }
+    const href = getSiteHomePath(selectedSite, siteData);
+    if (href !== pathname && !window.dispatchEvent(new CustomEvent('propig:before-navigation', {
+      cancelable: true, detail: { href },
+    }))) return;
+    setCurrentSite(selectedSite);
+    handleClose();
+    router.push(href);
+  }, [accessLoading, selectedSite, siteData, userRole, siteAccess, permissions, pathname, setCurrentSite, handleClose, router]);
+
+  useEffect(() => {
+    if (!pendingUserId || currentUser?.uid !== pendingUserId || accessLoading) return;
+    setPendingUserId(null);
+    setLoading(false);
+    setIsGoogleLoading(false);
+    enterSite();
+  }, [pendingUserId, currentUser?.uid, accessLoading, enterSite]);
 
   const validateEmail = (value: string) => {
     if (!value.trim()) return '이메일을 입력해 주세요.';
@@ -48,6 +100,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       password: validatePassword(password) || undefined,
     };
     setFieldErrors(nextErrors);
+    if (nextErrors.email) panelRef.current?.querySelector<HTMLInputElement>('#email')?.focus();
+    else if (nextErrors.password) panelRef.current?.querySelector<HTMLInputElement>('#password')?.focus();
     return !nextErrors.email && !nextErrors.password;
   };
 
@@ -89,25 +143,43 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   };
 
   useEffect(() => {
-    if (isOpen) {
-      setIsAnimating(true);
-      return;
-    }
-
-    setEmail('');
-    setPassword('');
-    setFieldErrors({});
-    setError('');
-    setInfo('');
-    setLoading(false);
-    setIsGoogleLoading(false);
-    setShowPassword(false);
-    setIsAnimating(false);
-    setMode('sign_in');
-  }, [isOpen]);
+    alive.current = true;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>('input:checked, button')?.focus());
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        handleClose();
+      }
+      if (event.key !== 'Tab') return;
+      const tabbableRadio = panelRef.current?.querySelector('input[type="radio"]:checked:not(:disabled)')
+        ?? panelRef.current?.querySelector('input[type="radio"]:not(:disabled)');
+      const controls = [...(panelRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
+      ) ?? [])].filter((element) => !element.matches(':disabled')
+        && (element.getAttribute('type') !== 'radio' || element === tabbableRadio));
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!first) { event.preventDefault(); return; }
+      if (event.shiftKey && (document.activeElement === first || !panelRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !panelRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      alive.current = false;
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', handleKeyDown, true);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [handleClose]);
 
   const handleEmailLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) return;
     setError('');
     setInfo('');
 
@@ -121,16 +193,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     setLoading(true);
 
     try {
-      if (mode === 'sign_up') {
-        await signUpWithEmail(email, password);
-      } else {
-        await loginWithEmail(email, password);
-      }
-
-      setTimeout(() => {
-        setLoading(false);
-        handleClose();
-      }, 500);
+      const credential = mode === 'sign_up'
+        ? await signUpWithEmail(email.trim(), password)
+        : await loginWithEmail(email.trim(), password);
+      if (alive.current) setPendingUserId(credential.user.uid);
     } catch (err: unknown) {
       setError(
         getErrorMessage(err, mode === 'sign_up' ? '회원가입에 실패했습니다.' : '로그인에 실패했습니다.'),
@@ -140,6 +206,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   };
 
   const handleGoogleLogin = async () => {
+    if (busy) return;
     setError('');
     setInfo('');
 
@@ -151,11 +218,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     setIsGoogleLoading(true);
 
     try {
-      await loginWithGoogle();
-      setTimeout(() => {
-        setIsGoogleLoading(false);
-        handleClose();
-      }, 500);
+      const credential = await loginWithGoogle();
+      if (alive.current) setPendingUserId(credential.user.uid);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Google 로그인에 실패했습니다.'));
       setIsGoogleLoading(false);
@@ -163,6 +227,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   };
 
   const handlePasswordReset = async () => {
+    if (busy) return;
     setError('');
     setInfo('');
 
@@ -195,51 +260,56 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleClose = () => {
-    setIsAnimating(false);
-    setTimeout(onClose, 200);
-  };
-
-  if (!isOpen || typeof document === 'undefined') {
+  if (typeof document === 'undefined') {
     return null;
   }
 
   return ReactDOM.createPortal(
     <div
-      className={`auth-modal-overlay ${isAnimating ? 'open' : ''}`}
+      className="auth-modal-overlay open"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
-      aria-label={mode === 'sign_up' ? '회원가입' : '로그인'}
+      aria-label={currentUser ? '사이트 선택' : mode === 'sign_up' ? '회원가입' : '로그인'}
     >
-      <div className="auth-modal-card" onClick={(event) => event.stopPropagation()}>
+      <div ref={panelRef} className="auth-modal-card" onClick={(event) => event.stopPropagation()}>
         <div className="auth-modal-header">
           <div>
-            <div className="auth-modal-title">{mode === 'sign_up' ? '계정 만들기' : '로그인'}</div>
+            <div className="auth-modal-title">{currentUser ? '사이트 선택' : mode === 'sign_up' ? '계정 만들기' : '로그인'}</div>
             <div className="auth-modal-subtitle">
-              이메일과 비밀번호 또는 Google 계정으로 계속할 수 있습니다.
+              {currentUser ? '로그인한 계정으로 이용할 사이트를 선택하세요.' : '사이트를 선택하고 계정으로 계속하세요.'}
             </div>
           </div>
           <button type="button" className="auth-modal-close" onClick={handleClose} aria-label="닫기">
-            <i className="fa-solid fa-xmark" />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
         <div className="auth-modal-body">
+          <SiteModeSwitcher sites={availableSites} selectedSite={selectedSite} disabled={busy || accessLoading}
+            onSelect={(siteId) => { setSelectedSite(siteId); setError(''); }} />
+          {accessLoading || pendingUserId ? <p className="auth-site-hint" role="status">사이트 접근 권한을 확인하고 있습니다.</p> : null}
+          {currentUser && !accessLoading && !canEnter && !error ? <p className="auth-site-hint" role="status">선택한 사이트의 접근 권한이 없습니다. 이용 가능한 사이트를 선택해 주세요.</p> : null}
           {info ? (
-            <div className="auth-alert info" style={{ marginBottom: 12 }}>
-              <i className="fa-solid fa-circle-info" style={{ marginTop: 2 }} />
+            <div className="auth-alert info" role="status" style={{ marginBottom: 12 }}>
+              <Info size={16} aria-hidden="true" />
               <div>{info}</div>
             </div>
           ) : null}
 
           {error ? (
-            <div className="auth-alert error" style={{ marginBottom: 12 }}>
-              <i className="fa-solid fa-triangle-exclamation" style={{ marginTop: 2 }} />
+            <div className="auth-alert error" role="alert" style={{ marginBottom: 12 }}>
+              <TriangleAlert size={16} aria-hidden="true" />
               <div>{error}</div>
             </div>
           ) : null}
 
+          {currentUser ? (
+            <button type="button" className="auth-primary-btn" disabled={busy || accessLoading || !canEnter} onClick={enterSite}>
+              {selectedName}로 이동
+            </button>
+          ) : (<>
+          {!isConfigured ? <p className="auth-site-hint" role="status">지금은 로그인할 수 없습니다. 공개 사이트는 둘러볼 수 있습니다.</p> : null}
           <form onSubmit={handleEmailLogin} className="auth-form">
             <div className="auth-field">
               <label htmlFor="email" className="auth-label">
@@ -248,23 +318,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
               <input
                 type="email"
                 id="email"
+                name="email"
+                spellCheck={false}
                 className="auth-input"
                 placeholder="name@example.com"
                 autoComplete="email"
                 value={email}
+                disabled={busy}
                 onChange={(event) => {
                   setEmail(event.target.value);
                   if (fieldErrors.email) {
                     setFieldErrors((current) => ({ ...current, email: undefined }));
                   }
                 }}
-                onBlur={() => {
+                onBlur={(event) => {
+                  if (event.relatedTarget instanceof HTMLButtonElement) return;
                   const emailError = validateEmail(email);
                   setFieldErrors((current) => ({ ...current, email: emailError || undefined }));
                 }}
                 aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={fieldErrors.email ? 'login-email-error' : undefined}
               />
-              {fieldErrors.email ? <div className="auth-alert error">{fieldErrors.email}</div> : null}
+              {fieldErrors.email ? <div id="login-email-error" className="auth-alert error" role="alert">{fieldErrors.email}</div> : null}
             </div>
 
             <div className="auth-field">
@@ -275,21 +350,25 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   id="password"
+                  name="password"
                   className="auth-input"
                   placeholder="비밀번호를 입력해 주세요"
                   autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
                   value={password}
+                  disabled={busy}
                   onChange={(event) => {
                     setPassword(event.target.value);
                     if (fieldErrors.password) {
                       setFieldErrors((current) => ({ ...current, password: undefined }));
                     }
                   }}
-                  onBlur={() => {
+                  onBlur={(event) => {
+                    if (event.relatedTarget instanceof HTMLButtonElement) return;
                     const passwordError = validatePassword(password);
                     setFieldErrors((current) => ({ ...current, password: passwordError || undefined }));
                   }}
                   aria-invalid={Boolean(fieldErrors.password)}
+                  aria-describedby={fieldErrors.password ? 'login-password-error' : undefined}
                 />
                 <button
                   type="button"
@@ -298,16 +377,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                   title={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
                   aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
                 >
-                  <i className={showPassword ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye'} />
+                  {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
                 </button>
               </div>
               {fieldErrors.password ? (
-                <div className="auth-alert error">{fieldErrors.password}</div>
+                <div id="login-password-error" className="auth-alert error" role="alert">{fieldErrors.password}</div>
               ) : null}
             </div>
 
             <div className="auth-row">
-              <button type="button" className="auth-link" onClick={handlePasswordReset} disabled={loading}>
+              <button type="button" className="auth-link" onClick={handlePasswordReset} disabled={busy || !isConfigured}>
                 비밀번호 재설정
               </button>
 
@@ -319,20 +398,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                   setInfo('');
                   setMode((prev) => (prev === 'sign_in' ? 'sign_up' : 'sign_in'));
                 }}
-                disabled={loading}
+                disabled={busy}
               >
                 {mode === 'sign_in' ? '계정 만들기' : '로그인으로'}
               </button>
             </div>
 
-            <button type="submit" disabled={loading} className="auth-primary-btn">
+            <button type="submit" disabled={busy || accessLoading || !isConfigured || !siteData[selectedSite]} className="auth-primary-btn">
               {loading
                 ? mode === 'sign_up'
                   ? '계정 생성 중...'
                   : '로그인 중...'
                 : mode === 'sign_up'
                   ? '계정 만들기'
-                  : '로그인'}
+                  : `${selectedName}에 로그인`}
             </button>
           </form>
 
@@ -341,13 +420,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
           <button
             type="button"
             onClick={handleGoogleLogin}
-            disabled={isGoogleLoading}
+            disabled={busy || accessLoading || !isConfigured || !siteData[selectedSite]}
             className="auth-secondary-btn"
           >
             {isGoogleLoading ? (
-              <i className="fa-solid fa-circle-notch fa-spin" />
+              <LoaderCircle size={20} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
             ) : (
-              <svg viewBox="0 0 24 24" style={{ width: 20, height: 20 }}>
+              <svg viewBox="0 0 24 24" style={{ width: 20, height: 20 }} aria-hidden="true">
                 <path
                   fill="#4285F4"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -368,6 +447,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
             )}
             Google로 계속하기
           </button>
+          {canEnter ? (
+            <button type="button" className="auth-guest-link" disabled={busy || accessLoading} onClick={enterSite}>
+              로그인 없이 {selectedName} 둘러보기 <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          ) : <p className="auth-site-hint">로그인 후 선택한 사이트의 접근 권한을 확인합니다.</p>}
+          </>)}
         </div>
       </div>
     </div>,

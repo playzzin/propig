@@ -120,7 +120,7 @@ async function runViewport(browser, viewport) {
       );
     }
     assert.equal(await page.locator('#sidebar').count(), 1, `${viewport.width}px company route lost the site navigation`);
-    assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 1, `${viewport.width}px company route lost site-mode switching`);
+    assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 0, `${viewport.width}px site selection belongs in the login dialog`);
   }
 
   assert.deepEqual(pageErrors, [], `${viewport.width}px page errors: ${pageErrors.join(' | ')}`);

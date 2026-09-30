@@ -1105,6 +1105,14 @@ function ManagedPageEditor({
 }
 
 export default function OpenRouterSettingsPage() {
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  return <>
+    <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+    <OpenRouterSettingsWorkspace onOpenLogin={() => setIsLoginOpen(true)} />
+  </>;
+}
+
+function OpenRouterSettingsWorkspace({ onOpenLogin }: { onOpenLogin: () => void }) {
   const queryClient = useQueryClient();
   const {
     currentUser,
@@ -1117,7 +1125,6 @@ export default function OpenRouterSettingsPage() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [replaceApiKey, setReplaceApiKey] = useState(false);
   const [clearApiKey, setClearApiKey] = useState(false);
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
 
   const configQueryKey = useMemo(
@@ -1337,7 +1344,7 @@ export default function OpenRouterSettingsPage() {
             <LockedActions>
               <Button
                 type="button"
-                onClick={() => setIsLoginOpen(true)}
+                onClick={onOpenLogin}
                 disabled={!canOpenLogin}
               >
                 로그인하기
@@ -1375,7 +1382,6 @@ export default function OpenRouterSettingsPage() {
             </LockedCheckItem>
           </LockedChecklist>
         </LockedState>
-        <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
       </PageWrap>
     );
   }

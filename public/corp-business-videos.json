@@ -1,0 +1,22 @@
+{
+  "web-app": {
+    "technology": { "url": "https://www.youtube.com/watch?v=IVON-e6gOG8", "title": "You can just Make things", "creator": "Figma" },
+    "workflow": { "url": "https://www.youtube.com/watch?v=NHodnYFUT_I", "title": "All the launches at Config 2025", "creator": "Figma" }
+  },
+  "automation": {
+    "technology": { "url": "https://www.youtube.com/watch?v=Ski0RwvwV_I", "title": "Introducing Zapier Agents", "creator": "Zapier" },
+    "workflow": { "url": "https://www.youtube.com/watch?v=vG_LQo0wOGg", "title": "AI Can’t Replace Teamwork", "creator": "Notion" }
+  },
+  "video": {
+    "technology": { "url": "https://www.youtube.com/watch?v=fjk2mMFBpRo", "title": "Meet Firefly Video Model", "creator": "Adobe" },
+    "workflow": { "url": "https://www.youtube.com/watch?v=O4Dkv4k9aAs", "title": "Introducing Adobe Express", "creator": "Adobe Express" }
+  },
+  "reseller": {
+    "technology": { "url": "https://www.youtube.com/watch?v=p-B--SGq_ZQ", "title": "Presenting: Figma Slides", "creator": "Figma" },
+    "workflow": { "url": "https://www.youtube.com/watch?v=ZI8KRElcjV4", "title": "Figma Slides: All hands on deck", "creator": "Figma" }
+  },
+  "planning-agent": {
+    "technology": { "url": "https://www.youtube.com/watch?v=R1cF4T4lgI4", "title": "Introducing Notion 3.0: Agents", "creator": "Notion" },
+    "workflow": { "url": "https://www.youtube.com/watch?v=--GOwV4Z3UQ", "title": "Introducing Custom Agents", "creator": "Notion" }
+  }
+}

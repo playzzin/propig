@@ -44,22 +44,40 @@ function Comic({ file, title, summary }: { file: string; title: string; summary:
   );
 }
 
-function Episode({ episode, index, open, onToggle }: {
+function EpisodeButton({ episode, index, open, onToggle }: {
+  episode: typeof episodes[number]; index: number; open: boolean; onToggle: () => void;
+}) {
+  const id = `founder-episode-${index + 1}`;
+  return (
+    <button className="episode-trigger" id={`${id}-trigger`} aria-expanded={open} aria-controls={id} onClick={onToggle}>
+      <span className="number">0{index + 1}화</span>
+      <span className="episode-portrait" aria-hidden="true">
+        <span className="episode-character">
+          <Image src={`${base}/guide-episode-${index + 1}.png`} alt="" width={160} height={160}
+            sizes="72px" loading="lazy" />
+        </span>
+      </span>
+      <span className="episode-copy"><strong>{episode.title}</strong></span>
+      <span className="episode-action">
+        <span className="toggle-label">{open ? '접기' : '펼쳐 읽기'}</span>
+        <ChevronDown size={16} className="chevron" aria-hidden="true" />
+      </span>
+    </button>
+  );
+}
+
+function EpisodeReader({ episode, index, open, onToggle }: {
   episode: typeof episodes[number]; index: number; open: boolean; onToggle: (fromFooter?: boolean) => void;
 }) {
   const id = `founder-episode-${index + 1}`;
   return (
-    <article>
-      <h3>
-        <button id={`${id}-trigger`} aria-expanded={open} aria-controls={id} onClick={() => onToggle()}>
-          <span className="number">0{index + 1}</span>
-          <span className="episode-copy"><strong>{episode.title}</strong><span>{episode.description}</span></span>
-          <span className="toggle-label">{open ? '접기' : '읽기'}</span>
-          <ChevronDown size={20} className="chevron" aria-hidden="true" />
-        </button>
-      </h3>
       <div id={id} role="region" aria-labelledby={`${id}-trigger`} hidden={!open}>
         {open ? <div className="reader">
+          <div className="reader-heading">
+            <span>{index + 1}화 · 본편과 비하인드</span>
+            <h3>{episode.title}</h3>
+            <p>{episode.description}</p>
+          </div>
           <Comic file={`episode-${index + 1}`} title={`창업배경 ${index + 1}화 — ${episode.title}`} summary={episode.summary} />
           {episode.behind.length ? <div className="behind">
             <p className="behind-label">이 이야기의 비하인드</p>
@@ -71,14 +89,24 @@ function Episode({ episode, index, open, onToggle }: {
           <button className="close-reader" onClick={() => onToggle(true)}>이 회차 접기</button>
         </div> : null}
       </div>
-    </article>
   );
 }
 
 function alignEpisodeTitle(index: number, previousTop: number | null) {
   const title = document.getElementById(`founder-episode-${index + 1}-trigger`);
   if (!title) return;
-  let scrollport = title.parentElement;
+  const navigation = title.parentElement;
+  if (navigation) {
+    const buttonBounds = title.getBoundingClientRect();
+    const navigationBounds = navigation.getBoundingClientRect();
+    const horizontalDelta = buttonBounds.left < navigationBounds.left + 8
+      ? buttonBounds.left - navigationBounds.left - 8
+      : buttonBounds.right > navigationBounds.right - 8
+        ? buttonBounds.right - navigationBounds.right + 8 : 0;
+    navigation.scrollBy({ left: horizontalDelta, behavior: 'instant' });
+  }
+  // The button strip scrolls horizontally; only its ancestors own page scrolling.
+  let scrollport = navigation?.parentElement ?? null;
   while (scrollport && !/(auto|scroll)/.test(getComputedStyle(scrollport).overflowY)) {
     scrollport = scrollport.parentElement;
   }
@@ -132,19 +160,27 @@ export default function FounderStory() {
         <span className="eyebrow"><BookOpen size={17} aria-hidden="true" /> 그뚠이 스토리</span>
         <h2 id="founder-story-title">창업배경</h2>
         <p>화장실 있는 방, 내 오토바이, 그리고 한 대의 컴퓨터.<br />지금의 나를 만든 시간을 웹툰으로 담았습니다.</p>
-        <div className="reading-note"><span>본편 {episodes.length}화 · 비하인드 {episodes.reduce((total, episode) => total + episode.behind.length, 0)}편</span><span>한 번에 한 회차씩, 본편과 비하인드가 함께 펼쳐집니다.</span></div>
+        <div className="reading-note"><span>본편 {episodes.length}화 · 비하인드 {episodes.reduce((total, episode) => total + episode.behind.length, 0)}편</span><span>아래 회차 버튼을 눌러 이야기를 펼쳐보세요.</span></div>
         </div>
         <button className="reading-guide" onClick={startReading} aria-label={`그뚠이와 창업배경 ${(openEpisode ?? 0) + 1}화 펼쳐 읽기`} aria-controls={`founder-episode-${(openEpisode ?? 0) + 1}`}>
           <span className="guide-bubble">
             <strong>{openEpisode === null ? '내 이야기, 한번 들어볼래?' : `지금 읽는 이야기 · ${openEpisode + 1}화`}</strong>
-            <span>{selectedEpisode ? selectedEpisode.title : <>아래 제목을 누르면<br />웹툰이 펼쳐져요.</>}</span>
+            <span>{selectedEpisode ? selectedEpisode.title : <>원하는 회차를 고르면<br />웹툰이 펼쳐져요.</>}</span>
             <span className="guide-action">{openEpisode === null ? '1화부터 읽기' : `${openEpisode + 1}화 이어 읽기`} <ChevronDown size={16} aria-hidden="true" /></span>
           </span>
-          <Image src={`${base}/${openEpisode === null ? 'reading-guide-character.png' : `guide-episode-${openEpisode + 1}.png`}`} alt={openEpisode === null ? '' : `창업배경 ${openEpisode + 1}화 안내 캐릭터`} width={1254} height={1254} unoptimized className="guide-character" />
+          <span className="guide-portrait" aria-hidden="true">
+            <Image key={openEpisode ?? 'guide'} src={`${base}/${openEpisode === null ? 'reading-guide-character.png' : `guide-episode-${openEpisode + 1}.png`}`} alt="" width={312} height={312} sizes="(max-width: 640px) 144px, 156px" className="guide-character" />
+          </span>
         </button>
       </header>
-      <div className="episodes">{episodes.map((episode, index) => <Episode key={episode.title} episode={episode} index={index}
-        open={openEpisode === index} onToggle={(fromFooter) => toggleEpisode(index, fromFooter)} />)}</div>
+      <div className="episodes">
+        <div className="episode-navigation" role="group" aria-label="창업배경 회차 선택">
+          {episodes.map((episode, index) => <EpisodeButton key={episode.title} episode={episode} index={index}
+            open={openEpisode === index} onToggle={() => toggleEpisode(index)} />)}
+        </div>
+        {episodes.map((episode, index) => <EpisodeReader key={episode.title} episode={episode} index={index}
+          open={openEpisode === index} onToggle={(fromFooter) => toggleEpisode(index, fromFooter)} />)}
+      </div>
     </div>
   </StorySection>;
 }
@@ -161,37 +197,51 @@ const StorySection = styled.section`
   .inner { width: min(100%, 1120px); margin: 0 auto; }
   header { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: center; gap: 24px; margin-bottom: 28px; }
   .story-copy { min-width: 0; }
-  .reading-guide { display: flex; align-items: center; justify-content: center; position: relative; isolation: isolate; width: 100%; min-height: 220px; padding: 12px 0; border-radius: 16px; background: transparent; text-align: left; }
-  .reading-guide::before { content: ''; position: absolute; z-index: -1; right: 6px; bottom: 16px; width: 168px; height: 168px; border-radius: 50%; background: var(--story-soft); }
+  .reading-guide { display: flex; align-items: center; justify-content: center; position: relative; isolation: isolate; width: 100%; min-height: 184px; padding: 12px 0; border-radius: 16px; background: transparent; text-align: left; touch-action: manipulation; }
+  .reading-guide::before { content: ''; position: absolute; z-index: -1; right: 6px; bottom: 16px; width: 148px; height: 148px; border-radius: 50%; background: var(--story-soft); }
   .guide-bubble { position: relative; z-index: 1; display: grid; gap: 10px; width: 188px; flex-shrink: 0; padding: 18px 16px; border: 1px solid #cbdcfb; border-radius: 16px 16px 4px 16px; background: var(--story-surface); box-shadow: 0 8px 24px rgba(37, 99, 235, 0.06); }
   .guide-bubble strong { font-size: 14px; line-height: 1.5; word-break: keep-all; }
   .guide-bubble > span { font-size: 13px; line-height: 1.65; color: var(--story-muted); }
   .guide-bubble .guide-action { display: flex; align-items: center; gap: 6px; color: var(--story-accent); font-weight: 750; }
-  .guide-character { border-radius: 16px; width: 172px; height: 172px; object-fit: contain; flex-shrink: 0; margin-left: -20px; align-self: flex-end; }
-  .reading-guide:hover .guide-bubble { border-color: var(--story-accent); background: #f5f8ff; }
-  .episodes h3 > button { scroll-margin-top: 88px; }
+  .guide-portrait { display: block; width: 156px; height: 156px; flex-shrink: 0; margin-left: -12px; align-self: flex-end; transform-origin: 50% 90%; transition: transform 240ms ease; }
+  .guide-character { display: block; border-radius: 16px; width: 100%; height: 100%; object-fit: contain; animation: story-character-pop 520ms ease both; }
+  .guide-bubble { transition: border-color 180ms ease, background-color 180ms ease; }
+  .reading-guide:focus-visible .guide-bubble { border-color: var(--story-accent); background: #f5f8ff; }
+  .reading-guide:focus-visible .guide-portrait { transform: translateY(-5px) rotate(3deg); }
+  .reading-guide:active .guide-portrait { transform: translateY(2px) scale(0.96); }
+  .episode-trigger { scroll-margin-top: 88px; }
   .eyebrow { display: flex; align-items: center; gap: 8px; color: var(--story-accent); font-size: 13px; font-weight: 750; }
   h2 { margin: 14px 0; font-size: 32px; line-height: 1.35; font-weight: 850; }
   .story-copy > p { font-size: 15px; line-height: 1.8; color: var(--story-muted); margin: 0; word-break: keep-all; }
   .reading-note { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 24px; color: var(--story-muted); font-size: 12px; }
   .reading-note > :first-child { font-weight: 700; color: var(--story-accent); }
-  .episodes { overflow-anchor: none; border: 1px solid var(--story-border); border-radius: 12px; background: var(--story-surface); }
-  article + article { border-top: 1px solid var(--story-border); }
-  article:first-child > h3 > button { border-radius: 11px 11px 0 0; }
-  article:last-child > h3 > button[aria-expanded='false'] { border-radius: 0 0 11px 11px; }
+  .episodes { overflow-anchor: none; min-width: 0; }
+  .episode-navigation { display: grid; grid-template-columns: repeat(5, minmax(144px, 1fr)); align-items: stretch; gap: 12px; overflow-x: auto; padding: 10px 3px 14px; scrollbar-width: thin; scrollbar-color: #b9c9e4 transparent; }
   h3, h4 { margin: 0; }
   button { border: 0; cursor: pointer; color: inherit; }
-  h3 > button { display: flex; width: 100%; align-items: center; gap: 20px; padding: 24px 20px; text-align: left; background: transparent; }
-  h3 > button:hover, h3 > button[aria-expanded='true'] { background: var(--story-soft); }
+  .episode-trigger { display: grid; grid-template-rows: auto 72px 1fr auto; justify-items: center; min-width: 0; gap: 10px; padding: 16px 12px; border: 1px solid var(--story-border); border-radius: 14px; text-align: center; background: var(--story-surface); touch-action: manipulation; transition: background-color 180ms ease, border-color 180ms ease; }
+  .episode-trigger:focus-visible, .episode-trigger[aria-expanded='true'] { background: var(--story-soft); border-color: var(--story-accent); }
   button:focus-visible, a:focus-visible { outline: 3px solid var(--story-accent); outline-offset: -3px; }
-  .number { font-size: 15px; color: var(--story-accent); font-weight: 700; font-variant-numeric: tabular-nums; }
-  .episode-copy { flex: 1; min-width: 0; display: grid; gap: 7px; }
-  .episode-copy strong { font-size: 18px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
-  .episode-copy > span { font-size: 13px; color: var(--story-muted); line-height: 1.6; font-weight: 400; }
-  .toggle-label { font-size: 12px; font-weight: 500; color: var(--story-muted); white-space: nowrap; }
+  .number { font-size: 13px; color: var(--story-muted); font-weight: 750; font-variant-numeric: tabular-nums; }
+  .episode-portrait { display: block; width: 72px; height: 72px; border-radius: 18px; background: var(--story-soft); transform-origin: 50% 85%; transition: transform 240ms ease; }
+  .episode-character { display: block; width: 100%; height: 100%; transform-origin: 50% 85%; }
+  .episode-character img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 18px; }
+  .episode-trigger:focus-visible .episode-portrait { transform: translateY(-4px) rotate(-4deg); }
+  .episode-trigger:active .episode-portrait { transform: translateY(2px) scale(0.94); }
+  .episode-trigger[aria-expanded='true'] .episode-character { animation: story-character-pop 520ms ease both; }
+  .episode-trigger[aria-expanded='true'] .number { color: var(--story-accent); }
+  .episode-copy { min-width: 0; min-height: 63px; display: grid; align-content: start; }
+  .episode-copy strong { font-size: 14px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+  .episode-action { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .toggle-label { font-size: 12px; font-weight: 650; color: var(--story-muted); white-space: nowrap; }
   .chevron { flex-shrink: 0; color: var(--story-accent); transition: transform 180ms ease; }
-  [aria-expanded='true'] > .chevron { transform: rotate(180deg); }
-  .reader { padding: 0 0 24px; }
+  [aria-expanded='true'] .chevron { transform: rotate(180deg); }
+  [aria-expanded='true'] .toggle-label { color: var(--story-accent); }
+  .reader { margin-top: 8px; padding: 0 0 24px; border: 1px solid var(--story-border); border-radius: 14px; background: var(--story-surface); animation: story-reader-reveal 240ms ease both; }
+  .reader-heading { padding: 24px 20px 18px; border-bottom: 1px solid var(--story-border); }
+  .reader-heading > span { color: var(--story-accent); font-size: 12px; font-weight: 750; }
+  .reader-heading h3 { margin-top: 10px; font-size: 22px; line-height: 1.5; word-break: keep-all; }
+  .reader-heading p { margin: 8px 0 0; color: var(--story-muted); font-size: 14px; line-height: 1.7; word-break: keep-all; }
   figure { margin: 0 auto; max-width: 1024px; }
   figcaption { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px 20px; font-size: 13px; line-height: 1.7; }
   figcaption p { margin: 0; color: var(--story-muted); }
@@ -203,6 +253,24 @@ const StorySection = styled.section`
   h4 { padding: 18px 20px 0; font-size: 14px; line-height: 1.6; }
   .close-reader { display: block; margin: 24px auto 0; border: 1px solid var(--story-border); border-radius: 8px; padding: 12px 24px; color: var(--story-accent); background: var(--story-surface); font-size: 13px; }
   .close-reader:hover { background: var(--story-soft); }
+  @keyframes story-character-pop {
+    0% { transform: translateY(0) rotate(0); }
+    35% { transform: translateY(-8px) rotate(-5deg); }
+    65% { transform: translateY(-2px) rotate(3deg); }
+    100% { transform: translateY(0) rotate(0); }
+  }
+  @keyframes story-reader-reveal {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .reading-guide:hover .guide-bubble { border-color: var(--story-accent); background: #f5f8ff; }
+    .reading-guide:hover .guide-portrait { transform: translateY(-5px) rotate(3deg); }
+    .reading-guide:active .guide-portrait { transform: translateY(2px) scale(0.96); }
+    .episode-trigger:hover { background: var(--story-soft); border-color: var(--story-accent); }
+    .episode-trigger:hover .episode-portrait { transform: translateY(-4px) rotate(-4deg); }
+    .episode-trigger:active .episode-portrait { transform: translateY(2px) scale(0.94); }
+  }
   @media (max-width: 1000px) {
     header { grid-template-columns: minmax(0, 1fr); gap: 16px; }
     .reading-guide { width: min(100%, 340px); justify-self: end; }
@@ -212,15 +280,19 @@ const StorySection = styled.section`
     h2 { font-size: 25px; }
     .reading-guide { min-height: 180px; }
     .guide-bubble { width: min(58%, 168px); padding: 14px 12px; }
-    .guide-character { width: 46%; max-width: 144px; height: auto; margin-left: -12px; }
+    .guide-portrait { width: 42%; max-width: 144px; height: auto; aspect-ratio: 1; margin-left: -12px; }
     .reading-guide::before { width: 144px; height: 144px; }
     .guide-bubble strong { font-size: 13px; }
     .guide-bubble > span { font-size: 12px; }
-    h3 > button { gap: 10px; padding: 20px 12px; }
-    .episode-copy strong { font-size: 16px; }
-    .toggle-label { display: none; }
+    .episode-navigation { gap: 10px; }
+    .reader-heading { padding: 20px 12px 16px; }
+    .reader-heading h3 { font-size: 19px; }
     figcaption { flex-direction: column; gap: 4px; padding: 16px 12px; }
     h4, .behind-label { padding-left: 12px; padding-right: 12px; }
   }
-  @media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .episode-trigger, .episode-portrait, .chevron, .guide-portrait, .guide-bubble { transition: none; }
+    .episode-character, .guide-character, .reader { animation: none !important; }
+    .episode-trigger .episode-portrait, .reading-guide .guide-portrait { transform: none !important; }
+  }
 `;

@@ -18,20 +18,20 @@ const pageSpecs = [
   {
     slug: 'corp-home',
     path: '/corp',
-    requiredTexts: ['기업 사이트 홈', '기업 운영 메뉴', '프로젝트', '제휴하기'],
+    requiredTexts: ['기업 사이트 홈', '기업 운영 메뉴', '사업제휴', '제휴하기'],
     targets: [
       { label: 'hero heading', selector: 'h1,h2', text: '기업 사이트 홈', minWidth: 140, minHeight: 18 },
       { label: 'operations menu', selector: 'h2,section,div', text: '기업 운영 메뉴', minWidth: 180, minHeight: 28 },
-      { label: 'project entry', selector: '#content-area a,#content-area article,#content-area button', text: '프로젝트', minWidth: 90, minHeight: 38 },
+      { label: 'partnership entry', selector: '#content-area a,#content-area article,#content-area button', text: '사업제휴', minWidth: 90, minHeight: 38 },
     ],
   },
   {
     slug: 'company-introduction',
     path: '/corp/company/introduction',
-    requiredTexts: ['제품소개', '통합 실행 체계', 'SIMPLYPIG VISION', 'AI 웹·앱 개발', '리셀러 파트너'],
+    requiredTexts: ['BRAND PORTFOLIO', '그냥돼지 연혁', '회사통계', '리셀러 파트너'],
     screenshotProbe: { label: 'company brands section', selector: '#company-brands', minWidth: 280, minHeight: 180 },
     targets: [
-      { label: 'execution section', selector: 'h2,section,div', text: '통합 실행 체계', minWidth: 150, minHeight: 28 },
+      { label: 'brands section', selector: '#company-brands', text: 'BRAND PORTFOLIO', minWidth: 150, minHeight: 28 },
       { label: 'history section', selector: 'h2,section,div', text: '그냥돼지 연혁', minWidth: 150, minHeight: 28 },
     ],
   },
@@ -39,6 +39,7 @@ const pageSpecs = [
     slug: 'product-introduction',
     path: '/corp/company/product-introduction',
     requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹제품 스타터', '리셀러 파트너', 'CY 모바일 현장일보 웹앱', 'CY 실제 구동', 'CY 상품 견적 요청'],
+    screenshotProbe: { label: 'business panorama', selector: '#product-business-panorama', minWidth: 280, minHeight: 180 },
     targets: [
       { label: 'product heading', selector: 'h1', text: '제품소개', minWidth: 90, minHeight: 18 },
       { label: 'product catalog', selector: 'h1,h2,section,div,span,strong', text: 'PRODUCT CATALOG', minWidth: 120, minHeight: 18 },
@@ -62,35 +63,12 @@ const pageSpecs = [
   {
     slug: 'ceo-intro',
     path: '/corp/company/ceo-intro',
-    requiredTexts: ['CEO PROFILE · 01 / 03', '현장과 실행', '신체정보', '학력정보', '경력정보'],
-    screenshotProbe: { label: 'ceo hero image', selector: 'img[alt="대표 소개 사진 - 현장과 실행 리더십"]', minLuminanceRange: 20, minContrastPixelRatio: 0.002 },
+    requiredTexts: ['대표인사말', '사진을 눌러 그뚠이의 이야기를 들어보세요.', '대표이력서', '창업배경', '대표통계'],
+    screenshotProbe: { label: 'ceo greeting character', selector: 'img.portrait-image', minLuminanceRange: 20, minContrastPixelRatio: 0.002 },
     targets: [
-      { label: 'ceo heading', selector: '#dashboard2-title,h1,h2', text: '현장과 실행', minWidth: 160, minHeight: 30 },
-      { label: 'ceo profile accordion', selector: 'button', text: '신체정보', minWidth: 100, minHeight: 34 },
-      { label: 'ceo education accordion', selector: 'button', text: '학력정보', minWidth: 100, minHeight: 34 },
-    ],
-  },
-  {
-    slug: 'project-board',
-    path: '/corp/project',
-    requiredTexts: ['프로젝트 계획 보드', '카테고리', '전체 진행률'],
-    targets: [
-      { label: 'project heading', selector: 'h1,h2', text: '프로젝트 계획 보드', minWidth: 180, minHeight: 24 },
-      { label: 'category panel', selector: 'aside,section,div', text: '카테고리', minWidth: 90, minHeight: 34 },
-      { label: 'project card', selector: 'article,section,button,div', text: '계획', minWidth: 80, minHeight: 34 },
-    ],
-    performanceTargets: [
-      { label: 'project cards', selector: '[data-performance-region="project-card"]' },
-    ],
-  },
-  {
-    slug: 'portfolio',
-    path: '/corp/portfolio',
-    requiredTexts: ['현장을 이해하는 ERP와', 'ERP CONTROL ROOM', '하나의 운영 흐름, 네 가지 핵심 프로그램'],
-    targets: [
-      { label: 'portfolio heading', selector: 'h1,h2', text: '현장을 이해하는 ERP와', minWidth: 220, minHeight: 30 },
-      { label: 'program action', selector: 'a,button', text: '프로그램 살펴보기', minWidth: 120, minHeight: 36 },
-      { label: 'program section', selector: 'h2,section,div', text: '하나의 운영 흐름, 네 가지 핵심 프로그램', minWidth: 220, minHeight: 24 },
+      { label: 'ceo greeting prompt', selector: '.portrait-hint', text: '사진을 눌러 그뚠이의 이야기를 들어보세요.', minWidth: 160, minHeight: 16 },
+      { label: 'ceo greeting tab', selector: 'button', text: '대표인사말', minWidth: 100, minHeight: 34 },
+      { label: 'ceo resume tab', selector: 'button', text: '대표이력서', minWidth: 100, minHeight: 34 },
     ],
   },
 ];
@@ -183,6 +161,13 @@ async function scrollPageToTop(page) {
 }
 
 async function waitForVisualReady(page, spec) {
+  const imageSelector = spec.screenshotProbe?.selector;
+  if (imageSelector?.startsWith('img')) {
+    await page.waitForFunction((selector) => {
+      const image = document.querySelector(selector);
+      return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
+    }, imageSelector, { timeout: 30_000 });
+  }
   if (spec.visualReadySelector) {
     let lastError;
     let isReady = false;
@@ -439,6 +424,42 @@ async function verifyStaffDrawerAccessibility(page, viewportName, screenshotPath
 }
 
 async function verifyCeoProfileSwitch(page, viewportName) {
+  const tabs = page.getByRole('tablist', { name: '대표소개서 탭 선택' });
+  assert.deepEqual(await tabs.getByRole('tab').evaluateAll((items) => items.map((item) => item.querySelector('strong')?.textContent)),
+    ['대표인사말', '대표이력서', '창업배경', '대표통계'], `${viewportName} CEO tab order changed`);
+  assert.equal(await tabs.getByRole('tab', { name: /대표인사말/ }).getAttribute('aria-selected'), 'true');
+  const greetingPhoto = page.locator('button[data-greeting-stage]');
+  const speech = page.locator('#ceo-greeting-speech');
+  assert.equal(await speech.isVisible(), false, `${viewportName} greeting speech should open on click`);
+  assert.equal(await page.locator('.greeting-letter').isVisible(), false);
+  await greetingPhoto.click();
+  assert.equal(await speech.isVisible(), true);
+  assert.ok((await speech.innerText()).includes('슈퍼 뚠뚠이 입니다'));
+  assert.equal(await speech.locator('#ceo-greeting-title').isVisible(), true);
+  assert.equal(await speech.locator('.greeting-body > p').count(), 4);
+  assert.ok((await speech.locator('.greeting-letter').innerText()).includes('함께해 주셔서 감사합니다.'));
+  for (let stage = 2; stage <= 5; stage += 1) {
+    await greetingPhoto.click();
+    assert.equal(await greetingPhoto.getAttribute('data-greeting-stage'), String(stage));
+    assert.ok((await greetingPhoto.locator('img').getAttribute('src')).includes(`vision-stage-${stage}`));
+  }
+  await greetingPhoto.click();
+  assert.equal(await greetingPhoto.getAttribute('data-greeting-stage'), '1');
+  await page.keyboard.press('Escape');
+  assert.equal(await speech.isVisible(), false);
+  assert.equal(await page.locator('.greeting-letter').isVisible(), false);
+  assert.equal(await greetingPhoto.evaluate((button) => document.activeElement === button), true);
+  await greetingPhoto.click();
+  const signature = speech.getByRole('img', { name: '그뚠이 손글씨 사인' });
+  await signature.scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => {
+    const image = document.querySelector('img[alt="그뚠이 손글씨 사인"]');
+    return image?.complete && image.naturalWidth > 0;
+  });
+  await tabs.getByRole('tab', { name: /대표이력서/ }).click();
+  assert.equal(await page.locator('#dashboard2-intro .ceo-hero-badge, #dashboard2-intro .ceo-hero-title, #dashboard2-intro .ceo-hero-description').count(), 0,
+    `${viewportName} CEO resume should have no promotional header`);
+  assert.equal(await page.locator('[data-ceo-hero-accordion-trigger]').count(), 5);
   const profileTrigger = page.locator('[data-ceo-hero-profile-trigger]');
   assert.equal(await profileTrigger.count(), 1, `${viewportName} CEO profile trigger must be unique`);
 
@@ -448,13 +469,9 @@ async function verifyCeoProfileSwitch(page, viewportName) {
     () => {
       const trigger = document.querySelector('[data-ceo-hero-profile-trigger="1"]');
       const image = trigger?.querySelector('img');
-      const pageText = document.querySelector('main#content-area')?.textContent || '';
-
-      return (
-        image?.getAttribute('src')?.includes('upload_1780878139007') === true &&
-        pageText.includes('사람과 신뢰') &&
-        pageText.includes('함께 성장하는 리더십')
-      );
+      const source = image?.getAttribute('src') ?? '';
+      const matchesProfile = source.includes('upload_1780878139007') || source === '/images/corp/founder-story/vision-stage-2.png';
+      return matchesProfile && image?.complete && image.naturalWidth > 0;
     },
     undefined,
     { timeout: 10_000 },
@@ -464,9 +481,6 @@ async function verifyCeoProfileSwitch(page, viewportName) {
 async function verifyCompanyDashboardExperience(page, viewportName) {
   const expectedSectionOrder = [
     'company-brands',
-    'company-introduction-business',
-    'company-introduction-execution',
-    'company-introduction-vision',
     'company-introduction-history',
     'dashboard2-operating',
   ];
@@ -480,9 +494,7 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
       mainScrollWidth: main?.scrollWidth ?? 0,
       mainClientWidth: main?.clientWidth ?? 0,
       businessVideoFrameCount: document.querySelectorAll('iframe[src*="youtube-nocookie.com/embed/"]').length,
-      visionLaneCounts: Array.from(document.querySelectorAll('[data-vision-lane]')).map(
-        (lane) => lane.querySelectorAll('[data-vision-card]').length,
-      ),
+      visionSectionCount: document.querySelectorAll('#company-introduction-vision').length,
     };
   });
 
@@ -500,38 +512,17 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
     0,
     `${viewportName} company introduction must not render the product introduction video`,
   );
-  assert.deepEqual(initialEvidence.visionLaneCounts, [3, 3, 3], `${viewportName} company vision must render three cards in each lane`);
+  assert.equal(initialEvidence.visionSectionCount, 0, `${viewportName} company vision is merged into the execution section`);
   assert.equal(await page.locator('#dashboard2-intro').count(), 0, `${viewportName} company introduction must not render the introduction hero`);
   assert.equal(await page.locator('#company-introduction-technology').count(), 0, `${viewportName} company introduction must not render the technology section`);
 
-  const businessPreviewFrame = page.locator('iframe[data-business-area-preview]');
-  await businessPreviewFrame.waitFor({ state: 'visible', timeout: 10_000 });
-  await page.waitForFunction(
-    () => {
-      const frame = document.querySelector('iframe[data-business-area-preview]');
-      const previewDocument = frame?.contentDocument;
-      return Boolean(
-        frame instanceof HTMLIFrameElement &&
-          previewDocument &&
-          previewDocument.documentElement.scrollHeight <= frame.clientHeight,
-      );
-    },
-    undefined,
-    { timeout: 10_000 },
-  );
-  const businessPreviewEvidence = await businessPreviewFrame.evaluate((frame) => ({
-    frameHeight: frame.clientHeight,
-    documentHeight: frame.contentDocument?.documentElement.scrollHeight ?? 0,
-  }));
-  assert.ok(
-    businessPreviewEvidence.documentHeight <= businessPreviewEvidence.frameHeight,
-    `${viewportName} company business preview must not create an internal scrollbar`,
-  );
+  assert.equal(await page.locator('iframe[data-business-area-preview], #company-introduction-execution').count(), 0,
+    `${viewportName} product showcase sections must no longer render on company introduction`);
 
   const historySection = page.locator('#company-introduction-history');
   await historySection.scrollIntoViewIfNeeded();
-  await page.waitForFunction(
-    () => {
+  const waitForHistoryHead = (insideTimeline = false) => page.waitForFunction(
+    (inside) => {
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
 
       const main = document.querySelector('main#content-area');
@@ -549,32 +540,21 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
       const mainStyle = window.getComputedStyle(main);
       const mainIsScrollRoot = /(auto|scroll|overlay)/.test(mainStyle.overflowY)
         && main.scrollHeight > main.clientHeight + 1;
-      const expectedCenterY = mainIsScrollRoot
+      const viewportCenterY = mainIsScrollRoot
         ? mainRect.top + main.clientHeight / 2
         : window.innerHeight / 2;
+      const expectedCenterY = Math.min(railRect.bottom, Math.max(railRect.top, viewportCenterY));
+      if (inside && (viewportCenterY <= railRect.top || viewportCenterY >= railRect.bottom)) return false;
 
       return Math.abs(railCenterX - headCenterX) <= 1 && Math.abs(expectedCenterY - headCenterY) <= 3;
     },
-    undefined,
+    insideTimeline,
     { timeout: 10_000 },
   );
-
-  const automationTab = page.locator('#company-execution-tab-automation');
-  await automationTab.scrollIntoViewIfNeeded();
-  await automationTab.click();
-  await page.waitForFunction(
-    () => document.querySelector('#company-execution-panel')?.getAttribute('aria-labelledby') === 'company-execution-tab-automation',
-    undefined,
-    { timeout: 5_000 },
-  );
-
-  const executionEvidence = await page.locator('#company-execution-panel').evaluate((panel) => ({
-    stageCount: panel.querySelectorAll('[data-execution-stage]').length,
-    text: panel.textContent ?? '',
-  }));
-  assert.equal(executionEvidence.stageCount, 5, `${viewportName} selected execution track must expose five stages`);
-  assert.ok(executionEvidence.text.includes('업무 흐름 측정'), `${viewportName} automation roadmap did not update after selection`);
-  assert.ok(executionEvidence.text.includes('안정화와 확장'), `${viewportName} automation roadmap is missing its final stage`);
+  await waitForHistoryHead();
+  await historySection.locator('[data-history-item]').nth(3).evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await waitForHistoryHead(true);
 
   const radarTab = page.locator('[data-dashboard-operating-tab="radar"]');
   await radarTab.scrollIntoViewIfNeeded();
@@ -584,6 +564,11 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
     undefined,
     { timeout: 5_000 },
   );
+  await page.locator('[data-dashboard-motion="chart"]').scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => {
+    const chart = document.querySelector('[data-dashboard-motion="chart"]');
+    return chart && Number.parseFloat(getComputedStyle(chart).opacity) >= 0.99;
+  }, undefined, { timeout: 5_000 });
 
   const radarEvidence = await page.evaluate(() => {
     const labels = Array.from(document.querySelectorAll('[data-radar-corner-label]'));
@@ -619,16 +604,41 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
   );
 }
 
+async function verifyProductShowcase(page, viewportName) {
+  await page.waitForFunction(() => document.querySelector('iframe[data-business-area-preview]')?.dataset.previewReady === 'true');
+  const structure = await page.locator('main#content-area').evaluate(main => ({
+    sections: Array.from(main.children).filter(n => n.tagName === 'SECTION' || n.hasAttribute('data-product-catalog')).map(n => n.id || 'catalog'),
+    overflow: main.scrollWidth > main.clientWidth + 1,
+    nestedMain: main.querySelectorAll('main').length,
+  }));
+  assert.deepEqual(structure.sections, ['product-business-panorama', 'company-introduction-execution', 'catalog']);
+  assert.equal(structure.overflow, false, `${viewportName} product introduction overflow`);
+  assert.equal(structure.nestedMain, 0);
+  const frame = page.frameLocator('iframe[data-business-area-preview]');
+  assert.equal(await frame.locator('#heroTabs [role=tab]').count(), 5);
+  assert.equal(await frame.locator('#filmRail [role=tab]').count(), 10);
+  const automationTab = page.locator('#company-execution-tab-automation');
+  await automationTab.scrollIntoViewIfNeeded();
+  await automationTab.click();
+  const panel = page.locator('#company-execution-panel');
+  assert.equal(await panel.getAttribute('aria-labelledby'), 'company-execution-tab-automation');
+  assert.equal(await panel.locator('[data-execution-stage]').count(), 5);
+  assert.ok((await panel.textContent()).includes('업무 흐름 측정'));
+  assert.ok((await panel.textContent()).includes('안정화와 확장'));
+}
+
 async function verifyCompanyRouteNavigation(context, viewport) {
   const page = await context.newPage();
   const runtimeErrors = [];
   const routeSpecs = [
-    { path: '/corp/company/ceo-intro', text: 'CEO PROFILE · 01 / 03' },
+    { path: '/corp/company/ceo-intro', text: '사진을 눌러 그뚠이의 이야기를 들어보세요.' },
     { path: '/corp/company/staff-intro', text: 'DIVISION NETWORK' },
     { path: '/corp/company/product-introduction', text: 'PRODUCT CATALOG' },
     { path: '/corp/company/introduction', text: 'SIMPLYPIG' },
   ];
   const removedPaths = [
+    '/corp/project',
+    '/corp/portfolio',
     '/corp/company/history',
     '/corp/company/founding-background',
     '/corp/company/vision',
@@ -659,8 +669,10 @@ async function verifyCompanyRouteNavigation(context, viewport) {
     });
 
     assert.equal(await page.locator('#sidebar').count(), 1, `${viewport.name} company routes must preserve the site navigation`);
-    await page.locator('.site-mode-switcher-trigger').waitFor({ state: 'visible', timeout: 15_000 });
-    assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 1, `${viewport.name} company routes must preserve site-mode switching`);
+    await page.getByRole('button', { name: '로그인', exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await page.locator('#sidebar').getByText('프로젝트', { exact: true }).count(), 0, 'Removed project menu must not return');
+    assert.equal(await page.locator('#sidebar').getByText('포트폴리오', { exact: true }).count(), 0, 'Removed portfolio menu must not return');
+    assert.equal(await page.locator('.site-mode-switcher-trigger').count(), 0, `${viewport.name} site selection belongs in the login dialog`);
 
     for (const path of removedPaths) {
       const response = await context.request.get(new URL(path, baseUrl).toString());
@@ -738,6 +750,9 @@ try {
 
       if (spec.slug === 'company-introduction') {
         await verifyCompanyDashboardExperience(page, viewport.name);
+      }
+      if (spec.slug === 'product-introduction') {
+        await verifyProductShowcase(page, viewport.name);
       }
 
       await page.close();

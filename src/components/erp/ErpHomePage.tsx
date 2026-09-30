@@ -15,7 +15,6 @@ import {
 import {
   Activity,
   ArrowUpRight,
-  BriefcaseBusiness,
   Building2,
   CalendarCheck,
   ChevronRight,
@@ -268,15 +267,6 @@ const businessModules: ModuleItem[] = [
     domain: 'corporate',
     tone: 'blue',
     icon: Building2,
-  },
-  {
-    title: '프로젝트 보드',
-    summary: '진행 중인 과제, 목표, 실행 계획을 프로젝트 카드로 관리합니다.',
-    href: '/corp/project',
-    status: 'PM',
-    domain: 'corporate',
-    tone: 'green',
-    icon: BriefcaseBusiness,
   },
   {
     title: 'propig 대시보드',

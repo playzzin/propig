@@ -9,32 +9,18 @@ import {
   faChevronDown,
 } from '@fortawesome/free-solid-svg-icons';
 import styled from 'styled-components';
+import { BarChart3, PieChart, Scale } from 'lucide-react';
 import FounderStory from '@/components/corp/FounderStory';
-import CeoCharacterAside from '@/components/corp/CeoCharacterAside';
+import CeoGreeting from '@/components/corp/CeoGreeting';
+import { ceoCharacterStages } from '@/components/corp/ceoCharacterStages';
 import { getDashboardStyleCorpVariant } from '@/constants/dashboardStyleCorpRoutes';
 
-const CompanyBusinessAreaSections = dynamic(
-  () => import('@/components/corp/CompanyBusinessAreaExperience').then((module) => module.CompanyBusinessAreaSections),
-  { loading: () => <DeferredCorpSection /> },
-);
-const CompanyBusinessOverview = dynamic(
-  () => import('@/components/corp/CompanyBusinessOverview'),
-  { loading: () => <DeferredCorpSection /> },
-);
-const CompanyExecutionSystem = dynamic(
-  () => import('@/components/corp/CompanyExecutionSystem'),
-  { loading: () => <DeferredCorpSection /> },
-);
 const CompanyHistoryExperience = dynamic(
   () => import('@/components/corp/CompanyHistoryExperience').then((module) => module.CompanyHistoryExperience),
   { loading: () => <DeferredCorpSection /> },
 );
 const CompanyTechnologyOverview = dynamic(
   () => import('@/components/corp/CompanyTechnologyOverview'),
-  { loading: () => <DeferredCorpSection /> },
-);
-const CompanyVisionPanorama = dynamic(
-  () => import('@/components/corp/CompanyVisionPanorama'),
   { loading: () => <DeferredCorpSection /> },
 );
 
@@ -51,7 +37,7 @@ function DeferredCorpSection() {
 }
 
 type Dashboard2ExperienceVariant = 'introduction' | 'ceo';
-type CeoDocumentTab = 'resume' | 'introduction' | 'analysis';
+type CeoDocumentTab = 'greeting' | 'resume' | 'introduction' | 'analysis';
 
 type NumberMetric = {
   label: string;
@@ -79,7 +65,7 @@ type CeoHeroAccordionItem = {
   eyebrow: string;
   title: string;
   summary: string;
-  detail: string;
+  detail: React.ReactNode;
 };
 
 type CeoHeroMedia =
@@ -149,7 +135,6 @@ type CeoDocumentTabOption = {
 interface Dashboard2ExperienceProps {
   variant?: Dashboard2ExperienceVariant;
   enableBrandStory?: boolean;
-  includeProductIntroduction?: boolean;
   includeCompanyHistory?: boolean;
   showIntroductionHero?: boolean;
   showTechnologyOverview?: boolean;
@@ -387,24 +372,6 @@ const operatingPanels: OperatingPanel[] = [
   },
 ];
 
-const visionPillars = [
-  {
-    title: '복잡성을 단순한 경험으로',
-    desc: 'AI 모델과 데이터의 복잡함은 숨기고 사용자가 바로 이해하고 행동할 수 있는 경험으로 번역합니다.',
-    tone: '#4f7cff',
-  },
-  {
-    title: '데모보다 운영 가능한 제품',
-    desc: '빠른 프로토타입의 장점을 살리면서 권한, 기록, 복구, 유지보수까지 실제 운영 기준을 갖춥니다.',
-    tone: '#00b894',
-  },
-  {
-    title: '근거로 학습하는 성장',
-    desc: '제품 사용과 업무 시간, 콘텐츠 반응을 다음 의사결정에 연결해 지속적인 개선 구조를 만듭니다.',
-    tone: '#ff8a00',
-  },
-];
-
 const ceoHeroStats: NumberMetric[] = [
   { label: '대표 상세 소개서', value: 3, unit: '가지' },
   { label: '판단 루프', value: 4, unit: '단계' },
@@ -415,32 +382,93 @@ const ceoHeroAccordionItems: CeoHeroAccordionItem[] = [
   {
     eyebrow: '01 / Physical',
     title: '신체정보',
-    summary: '키 · 체중 등 기본 신체정보',
-    detail: '키와 체중 등 신체정보는 아직 등록되지 않았습니다.',
+    summary: '2m에는 조금 못 미치는, 존재감은 대형급',
+    detail: (
+      <>
+        <dl className="resume-facts">
+          <div><dt>키</dt><dd><b>176<span> cm</span></b><small>2m 조금 안 됨. ‘조금’의 기준은 본인 마음.</small></dd></div>
+          <div><dt>몸무게</dt><dd><b>MAX 0.15<span> ton</span></b><small>최대 150kg. 존재감도 묵직하게.</small></dd></div>
+          <div><dt>혈액형</dt><dd><b>B<span>형</span></b><small>혈액형은 한 글자, 설명할 이야기는 장편.</small></dd></div>
+          <div><dt>BMI · 비만지수</dt><dd><b className="resume-text-value">초고도비만</b><small>본인 소개: 지방도 많지만 골격과 근육량도 많음.</small></dd></div>
+        </dl>
+        <p className="resume-aside">“숨 좀 깊게 쉬면 10kg은 쉽게 왔다 갔다함.”<span>— 체중계와 협상 중인 그뚠이의 농담</span></p>
+        <ul className="resume-tags" aria-label="신체 특징"><li>고기 위주 식습관</li><li>큰 골격 · 많은 근육량</li><li>큰 얼굴 · 확실한 존재감</li></ul>
+      </>
+    ),
   },
   {
-    eyebrow: '02 / Education',
+    eyebrow: '02 / Personality',
+    title: '성격정보',
+    summary: '덩치는 묵직하게, 도망은 민첩하게',
+    detail: (
+      <>
+        <div className="resume-quotes">
+          <p><span>생존 본능</span><b>뚠뚠하지만 비겁해서<br />도망이 빠르다.</b><small>몸은 중량급, 위기 감지 후 퇴장은 경량급.</small></p>
+          <p><span>본인 피셜 · 성격 어록</span><b>강자에게 지랄하고,<br />약자에게 더 지랄하고.</b><small>입담에는 브레이크가 없는 편.</small></p>
+        </div>
+        <ol className="resume-principles" aria-label="그뚠이의 업무 삼박자">
+          <li><span>계획은</span><b>장엄하게</b></li>
+          <li><span>설계는</span><b>디테일하게</b></li>
+          <li><span>실행은</span><b>느긋하게</b></li>
+        </ol>
+        <p className="resume-footnote">머릿속에는 이미 대하드라마. 실행 버튼은 여유롭게 누르는 중.</p>
+      </>
+    ),
+  },
+  {
+    eyebrow: '03 / Education',
     title: '학력정보',
-    summary: '학교 · 전공 · 졸업 정보',
-    detail: '학교, 전공, 졸업 연도 등 학력정보는 아직 등록되지 않았습니다.',
+    summary: '초등학교 졸업 → 중학교 5곳 → 검정고시',
+    detail: (
+      <>
+        <ol className="resume-journey">
+          <li><span>첫 번째 졸업장</span><b>초등학교 졸업</b><p>배움의 첫 코스, 정상 완주.</p></li>
+          <li><span>학교생활 순회 편</span><b>중학교 5곳 전학</b><p>교실은 바뀌고, 자기소개 경험치는 쌓이고.</p></li>
+          <li><span>최종학력</span><b>검정고시 졸업</b><p>정해진 길을 조금 돌아, 나만의 방식으로 마침표.</p></li>
+        </ol>
+        <p className="resume-footnote">학교 이름보다 전학 에피소드가 더 긴 이력서.</p>
+      </>
+    ),
   },
   {
-    eyebrow: '03 / Career',
+    eyebrow: '04 / Career',
     title: '경력정보',
-    summary: '현장 경험에서 개발과 사업 운영까지',
-    detail: '현장 업무와 배달, 대리운전을 거쳐 개발을 공부하고 프리랜서 프로젝트를 수행했습니다. 이후 직접 프로젝트를 수주하며 사업을 시작했습니다.',
+    summary: '삽부터 키보드까지, 직업 장르를 넘나든 경력',
+    detail: (
+      <>
+        <ul className="resume-careers">
+          <li><b>건설 일용직</b><span>현장에서 시작한 실전 튜토리얼.</span></li>
+          <li><b>택배 · 배달 · 대리운전</b><span>물건도, 음식도, 사람도 목적지까지.</span></li>
+          <li><b>사행성 오락실 운영</b><span>이력서에서 빼지 않은 인생의 한 챕터.</span></li>
+          <li><b>광고회사 부장</b><span>이번에는 사람의 시선을 움직이는 일.</span></li>
+          <li><b>휴대폰 TM 사무실 운영</b><span>전화기 너머의 세상과 영업 중.</span></li>
+          <li><b>직업소개소 소장</b><span>일을 하다가, 사람과 일을 연결하는 쪽으로.</span></li>
+          <li><b>건설 시공 운영</b><span>다시 현장으로. 이번에는 운영까지.</span></li>
+        </ul>
+        <div className="resume-current"><span>현재 하는 일</span><b>외주개발 프리랜서 PM</b><p>현장에서 쌓은 이야기를, 이제 프로젝트로 풀어가는 중.</p></div>
+      </>
+    ),
   },
   {
-    eyebrow: '04 / Skills',
+    eyebrow: '05 / Skills',
     title: '기술정보',
-    summary: 'AI 서비스 · 웹·앱 · 자동화 · 콘텐츠',
-    detail: 'AI 서비스 기획, 웹·앱 구축, 업무 자동화, 브랜드 운영과 콘텐츠 제작을 연결합니다. 현장의 문제를 파악하고 실제로 사용할 수 있는 서비스로 구현합니다.',
-  },
-  {
-    eyebrow: '05 / Strategy',
-    title: '핵심전략',
-    summary: '현장에서 찾고, 직접 만들고, 계속 개선합니다.',
-    detail: '현장의 요구를 먼저 듣고 작은 실행으로 검증합니다. 개발·디자인·콘텐츠를 함께 활용하며, 결과와 피드백을 다음 개선에 반영합니다.',
+    summary: '핸들도 잡고, 프로젝트 방향도 잡고',
+    detail: (
+      <>
+        <p className="resume-label">보유 운전면허</p>
+        <ul className="resume-licenses">
+          <li><b>1종 대형</b><span>큰 차 담당</span></li>
+          <li><b>1종 보통</b><span>일상의 기동력</span></li>
+          <li><b>2종 소형</b><span>두 바퀴까지</span></li>
+        </ul>
+        <dl className="resume-skills">
+          <div><dt>프로젝트 운영</dt><dd>외주개발 PM · 현장 요구 파악 · 업무 조율</dd></div>
+          <div><dt>디지털 실무</dt><dd>AI 서비스 기획 · 웹·앱 구축 · 업무 자동화 · 콘텐츠 제작</dd></div>
+          <div><dt>현장 실무</dt><dd>건설 시공 운영 · 영업 · 사무실 운영 · 인력 연결</dd></div>
+        </dl>
+        <p className="resume-footnote">운전면허는 종류별로, 실무 경험은 장르별로. 기타 생존 기술은 현장에서 업데이트.</p>
+      </>
+    ),
   },
 ];
 
@@ -576,25 +604,8 @@ const ceoOperatingPanels: OperatingPanel[] = [
   },
 ];
 
-const ceoVisionPillars = [
-  {
-    title: '전문 분야: 될 때까지 하는 거야',
-    desc: '한 번에 안 되면 다른 방법으로. 될 때까지 고치고 다시 해봅니다.',
-    tone: '#2d61ff',
-  },
-  {
-    title: '업무 방식: 이것저것 다 해보는 거야',
-    desc: '모르면 배우고, 궁금하면 만들어봅니다. 이것저것 해보며 나에게 맞는 방법을 찾습니다.',
-    tone: '#ffb000',
-  },
-  {
-    title: '성과 해석: 얻어걸려도 실력인 거야',
-    desc: '많이 시도해야 얻어걸릴 기회도 생깁니다. 우연히 얻은 결과도 다음에는 다시 만들 수 있도록 배웁니다.',
-    tone: '#ff6955',
-  },
-];
-
 const ceoDocumentTabs: CeoDocumentTabOption[] = [
+  { id: 'greeting', label: '대표인사말', eyebrow: 'GREETING' },
   { id: 'resume', label: '대표이력서', eyebrow: 'RESUME' },
   { id: 'introduction', label: '창업배경', eyebrow: 'STORY' },
   { id: 'analysis', label: '대표통계', eyebrow: 'ANALYSIS' },
@@ -714,7 +725,6 @@ function AnimatedNumber({
 export default function Dashboard2Experience({
   variant,
   enableBrandStory = false,
-  includeProductIntroduction = false,
   includeCompanyHistory = false,
   showIntroductionHero = true,
   showTechnologyOverview = true,
@@ -727,10 +737,11 @@ export default function Dashboard2Experience({
   const nextCeoProfileImageRef = useRef<HTMLImageElement | null>(null);
   const shouldReduceMotion = true;
   const [brandStorySlideIndex, setBrandStorySlideIndex] = useState(0);
-  const [selectedOperatingState, setSelectedOperatingState] = useState({ variant: resolvedVariant, index: 0 });
+  const [selectedOperatingState, setSelectedOperatingState] = useState({ variant: resolvedVariant, index: -1 });
   const [openCeoHeroAccordionState, setOpenCeoHeroAccordionState] = useState({ variant: resolvedVariant, index: 0 });
   const [activeCeoProfileIndex, setActiveCeoProfileIndex] = useState(0);
-  const [activeCeoDocumentTab, setActiveCeoDocumentTab] = useState<CeoDocumentTab>('resume');
+  const [failedCeoProfileImages, setFailedCeoProfileImages] = useState<Record<string, boolean>>({});
+  const [activeCeoDocumentTab, setActiveCeoDocumentTab] = useState<CeoDocumentTab>('greeting');
   const barInView = true;
   const isCeoVariant = resolvedVariant === 'ceo';
   const isBrandStoryActive = enableBrandStory && !isCeoVariant;
@@ -738,7 +749,8 @@ export default function Dashboard2Experience({
   const activeCeoProfile = ceoHeroProfiles[activeCeoProfileIndex] ?? ceoHeroProfiles[0]!;
   const activeBrandStorySlide =
     introductionHeroSlides[brandStorySlideIndex] ?? introductionHeroSlides[0]!;
-  const selectedOperatingIndex = selectedOperatingState.variant === resolvedVariant ? selectedOperatingState.index : 0;
+  const selectedOperatingIndex = selectedOperatingState.variant === resolvedVariant
+    ? selectedOperatingState.index : -1;
   const openCeoHeroAccordionIndex =
     openCeoHeroAccordionState.variant === resolvedVariant ? openCeoHeroAccordionState.index : 0;
   const activeHeroStats = isCeoVariant
@@ -748,27 +760,29 @@ export default function Dashboard2Experience({
       : heroStats;
   const activeOperatingHighlights = isCeoVariant ? ceoOperatingHighlights : operatingHighlights;
   const activeOperatingPanels = isCeoVariant ? ceoOperatingPanels : operatingPanels;
-  const activeVisionPillars = isCeoVariant ? ceoVisionPillars : visionPillars;
   const selectedPanel = activeOperatingPanels[selectedOperatingIndex] ?? activeOperatingPanels[0];
   const selectedPieSegments = getPieDonutSegments(selectedPanel.pieData);
   const activeCeoMedia = activeCeoProfile.media;
+  const ceoPhotoFallback = isCeoVariant && failedCeoProfileImages[activeCeoProfile.id]
+    ? ceoCharacterStages[activeCeoProfileIndex] ?? ceoCharacterStages[0]
+    : null;
   const activeCeoVideo = isCeoVariant && activeCeoMedia.type === 'youtube' ? activeCeoMedia : null;
   const heroImageSrc = isCeoVariant
     ? activeCeoMedia.type === 'image'
-      ? activeCeoMedia.url
+      ? ceoPhotoFallback?.src ?? activeCeoMedia.url
       : heroImageUrl
     : isBrandStoryActive
       ? activeBrandStorySlide.imageUrl
       : heroImageUrl;
   const heroImageAlt = isCeoVariant
     ? activeCeoMedia.type === 'image'
-      ? activeCeoMedia.alt
+      ? ceoPhotoFallback ? `그뚠이 대표 캐릭터 — ${ceoPhotoFallback.alt}` : activeCeoMedia.alt
       : ''
     : isBrandStoryActive
       ? activeBrandStorySlide.imageAlt
       : '청연ENG ERP 대시보드 비주얼';
   const heroImageFit = isCeoVariant
-    ? 'cover'
+    ? ceoPhotoFallback ? 'contain' : 'cover'
     : isBrandStoryActive
       ? activeBrandStorySlide.imageFit
       : 'contain';
@@ -1057,22 +1071,37 @@ export default function Dashboard2Experience({
     });
   };
 
+  const handleOperatingSelection = (index: number, fromFooter = false) => {
+    setSelectedOperatingState({
+      variant: resolvedVariant,
+      index: selectedOperatingIndex === index ? -1 : index,
+    });
+    if (fromFooter) {
+      window.requestAnimationFrame(() => {
+        const trigger = document.getElementById(`dashboard2-operating-trigger-${activeOperatingHighlights[index]?.metric.toLowerCase()}`);
+        trigger?.focus({ preventScroll: true });
+        trigger?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      });
+    }
+  };
+
   const operatingContent = (
     <OperatingInner>
       <OperatingCopy variants={revealVariant}>
-        <p>{isCeoVariant ? '대표 리더십 패키지' : 'AI 실행 역량'}</p>
-        <h2>{isCeoVariant ? '대표 메시지가 운영 기준으로 보이는 화면' : '아이디어를 운영 가능한 결과로 만드는 역량'}</h2>
+        <p>{isCeoVariant ? 'CEO LEADERSHIP' : 'COMPANY STATISTICS'}</p>
+        <h2>{isCeoVariant ? '대표통계' : '회사통계'}</h2>
         <span>
           {isCeoVariant
-            ? '대표의 원칙, 판단 루프, 현장 책임을 같은 정보 구조로 확인할 수 있습니다.'
-            : '제품, 자동화, 미디어, 리셀러 파트너 역량을 실행 관점에서 비교해 지금 우선할 다음 단계를 빠르게 찾을 수 있게 구성했습니다.'}
+            ? '원칙 정렬, 현장 판단, 책임 확장. 아래 버튼을 눌러 각 지표를 펼쳐보세요.'
+            : '사업 포트폴리오, 실행 파이프라인, 품질 균형. 아래 버튼을 눌러 회사의 주요 지표를 펼쳐보세요.'}
         </span>
       </OperatingCopy>
 
-      <OperatingAccordion role="group" aria-label="AI 실행 역량 상세 보기">
+      <OperatingAccordion role="group" aria-label={isCeoVariant ? '대표통계 항목 선택' : '회사통계 항목 선택'}>
         {activeOperatingHighlights.map((item, index) => {
           const isSelected = selectedOperatingIndex === index;
           const triggerId = `dashboard2-operating-trigger-${item.metric.toLowerCase()}`;
+          const StatIcon = (isCeoVariant ? [BarChart3, PieChart, Scale] : [PieChart, BarChart3, Scale])[index] ?? BarChart3;
 
           return (
             <OperatingAccordionTrigger
@@ -1082,30 +1111,25 @@ export default function Dashboard2Experience({
               data-dashboard-operating-tab={item.metric.toLowerCase()}
               aria-expanded={isSelected}
               aria-controls="dashboard2-operating-panel"
-              onClick={() => setSelectedOperatingState({ variant: resolvedVariant, index })}
+              onClick={() => handleOperatingSelection(index)}
               className={isSelected ? 'is-selected' : undefined}
             >
-              <span>
-                <span>
-                  <small>{item.eyebrow}</small>
-                  <strong>{item.title}</strong>
-                </span>
-                <b>{item.metric}</b>
-              </span>
-              <em>{item.desc}</em>
-              <i>
-                {item.helper}
-                <FontAwesomeIcon icon={faChevronDown} aria-hidden="true" />
-              </i>
+                  <small className="stat-number">0{index + 1} · {item.metric}</small>
+                  <span className="stat-icon" aria-hidden="true"><span><StatIcon size={32} strokeWidth={1.7} /></span></span>
+                  <strong className="stat-label">{item.eyebrow}</strong>
+                  <em className="stat-title">{isCeoVariant ? activeOperatingPanels[index].title : item.title}</em>
+                  <i className="stat-action">{isSelected ? '접기' : '펼쳐 보기'}<FontAwesomeIcon icon={faChevronDown} aria-hidden="true" /></i>
             </OperatingAccordionTrigger>
           );
         })}
       </OperatingAccordion>
 
       <ChartPanel
+        key={`${resolvedVariant}-stat-${selectedOperatingIndex}`}
         id="dashboard2-operating-panel"
+        hidden={selectedOperatingIndex < 0}
         role="region"
-        aria-labelledby={`dashboard2-operating-trigger-${activeOperatingHighlights[selectedOperatingIndex]?.metric.toLowerCase() ?? 'pie'}`}
+        aria-labelledby={`dashboard2-operating-trigger-${(activeOperatingHighlights[selectedOperatingIndex] ?? activeOperatingHighlights[0]).metric.toLowerCase()}`}
         data-dashboard-motion="chart"
         data-dashboard-motion-state="visible"
         initial={shouldReduceMotion ? false : { opacity: 0, y: 34 }}
@@ -1304,15 +1328,20 @@ export default function Dashboard2Experience({
             </RadarChart>
           ) : null}
         </ChartCanvas>
+        {selectedOperatingIndex >= 0 ? (
+          <div className="ceo-stat-footer">
+            <p><strong>{activeOperatingHighlights[selectedOperatingIndex].helper}</strong>{activeOperatingHighlights[selectedOperatingIndex].desc}</p>
+            <button type="button" className="ceo-stat-close" onClick={() => handleOperatingSelection(selectedOperatingIndex, true)}>이 통계 접기</button>
+          </div>
+        ) : null}
       </ChartPanel>
     </OperatingInner>
   );
 
 
   const introductionHero = shouldRenderIntroductionHero ? (
-      <HeroSection id="dashboard2-intro" $isCeo={isCeoVariant}>
-        <HeroGrid aria-hidden="true" />
-        <HeroWash aria-hidden="true" />
+      <HeroSection id="dashboard2-intro" $isCeo={isCeoVariant} aria-label={isCeoVariant ? '대표이력서 상세' : undefined}>
+        {!isCeoVariant ? <><HeroGrid aria-hidden="true" /><HeroWash aria-hidden="true" /></> : null}
         <HeroInner $isCeo={isCeoVariant}>
           <motion.div
             className={isCeoVariant ? 'ceo-hero-photo' : undefined}
@@ -1321,7 +1350,7 @@ export default function Dashboard2Experience({
             transition={{ duration: shouldReduceMotion ? 0 : 0.8, delay: 0.1 }}
           >
             <HeroImageCard $isPortrait={isCeoVariant}>
-              <HeroImageGlow aria-hidden="true" />
+              {!isCeoVariant ? <HeroImageGlow aria-hidden="true" /> : null}
               {activeCeoVideo ? (
                 <>
                   <HeroVideoFrame>
@@ -1365,6 +1394,11 @@ export default function Dashboard2Experience({
                     key={heroImageSrc}
                     src={heroImageSrc}
                     alt={heroImageAlt}
+                    onError={() => {
+                      if (isCeoVariant && activeCeoMedia.type === 'image' && !ceoPhotoFallback) {
+                        setFailedCeoProfileImages((current) => ({ ...current, [activeCeoProfile.id]: true }));
+                      }
+                    }}
                     width={isBrandStoryActive ? activeBrandStorySlide.imageWidth : 1024}
                     height={isBrandStoryActive ? activeBrandStorySlide.imageHeight : 1280}
                     style={{ objectFit: heroImageFit, objectPosition: heroImagePosition }}
@@ -1372,7 +1406,7 @@ export default function Dashboard2Experience({
                     loading="eager"
                     fetchPriority="high"
                   />
-                  <HeroStoryCue aria-hidden="true">
+                  {isCeoVariant ? <span className="ceo-profile-caption" aria-hidden="true">사진을 누르면 다음 소개를 볼 수 있어요.</span> : <HeroStoryCue aria-hidden="true">
                     <span>
                       <small>
                         {isCeoVariant
@@ -1390,7 +1424,7 @@ export default function Dashboard2Experience({
                     <i>
                       <FontAwesomeIcon icon={faArrowRight} />
                     </i>
-                  </HeroStoryCue>
+                  </HeroStoryCue>}
                 </HeroImageButton>
               ) : (
                 <img
@@ -1403,18 +1437,7 @@ export default function Dashboard2Experience({
           </motion.div>
 
           {isCeoVariant ? (
-            <CeoHeroAccordionColumn className="ceo-hero-copy" aria-label="대표소개 핵심 메시지" aria-live="polite" aria-atomic="true">
-              <StatusBadge className="ceo-hero-badge">
-                <span />
-                {activeCeoProfile.badge}
-              </StatusBadge>
-              <h2 id="ceo-resume-profile-title" className="ceo-hero-title">
-                <GradientText>{activeCeoProfile.accentHeading}</GradientText>{activeCeoProfile.headingSuffix}
-                <br />
-                {activeCeoProfile.headingSecondLine}
-              </h2>
-              <p className="ceo-hero-description">{activeCeoProfile.description}</p>
-
+            <CeoHeroAccordionColumn className="ceo-hero-copy" aria-label="대표 이력 정보">
               <CeoHeroAccordionList className="ceo-hero-accordion">
                 {ceoHeroAccordionItems.map((item, index) => {
                   const isOpen = openCeoHeroAccordionIndex === index;
@@ -1424,6 +1447,7 @@ export default function Dashboard2Experience({
                     <article key={item.title} className={isOpen ? 'is-open' : undefined}>
                       <button
                         type="button"
+                        id={`ceo-resume-heading-${index}`}
                         data-ceo-hero-accordion-trigger={index}
                         aria-expanded={isOpen}
                         aria-controls={panelId}
@@ -1441,8 +1465,8 @@ export default function Dashboard2Experience({
                           <FontAwesomeIcon icon={faChevronDown} />
                         </i>
                       </button>
-                      <div id={panelId} aria-hidden={!isOpen} className={isOpen ? 'is-open' : undefined}>
-                        <p>{item.detail}</p>
+                      <div id={panelId} role="region" aria-labelledby={`ceo-resume-heading-${index}`} aria-hidden={!isOpen} className={isOpen ? 'is-open' : undefined}>
+                        <div className="resume-detail">{item.detail}</div>
                       </div>
                     </article>
                   );
@@ -1474,7 +1498,7 @@ export default function Dashboard2Experience({
 
               {!isCeoVariant ? (
                 <HeroActionGroup variants={revealVariant} aria-label="회사소개 주요 안내">
-                  <HeroActionLink href="#company-introduction-business">
+                  <HeroActionLink href="/corp/company/product-introduction#product-business-panorama">
                     제품소개 살펴보기
                     <FontAwesomeIcon icon={faArrowRight} aria-hidden="true" />
                   </HeroActionLink>
@@ -1554,14 +1578,16 @@ export default function Dashboard2Experience({
               aria-labelledby={`ceo-document-tab-${activeCeoDocumentTab}`}
               tabIndex={0}
             >
+              {activeCeoDocumentTab === 'greeting' ? <CeoGreeting /> : null}
+
               {activeCeoDocumentTab === 'resume' ? introductionHero : null}
 
               {activeCeoDocumentTab === 'introduction' ? <FounderStory /> : null}
 
               {activeCeoDocumentTab === 'analysis' ? (
-                <CeoLeadershipAnalytics>
+                <StatisticsPresentation>
                   {operatingContent}
-                </CeoLeadershipAnalytics>
+                </StatisticsPresentation>
               ) : null}
             </CeoDocumentPanel>
           </CeoDocumentHub>
@@ -1607,25 +1633,8 @@ export default function Dashboard2Experience({
         </BusinessSection>
       ) : null}
 
-
-
-      {!isCeoVariant ? (
-        includeProductIntroduction ? (
-          <CompanyBusinessAreaSections
-            id="company-introduction-business"
-            showBusinessVideoSection={false}
-            pageLabel="제품소개"
-          />
-        ) : (
-          <CompanyBusinessOverview />
-        )
-      ) : null}
-
       {!isCeoVariant && showTechnologyOverview ? <CompanyTechnologyOverview /> : null}
 
-      {!isCeoVariant ? <CompanyExecutionSystem /> : null}
-
-      {!isCeoVariant ? <CompanyVisionPanorama /> : null}
 
       {!isCeoVariant && includeCompanyHistory ? <CompanyHistoryExperience embedded /> : null}
 
@@ -1640,7 +1649,9 @@ export default function Dashboard2Experience({
           viewport={{ once: true, amount: 0.22 }}
           variants={staggerVariant}
         >
-          {operatingContent}
+          <StatisticsPresentation as="div" data-company-statistics>
+            {operatingContent}
+          </StatisticsPresentation>
         </OperatingSection>
       ) : null}
 
@@ -1660,7 +1671,7 @@ export default function Dashboard2Experience({
                 사업 제휴 문의
                 <FontAwesomeIcon icon={faArrowRight} aria-hidden="true" />
               </CompanyPrimaryAction>
-              <CompanySecondaryAction href="#company-introduction-execution">
+              <CompanySecondaryAction href="/corp/company/product-introduction#company-introduction-execution">
                 실행 방식 다시 보기
               </CompanySecondaryAction>
             </CompanyNextStepActions>
@@ -1668,35 +1679,6 @@ export default function Dashboard2Experience({
         </CompanyNextStepSection>
       ) : null}
 
-      {isCeoVariant ? (
-        <DarkSection>
-          <CeoVisionDispatch aria-labelledby="ceo-vision-title">
-            <CeoVisionDispatchHeader>
-              <span>CEO 비전 · 사장에서 날아온 메모</span>
-              <h2 id="ceo-vision-title">
-                그냥 뚠뚠이 입니다
-                <br />
-                만등 엔터테이너 입니다
-              </h2>
-              <p>사실... 이도저도 아닌 돼지 입니다...;;</p>
-            </CeoVisionDispatchHeader>
-
-            <CeoCharacterAside />
-
-            <CeoVisionNoteGrid>
-              {activeVisionPillars.map((pillar, index) => (
-                <article key={pillar.title}>
-                  <span style={{ backgroundColor: pillar.tone }}>{String(index + 1).padStart(2, '0')}</span>
-                  <div>
-                    <h3>{pillar.title}</h3>
-                    <p>{pillar.desc}</p>
-                  </div>
-                </article>
-              ))}
-            </CeoVisionNoteGrid>
-          </CeoVisionDispatch>
-        </DarkSection>
-      ) : null}
 
     </PageShell>
   );
@@ -1991,12 +1973,12 @@ const TopNotice = styled.div`
 const HeroSection = styled.section<{ $isCeo?: boolean }>`
   position: relative;
   overflow: hidden;
-  background: #f8fafc;
+  background: ${({ $isCeo }) => ($isCeo ? 'transparent' : '#f8fafc')};
   color: #111827;
-  padding: ${({ $isCeo }) => ($isCeo ? '48px 20px 56px' : '64px 20px 80px')};
+  padding: ${({ $isCeo }) => ($isCeo ? '24px 4px' : '64px 20px 80px')};
 
   @media (max-width: 640px) {
-    padding: ${({ $isCeo }) => ($isCeo ? '32px 20px 44px' : '48px 20px 56px')};
+    padding: ${({ $isCeo }) => ($isCeo ? '10px 0' : '48px 20px 56px')};
   }
 `;
 
@@ -2031,23 +2013,16 @@ const HeroInner = styled.div<{ $isCeo?: boolean }>`
     display: contents;
   }
 
-  > .ceo-hero-copy > .ceo-hero-badge,
-  > .ceo-hero-copy > .ceo-hero-title,
-  > .ceo-hero-copy > .ceo-hero-description {
-    grid-column: 1 / -1;
-    order: 1;
-  }
-
   > .ceo-hero-photo {
     grid-column: 1;
-    grid-row: 4;
+    grid-row: 1;
     align-self: start;
     order: 2;
   }
 
   > .ceo-hero-copy > .ceo-hero-accordion {
     grid-column: 2;
-    grid-row: 4;
+    grid-row: 1;
     align-self: start;
     margin-top: 0;
     order: 3;
@@ -2111,7 +2086,7 @@ const HeroImageCard = styled.div<{ $isPortrait?: boolean }>`
     border-radius: 8px;
     background: #ffffff;
     object-fit: contain;
-    box-shadow: 0 32px 90px rgba(15, 23, 42, 0.18);
+    box-shadow: ${(props) => (props.$isPortrait ? 'none' : '0 32px 90px rgba(15, 23, 42, 0.18)')};
     transition: transform 180ms ease, box-shadow 180ms ease;
   }
 `;
@@ -2140,6 +2115,8 @@ const HeroImageButton = styled.button`
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+
+  .ceo-profile-caption { display: block; margin-top: 12px; color: #64748b; font-size: 12px; line-height: 1.7; text-align: left; }
 
   img {
     animation: brand-story-image-in 280ms ease both;
@@ -2628,7 +2605,7 @@ const CeoHeroAccordionList = styled.div`
     opacity: 1;
   }
 
-  article > div p {
+  article > div > .resume-detail {
     min-height: 0;
     overflow: hidden;
     margin: 0;
@@ -2642,11 +2619,64 @@ const CeoHeroAccordionList = styled.div`
     transition: padding 0.22s ease;
   }
 
-  article > div.is-open p {
+  article > div.is-open > .resume-detail {
     padding: 14px 16px 16px;
   }
 
+  .resume-detail p { margin: 0; font-size: 0.88rem; line-height: 1.75; font-weight: 500; }
+  .resume-detail b { font-weight: 850; }
+  .resume-detail small { margin-top: 5px; color: #475569; font-size: 0.78rem; font-weight: 500; letter-spacing: 0; line-height: 1.65; }
+  .resume-detail ul, .resume-detail ol { margin: 0; padding: 0; list-style: none; }
+  .resume-detail dl, .resume-detail dd { margin: 0; }
+  .resume-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; }
+  .resume-facts dt { margin-bottom: 5px; color: #475569; font-size: 0.75rem; }
+  .resume-facts dd > b { display: block; color: #163d83; font-size: 1.65rem; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  .resume-facts dd > b > span { font-size: 0.9rem; }
+  .resume-facts dd > b.resume-text-value { font-size: 1.2rem; }
+  .resume-detail .resume-aside { margin-top: 22px; padding: 12px 0 12px 14px; border-left: 3px solid #2563eb; color: #1e3a5f; font-weight: 700; }
+  .resume-aside > span { display: block; margin-top: 3px; color: #64748b; font-size: 0.74rem; font-weight: 500; }
+  .resume-detail .resume-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+  .resume-tags li { padding: 4px 8px; border-radius: 4px; background: #e8eef8; color: #334155; font-size: 0.72rem; }
+  .resume-quotes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .resume-quotes p > span, .resume-current > span, .resume-journey li > span { display: block; margin-bottom: 6px; color: #1d4ed8; font-size: 0.73rem; font-weight: 750; }
+  .resume-quotes b { display: block; color: #182d4c; font-size: 1.07rem; line-height: 1.7; }
+  .resume-detail .resume-principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 24px; padding-top: 18px; border-top: 1px solid #d9e1ec; }
+  .resume-principles span { display: block; color: #475569; font-size: 0.78rem; }
+  .resume-principles b { display: block; margin-top: 5px; color: #163d83; font-size: 1.07rem; }
+  .resume-detail .resume-footnote { margin-top: 18px; color: #52627a; font-size: 0.78rem; }
+  .resume-journey { display: grid; gap: 20px; }
+  .resume-journey li { position: relative; padding-left: 20px; border-left: 2px solid #cedaf0; }
+  .resume-journey li::before { position: absolute; top: 5px; left: -5px; width: 8px; height: 8px; border-radius: 50%; background: #2563eb; content: ''; }
+  .resume-journey b { display: block; color: #182d4c; font-size: 1.05rem; }
+  .resume-journey li p { margin-top: 4px; }
+  .resume-careers li { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #e1e7f0; }
+  .resume-careers li:first-child { padding-top: 0; }
+  .resume-careers b { color: #182d4c; font-size: 0.87rem; }
+  .resume-careers li > span { color: #52627a; font-size: 0.8rem; }
+  .resume-current { margin-top: 18px; padding-left: 14px; border-left: 3px solid #2563eb; }
+  .resume-current > b { display: block; color: #163d83; font-size: 1.15rem; }
+  .resume-current p { margin-top: 5px; }
+  .resume-detail .resume-label { margin-bottom: 10px; color: #475569; font-size: 0.76rem; font-weight: 750; }
+  .resume-licenses { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .resume-licenses li { padding: 12px 8px; border: 1px solid #d3dded; border-radius: 6px; background: #fff; text-align: center; }
+  .resume-licenses b { display: block; color: #163d83; font-size: 0.95rem; }
+  .resume-licenses span { display: block; margin-top: 4px; color: #52627a; font-size: 0.72rem; }
+  .resume-detail .resume-skills { display: grid; gap: 12px; margin-top: 20px; }
+  .resume-skills dt { color: #182d4c; font-size: 0.83rem; font-weight: 800; }
+  .resume-skills dd { margin-top: 3px; color: #52627a; font-size: 0.82rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    article, i, article > div, article > div > .resume-detail { transition: none; }
+  }
+
   @media (max-width: 640px) {
+    .resume-facts { gap: 18px 14px; }
+    .resume-facts dd > b { font-size: 1.4rem; }
+    .resume-quotes { grid-template-columns: 1fr; gap: 18px; }
+    .resume-careers li { grid-template-columns: 1fr; gap: 2px; }
+    .resume-principles b { font-size: 0.93rem; }
+    .resume-licenses b { font-size: 0.85rem; }
+
     button {
       min-height: 72px;
       grid-template-columns: minmax(0, 1fr) 38px;
@@ -3567,191 +3597,6 @@ const SectionInner = styled(motion.div)`
   }
 `;
 
-const DarkSection = styled.section`
-  background: #080c16;
-  padding: 80px 20px;
-  color: #ffffff;
-`;
-
-const CeoVisionDispatch = styled.section`
-  width: min(1180px, 100%);
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
-  gap: 28px;
-  margin: 0 auto;
-  border: 1px solid rgba(255, 255, 255, 0.17);
-  border-radius: 24px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.09), transparent 42%),
-    #101c33;
-  padding: 40px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.32);
-  animation: ceo-vision-dispatch-fly-in 0.72s cubic-bezier(0.2, 0.9, 0.3, 1) both;
-
-  &::before {
-    width: 180px;
-    height: 180px;
-    position: absolute;
-    top: -88px;
-    right: -50px;
-    border: 20px solid rgba(255, 176, 0, 0.16);
-    border-radius: 50%;
-    content: '';
-  }
-
-  &::after {
-    position: absolute;
-    top: 28px;
-    right: 190px;
-    color: rgba(255, 255, 255, 0.25);
-    content: '↗  ↗  ↗';
-    font-size: 1.25rem;
-    font-weight: 950;
-    letter-spacing: 0.22em;
-    transform: rotate(-18deg);
-  }
-
-  @keyframes ceo-vision-dispatch-fly-in {
-    from {
-      opacity: 0;
-      transform: translate3d(-44px, 28px, 0) rotate(-2.5deg);
-    }
-
-    to {
-      opacity: 1;
-      transform: translate3d(0, 0, 0) rotate(0deg);
-    }
-  }
-
-  @media (max-width: 800px) {
-    grid-template-columns: 1fr;
-    gap: 22px;
-    padding: 28px;
-  }
-
-  @media (max-width: 520px) {
-    border-radius: 18px;
-    padding: 22px;
-
-    &::after {
-      top: 16px;
-      right: 16px;
-      font-size: 0.9rem;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-const CeoVisionDispatchHeader = styled.header`
-  position: relative;
-  z-index: 1;
-
-  > span {
-    display: inline-flex;
-    border: 1px solid rgba(255, 176, 0, 0.45);
-    border-radius: 999px;
-    background: rgba(255, 176, 0, 0.1);
-    padding: 7px 11px;
-    color: #ffd778;
-    font-size: 0.74rem;
-    font-weight: 950;
-    letter-spacing: 0.08em;
-  }
-
-  h2 {
-    max-width: 700px;
-    margin: 18px 0 0;
-    color: #ffffff;
-    font-size: 2.6rem;
-    font-weight: 950;
-    line-height: 1.08;
-    word-break: keep-all;
-  }
-
-  p {
-    max-width: 590px;
-    margin: 20px 0 0;
-    color: #d2dbe9;
-    font-size: 1.08rem;
-    font-weight: 700;
-    line-height: 1.75;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 800px) {
-    h2 {
-      font-size: 3rem;
-    }
-  }
-
-  @media (max-width: 520px) {
-    h2 {
-      font-size: 2rem;
-    }
-
-    p {
-      font-size: 0.96rem;
-    }
-  }
-`;
-
-const CeoVisionNoteGrid = styled.div`
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-
-  article {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.13);
-    border-radius: 14px;
-    background: rgba(6, 12, 24, 0.4);
-    padding: 18px;
-  }
-
-  article > span {
-    width: 30px;
-    height: 30px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9px;
-    color: #07101d;
-    font-size: 0.74rem;
-    font-weight: 950;
-  }
-
-  h3 {
-    margin: 0;
-    color: #ffffff;
-    font-size: 1rem;
-    font-weight: 950;
-    line-height: 1.35;
-    word-break: keep-all;
-  }
-
-  p {
-    margin: 8px 0 0;
-    color: #bac7da;
-    font-size: 0.84rem;
-    font-weight: 650;
-    line-height: 1.65;
-    word-break: keep-all;
-  }
-
-  @media (max-width: 880px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
 const _SystemSection = styled.section`
   background: #f7f8fb;
   padding: 80px 20px;
@@ -4098,13 +3943,121 @@ const CeoDocumentHub = styled(motion.section)`
   margin-top: 36px;
 `;
 
-const CeoLeadershipAnalytics = styled.section`
+const StatisticsPresentation = styled.section`
   padding: 4px 0;
+  overflow-anchor: none;
+
+  ${OperatingCopy} {
+    padding: 20px 0 8px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    h2 { font-size: 32px; line-height: 1.35; }
+    > span { margin-top: 14px; font-size: 15px; font-weight: 400; }
+  }
+
+  ${OperatingAccordion} {
+    grid-template-columns: repeat(3, minmax(144px, 1fr));
+    gap: 12px;
+    overflow-x: auto;
+    padding: 10px 3px 14px;
+    scrollbar-width: thin;
+    scrollbar-color: #b9c9e4 transparent;
+  }
+
+  &[data-company-statistics] ${OperatingAccordion} {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  ${OperatingAccordionTrigger} {
+    display: grid;
+    grid-template-rows: auto 64px auto 1fr auto;
+    justify-items: center;
+    gap: 10px;
+    padding: 18px 12px;
+    border-radius: 14px;
+    text-align: center;
+    box-shadow: none;
+    scroll-margin: 88px 8px 20px;
+
+    .stat-number { color: #64748b; font-size: 12px; font-weight: 750; }
+    .stat-icon { display: grid; place-items: center; justify-content: center; gap: 0; width: 64px; height: 64px; border-radius: 18px; background: #edf3ff; color: #2563eb; transition: transform 240ms ease; }
+    .stat-icon > span { display: grid; place-items: center; }
+    .stat-label { margin: 0; font-size: 17px; line-height: 1.5; }
+    .stat-title { margin: 0; font-size: 13px; line-height: 1.6; font-weight: 400; color: #64748b; }
+    .stat-action { justify-content: center; gap: 6px; margin: 4px 0 0; font-size: 12px; font-weight: 650; }
+    .stat-action svg { width: 14px; height: 14px; }
+
+    &.is-selected { border-color: #2563eb; background: #edf3ff; box-shadow: none; }
+    &.is-selected .stat-number { color: #2563eb; }
+    &.is-selected .stat-icon > span { animation: ceo-stat-pop 480ms ease both; }
+    &:focus-visible .stat-icon { transform: translateY(-4px) rotate(-4deg); }
+    &:active .stat-icon { transform: translateY(2px) scale(0.94); }
+  }
+
+  ${ChartPanel} {
+    border-radius: 14px;
+    animation: ceo-stat-reveal 240ms ease both;
+    &[hidden] { display: none; }
+    [data-dashboard-chart-bar], [data-dashboard-chart-segment] { animation: ceo-stat-bar 600ms ease both; }
+  }
+
+  .ceo-stat-footer { margin-top: 28px; padding-top: 20px; border-top: 1px solid #334155; }
+  .ceo-stat-footer p { margin: 0; color: #cbd5e1; font-size: 13px; line-height: 1.7; word-break: keep-all; }
+  .ceo-stat-footer p strong { display: block; margin-bottom: 6px; color: #e2e8f0; }
+  .ceo-stat-close { display: block; margin: 24px auto 0; min-height: 44px; border: 1px solid #64748b; border-radius: 8px; padding: 10px 20px; background: transparent; color: #e2e8f0; font-size: 13px; cursor: pointer; }
+  .ceo-stat-close:hover { background: #1e293b; }
+  .ceo-stat-close:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+
+  @keyframes ceo-stat-pop {
+    0%, 100% { transform: translateY(0) rotate(0); }
+    40% { transform: translateY(-6px) rotate(-7deg); }
+    70% { transform: translateY(-1px) rotate(4deg); }
+  }
+  @keyframes ceo-stat-reveal {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes ceo-stat-bar {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    ${OperatingAccordionTrigger}:hover { border-color: #2563eb; background: #edf3ff; }
+    ${OperatingAccordionTrigger}:hover .stat-icon { transform: translateY(-4px) rotate(-4deg); }
+    ${OperatingAccordionTrigger}:active .stat-icon { transform: translateY(2px) scale(0.94); }
+  }
+  @media (max-width: 640px) {
+    ${OperatingCopy} h2 { font-size: 25px; }
+    ${OperatingAccordion} { gap: 10px; }
+    ${ChartHead} { flex-direction: column; }
+    ${ChartHead} h3 { font-size: 23px; }
+    &[data-company-statistics] ${OperatingAccordion} { gap: 8px; }
+    &[data-company-statistics] ${OperatingAccordionTrigger} {
+      grid-template-rows: auto 40px minmax(36px, auto) auto;
+      gap: 8px;
+      padding: 14px 6px;
+      .stat-number { font-size: 10px; }
+      .stat-icon { width: 40px; height: 40px; border-radius: 12px; }
+      .stat-icon svg { width: 24px; height: 24px; }
+      .stat-label { font-size: 13px; line-height: 1.4; }
+      .stat-title { display: none; }
+      .stat-action { font-size: 11px; gap: 4px; }
+      .stat-action svg { width: 11px; height: 11px; }
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ${OperatingAccordionTrigger} .stat-icon { transform: none !important; transition: none; }
+    ${OperatingAccordionTrigger}.is-selected .stat-icon > span, ${ChartPanel},
+    ${ChartPanel} [data-dashboard-chart-bar], ${ChartPanel} [data-dashboard-chart-segment] { animation: none; }
+  }
 `;
 
 const CeoDocumentTabs = styled.div`
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   border: 1px solid #dbe3ee;
   border-radius: 14px;

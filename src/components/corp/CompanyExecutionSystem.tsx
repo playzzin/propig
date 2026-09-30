@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import {
   ArrowRight,
   BadgeCheck,
@@ -43,8 +43,8 @@ const EXECUTION_TRACKS: ExecutionTrack[] = [
     role: 'AI Product Engineering',
     summary: '아이디어를 검증 가능한 서비스 구조와 실제 운영 제품으로 연결합니다.',
     outcome: '전략·UX·기술·운영이 끊기지 않는 프로덕션 제품',
-    accent: '#1d4ed8',
-    accentSoft: '#e8f0ff',
+    accent: '#60a5fa',
+    accentSoft: '#112842',
     icon: MonitorSmartphone,
     stages: [
       {
@@ -96,8 +96,8 @@ const EXECUTION_TRACKS: ExecutionTrack[] = [
     role: 'Intelligent Automation',
     summary: '반복 업무를 발견하고 사람의 승인과 복구가 가능한 자동화로 전환합니다.',
     outcome: '속도는 높이고 예외와 책임은 명확하게 통제하는 자동화',
-    accent: '#047857',
-    accentSoft: '#e1f8f0',
+    accent: '#5eead4',
+    accentSoft: '#103631',
     icon: Workflow,
     stages: [
       {
@@ -149,8 +149,8 @@ const EXECUTION_TRACKS: ExecutionTrack[] = [
     role: 'AI Video Production',
     summary: '메시지 설계부터 생성·편집·검수·채널 변환까지 제작 흐름을 통합합니다.',
     outcome: 'AI의 속도와 편집자의 판단이 결합된 채널별 완성본',
-    accent: '#be2948',
-    accentSoft: '#ffe9ee',
+    accent: '#f5c766',
+    accentSoft: '#33291b',
     icon: Clapperboard,
     stages: [
       {
@@ -202,8 +202,8 @@ const EXECUTION_TRACKS: ExecutionTrack[] = [
     role: 'Reseller Partner System',
     summary: '파트너 발굴부터 고객 지원과 성과 관리까지 공동 성장의 기준을 만듭니다.',
     outcome: '파트너와 고객이 같은 기준으로 운영하는 재현 가능한 판매 체계',
-    accent: '#1d4ed8',
-    accentSoft: '#e8f0ff',
+    accent: '#a8cfff',
+    accentSoft: '#192f45',
     icon: Handshake,
     stages: [
       {
@@ -250,10 +250,62 @@ const EXECUTION_TRACKS: ExecutionTrack[] = [
   },
 ];
 
-export default function CompanyExecutionSystem({ motionDirection }: { motionDirection?: 'left' | 'right' } = {}) {
+export default function CompanyExecutionSystem({ motionDirection, readyToReveal = true }: { motionDirection?: 'left' | 'right'; readyToReveal?: boolean } = {}) {
+  const sectionRef = useRef<HTMLElement>(null);
   const [activeTrackId, setActiveTrackId] = useState(EXECUTION_TRACKS[0]!.id);
   const activeTrack = EXECUTION_TRACKS.find((track) => track.id === activeTrackId) ?? EXECUTION_TRACKS[0]!;
   const ActiveIcon = activeTrack.icon;
+
+  useEffect(() => {
+    const root = sectionRef.current;
+    if (!root) return;
+
+    const targets = Array.from(root.querySelectorAll<HTMLElement>('[data-execution-reveal]'));
+    // The video above sets the final section position after its first measure.
+    // Do not consume entrance animations while this section is still hidden.
+    if (!readyToReveal) {
+      targets.forEach((target) => { target.dataset.executionState = 'pending'; });
+      return;
+    }
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let observer: IntersectionObserver | null = null;
+    const reveal = (target: HTMLElement) => {
+      target.dataset.executionState = 'visible';
+      observer?.unobserve(target);
+    };
+    const revealAll = () => targets.forEach(reveal);
+
+    if (motionQuery.matches || !('IntersectionObserver' in window)) {
+      revealAll();
+      return;
+    }
+
+    observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) reveal(entry.target as HTMLElement);
+      });
+    }, { root: root.closest('main'), rootMargin: '0px 0px -6% 0px', threshold: 0.16 });
+
+    // Keep visited content visible; only newly selected stages enter again.
+    targets.forEach((target) => {
+      if (target.dataset.executionState === 'visible') return;
+      target.dataset.executionState = 'pending';
+      observer?.observe(target);
+    });
+    const handleMotionChange = () => { if (motionQuery.matches) revealAll(); };
+    const handleFocus = (event: FocusEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const target = event.target.closest<HTMLElement>('[data-execution-reveal]');
+      if (target) reveal(target);
+    };
+    motionQuery.addEventListener('change', handleMotionChange);
+    root.addEventListener('focusin', handleFocus);
+    return () => {
+      observer?.disconnect();
+      motionQuery.removeEventListener('change', handleMotionChange);
+      root.removeEventListener('focusin', handleFocus);
+    };
+  }, [activeTrackId, readyToReveal]);
 
   const focusTrack = (index: number) => {
     const track = EXECUTION_TRACKS[index];
@@ -287,14 +339,16 @@ export default function CompanyExecutionSystem({ motionDirection }: { motionDire
 
   return (
     <ExecutionSection
+      ref={sectionRef}
       id="company-introduction-execution"
       aria-labelledby="company-execution-title"
       data-dashboard-section-motion={motionDirection ? '' : undefined}
       data-dashboard-section-motion-state={motionDirection ? 'before' : undefined}
       data-dashboard-section-direction={motionDirection}
     >
+      <ExecutionGlow aria-hidden="true" />
       <ExecutionInner>
-        <ExecutionHeader>
+        <ExecutionHeader data-execution-reveal="left">
           <ExecutionEyebrow translate="no">
             <Route size={16} strokeWidth={2.4} aria-hidden="true" />
             Integrated Execution System
@@ -306,7 +360,7 @@ export default function CompanyExecutionSystem({ motionDirection }: { motionDire
           </p>
         </ExecutionHeader>
 
-        <ExecutionTabs role="tablist" aria-label="통합 실행 영역 선택">
+        <ExecutionTabs role="tablist" aria-label="통합 실행 영역 선택" data-execution-reveal="right">
           {EXECUTION_TRACKS.map((track, index) => {
             const TrackIcon = track.icon;
             const isActive = track.id === activeTrack.id;
@@ -344,9 +398,9 @@ export default function CompanyExecutionSystem({ motionDirection }: { motionDire
           role="tabpanel"
           aria-labelledby={`company-execution-tab-${activeTrack.id}`}
           aria-live="polite"
-          style={{ '--execution-accent': activeTrack.accent, '--execution-soft': activeTrack.accentSoft } as React.CSSProperties}
+          style={{ '--execution-accent': activeTrack.accent, '--execution-soft': activeTrack.accentSoft } as CSSProperties}
         >
-          <ExecutionPanelHeader>
+          <ExecutionPanelHeader data-execution-reveal="left">
             <ExecutionPanelIcon aria-hidden="true">
               <ActiveIcon size={28} strokeWidth={2.2} />
             </ExecutionPanelIcon>
@@ -359,7 +413,12 @@ export default function CompanyExecutionSystem({ motionDirection }: { motionDire
 
           <ExecutionStageGrid aria-label={`${activeTrack.title} 실행 5단계`}>
             {activeTrack.stages.map((stage, index) => (
-              <ExecutionStageCard key={stage.title} data-execution-stage="">
+              <ExecutionStageCard
+                key={stage.title}
+                data-execution-stage=""
+                data-execution-reveal={index % 3 === 0 ? 'left' : index % 3 === 1 ? 'right' : 'up'}
+                style={{ '--reveal-delay': `${index * 45}ms` } as CSSProperties}
+              >
                 <ExecutionStageTop>
                   <b>{String(index + 1).padStart(2, '0')}</b>
                   <span>{stage.eyebrow}</span>
@@ -389,18 +448,62 @@ const ExecutionSection = styled.section`
   position: relative;
   overflow: hidden;
   padding: 100px 20px;
-  background:
-    linear-gradient(rgba(30, 64, 175, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(30, 64, 175, 0.045) 1px, transparent 1px),
-    #f6f8fc;
-  background-size: 48px 48px;
+  --execution-background:
+    linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(145deg, #07101f 0%, #0a1830 52%, #081221 100%);
+  background-image: var(--execution-background);
+  background-size: 56px 56px, 56px 56px, 100% 100%;
+  color: #f3f7ff;
+
+  /* Retain the section's palette on routes with the corporate flat theme. */
+  #content-area &#company-introduction-execution {
+    background-image: var(--execution-background) !important;
+  }
+
+  [data-execution-reveal] {
+    transition: opacity 620ms ease, transform 720ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  [data-execution-state='pending'] { opacity: 0; transition: none; }
+  [data-execution-state='pending'][data-execution-reveal='left'] { transform: translate3d(-64px, 0, 0); }
+  [data-execution-state='pending'][data-execution-reveal='right'] { transform: translate3d(64px, 0, 0); }
+  [data-execution-state='pending'][data-execution-reveal='up'] { transform: translate3d(0, 48px, 0); }
+
+  [data-execution-reveal]:focus-within {
+    opacity: 1;
+    transform: none;
+    transition-delay: 0ms;
+  }
 
   @media (max-width: 720px) {
     padding: 72px 16px;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-execution-reveal] {
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
+    }
+  }
+`;
+
+const ExecutionGlow = styled.div`
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  #content-area #company-introduction-execution & {
+    background-image:
+    radial-gradient(circle at 10% 10%, rgb(96 165 250 / 17%), transparent 30%),
+    radial-gradient(circle at 88% 44%, rgb(94 234 212 / 12%), transparent 32%),
+    radial-gradient(circle at 44% 96%, rgb(245 199 102 / 10%), transparent 30%) !important;
+  }
 `;
 
 const ExecutionInner = styled.div`
+  position: relative;
   width: min(1240px, 100%);
   margin: 0 auto;
 `;
@@ -410,8 +513,8 @@ const ExecutionHeader = styled.header`
 
   h2 {
     margin: 16px 0 0;
-    color: #14213d;
-    font-size: clamp(2.1rem, 4.5vw, 3.8rem);
+    color: #f3f7ff;
+    font-size: 3.8rem;
     font-weight: 950;
     line-height: 1.08;
     word-break: keep-all;
@@ -420,11 +523,15 @@ const ExecutionHeader = styled.header`
   p {
     max-width: 780px;
     margin: 18px 0 0;
-    color: #526078;
+    color: #bdc9da;
     font-size: 1rem;
     font-weight: 700;
     line-height: 1.75;
     word-break: keep-all;
+  }
+
+  @media (max-width: 720px) {
+    h2 { font-size: 2.2rem; }
   }
 `;
 
@@ -434,11 +541,11 @@ const ExecutionEyebrow = styled.span`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #bfd1ff;
+  border: 1px solid rgb(147 197 253 / 34%);
   border-radius: 999px;
-  background: #e9efff;
+  background: rgb(96 165 250 / 12%);
   padding: 0 13px;
-  color: #234aa3;
+  color: #a8cfff;
   font-size: 0.76rem;
   font-weight: 950;
   letter-spacing: 0.06em;
@@ -471,14 +578,14 @@ const ExecutionTab = styled.button<{ $active: boolean; $accent: string; $accentS
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  border: 1px solid ${(props) => (props.$active ? props.$accent : '#dce3ee')};
+  border: 1px solid ${(props) => (props.$active ? props.$accent : 'rgb(203 213 225 / 18%)')};
   border-radius: 14px;
-  background: ${(props) => (props.$active ? props.$accentSoft : 'rgba(255, 255, 255, 0.92)')};
+  background: ${(props) => (props.$active ? props.$accentSoft : 'rgb(10 24 48 / 74%)')};
   padding: 22px;
-  color: #17213a;
+  color: #f3f7ff;
   text-align: left;
   cursor: pointer;
-  box-shadow: ${(props) => (props.$active ? `0 22px 44px ${props.$accent}24` : '0 12px 28px rgba(32, 46, 76, 0.06)')};
+  box-shadow: ${(props) => (props.$active ? `0 16px 40px ${props.$accent}18` : 'inset 0 1px 0 rgb(255 255 255 / 4%)')};
   transform: ${(props) => (props.$active ? 'translateY(-4px)' : 'none')};
   transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
 
@@ -507,7 +614,7 @@ const ExecutionTab = styled.button<{ $active: boolean; $accent: string; $accentS
 
   p {
     margin: 10px 0 0;
-    color: #5d6a80;
+    color: #bdc9da;
     font-size: 0.82rem;
     font-weight: 700;
     line-height: 1.58;
@@ -528,11 +635,12 @@ const ExecutionTab = styled.button<{ $active: boolean; $accent: string; $accentS
 
   &:hover {
     border-color: ${(props) => props.$accent};
+    background: ${(props) => props.$accentSoft};
     transform: translateY(-4px);
   }
 
   &:focus-visible {
-    outline: 3px solid ${(props) => `${props.$accent}55`};
+    outline: 2px solid ${(props) => props.$accent};
     outline-offset: 3px;
   }
 
@@ -576,27 +684,10 @@ const ExecutionTab = styled.button<{ $active: boolean; $accent: string; $accentS
 const ExecutionPanel = styled.div`
   margin-top: 18px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--execution-accent) 32%, #dce3ee);
+  border: 1px solid color-mix(in srgb, var(--execution-accent) 32%, #24364b);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 34px 80px rgba(31, 47, 82, 0.11);
-  animation: execution-panel-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-
-  @keyframes execution-panel-in {
-    from {
-      opacity: 0;
-      transform: translateY(14px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
+  background: #0a1830;
+  box-shadow: 0 34px 80px rgb(2 6 14 / 22%);
 `;
 
 const ExecutionPanelHeader = styled.header`
@@ -604,8 +695,8 @@ const ExecutionPanelHeader = styled.header`
   align-items: flex-start;
   gap: 16px;
   padding: 28px 30px;
-  border-bottom: 1px solid #e5eaf2;
-  background: linear-gradient(110deg, var(--execution-soft), #ffffff 70%);
+  border-bottom: 1px solid rgb(203 213 225 / 14%);
+  background: linear-gradient(110deg, var(--execution-soft), #0a1830 78%);
 
   > div:last-child {
     min-width: 0;
@@ -621,8 +712,8 @@ const ExecutionPanelHeader = styled.header`
 
   h3 {
     margin: 8px 0 0;
-    color: #17213a;
-    font-size: clamp(1.35rem, 2.4vw, 2rem);
+    color: #f3f7ff;
+    font-size: 2rem;
     font-weight: 950;
     line-height: 1.2;
     word-break: keep-all;
@@ -630,7 +721,7 @@ const ExecutionPanelHeader = styled.header`
 
   p {
     margin: 8px 0 0;
-    color: #5e6a7d;
+    color: #bdc9da;
     font-size: 0.9rem;
     font-weight: 750;
     line-height: 1.55;
@@ -639,6 +730,7 @@ const ExecutionPanelHeader = styled.header`
 
   @media (max-width: 600px) {
     padding: 24px 20px;
+    h3 { font-size: 1.35rem; }
   }
 `;
 
@@ -650,7 +742,7 @@ const ExecutionPanelIcon = styled.div`
   place-items: center;
   border: 1px solid var(--execution-accent);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--execution-soft);
   color: var(--execution-accent);
 `;
 
@@ -658,12 +750,12 @@ const ExecutionStageGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 1px;
-  background: #e5eaf2;
+  background: #243449;
 
   @media (max-width: 1120px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
-    background: #f7f9fc;
+    background: #09162a;
     padding: 16px;
   }
 
@@ -673,16 +765,32 @@ const ExecutionStageGrid = styled.div`
 `;
 
 const ExecutionStageCard = styled.article`
+  position: relative;
+  isolation: isolate;
   min-width: 0;
   min-height: 430px;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: #0c1c33;
   padding: 24px 20px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(155deg, color-mix(in srgb, var(--execution-accent) 14%, transparent), transparent 68%);
+    transition: opacity 800ms ease;
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  &[data-execution-state='pending']::before { opacity: 0; }
 
   h4 {
     margin: 22px 0 0;
-    color: #17213a;
+    color: #f3f7ff;
     font-size: 1.08rem;
     font-weight: 950;
     line-height: 1.25;
@@ -691,7 +799,7 @@ const ExecutionStageCard = styled.article`
 
   > strong {
     margin-top: 10px;
-    color: #34435c;
+    color: #d6e0ee;
     font-size: 0.82rem;
     font-weight: 900;
     line-height: 1.55;
@@ -700,7 +808,7 @@ const ExecutionStageCard = styled.article`
 
   > p {
     margin: 12px 0 0;
-    color: #667287;
+    color: #adbbcf;
     font-size: 0.78rem;
     font-weight: 700;
     line-height: 1.65;
@@ -709,12 +817,16 @@ const ExecutionStageCard = styled.article`
 
   @media (max-width: 1120px) {
     min-height: 360px;
-    border: 1px solid #e3e8f0;
+    border: 1px solid rgb(203 213 225 / 14%);
     border-radius: 12px;
   }
 
   @media (max-width: 680px) {
     min-height: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::before { opacity: 1 !important; transition: none; }
   }
 `;
 
@@ -730,8 +842,9 @@ const ExecutionStageTop = styled.div`
     display: grid;
     place-items: center;
     border-radius: 10px;
-    background: var(--execution-accent);
-    color: #ffffff;
+    border: 1px solid color-mix(in srgb, var(--execution-accent) 54%, transparent);
+    background: color-mix(in srgb, var(--execution-accent) 11%, transparent);
+    color: var(--execution-accent);
     font-size: 0.76rem;
     font-weight: 950;
   }
