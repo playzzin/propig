@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useReducedMotion } from 'framer-motion';
+import { useStaffReducedMotion } from './useStaffReducedMotion';
 import { ArrowRight, CheckCheck, MessageCircle, Pause, Play, SkipForward } from 'lucide-react';
 import styled, { keyframes } from 'styled-components';
 
@@ -99,7 +99,7 @@ function advanceSession(current: Session, visible: string[]): Session {
 }
 
 export function StaffConversationProvider({ children }: { children: ReactNode }) {
-  const reduced = Boolean(useReducedMotion());
+  const reduced = useStaffReducedMotion();
   const [paused, setPaused] = useState(false);
   const [foreground, setForeground] = useState(true);
   const [visible, setVisible] = useState<string[]>([]);

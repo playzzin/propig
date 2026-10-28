@@ -76,7 +76,6 @@ import { HabitStatsDashboard } from './HabitStatsDashboard';
 import { useDailyRecordLayout, type DailyRecordLayout } from './useDailyRecordLayout';
 import {
   DATE_LABELS,
-  addCalendarMonths,
   addDays,
   addMonths,
   formatMonthDay,
@@ -263,23 +262,6 @@ interface ModeMeta {
   tertiaryTarget?: number;
 }
 
-interface HabitPreset {
-  id: string;
-  label: string;
-  summary: string;
-  categoryName: string;
-  categoryColor: string;
-  mode: RecordMode;
-  target?: number;
-  unit?: string;
-  goalDirection?: GoalDirection;
-  secondaryTarget?: number;
-  secondaryUnit?: string;
-  tertiaryTarget?: number;
-  tertiaryUnit?: string;
-  options?: string[];
-}
-
 const CATEGORY_COLORS = ['#42d392', '#ff7a59', '#63b3ff', '#f8c64e', '#a78bfa', '#2dd4bf'];
 const EMPTY_WORKSPACE: HabitWorkspace = {
   categories: [],
@@ -305,17 +287,6 @@ const SELECTABLE_RECORD_MODES: RecordMode[] = ['check', 'duration', 'number', 'r
 const TREND_RECORD_MODES: RecordMode[] = ['cardio', 'strength', 'number', 'sets', 'duration', 'rating'];
 const DEFAULT_CHOICE_LABELS = ['선택 항목 1', '선택 항목 2', '선택 항목 3'];
 const TREND_METRIC_COLORS = ['#42d392', '#63b3ff', '#f8c64e', '#ff7a59', '#a78bfa'];
-const QUICK_HABIT_PRESETS: HabitPreset[] = [
-  { id: 'supplement', label: '영양제', summary: '체크만 하기', categoryName: '건강', categoryColor: '#42d392', mode: 'check' },
-  { id: 'meditation', label: '명상', summary: '10분 기록', categoryName: '마음', categoryColor: '#a78bfa', mode: 'duration', target: 10, unit: '분' },
-  { id: 'water', label: '물 마시기', summary: '하루 8잔', categoryName: '건강', categoryColor: '#42d392', mode: 'number', target: 8, unit: '잔' },
-  { id: 'condition', label: '컨디션', summary: '별점 5점', categoryName: '건강', categoryColor: '#42d392', mode: 'rating', target: 5, unit: '점' },
-  { id: 'running', label: '러닝', summary: '5km + 30분', categoryName: '운동', categoryColor: '#63b3ff', mode: 'cardio', target: 5, unit: 'km', secondaryTarget: 30, secondaryUnit: '분' },
-  { id: 'workout', label: '근력 운동', summary: '40kg / 10회 / 3세트', categoryName: '운동', categoryColor: '#63b3ff', mode: 'strength', target: 40, unit: 'kg', secondaryTarget: 10, secondaryUnit: '회', tertiaryTarget: 3, tertiaryUnit: '세트' },
-  { id: 'meal-choice', label: '식사 컨디션', summary: '하나 고르기', categoryName: '식단', categoryColor: '#ff7a59', mode: 'singleChoice', options: ['가볍게', '보통', '든든하게'] },
-  { id: 'evening-routine', label: '저녁 루틴', summary: '여러 개 고르기', categoryName: '루틴', categoryColor: '#2dd4bf', mode: 'multiChoice', options: ['스트레칭', '정리', '일기'] },
-];
-const STARTER_HABIT_PRESET_IDS = QUICK_HABIT_PRESETS.map((preset) => preset.id);
 const GOAL_DIRECTION_META: Record<GoalDirection, { label: string; shortLabel: string; hint: string }> = {
   increase: {
     label: '올리기',
@@ -677,25 +648,6 @@ function createHabitDraft(categoryId = '', mode: RecordMode = 'check', order = 1
   };
 }
 
-function createHabitDraftFromPreset(preset: HabitPreset, categoryId = '', order = 1): HabitDraft {
-  const defaults = getModeDefaults(preset.mode);
-
-  return {
-    ...createHabitDraft(categoryId, preset.mode, order),
-    name: preset.label,
-    target: preset.target ?? defaults.target,
-    unit: preset.unit ?? defaults.unit,
-    goalDirection: normalizeGoalDirection(preset.mode, preset.goalDirection),
-    secondaryTarget: preset.secondaryTarget ?? defaults.secondaryTarget,
-    secondaryUnit: preset.secondaryUnit ?? defaults.secondaryUnit,
-    tertiaryTarget: preset.tertiaryTarget ?? defaults.tertiaryTarget,
-    tertiaryUnit: preset.tertiaryUnit ?? defaults.tertiaryUnit,
-    options: preset.options?.map((label) => createChoiceOption(label)) ?? createDefaultChoiceOptions(preset.mode),
-    suggestedCategoryName: categoryId ? undefined : preset.categoryName,
-    suggestedCategoryColor: categoryId ? undefined : preset.categoryColor,
-  };
-}
-
 function ensureHabitCategory(
   categories: HabitCategory[],
   name = '기본 루틴',
@@ -716,66 +668,6 @@ function ensureHabitCategory(
   };
 
   return { categories: [...categories, category], categoryId: category.id };
-}
-
-function createHabitFromPreset(preset: HabitPreset, categoryId: string, order = 1): HabitItem {
-  const defaults = getModeDefaults(preset.mode);
-  const habit: HabitItem = {
-    id: makeId('habit'),
-    categoryId,
-    name: preset.label,
-    order,
-    mode: preset.mode,
-    target: preset.target ?? defaults.target,
-    unit: preset.unit ?? defaults.unit,
-  };
-  const goalDirection = normalizeGoalDirection(preset.mode, preset.goalDirection);
-
-  if (goalDirection) {
-    habit.goalDirection = goalDirection;
-  }
-
-  if (preset.secondaryTarget && preset.secondaryUnit) {
-    habit.secondaryTarget = preset.secondaryTarget;
-    habit.secondaryUnit = preset.secondaryUnit;
-  } else if (defaults.secondaryTarget && defaults.secondaryUnit) {
-    habit.secondaryTarget = defaults.secondaryTarget;
-    habit.secondaryUnit = defaults.secondaryUnit;
-  }
-
-  if (preset.tertiaryTarget && preset.tertiaryUnit) {
-    habit.tertiaryTarget = preset.tertiaryTarget;
-    habit.tertiaryUnit = preset.tertiaryUnit;
-  } else if (defaults.tertiaryTarget && defaults.tertiaryUnit) {
-    habit.tertiaryTarget = defaults.tertiaryTarget;
-    habit.tertiaryUnit = defaults.tertiaryUnit;
-  }
-
-  if (isChoiceMode(preset.mode)) {
-    habit.options = preset.options?.map((label) => createChoiceOption(label)) ?? createDefaultChoiceOptions(preset.mode);
-  }
-
-  return sanitizeHabitGoalsForSave(habit).habit;
-}
-
-function createWorkspaceWithPresetHabits(workspace: HabitWorkspace, presets: HabitPreset[]): HabitWorkspace {
-  let categories = [...workspace.categories];
-  const existingHabitNames = new Set(workspace.habits.map((habit) => habit.name.trim()));
-  const presetHabits = presets.reduce<HabitItem[]>((acc, preset) => {
-    if (existingHabitNames.has(preset.label)) return acc;
-
-    const ensured = ensureHabitCategory(categories, preset.categoryName, preset.categoryColor);
-    categories = ensured.categories;
-    existingHabitNames.add(preset.label);
-    acc.push(createHabitFromPreset(preset, ensured.categoryId, getNextHabitOrder([...workspace.habits, ...acc], ensured.categoryId)));
-    return acc;
-  }, []);
-
-  return {
-    ...workspace,
-    categories,
-    habits: [...workspace.habits, ...presetHabits],
-  };
 }
 
 function createWorkspaceDocRef(uid: string) {
@@ -2033,7 +1925,7 @@ const Page = styled.main`
   min-height: 0;
   height: calc(100vh - var(--header-h));
   overflow-y: auto;
-  padding: 28px;
+  padding: 16px 24px;
   color: var(--habit-text);
   background:
     linear-gradient(135deg, rgba(66, 211, 146, 0.07), transparent 34%),
@@ -2073,10 +1965,11 @@ const Page = styled.main`
 
 const Shell = styled.div`
   width: min(1640px, 100%);
+  container-type: inline-size;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
 
   @media (max-width: 720px) {
     gap: 8px;
@@ -2085,60 +1978,59 @@ const Shell = styled.div`
 
 const HeaderBand = styled.section`
   border: 1px solid var(--habit-line);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(18, 27, 39, 0.95), rgba(9, 14, 21, 0.92)),
-    var(--habit-panel);
-  padding: 18px;
+  border-radius: 12px;
+  background: var(--habit-panel);
+  padding: 10px 16px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-areas: 'identity navigation status sync';
+  gap: 12px;
   align-items: center;
-  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.26);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 
   body[data-propig-design='codeit'] & {
     background: var(--codeit-surface);
     border-color: var(--codeit-border);
-    border-radius: var(--codeit-radius);
-    box-shadow: var(--codeit-shadow-md);
-    backdrop-filter: none;
-    animation: habitCodeitRise 0.58s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    box-shadow: var(--codeit-shadow-sm);
   }
 
-  @keyframes habitCodeitRise {
-    from {
-      opacity: 0;
-      transform: translateY(16px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+  @container (max-width: 900px) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'identity status' 'navigation sync';
+    gap: 8px 12px;
   }
 
   @media (max-width: 720px) {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-    padding: 10px;
+    padding: 8px;
+    gap: 6px 8px;
   }
 `;
 
 const HeaderCopy = styled.div`
+  grid-area: identity;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+
+  @media (max-width: 720px) {
+    gap: 8px;
+  }
 `;
 
 const Eyebrow = styled.div`
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--habit-green);
-  font-size: 0.78rem;
-  font-weight: 900;
+  font-size: 0.7rem;
+  font-weight: 800;
   letter-spacing: 0;
 
   @media (max-width: 720px) {
-    gap: 6px;
-    font-size: 0.66rem;
+    gap: 4px;
+    font-size: 0.6rem;
 
     svg {
       width: 13px;
@@ -2148,57 +2040,31 @@ const Eyebrow = styled.div`
 `;
 
 const Title = styled.h1`
-  margin: 8px 0 0;
+  margin: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--habit-line-strong);
   color: var(--habit-text);
-  font-size: clamp(1.55rem, 2vw, 2.35rem);
-  line-height: 1.08;
-  font-weight: 950;
+  font-size: 1.12rem;
+  line-height: 1.4;
+  font-weight: 800;
   letter-spacing: 0;
 
   body[data-propig-design='codeit'] & {
     color: var(--codeit-text);
-    font-size: clamp(1.9rem, 3.4vw, 3.35rem);
   }
 
   @media (max-width: 720px) {
-    margin-top: 3px;
-    font-size: 1.18rem;
-  }
-`;
-
-const Description = styled.p`
-  margin: 8px 0 0;
-  max-width: 760px;
-  color: var(--habit-muted);
-  font-size: 0.94rem;
-  line-height: 1.6;
-
-  @media (max-width: 720px) {
-    display: none;
+    padding-left: 8px;
+    font-size: 0.88rem;
   }
 `;
 
 const HeaderActions = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
-
-  @media (max-width: 720px) {
-    width: 100%;
-    justify-content: space-between;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px;
-
-    nav {
-      grid-column: 1 / -1;
-    }
-  }
+  display: contents;
 `;
 
 const ViewTabs = styled.nav`
+  grid-area: navigation;
   height: 42px;
   padding: 3px;
   border: 1px solid var(--habit-line);
@@ -2210,8 +2076,9 @@ const ViewTabs = styled.nav`
 
   @media (max-width: 720px) {
     min-width: 0;
-    width: 100%;
-    height: 34px;
+    grid-column: 1 / -1;
+    width: calc(100% - 52px);
+    height: 44px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
@@ -2223,6 +2090,8 @@ const ViewTabs = styled.nav`
 
 const ViewTab = styled(Link)<{ $active: boolean }>`
   min-width: 0;
+  white-space: nowrap;
+  &:focus-visible { outline: 2px solid var(--habit-green); outline-offset: 2px; }
   border-radius: 6px;
   padding: 0 12px;
   display: inline-flex;
@@ -2233,7 +2102,7 @@ const ViewTab = styled(Link)<{ $active: boolean }>`
   background: ${(props) => (props.$active ? 'var(--habit-green)' : 'transparent')};
   text-decoration: none;
   font-size: 0.82rem;
-  font-weight: 950;
+  font-weight: 750;
   transition: background 0.18s ease, color 0.18s ease;
 
   &:hover {
@@ -2250,6 +2119,17 @@ const ViewTab = styled(Link)<{ $active: boolean }>`
   body[data-propig-design='codeit'] &:hover {
     color: ${(props) => (props.$active ? '#ffffff' : 'var(--codeit-text)')};
     background: ${(props) => (props.$active ? 'var(--codeit-primary-hover)' : 'var(--codeit-primary-soft)')};
+  }
+
+  @media (max-width: 720px) {
+    padding: 0 5px;
+    gap: 4px;
+    font-size: 0.73rem;
+    svg { width: 14px; height: 14px; }
+  }
+
+  @media (max-width: 360px) {
+    svg { display: none; }
   }
 `;
 
@@ -2331,6 +2211,19 @@ const IconButton = styled.button<{ $tone?: 'primary' | 'ghost' | 'danger' | 'war
       width: 14px;
       height: 14px;
     }
+  }
+`;
+
+const HeaderSyncButton = styled(IconButton)`
+  grid-area: sync;
+  min-height: 40px;
+
+  @media (max-width: 720px) {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-self: end;
+    > span { display: none; }
   }
 `;
 
@@ -2838,6 +2731,12 @@ const SelectInput = styled.select`
     border-color: rgba(66, 211, 146, 0.62);
     box-shadow: 0 0 0 3px rgba(66, 211, 146, 0.13);
   }
+
+  body[data-propig-design='codeit'] & {
+    background: var(--codeit-surface);
+    color: var(--codeit-text);
+    color-scheme: light;
+  }
 `;
 
 const InlineFields = styled.div`
@@ -3160,116 +3059,71 @@ const EmptyStateActions = styled.div`
   flex-wrap: wrap;
 `;
 
-const PresetLauncher = styled.div`
+const OptionalSettings = styled.details`
+  min-width: 0;
+  border-top: 1px solid var(--habit-line);
+  padding-top: 8px;
+
+  > summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--habit-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+  }
+  > summary::-webkit-details-marker { display: none; }
+  > summary::before { content: '+'; font-size: 1.1rem; }
+  &[open] > summary::before { content: '−'; }
+  > summary:focus-visible { outline: 2px solid var(--habit-green); outline-offset: 3px; border-radius: 4px; }
+  &[open] > summary { margin-bottom: 12px; }
+`;
+
+const DailyComposer = styled(OptionalSettings)`
+  margin: 0 14px;
+  padding: 0;
+  > summary { color: var(--habit-green); }
+  > summary::before { content: none; }
+  &[open] > summary::before { content: none; }
+  > summary > svg:last-child { margin-left: auto; }
+  &[open] > summary > svg:last-child { transform: rotate(180deg); }
+  &[open] { padding-bottom: 16px; }
+`;
+
+const DailyDateToolbar = styled.div`
+  grid-area: date;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 152px) 36px auto;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  button { min-height: 38px; min-width: 36px; }
+  @media (max-width: 720px) {
+    width: 100%;
+    grid-template-columns: 44px minmax(0, 1fr) 44px auto;
+    button { min-width: 44px; min-height: 44px; }
+  }
+`;
+
+const DailyDateInput = styled.input`
+  min-width: 0;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px;
   border: 1px solid var(--habit-line);
   border-radius: 8px;
-  padding: 14px;
-  display: grid;
-  gap: 12px;
-  background:
-    linear-gradient(135deg, rgba(66, 211, 146, 0.08), rgba(99, 179, 255, 0.04)),
-    rgba(255, 255, 255, 0.026);
-`;
-
-const PresetHeaderActions = styled.div`
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-`;
-
-const HabitPresetGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-
-  @media (max-width: 980px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @media (max-width: 520px) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-`;
-
-const HabitPresetButton = styled.button<{ $color: string; $active: boolean }>`
-  min-height: 82px;
-  border: 1px solid ${(props) => (props.$active ? props.$color : 'var(--habit-line)')};
-  border-radius: 8px;
-  padding: 11px;
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
+  background: var(--habit-panel);
   color: var(--habit-text);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, ${(props) => props.$color} ${(props) => (props.$active ? 18 : 10)}%, transparent), transparent 70%),
-    rgba(255, 255, 255, 0.035);
-  text-align: left;
-  cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-
-  &:hover:not(:disabled) {
-    transform: translateY(-1px);
-    border-color: ${(props) => props.$color};
-    background:
-      linear-gradient(135deg, color-mix(in srgb, ${(props) => props.$color} 18%, transparent), transparent 70%),
-      rgba(255, 255, 255, 0.055);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-
-  svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  strong,
-  span,
-  small {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  strong {
-    display: block;
-    font-size: 0.86rem;
-    font-weight: 950;
-  }
-
-  span {
-    display: block;
-    margin-top: 3px;
-    color: var(--habit-muted);
-    font-size: 0.72rem;
-    font-weight: 850;
-  }
-
-  small {
-    display: block;
-    margin-top: 5px;
-    color: ${(props) => props.$color};
-    font-size: 0.66rem;
-    font-weight: 950;
-  }
-`;
-
-const PresetIcon = styled.span<{ $color: string }>`
-  width: 34px;
-  height: 34px;
-  border: 1px solid color-mix(in srgb, ${(props) => props.$color} 36%, transparent);
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: ${(props) => props.$color};
-  background: color-mix(in srgb, ${(props) => props.$color} 13%, transparent);
+  color-scheme: dark;
+  font: inherit;
+  font-size: 0.85rem;
+  &:focus-visible { outline: 2px solid var(--habit-green); outline-offset: 2px; }
+  body[data-propig-design='codeit'] & { color-scheme: light; }
+  @media (max-width: 720px) { min-height: 44px; }
 `;
 
 const AdvancedSettingsToggle = styled.button<{ $active: boolean }>`
@@ -3504,298 +3358,58 @@ const CategoryCardMeta = styled.div`
 const MainPanel = styled(Surface)`
   min-width: 0;
   overflow: hidden;
+  container-type: inline-size;
 `;
 
 const DailyHeader = styled.div`
-  padding: 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--habit-line);
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: 'heading date view';
+  align-items: center;
   gap: 12px;
+
+  @container (max-width: 700px) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'heading view' 'date date';
+    gap: 8px;
+  }
 
   @media (max-width: 720px) {
     padding: 8px;
-    gap: 8px;
   }
 `;
 
-const DailyPulse = styled.section`
-  border: 1px solid rgba(66, 211, 146, 0.22);
-  border-radius: 8px;
-  padding: 12px 14px;
-  display: grid;
-  grid-template-columns: minmax(136px, 0.42fr) minmax(220px, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  background:
-    linear-gradient(100deg, rgba(66, 211, 146, 0.12), rgba(99, 179, 255, 0.055) 52%, transparent),
-    rgba(255, 255, 255, 0.025);
-
-  @media (max-width: 840px) {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  @media (max-width: 560px) {
-    padding: 10px;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
-`;
-
-const DailyPulseIntro = styled.div`
-  display: grid;
-  gap: 2px;
-
-  small {
-    color: var(--habit-muted);
-    font-size: 0.72rem;
-    font-weight: 900;
-  }
-
-  strong {
-    color: var(--habit-text);
-    font-size: 1.38rem;
-    line-height: 1.08;
-    font-weight: 950;
-  }
-
-  span {
-    color: var(--habit-green);
-    font-size: 0.72rem;
-    font-weight: 950;
-  }
-`;
-
-const DailyPulseProgress = styled.div`
+const DailyHeading = styled.div`
+  grid-area: heading;
   min-width: 0;
-  display: grid;
-  gap: 8px;
-`;
-
-const DailyPulseProgressTop = styled.div`
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--habit-muted);
-  font-size: 0.72rem;
-  font-weight: 900;
-
-  strong {
-    color: var(--habit-text);
-    font: inherit;
-    font-weight: 950;
-    white-space: nowrap;
-  }
-`;
-
-const DailyPulseTrack = styled.div`
-  height: 9px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.09);
-  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.22);
-`;
-
-const DailyPulseFill = styled.div<{ $percent: number }>`
-  --habit-pulse-progress: ${(props) => getScoreTrackPercent(props.$percent) / 100};
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  transform: scaleX(var(--habit-pulse-progress));
-  transform-origin: left center;
-  background: linear-gradient(90deg, var(--habit-green), #63b3ff);
-  box-shadow: 0 0 16px rgba(66, 211, 146, 0.38);
-  animation: habitDailyPulseIn 0.56s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  transition: transform 0.32s ease;
-
-  @keyframes habitDailyPulseIn {
-    from {
-      transform: scaleX(0);
-    }
-    to {
-      transform: scaleX(var(--habit-pulse-progress));
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-    transition: none;
-  }
-`;
-
-const DailyPulseDetail = styled.div`
-  color: var(--habit-muted);
-  font-size: 0.7rem;
-  font-weight: 850;
-
-  strong {
-    color: var(--habit-text);
-    font-weight: 950;
-  }
-`;
-
-const DailyStreak = styled.div`
-  min-width: 92px;
-  padding-left: 16px;
-  border-left: 1px solid var(--habit-line);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 8px;
-  align-items: center;
-
-  svg {
-    color: var(--habit-yellow);
-  }
-
-  strong {
-    color: var(--habit-text);
-    font-size: 1rem;
-    font-weight: 950;
-    font-variant-numeric: tabular-nums;
-  }
-
-  span {
-    grid-column: 2;
-    color: var(--habit-muted);
-    font-size: 0.64rem;
-    font-weight: 850;
-    white-space: nowrap;
-  }
-
-  @media (max-width: 840px) {
-    grid-row: 1 / span 2;
-  }
-
-  @media (max-width: 560px) {
-    min-width: 0;
-    padding: 9px 0 0;
-    border-top: 1px solid var(--habit-line);
-    border-left: 0;
-  }
-`;
-
-const DailyHeaderActions = styled.div`
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
-
-  @media (max-width: 560px) {
-    width: 100%;
-    justify-content: stretch;
-
-    ${IconButton} {
-      flex: 1;
-    }
-  }
-`;
-
-const MonthNavigator = styled.div`
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 38px;
-  gap: 10px;
-  align-items: stretch;
-
-  @media (max-width: 640px) {
-    grid-template-columns: 32px minmax(0, 1fr) 32px;
-    gap: 6px;
-  }
-`;
-
-const MonthDisplay = styled.div`
-  min-width: 0;
-  min-height: 46px;
-  border: 1px solid rgba(66, 211, 146, 0.28);
-  border-radius: 8px;
-  padding: 0 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--habit-text);
-  background:
-    linear-gradient(135deg, rgba(66, 211, 146, 0.11), rgba(99, 179, 255, 0.08)),
-    rgba(255, 255, 255, 0.035);
-  text-align: center;
-
-  svg {
-    flex: 0 0 auto;
-    color: var(--habit-green);
-  }
-
-  strong {
-    min-width: 0;
-    font-size: 1rem;
-    font-weight: 950;
-    white-space: nowrap;
-  }
-
-  span {
-    color: var(--habit-muted);
-    font-size: 0.74rem;
-    font-weight: 900;
-    white-space: nowrap;
-  }
-
-  body[data-propig-design='codeit'] & {
-    border-color: var(--codeit-primary-border);
-    background:
-      linear-gradient(135deg, var(--codeit-primary-soft), rgba(255, 255, 255, 0.88)),
-      #ffffff;
-  }
-
-  @media (max-width: 520px) {
-    min-height: 40px;
-    padding: 0 9px;
-    gap: 6px;
-
-    strong {
-      font-size: 0.86rem;
-    }
-
-    span {
-      font-size: 0.66rem;
-    }
-  }
-
-  @media (max-width: 380px) {
-    svg {
-      display: none;
-    }
-  }
-`;
-
-const ViewSettingsGroup = styled.div`
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--habit-muted);
-  font-size: 0.74rem;
-  font-weight: 950;
-
-  @media (max-width: 560px) {
-    flex: 1 1 100%;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-`;
-
-const ViewSettingsLabel = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
   white-space: nowrap;
 
-  @media (max-width: 420px) {
-    span {
-      display: none;
-    }
+  ${PanelTitle} { font-weight: 800; }
+`;
+
+const DailyCompletion = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--habit-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+
+  strong { color: var(--habit-green); font-weight: 750; }
+
+  @media (max-width: 720px) {
+    font-size: 0.7rem;
+    > span { display: none; }
   }
 `;
 
 const RecordLayoutSwitch = styled.div`
+  grid-area: view;
   height: 38px;
   padding: 3px;
   border: 1px solid var(--habit-line);
@@ -3805,13 +3419,14 @@ const RecordLayoutSwitch = styled.div`
   gap: 3px;
   background: rgba(255, 255, 255, 0.04);
 
-  @media (max-width: 560px) {
-    flex: 1;
-    height: 34px;
+  @media (max-width: 720px) {
+    height: 44px;
+    grid-template-columns: repeat(2, minmax(54px, 1fr));
   }
 `;
 
 const RecordLayoutButton = styled.button<{ $active: boolean }>`
+  &:focus-visible { outline: 2px solid var(--habit-green); outline-offset: 3px; }
   border: 0;
   border-radius: 6px;
   padding: 0 10px;
@@ -3841,131 +3456,10 @@ const RecordLayoutButton = styled.button<{ $active: boolean }>`
       height: 13px;
     }
   }
-`;
 
-const DateTools = styled.div`
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-
-  @media (max-width: 640px) {
-    grid-template-columns: 32px minmax(0, 1fr) 32px;
-    gap: 6px;
-  }
-`;
-
-const DateRail = styled.div`
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(9, minmax(72px, 1fr));
-  gap: 7px;
-  overflow-x: auto;
-
-  @media (max-width: 720px) {
-    grid-template-columns: repeat(9, 48px);
-    gap: 4px;
-  }
-
-  @media (max-width: 380px) {
-    grid-template-columns: repeat(9, 44px);
-  }
-`;
-
-const DateButton = styled.button<{ $active: boolean; $percent: number; $weekendTone: WeekendTone }>`
-  min-width: 72px;
-  min-height: 70px;
-  border: 1px solid ${(props) => getWeekendAccent(props.$weekendTone, 'border', props.$active ? 'rgba(66, 211, 146, 0.75)' : 'var(--habit-line)')};
-  border-radius: 8px;
-  padding: 0 8px 8px;
-  display: grid;
-  align-content: start;
-  gap: 5px;
-  justify-items: stretch;
-  color: ${(props) => (props.$active ? 'var(--habit-text)' : 'var(--habit-muted)')};
-  background: ${(props) =>
-    props.$weekendTone === 'weekday'
-      ? props.$active
-        ? 'rgba(66, 211, 146, 0.11)'
-        : 'rgba(255, 255, 255, 0.03)'
-      : getWeekendAccent(props.$weekendTone, 'background', 'rgba(255, 255, 255, 0.03)')};
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-
-  &::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 3px;
-    width: ${(props) => props.$percent}%;
-    background: ${(props) => (props.$percent >= 80 ? 'var(--habit-green)' : props.$percent >= 45 ? 'var(--habit-yellow)' : 'var(--habit-coral)')};
-  }
-
-  strong {
-    color: ${(props) => getWeekendAccent(props.$weekendTone, 'text', 'var(--habit-text)')};
-    font-size: 1.08rem;
-    font-weight: 950;
-  }
-
-  span,
-  small {
-    font-size: 0.72rem;
-    font-weight: 900;
-  }
-
-  span {
-    min-height: 25px;
-    margin: 0 -8px 1px;
-    padding: 0 8px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: #ffffff;
-    background: ${(props) => getDateBandColor(props.$weekendTone, props.$active)};
-    box-shadow: inset 0 -1px 0 rgba(2, 6, 23, 0.22);
-  }
-
-  small {
-    color: var(--habit-dim);
-  }
-
-  @media (max-width: 720px) {
-    min-width: 48px;
-    min-height: 48px;
-    padding: 0 5px 5px;
-    gap: 2px;
-
-    strong {
-      font-size: 0.82rem;
-    }
-
-    span {
-      min-height: 18px;
-      margin: 0 -5px 0;
-      padding: 0 5px;
-    }
-
-    span,
-    small {
-      font-size: 0.58rem;
-    }
-  }
-
-  @media (max-width: 380px) {
-    min-width: 44px;
-    min-height: 46px;
-
-    strong {
-      font-size: 0.76rem;
-    }
-
-    span,
-    small {
-      font-size: 0.54rem;
-    }
+  body[data-propig-design='codeit'] &,
+  body[data-propig-design='codeit'] &:hover {
+    color: ${(props) => (props.$active ? '#ffffff' : 'var(--codeit-muted)')};
   }
 `;
 
@@ -4457,35 +3951,6 @@ const CheckBoxMark = styled.span<{ $active: boolean }>`
   }
 `;
 
-const CheckModePreview = styled.div`
-  min-height: 76px;
-  border: 1px solid var(--habit-line);
-  border-radius: 8px;
-  padding: 14px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  background:
-    linear-gradient(135deg, rgba(66, 211, 146, 0.11), rgba(45, 212, 191, 0.04)),
-    rgba(255, 255, 255, 0.035);
-
-  strong {
-    display: block;
-    color: var(--habit-text);
-    font-size: 0.93rem;
-    font-weight: 950;
-  }
-
-  span {
-    display: block;
-    margin-top: 3px;
-    color: var(--habit-muted);
-    font-size: 0.76rem;
-    font-weight: 850;
-  }
-`;
-
 const InputWithUnit = styled.div`
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -4730,6 +4195,8 @@ const ChartFallback = styled.div`
 `;
 
 const SyncPill = styled.span<{ $state: 'ready' | 'saving' | 'locked' }>`
+  grid-area: status;
+  justify-self: end;
   min-height: 34px;
   border: 1px solid
     ${(props) =>
@@ -4756,10 +4223,17 @@ const SyncPill = styled.span<{ $state: 'ready' | 'saving' | 'locked' }>`
   white-space: nowrap;
 
   @media (max-width: 720px) {
-    min-height: 32px;
-    padding: 0 9px;
-    gap: 5px;
-    font-size: 0.68rem;
+    min-height: 24px;
+    padding: 0;
+    gap: 4px;
+    border: 0;
+    background: transparent;
+    font-size: 0.64rem;
+    svg { width: 12px; height: 12px; }
+  }
+
+  body[data-propig-design='codeit'] & {
+    color: ${(props) => props.$state === 'ready' ? 'var(--codeit-success)' : props.$state === 'saving' ? 'var(--codeit-warning)' : 'var(--codeit-danger)'};
   }
 `;
 
@@ -6114,6 +5588,9 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   } = useAuth();
   const [workspace, setWorkspace] = useState<HabitWorkspace>(() => createInitialWorkspace());
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const dailyComposerRef = useRef<HTMLDetailsElement>(null);
+  const habitNameInputRef = useRef<HTMLInputElement>(null);
   const readyRef = useRef(false);
   const mountedRef = useRef(false);
   useEffect(() => {
@@ -6151,6 +5628,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     let didCancel = false;
     readyRef.current = false;
     setHasLoaded(false);
+    setLoadError(false);
 
     const bootstrap = async () => {
       try {
@@ -6167,6 +5645,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               : createInitialWorkspace();
             setWorkspace(nextWorkspace);
             setHasLoaded(true);
+            setLoadError(false);
           },
           (error) => {
             if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
@@ -6174,13 +5653,16 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
             console.error('Failed to subscribe habit tracker workspace:', error);
             toast.error('습관 데이터를 불러오지 못했습니다.');
             setHasLoaded(false);
+            setLoadError(true);
           },
         );
       } catch (error) {
+        if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
         console.error('Failed to initialize habit tracker workspace:', error);
         readyRef.current = false;
         toast.error('습관 데이터베이스 연결에 실패했습니다.');
         setHasLoaded(false);
+        setLoadError(true);
         return undefined;
       }
     };
@@ -6348,12 +5830,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     );
   }, [orderedHabits, selectedDate, workspace.records]);
 
-  const selectedDateObject = useMemo(() => parseDateKey(selectedDate), [selectedDate]);
-  const selectedMonthLabel = useMemo(
-    () => `${selectedDateObject.getFullYear()}년 ${selectedDateObject.getMonth() + 1}월`,
-    [selectedDateObject],
-  );
-  const dateRail = useMemo(() => getRangeDateKeys(selectedDate, 9).reverse(), [selectedDate]);
   const simpleDateKeys = useMemo(() => getRangeDateKeys(selectedDate, 7).reverse(), [selectedDate]);
   const simpleSelectedDateIndex = useMemo(() => simpleDateKeys.indexOf(selectedDate), [selectedDate, simpleDateKeys]);
 
@@ -7037,6 +6513,10 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     };
     const saved = await persistWorkspace(nextWorkspace, '항목이 추가되었습니다.', 'habit-item-save');
     if (saved) {
+      if (dailyComposerRef.current) {
+        dailyComposerRef.current.open = false;
+        dailyComposerRef.current.querySelector('summary')?.focus();
+      }
       setSelectedCategoryId(categoryId);
       setEditingHabitId(null);
       setShowAdvancedHabitSettings(false);
@@ -7116,13 +6596,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     [setSelectedDate],
   );
 
-  const shiftMonth = useCallback(
-    (amount: number) => {
-      setSelectedDate((prev) => toDateKey(addCalendarMonths(parseDateKey(prev), amount)));
-    },
-    [setSelectedDate],
-  );
-
   const handleDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
     setDailyRecordLayout(layout);
   }, [setDailyRecordLayout]);
@@ -7158,45 +6631,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       };
     });
   }, []);
-
-  const handleApplyHabitPreset = useCallback((preset: HabitPreset) => {
-    const selectedCategory = selectedCategoryId !== 'all'
-      ? orderedCategories.find((category) => category.id === selectedCategoryId)
-      : null;
-    const presetCategory = orderedCategories.find((category) => category.name === preset.categoryName);
-    const categoryId = presetCategory?.id ?? selectedCategory?.id ?? '';
-    const order = categoryId ? getNextHabitOrder(workspace.habits, categoryId) : 1;
-
-    setManageSection('habits');
-    setEditingHabitId(null);
-    setShowAdvancedHabitSettings(false);
-    setHabitDraft(createHabitDraftFromPreset(preset, categoryId, order));
-    toast.info(`${preset.label} 기본값을 채웠습니다.`, { id: 'habit-preset-fill' });
-  }, [orderedCategories, selectedCategoryId, workspace.habits]);
-
-  const handleCreateStarterPack = useCallback(async () => {
-    if (!currentUser || !hasLoaded || isSaving) return;
-
-    const starterPresets = QUICK_HABIT_PRESETS.filter((preset) => STARTER_HABIT_PRESET_IDS.includes(preset.id));
-    const nextWorkspace = createWorkspaceWithPresetHabits(workspace, starterPresets);
-    const addedCount = nextWorkspace.habits.length - workspace.habits.length;
-
-    if (addedCount <= 0) {
-      toast.info('이미 시작 프리셋이 추가되어 있습니다.', { id: 'habit-starter-pack' });
-      return;
-    }
-
-    const saved = await persistWorkspace(nextWorkspace, `시작 습관 ${addedCount}개가 추가되었습니다.`, 'habit-starter-pack');
-
-    if (saved) {
-      setManageSection('habits');
-      setSelectedCategoryId('all');
-      setEditingHabitId(null);
-      setShowAdvancedHabitSettings(false);
-      const firstCategoryId = sortCategoriesByOrder(nextWorkspace.categories)[0]?.id ?? '';
-      setHabitDraft(createHabitDraft(firstCategoryId, 'check', getNextHabitOrder(nextWorkspace.habits, firstCategoryId)));
-    }
-  }, [currentUser, hasLoaded, isSaving, persistWorkspace, workspace]);
 
   const handleResetHabitRecords = useCallback(async () => {
     if (!currentUser || !hasLoaded || isSaving) return;
@@ -7522,17 +6956,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
 
   const renderHabitTargetFields = () => {
     if (habitDraft.mode === 'check') {
-      return (
-        <CheckModePreview>
-          <CheckBoxMark $active>
-            <Check />
-          </CheckBoxMark>
-          <div>
-            <strong>V 박스체크</strong>
-            <span>완료 여부만 박스 체크로 기록합니다.</span>
-          </div>
-        </CheckModePreview>
-      );
+      return <RecordHint>실천한 날에 한 번 눌러 완료할 수 있어요.</RecordHint>;
     }
 
     if (habitDraft.mode === 'cardio') {
@@ -7906,71 +7330,44 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   );
 
   const renderHabitForm = () => (
-    <ManageForm>
+    <ManageForm as="form" noValidate aria-label={editingHabitId ? "습관 수정" : "새 습관"} onSubmit={(event) => { event.preventDefault(); if (!controlsDisabled) void handleSubmitHabit(); }}>
       <PanelHeading>
         <div>
-          <PanelTitle>{editingHabitId ? '항목 수정' : '새 항목'}</PanelTitle>
-          <PanelHint>프리셋을 고르거나 이름만 입력해도 바로 시작할 수 있습니다.</PanelHint>
+          <PanelTitle>{editingHabitId ? '습관 수정' : '새 습관'}</PanelTitle>
+          <PanelHint>이름만 입력하면 추가할 수 있어요. 기본은 체크 방식입니다.</PanelHint>
         </div>
       </PanelHeading>
-      {!editingHabitId ? (
-        <PresetLauncher>
-          <PanelHeading>
-            <div>
-              <PanelTitle>빠른 시작</PanelTitle>
-              <PanelHint>기록 방식별 예시를 하나씩 채워보고 바로 저장할 수 있습니다.</PanelHint>
-            </div>
-            {orderedHabits.length === 0 ? (
-              <PresetHeaderActions>
-                <IconButton type="button" $tone="primary" onClick={() => void handleCreateStarterPack()} disabled={controlsDisabled}>
-                  <Plus size={16} />
-                  방식별 예시 추가
-                </IconButton>
-              </PresetHeaderActions>
-            ) : null}
-          </PanelHeading>
-          <HabitPresetGrid>
-            {QUICK_HABIT_PRESETS.map((preset) => {
-              const ModeIcon = MODE_META[preset.mode].icon;
-              const active = habitDraft.name === preset.label && habitDraft.mode === preset.mode;
-
+      <ManageFormGrid>
+        <ManageWideField>
+          <FieldLabel>
+            습관 이름
+            <TextInput ref={habitNameInputRef} autoComplete="off" value={habitDraft.name} disabled={controlsDisabled} onChange={(event) => setHabitDraft((prev) => ({ ...prev, name: event.target.value }))} placeholder="예: 산책하기, 책 읽기" />
+          </FieldLabel>
+        </ManageWideField>
+        <FieldLabel>
+          기록 방식
+          <SelectInput value={habitDraft.mode} disabled={controlsDisabled} onChange={(event) => handleHabitModeChange(event.target.value as RecordMode)}>
+            {recordModeOptions.map((mode) => {
+              const meta = MODE_META[mode];
               return (
-                <HabitPresetButton
-                  type="button"
-                  key={preset.id}
-                  $color={preset.categoryColor}
-                  $active={active}
-                  disabled={controlsDisabled}
-                  onClick={() => handleApplyHabitPreset(preset)}
-                  title={`${preset.label} ${preset.summary}`}
-                >
-                  <PresetIcon $color={preset.categoryColor}>
-                    <ModeIcon />
-                  </PresetIcon>
-                  <span>
-                    <strong>{preset.label}</strong>
-                    <span>{preset.summary}</span>
-                    <small>{preset.categoryName}</small>
-                  </span>
-                </HabitPresetButton>
+                <option key={mode} value={mode}>
+                  {meta.label}
+                </option>
               );
             })}
-          </HabitPresetGrid>
-        </PresetLauncher>
-      ) : null}
+          </SelectInput>
+        </FieldLabel>
+      </ManageFormGrid>
+      {renderHabitTargetFields()}
+      <OptionalSettings>
+        <summary>카테고리 · 순서 설정</summary>
       {!habitDraft.categoryId && orderedCategories.length === 0 ? (
         <AutoCategoryNote>
           <Info size={15} />
           저장할 때 카테고리를 자동으로 만듭니다.
         </AutoCategoryNote>
       ) : null}
-      <ManageFormGrid>
-        <ManageWideField>
-          <FieldLabel>
-            항목 이름
-            <TextInput value={habitDraft.name} disabled={controlsDisabled} onChange={(event) => setHabitDraft((prev) => ({ ...prev, name: event.target.value }))} placeholder={activeCategory ? `${activeCategory.name}에 추가` : '전체 중 첫 카테고리에 추가'} />
-          </FieldLabel>
-        </ManageWideField>
+        <ManageFormGrid>
         <FieldLabel>
           순번
           <NumberInput min={1} value={habitDraft.order} disabled={controlsDisabled} onChange={(event) => setHabitDraft((prev) => ({ ...prev, order: readNumber(event.target.value) ?? prev.order }))} />
@@ -8001,21 +7398,8 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
             ))}
           </SelectInput>
         </FieldLabel>
-        <FieldLabel>
-          기록 방식
-          <SelectInput value={habitDraft.mode} disabled={controlsDisabled} onChange={(event) => handleHabitModeChange(event.target.value as RecordMode)}>
-            {recordModeOptions.map((mode) => {
-              const meta = MODE_META[mode];
-              return (
-                <option key={mode} value={mode}>
-                  {meta.label}
-                </option>
-              );
-            })}
-          </SelectInput>
-        </FieldLabel>
-      </ManageFormGrid>
-      {renderHabitTargetFields()}
+        </ManageFormGrid>
+      </OptionalSettings>
       {isTrendGoalMode(habitDraft.mode) ? (
         <AdvancedSettingsToggle
           type="button"
@@ -8029,9 +7413,9 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       ) : null}
       {showAdvancedHabitSettings ? renderTrendGoalFields() : null}
       <ManageActions>
-        <IconButton type="button" $tone="primary" onClick={() => void handleSubmitHabit()} disabled={controlsDisabled || !habitDraft.name.trim()}>
+        <IconButton type="submit" $tone="primary" disabled={controlsDisabled || !habitDraft.name.trim()}>
           {editingHabitId ? <Pencil size={16} /> : <Plus size={16} />}
-          {editingHabitId ? '수정 저장' : '항목 추가'}
+          {editingHabitId ? '수정 저장' : '추가'}
         </IconButton>
         {editingHabitId ? (
           <IconButton type="button" $tone="ghost" onClick={resetHabitDraft} disabled={controlsDisabled}>
@@ -8288,12 +7672,12 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
         body: '휴대폰에서는 기록, 통계, 관리, 설명서 버튼이 작게 모입니다. 원하는 버튼을 눌러 화면을 바꿉니다.',
       },
       {
-        title: '날짜 보기',
+        title: '하루 보기',
         color: '#63b3ff',
         body: '오늘 하루를 자세히 기록할 때 씁니다. 카드에서 체크하거나 숫자, 별점, 보기를 바로 고릅니다.',
       },
       {
-        title: '항목 보기',
+        title: '주간 보기',
         color: '#f8c64e',
         body: '같은 습관을 여러 날짜로 볼 때 씁니다. 빠뜨린 날을 찾거나 며칠치를 확인할 때 편합니다.',
       },
@@ -8604,12 +7988,12 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                 <span>전체를 누르면 모든 습관이 보이고, 건강이나 공부를 누르면 그 상자에 들어 있는 습관만 보입니다.</span>
               </ManualDetailRow>
               <ManualDetailRow $color="#63b3ff">
-                <strong>날짜 레일</strong>
-                <span>위쪽 날짜 줄입니다. 화살표로 날짜를 옮기고, 각 날짜의 퍼센트로 그날 얼마나 했는지 바로 볼 수 있습니다.</span>
+                <strong>날짜 선택</strong>
+                <span>달력에서 날짜를 고르거나 화살표로 하루 또는 일주일씩 이동합니다. 오늘을 누르면 오늘 날짜로 돌아옵니다.</span>
               </ManualDetailRow>
               <ManualDetailRow $color="#f8c64e">
-                <strong>보기 설정: 날짜 / 항목</strong>
-                <span>날짜 보기는 오늘 하루를 자세히 적을 때 좋고, 항목 보기는 같은 습관을 여러 날짜로 볼 때 좋습니다.</span>
+                <strong>보기 설정: 하루 / 주간</strong>
+                <span>하루 보기는 오늘 하루를 자세히 적을 때 좋고, 주간 보기는 같은 습관을 여러 날짜로 볼 때 좋습니다.</span>
               </ManualDetailRow>
               <ManualDetailRow $color="#ff7a59">
                 <strong>기록 저장 방식</strong>
@@ -8637,7 +8021,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
           <ManualSectionHeader>
             <ManualPill $color="#2dd4bf"><Settings2 size={14} /> 모바일과 보기 설정</ManualPill>
             <h3>휴대폰에서는 더 짧게 보고 빠르게 누릅니다</h3>
-            <p>휴대폰 화면은 작아서 한 번에 모든 내용이 보이지 않습니다. 날짜 보기와 항목 보기를 바꾸면 더 쉽게 기록할 수 있습니다.</p>
+            <p>휴대폰 화면은 작아서 한 번에 모든 내용이 보이지 않습니다. 하루 보기와 주간 보기를 바꾸면 더 쉽게 기록할 수 있습니다.</p>
           </ManualSectionHeader>
           <ManualGrid>
             {mobileUsageGuide.map((item) => (
@@ -8649,7 +8033,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
             ))}
           </ManualGrid>
           <ManualFormula>
-            날짜 보기 = 오늘 자세히 기록, 항목 보기 = 같은 습관을 여러 날짜로 보기
+            하루 보기 = 오늘 자세히 기록, 주간 보기 = 같은 습관을 여러 날짜로 보기
             <small>휴대폰에서 습관이 많으면 먼저 건강, 운동, 공부 같은 카테고리를 고른 뒤 입력하면 더 빨리 찾을 수 있습니다.</small>
           </ManualFormula>
         </ManualSection>
@@ -8761,8 +8145,8 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
           <ManualGrid>
             <ManualGuideCard $color="#42d392">
               <ListPlus size={22} />
-              <h4>빠른 시작 프리셋</h4>
-              <p>처음부터 모두 만들기 어렵다면 예시 습관을 한 번에 넣어볼 수 있습니다. 마음에 들지 않는 항목은 나중에 고치면 됩니다.</p>
+              <h4>이름만 입력해 추가</h4>
+              <p>기록 화면의 습관 추가를 열고 이름을 적어보세요. 기본은 체크 방식이며, 카테고리와 순서는 필요할 때 바꿀 수 있습니다.</p>
             </ManualGuideCard>
             <ManualGuideCard $color="#63b3ff">
               <Target size={22} />
@@ -9292,46 +8676,45 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
           <HeaderCopy>
             <Eyebrow>
               <Activity size={16} />
-              DAILY OPERATING SYSTEM
+              DAILY HABITS
             </Eyebrow>
             <Title>습관 트래커</Title>
-            <Description>
-              프리셋으로 빠르게 만들고, 오늘 해야 할 습관만 날짜별로 체크합니다.
-            </Description>
           </HeaderCopy>
 
           <HeaderActions>
             <ViewTabs aria-label="습관 트래커 화면">
-              <ViewTab href="/habit-tracker" $active={initialView === 'daily'}>
+              <ViewTab href="/habit-tracker" $active={initialView === 'daily'} aria-current={initialView === 'daily' ? 'page' : undefined}>
                 <CalendarDays size={15} />
                 기록
               </ViewTab>
-              <ViewTab href="/habit-tracker/stats" $active={initialView === 'stats'}>
+              <ViewTab href="/habit-tracker/stats" $active={initialView === 'stats'} aria-current={initialView === 'stats' ? 'page' : undefined}>
                 <BarChart3 size={15} />
                 통계
               </ViewTab>
-              <ViewTab href="/habit-tracker/manage" $active={initialView === 'manage'}>
+              <ViewTab href="/habit-tracker/manage" $active={initialView === 'manage'} aria-current={initialView === 'manage' ? 'page' : undefined}>
                 <Tags size={15} />
                 관리
               </ViewTab>
-              <ViewTab href="/habit-tracker/manual" $active={initialView === 'manual'}>
+              <ViewTab href="/habit-tracker/manual" $active={initialView === 'manual'} aria-current={initialView === 'manual' ? 'page' : undefined}>
                 <BookOpen size={15} />
                 설명서
               </ViewTab>
             </ViewTabs>
-            <SyncPill $state={syncState}>
+            <SyncPill $state={syncState} role="status" aria-live="polite">
               {syncState === 'saving' ? <RefreshCcw size={14} /> : <Save size={14} />}
-              {syncState === 'locked' ? '로그인 필요' : syncState === 'saving' ? '저장 중' : '저장 준비 끝'}
+              {syncState === 'locked' ? '로그인 필요' : loadError ? '연결 확인 필요' : !hasLoaded ? '불러오는 중…' : syncState === 'saving' ? '저장 중…' : '자동 저장'}
             </SyncPill>
-            <IconButton
+            <HeaderSyncButton
               type="button"
-              $tone="primary"
+              $tone="ghost"
+              aria-label="동기화"
+              title="지금 동기화"
               onClick={() => void persistWorkspace(workspace, '현재 습관 기록이 저장되었습니다.', 'habit-manual-save')}
               disabled={!currentUser || !hasLoaded || isSaving}
             >
               <Save size={16} />
-              동기화
-            </IconButton>
+              <span>동기화</span>
+            </HeaderSyncButton>
           </HeaderActions>
         </HeaderBand>
 
@@ -9377,8 +8760,8 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                 <GateFeature>
                   <Target size={18} aria-hidden="true" />
                   <div>
-                    <strong>프리셋으로 손쉽게 시작</strong>
-                    <span>물 마시기, 운동, 루틴 등 자주 쓰는 항목을 바로 추가합니다.</span>
+                    <strong>이름만 입력해 습관 추가</strong>
+                    <span>습관 이름을 적고 추가하면 준비 끝. 카테고리는 자동으로 정해집니다.</span>
                   </div>
                 </GateFeature>
                 <GateFeature>
@@ -9395,13 +8778,14 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
           <GateLoadingPanel>
             <GateContent>
               <RefreshCcw size={42} aria-hidden="true" />
-              <h2>저장된 기록을 불러오는 중…</h2>
-              <p>전에 만든 카테고리, 항목, 날짜별 기록을 가져오고 있습니다.</p>
+              <h2>{loadError ? '기록을 불러오지 못했어요' : '저장된 기록을 불러오는 중…'}</h2>
+              <p>{loadError ? '인터넷 연결을 확인하고 다시 시도해 주세요. 기존 기록은 그대로 보관됩니다.' : '전에 만든 카테고리, 항목, 날짜별 기록을 가져오고 있습니다.'}</p>
+              {loadError ? <IconButton type="button" onClick={() => window.location.reload()}><RefreshCcw size={16} />다시 불러오기</IconButton> : null}
             </GateContent>
           </GateLoadingPanel>
         ) : (
           <>
-        {initialView !== 'daily' ? (
+        {initialView === 'stats' || initialView === 'manual' ? (
           <MetricGrid>
             {initialView === 'manual' ? (
               <>
@@ -9466,7 +8850,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                 </MetricTile>
                 <MetricTile>
                   <MetricTop>
-                    <span>{initialView === 'manage' ? '관리 항목' : '기록된 항목'}</span>
+                    <span>기록된 항목</span>
                     <MetricIcon $color="#63b3ff">
                       <ListPlus size={17} />
                     </MetricIcon>
@@ -9486,13 +8870,13 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                 </MetricTile>
                 <MetricTile>
                   <MetricTop>
-                    <span>{initialView === 'manage' ? '저장 일수' : '최장 연속'}</span>
+                    <span>최장 연속</span>
                     <MetricIcon $color="#ff7a59">
                       <Flame size={17} />
                     </MetricIcon>
                   </MetricTop>
-                  <MetricValue>{initialView === 'manage' ? storedRecordDayCount : bestStreak}일</MetricValue>
-                  <MetricSub>{initialView === 'manage' ? '기록 데이터가 저장된 날짜' : '선택일에서 끊기지 않은 기록'}</MetricSub>
+                  <MetricValue>{bestStreak}일</MetricValue>
+                  <MetricSub>선택일에서 끊기지 않은 기록</MetricSub>
                 </MetricTile>
               </>
             )}
@@ -9539,7 +8923,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                     <CategoryName>{categoryIndex + 1}. {category.name}</CategoryName>
                     <CountBadge>{habitCountByCategory[category.id] ?? 0}</CountBadge>
                   </CategoryButton>
-                  {initialView === 'daily' || initialView === 'manage' ? (
+                  {initialView === 'manage' ? (
                     <CategoryOrderControls role="group" aria-label={`${category.name} 카테고리 순서 변경`}>
                       <CategoryOrderButton
                         type="button"
@@ -9601,7 +8985,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                 <StatsToolbar>
                   <div>
                     <PanelTitle>관리 도구</PanelTitle>
-                    <PanelHint>입력 폼을 넓은 작업 영역으로 분리해 항목과 카테고리를 관리합니다.</PanelHint>
+                    <PanelHint>습관을 추가하거나 이름과 목표를 바꿀 수 있어요.</PanelHint>
                   </div>
                   <ManageTabs aria-label="관리 유형">
                     <ManageTabButton type="button" $active={manageSection === 'habits'} onClick={() => setManageSection('habits')}>
@@ -9615,13 +8999,15 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                   </ManageTabs>
                 </StatsToolbar>
 
+                <OptionalSettings style={{ margin: 14 }}>
+                  <summary>보기 설정 · 데이터 관리</summary>
                 <DefaultRecordLayoutPanel>
                   <div>
                     <strong>
                       <Settings2 size={16} />
                       기록 기본 방식
                     </strong>
-                    <span>기록 화면에 처음 들어왔을 때 날짜 기준으로 볼지, 항목 기준으로 볼지 선택합니다.</span>
+                    <span>하루씩 자세히 기록하거나, 일주일 기록을 한눈에 볼 수 있어요.</span>
                   </div>
                   <DefaultRecordLayoutActions aria-label="습관 기록 기본 방식 선택">
                     <DefaultRecordLayoutButton
@@ -9631,7 +9017,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                       aria-pressed={dailyRecordLayout === 'detail'}
                     >
                       <CalendarDays size={16} />
-                      <span>날짜 기록</span>
+                      <span>하루 보기</span>
                     </DefaultRecordLayoutButton>
                     <DefaultRecordLayoutButton
                       type="button"
@@ -9640,7 +9026,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                       aria-pressed={dailyRecordLayout === 'simple'}
                     >
                       <ListPlus size={16} />
-                      <span>항목 기록</span>
+                      <span>주간 보기</span>
                     </DefaultRecordLayoutButton>
                   </DefaultRecordLayoutActions>
                 </DefaultRecordLayoutPanel>
@@ -9678,6 +9064,8 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                     </IconButton>
                   </DangerResetActions>
                 </DangerResetPanel>
+
+                </OptionalSettings>
 
                 {manageSection === 'habits' ? (
                   <>
@@ -9787,10 +9175,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                           <p>관리할 항목이 없습니다.</p>
                           {orderedHabits.length === 0 ? (
                             <EmptyStateActions>
-                              <IconButton type="button" $tone="primary" onClick={() => void handleCreateStarterPack()} disabled={controlsDisabled}>
-                                <Plus size={16} />
-                                방식별 예시 추가
-                              </IconButton>
                               <IconButton type="button" $tone="ghost" onClick={() => scrollManageComposerIntoView()} disabled={controlsDisabled}>
                                 <Pencil size={16} />
                                 직접 만들기
@@ -9867,107 +9251,35 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
             ) : initialView === 'daily' ? (
               <>
                 <DailyHeader>
-                  <PanelHeading>
-                    <div>
-                      <PanelTitle>{activeCategory?.name ?? '전체'} 기록</PanelTitle>
-                      <PanelHint>
-                        {selectedDayStats.touched}/{selectedDayStats.total}개 입력, 달성률 {selectedDayStats.percent}%
-                      </PanelHint>
-                    </div>
-                    <DailyHeaderActions>
-                      <ViewSettingsGroup>
-                        <ViewSettingsLabel>
-                          <Settings2 size={14} />
-                          <span>보기 설정</span>
-                        </ViewSettingsLabel>
-                        <RecordLayoutSwitch aria-label="기록 보기 설정">
-                          <RecordLayoutButton type="button" $active={dailyRecordLayout === 'detail'} onClick={() => handleDailyRecordLayoutChange('detail')}>
-                            날짜
-                          </RecordLayoutButton>
-                          <RecordLayoutButton type="button" $active={dailyRecordLayout === 'simple'} onClick={() => handleDailyRecordLayoutChange('simple')}>
-                            항목
-                          </RecordLayoutButton>
-                        </RecordLayoutSwitch>
-                      </ViewSettingsGroup>
-                      <IconButton as={Link} href="/habit-tracker/stats" $tone="ghost">
-                        <BarChart3 size={16} />
-                        전체 기록
-                      </IconButton>
-                      <IconButton type="button" onClick={() => setSelectedDate(toDateKey(new Date()))}>
-                        오늘
-                      </IconButton>
-                    </DailyHeaderActions>
-                  </PanelHeading>
-                  <DailyPulse aria-label={`${formatMonthDay(selectedDate)} 기록 현황`}>
-                    <DailyPulseIntro>
-                      <small>{formatMonthDay(selectedDate)} 기록 현황</small>
-                      <strong>{selectedDayStats.percent}% 달성</strong>
-                      <span>{selectedDayStats.percent >= 100 ? '오늘 목표를 모두 채웠어요.' : '지금 기록을 이어가 보세요.'}</span>
-                    </DailyPulseIntro>
-                    <DailyPulseProgress>
-                      <DailyPulseProgressTop>
-                        <span>오늘의 달성률</span>
-                        <strong>{selectedDayStats.touched}개 기록 · {selectedDayStats.completed}개 완료</strong>
-                      </DailyPulseProgressTop>
-                      <DailyPulseTrack>
-                        <DailyPulseFill $percent={selectedDayStats.percent} />
-                      </DailyPulseTrack>
-                      <DailyPulseDetail>
-                        {selectedDayStats.total === 0
-                          ? '먼저 습관을 추가하면 오늘의 흐름을 확인할 수 있어요.'
-                          : selectedDayStats.completed === selectedDayStats.total
-                            ? '모든 항목을 완료했습니다. 내일도 같은 리듬으로 이어가 보세요.'
-                            : <><strong>{selectedDayStats.total - selectedDayStats.completed}개</strong> 항목이 남아 있어요.</>}
-                      </DailyPulseDetail>
-                    </DailyPulseProgress>
-                    <DailyStreak>
-                      <Flame size={19} aria-hidden="true" />
-                      <strong>{bestStreak}일</strong>
-                      <span>가장 긴 연속 기록</span>
-                    </DailyStreak>
-                  </DailyPulse>
-                  <MonthNavigator aria-label="월 이동">
-                    <IconOnlyButton type="button" onClick={() => shiftMonth(-1)} title="이전 월" aria-label="이전 월">
+                  <DailyHeading>
+                    <PanelTitle>{selectedDate === toDateKey(new Date()) ? '오늘의 습관' : `${formatMonthDay(selectedDate)} 습관`}</PanelTitle>
+                    <DailyCompletion aria-label={`${selectedDayStats.total}개 중 ${selectedDayStats.completed}개 완료`}>
+                      <strong>{selectedDayStats.completed}/{selectedDayStats.total}</strong><span>완료</span>
+                    </DailyCompletion>
+                  </DailyHeading>
+                  <RecordLayoutSwitch role="group" aria-label="기록 보기 설정">
+                    <RecordLayoutButton type="button" $active={dailyRecordLayout === 'detail'} aria-pressed={dailyRecordLayout === 'detail'} onClick={() => handleDailyRecordLayoutChange('detail')}>
+                      하루 보기
+                    </RecordLayoutButton>
+                    <RecordLayoutButton type="button" $active={dailyRecordLayout === 'simple'} aria-pressed={dailyRecordLayout === 'simple'} onClick={() => handleDailyRecordLayoutChange('simple')}>
+                      주간 보기
+                    </RecordLayoutButton>
+                  </RecordLayoutSwitch>
+                  <DailyDateToolbar>
+                    <IconOnlyButton type="button" onClick={() => shiftDate(dailyRecordLayout === 'simple' ? -7 : -1)} aria-label={dailyRecordLayout === 'simple' ? '이전 주' : '이전 날짜'}>
                       <ChevronLeft size={17} />
                     </IconOnlyButton>
-                    <MonthDisplay>
-                      <CalendarDays size={15} />
-                      <strong>{selectedMonthLabel}</strong>
-                      <span>{formatMonthDay(selectedDate)} 선택</span>
-                    </MonthDisplay>
-                    <IconOnlyButton type="button" onClick={() => shiftMonth(1)} title="다음 월" aria-label="다음 월">
+                    <DailyDateInput type="date" aria-label="기록 날짜" value={selectedDate} onChange={(event) => { if (event.target.value && event.target.validity.valid) setSelectedDate(event.target.value); }} />
+                    <IconOnlyButton type="button" onClick={() => shiftDate(dailyRecordLayout === 'simple' ? 7 : 1)} aria-label={dailyRecordLayout === 'simple' ? '다음 주' : '다음 날짜'}>
                       <ChevronRight size={17} />
                     </IconOnlyButton>
-                  </MonthNavigator>
-                  <DateTools>
-                    <IconOnlyButton type="button" onClick={() => shiftDate(-1)} title="이전 날짜" aria-label="이전 날짜">
-                      <ChevronLeft size={17} />
-                    </IconOnlyButton>
-                    <DateRail>
-                      {dateRail.map((dateKey) => {
-                        const date = parseDateKey(dateKey);
-                        const stats = calculateDayStats(workspace, dateKey, visibleHabits);
-                        return (
-                          <DateButton
-                            type="button"
-                            key={dateKey}
-                            $active={dateKey === selectedDate}
-                            $percent={stats.percent}
-                            $weekendTone={getWeekendTone(date)}
-                            onClick={() => setSelectedDate(dateKey)}
-                          >
-                            <span>{DATE_LABELS[date.getDay()]}</span>
-                            <strong>{date.getDate()}</strong>
-                            <small>{stats.percent}%</small>
-                          </DateButton>
-                        );
-                      })}
-                    </DateRail>
-                    <IconOnlyButton type="button" onClick={() => shiftDate(1)} title="다음 날짜" aria-label="다음 날짜">
-                      <ChevronRight size={17} />
-                    </IconOnlyButton>
-                  </DateTools>
+                    <IconButton type="button" onClick={() => setSelectedDate(toDateKey(new Date()))}>오늘</IconButton>
+                  </DailyDateToolbar>
                 </DailyHeader>
+                <DailyComposer ref={dailyComposerRef} onToggle={(event) => { if (event.currentTarget.open) habitNameInputRef.current?.focus(); }}>
+                  <summary><Plus size={17} aria-hidden="true" /> 습관 추가 <ChevronDown size={16} aria-hidden="true" /></summary>
+                  {renderHabitForm()}
+                </DailyComposer>
 
                 {visibleHabits.length > 0 ? (
                   dailyRecordLayout === 'simple' ? (
@@ -10084,19 +9396,13 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                   <EmptyState>
                     <div>
                       <Trophy size={34} />
-                      <p>선택한 카테고리에 항목이 없습니다.</p>
-                      {orderedHabits.length === 0 ? (
-                        <EmptyStateActions>
-                          <IconButton type="button" $tone="primary" onClick={() => void handleCreateStarterPack()} disabled={controlsDisabled}>
-                            <Plus size={16} />
-                            방식별 예시 추가
-                          </IconButton>
-                          <IconButton as={Link} href="/habit-tracker/manage" $tone="ghost">
-                            <Pencil size={16} />
-                            직접 만들기
-                          </IconButton>
-                        </EmptyStateActions>
-                      ) : null}
+                      <p>{orderedHabits.length === 0 ? '작은 습관 하나부터 시작해 보세요.' : '이 카테고리에는 아직 습관이 없어요.'}</p>
+                      <EmptyStateActions>
+                        <IconButton type="button" $tone="primary" disabled={controlsDisabled} onClick={() => { if (dailyComposerRef.current) dailyComposerRef.current.open = true; habitNameInputRef.current?.focus(); }}>
+                          <Plus size={16} />
+                          첫 습관 만들기
+                        </IconButton>
+                      </EmptyStateActions>
                     </div>
                   </EmptyState>
                 )}

@@ -1,6 +1,4 @@
-/* Keep the execution section and catalog in place while the film is measured. */
-@media (scripting: enabled) {
-  main#content-area[aria-labelledby='product-catalog-title']:not(:has(iframe[data-business-area-preview][data-preview-ready='true'])) > :is(#company-introduction-execution, [data-product-catalog]) {
-    visibility: hidden;
-  }
+/* The native motion showcase has a stable layout; catalog anchors need no iframe handshake. */
+main#content-area[aria-labelledby='product-catalog-title'] :is(#product-catalog, #product-business-panorama, #company-introduction-execution) {
+  scroll-margin-top: 24px;
 }

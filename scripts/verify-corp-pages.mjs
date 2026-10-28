@@ -38,8 +38,9 @@ const pageSpecs = [
   {
     slug: 'product-introduction',
     path: '/corp/company/product-introduction',
-    requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹제품 스타터', '리셀러 파트너', 'CY 모바일 현장일보 웹앱', 'CY 실제 구동', 'CY 상품 견적 요청'],
+    requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹제품 스타터', '크리에디터', 'CY 모바일 현장일보 웹앱', 'CY 실제 구동', 'CY 상품 견적 요청'],
     screenshotProbe: { label: 'business panorama', selector: '#product-business-panorama', minWidth: 280, minHeight: 180 },
+    visualReadySelector: '#product-film-title',
     targets: [
       { label: 'product heading', selector: 'h1', text: '제품소개', minWidth: 90, minHeight: 18 },
       { label: 'product catalog', selector: 'h1,h2,section,div,span,strong', text: 'PRODUCT CATALOG', minWidth: 120, minHeight: 18 },
@@ -49,15 +50,17 @@ const pageSpecs = [
   {
     slug: 'staff-intro',
     path: '/corp/company/staff-intro',
-    requiredTexts: ['AI DRIVEN', '총괄본부장', '10개 전문 부서', 'DIVISION NETWORK', '확장 전문 5개 부서', '사업확장부', '전략적 지원 조직'],
+    requiredTexts: ['한 사람의 방향, 함께 움직이는 조직.', '총괄본부장', 'CEO 중심 협업 네트워크', '사업확장부', '전략적 지원 조직'],
+    visualReadySelector: '#staff-intro-title',
+    interaction: 'staff-drawer',
     targets: [
-      { label: 'staff heading', selector: 'h1,h2', text: 'AI와 사람이 함께 만드는', minWidth: 200, minHeight: 54 },
-      { label: 'division network', selector: 'span,h2,section,div', text: 'DIVISION NETWORK', minWidth: 120, minHeight: 20 },
-      { label: 'division heading', selector: 'h2,section,div', text: '10개 전문 부서', minWidth: 130, minHeight: 30 },
+      { label: 'staff heading', selector: '#staff-intro-title', text: '한 사람의 방향, 함께 움직이는 조직.', minWidth: 200, minHeight: 28 },
+      { label: 'division network', selector: 'span', text: 'CEO 중심 협업 네트워크', minWidth: 100, minHeight: 14 },
+      { label: 'organization counts', selector: '[aria-label="조직 구성"]', text: '전문 부서', minWidth: 220, minHeight: 28 },
     ],
     performanceTargets: [
-      { label: 'staff org nodes', selector: '[data-performance-region="staff-org-node"]' },
-      { label: 'staff flow steps', selector: '[data-performance-region="staff-flow-step"]' },
+      { label: 'staff org nodes', selector: '[data-performance-region="staff-org-node"]', expectedCount: 10, contentVisibility: 'visible' },
+      { label: 'staff support profiles', selector: '[data-performance-region="staff-flow-step"]', expectedCount: 5, contentVisibility: 'visible' },
     ],
   },
   {
@@ -161,6 +164,9 @@ async function scrollPageToTop(page) {
 }
 
 async function waitForVisualReady(page, spec) {
+  if (spec.slug === 'staff-intro') {
+    await page.waitForFunction(() => document.querySelectorAll('#staff-intro-title').length === 1);
+  }
   const imageSelector = spec.screenshotProbe?.selector;
   if (imageSelector?.startsWith('img')) {
     await page.waitForFunction((selector) => {
@@ -361,20 +367,38 @@ function assertCorporatePage(evidence, viewportName, spec) {
   }
 
   for (const item of evidence.performanceItems ?? []) {
-    assert.ok(item.count > 0, `${viewportName} ${spec.slug} missing performance evidence for ${item.label}`);
+    assert.equal(item.count, item.expectedCount, `${viewportName} ${spec.slug} rendered an incomplete ${item.label} group`);
     for (const style of item.styles) {
       assert.equal(
         style.contentVisibility,
-        'auto',
-        `${viewportName} ${spec.slug} ${item.label} does not use content-visibility: auto`,
-      );
-      assert.notEqual(
-        style.containIntrinsicSize,
-        'none',
-        `${viewportName} ${spec.slug} ${item.label} is missing contain-intrinsic-size`,
+        item.contentVisibility,
+        `${viewportName} ${spec.slug} ${item.label} must remain fully rendered for the compact organization board`,
       );
     }
   }
+}
+
+async function verifyStaffOverview(page, viewportName) {
+  const board = page.locator('[data-staff-overview]');
+  assert.equal(await board.locator('[data-team-profile]').count(), 100, `${viewportName} must expose all 100 teams`);
+  assert.equal(await board.getByRole('button', { name: /상세 프로필 열기$/ }).count(), 125, `${viewportName} must expose every staff profile`);
+  const stage = page.locator('#staff-collaboration');
+  await stage.scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => document.querySelector('#staff-collaboration')?.getAttribute('data-running') === 'true');
+  await stage.getByRole('button', { name: '대화 일시정지', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-staff-overview]')?.getAttribute('data-motion-running') === 'false');
+  assert.equal(await board.evaluate(element => element.getAnimations({ subtree: true })
+    .filter(animation => animation.effect?.getTiming().iterations === Infinity && animation.playState === 'running').length), 0,
+  `${viewportName} pausing must stop continuous organization animations`);
+  const step = Number(await stage.getAttribute('data-step'));
+  await stage.getByRole('button', { name: '다음 대화', exact: true }).click();
+  assert.equal(Number(await stage.getAttribute('data-step')), (step + 1) % 7, `${viewportName} paused conversation must support manual navigation`);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForFunction(() => document.querySelector('#staff-collaboration button[aria-label="동작 줄임 설정으로 자동 재생 꺼짐"]')?.disabled === true);
+  assert.equal(await board.evaluate(element => element.getAnimations({ subtree: true })
+    .filter(animation => animation.effect?.getTiming().iterations === Infinity).length), 0,
+  `${viewportName} reduced motion must remove continuous organization animations`);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
 }
 
 async function verifyStaffDrawerAccessibility(page, viewportName, screenshotPath) {
@@ -459,7 +483,7 @@ async function verifyCeoProfileSwitch(page, viewportName) {
   await tabs.getByRole('tab', { name: /대표이력서/ }).click();
   assert.equal(await page.locator('#dashboard2-intro .ceo-hero-badge, #dashboard2-intro .ceo-hero-title, #dashboard2-intro .ceo-hero-description').count(), 0,
     `${viewportName} CEO resume should have no promotional header`);
-  assert.equal(await page.locator('[data-ceo-hero-accordion-trigger]').count(), 5);
+  assert.equal(await page.locator('[data-ceo-hero-accordion-trigger]').count(), 4);
   const profileTrigger = page.locator('[data-ceo-hero-profile-trigger]');
   assert.equal(await profileTrigger.count(), 1, `${viewportName} CEO profile trigger must be unique`);
 
@@ -605,7 +629,7 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
 }
 
 async function verifyProductShowcase(page, viewportName) {
-  await page.waitForFunction(() => document.querySelector('iframe[data-business-area-preview]')?.dataset.previewReady === 'true');
+  await page.locator('#product-film-title').waitFor();
   const structure = await page.locator('main#content-area').evaluate(main => ({
     sections: Array.from(main.children).filter(n => n.tagName === 'SECTION' || n.hasAttribute('data-product-catalog')).map(n => n.id || 'catalog'),
     overflow: main.scrollWidth > main.clientWidth + 1,
@@ -614,9 +638,8 @@ async function verifyProductShowcase(page, viewportName) {
   assert.deepEqual(structure.sections, ['product-business-panorama', 'company-introduction-execution', 'catalog']);
   assert.equal(structure.overflow, false, `${viewportName} product introduction overflow`);
   assert.equal(structure.nestedMain, 0);
-  const frame = page.frameLocator('iframe[data-business-area-preview]');
-  assert.equal(await frame.locator('#heroTabs [role=tab]').count(), 5);
-  assert.equal(await frame.locator('#filmRail [role=tab]').count(), 10);
+  assert.equal(await page.locator('[id^="product-film-chapter-"]').count(), 4);
+  assert.equal(await page.locator('[data-product-motion-artwork]').count(), 1);
   const automationTab = page.locator('#company-execution-tab-automation');
   await automationTab.scrollIntoViewIfNeeded();
   await automationTab.click();
@@ -632,7 +655,7 @@ async function verifyCompanyRouteNavigation(context, viewport) {
   const runtimeErrors = [];
   const routeSpecs = [
     { path: '/corp/company/ceo-intro', text: '사진을 눌러 그뚠이의 이야기를 들어보세요.' },
-    { path: '/corp/company/staff-intro', text: 'DIVISION NETWORK' },
+    { path: '/corp/company/staff-intro', text: 'CEO 중심 협업 네트워크' },
     { path: '/corp/company/product-introduction', text: 'PRODUCT CATALOG' },
     { path: '/corp/company/introduction', text: 'SIMPLYPIG' },
   ];
@@ -742,6 +765,7 @@ try {
       if (spec.interaction === 'staff-drawer') {
         const interactionScreenshotPath = path.join(screenshotDir, `${spec.slug}-drawer-${viewport.name}.png`);
         await verifyStaffDrawerAccessibility(page, viewport.name, interactionScreenshotPath);
+        await verifyStaffOverview(page, viewport.name);
       }
 
       if (spec.slug === 'ceo-intro') {

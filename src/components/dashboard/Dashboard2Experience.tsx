@@ -416,22 +416,7 @@ const ceoHeroAccordionItems: CeoHeroAccordionItem[] = [
     ),
   },
   {
-    eyebrow: '03 / Education',
-    title: '학력정보',
-    summary: '초등학교 졸업 → 중학교 5곳 → 검정고시',
-    detail: (
-      <>
-        <ol className="resume-journey">
-          <li><span>첫 번째 졸업장</span><b>초등학교 졸업</b><p>배움의 첫 코스, 정상 완주.</p></li>
-          <li><span>학교생활 순회 편</span><b>중학교 5곳 전학</b><p>교실은 바뀌고, 자기소개 경험치는 쌓이고.</p></li>
-          <li><span>최종학력</span><b>검정고시 졸업</b><p>정해진 길을 조금 돌아, 나만의 방식으로 마침표.</p></li>
-        </ol>
-        <p className="resume-footnote">학교 이름보다 전학 에피소드가 더 긴 이력서.</p>
-      </>
-    ),
-  },
-  {
-    eyebrow: '04 / Career',
+    eyebrow: '03 / Career',
     title: '경력정보',
     summary: '삽부터 키보드까지, 직업 장르를 넘나든 경력',
     detail: (
@@ -445,12 +430,13 @@ const ceoHeroAccordionItems: CeoHeroAccordionItem[] = [
           <li><b>직업소개소 소장</b><span>일을 하다가, 사람과 일을 연결하는 쪽으로.</span></li>
           <li><b>건설 시공 운영</b><span>다시 현장으로. 이번에는 운영까지.</span></li>
         </ul>
+        <p className="resume-aside">어릴 때 와레즈 사이트와 XX 게임 프리서버를 구축한 경험까지 합치면, 나도 개발 경력 30년쯤….</p>
         <div className="resume-current"><span>현재 하는 일</span><b>외주개발 프리랜서 PM</b><p>현장에서 쌓은 이야기를, 이제 프로젝트로 풀어가는 중.</p></div>
       </>
     ),
   },
   {
-    eyebrow: '05 / Skills',
+    eyebrow: '04 / Skills',
     title: '기술정보',
     summary: '핸들도 잡고, 프로젝트 방향도 잡고',
     detail: (
@@ -623,6 +609,16 @@ const companyBrandCollection = [
     imageStyle: 'erp',
   },
   {
+    name: '전국시스템인력',
+    category: 'Workforce Brand',
+    description: '시스템동바리 · 시스템비계 인력공급업체로, 건설 현장에 필요한 인력을 연결합니다.',
+    imageUrl: '/images/corp/brands/jeonguk-system.png',
+    imageAlt: '건설 현장과 크레인을 배경으로 빨간색 J와 파란색 S를 표현한 전국시스템인력 로고',
+    imageWidth: 1254,
+    imageHeight: 1254,
+    imageStyle: 'workforce',
+  },
+  {
     name: 'PROPIG',
     category: 'Product Brand',
     description: '일의 흐름을 단순하게 만들고 성장을 돕는 AI 기반 제품 브랜드입니다.',
@@ -630,7 +626,7 @@ const companyBrandCollection = [
     imageAlt: 'PROPIG 돼지 캐릭터 브랜드 이미지',
     imageWidth: 512,
     imageHeight: 512,
-    imageStyle: 'cover',
+    imageStyle: 'contain',
   },
   {
     name: '그뚠스토리',
@@ -1605,7 +1601,7 @@ export default function Dashboard2Experience({
                       <span>BRAND PORTFOLIO</span>
                       <h3>기술과 일상을 연결하는 브랜드</h3>
                     </div>
-                    <p>업무를 연결하는 ERP, 일상을 돕는 제품, 경험을 전하는 웹툰. 서로 다른 브랜드가 SIMPLYPIG의 방향을 함께 만들어갑니다.</p>
+                    <p>업무를 연결하는 ERP, 현장을 잇는 인력공급, 일상을 돕는 제품, 경험을 전하는 웹툰. 서로 다른 브랜드가 SIMPLYPIG의 방향을 함께 만들어갑니다.</p>
                   </CompanyBrandIntro>
 
                   <CompanyBrandGrid>
@@ -2638,17 +2634,12 @@ const CeoHeroAccordionList = styled.div`
   .resume-detail .resume-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
   .resume-tags li { padding: 4px 8px; border-radius: 4px; background: #e8eef8; color: #334155; font-size: 0.72rem; }
   .resume-quotes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-  .resume-quotes p > span, .resume-current > span, .resume-journey li > span { display: block; margin-bottom: 6px; color: #1d4ed8; font-size: 0.73rem; font-weight: 750; }
+  .resume-quotes p > span, .resume-current > span { display: block; margin-bottom: 6px; color: #1d4ed8; font-size: 0.73rem; font-weight: 750; }
   .resume-quotes b { display: block; color: #182d4c; font-size: 1.07rem; line-height: 1.7; }
   .resume-detail .resume-principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 24px; padding-top: 18px; border-top: 1px solid #d9e1ec; }
   .resume-principles span { display: block; color: #475569; font-size: 0.78rem; }
   .resume-principles b { display: block; margin-top: 5px; color: #163d83; font-size: 1.07rem; }
   .resume-detail .resume-footnote { margin-top: 18px; color: #52627a; font-size: 0.78rem; }
-  .resume-journey { display: grid; gap: 20px; }
-  .resume-journey li { position: relative; padding-left: 20px; border-left: 2px solid #cedaf0; }
-  .resume-journey li::before { position: absolute; top: 5px; left: -5px; width: 8px; height: 8px; border-radius: 50%; background: #2563eb; content: ''; }
-  .resume-journey b { display: block; color: #182d4c; font-size: 1.05rem; }
-  .resume-journey li p { margin-top: 4px; }
   .resume-careers li { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #e1e7f0; }
   .resume-careers li:first-child { padding-top: 0; }
   .resume-careers b { color: #182d4c; font-size: 0.87rem; }
@@ -4202,6 +4193,7 @@ const CompanyBrandIntro = styled.header`
     font-size: 1.65rem;
     font-weight: 950;
     line-height: 1.2;
+    word-break: keep-all;
   }
 
   p {
@@ -4215,7 +4207,7 @@ const CompanyBrandIntro = styled.header`
     word-break: keep-all;
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 1100px) {
     display: block;
 
     p {
@@ -4227,7 +4219,7 @@ const CompanyBrandIntro = styled.header`
 
 const CompanyBrandGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 
   article {
@@ -4263,6 +4255,10 @@ const CompanyBrandGrid = styled.div`
   .brand-image--symbol img {
     width: 112px;
     height: 112px;
+  }
+
+  .brand-image--workforce {
+    background: #03132e;
   }
 
   .brand-image--cover img {
@@ -4301,20 +4297,12 @@ const CompanyBrandGrid = styled.div`
     word-break: keep-all;
   }
 
-  @media (max-width: 860px) {
+  @media (max-width: 1100px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-
-    article:last-child {
-      grid-column: 1 / -1;
-    }
   }
 
   @media (max-width: 560px) {
     grid-template-columns: 1fr;
-
-    article:last-child {
-      grid-column: auto;
-    }
 
     .brand-image {
       height: 176px;

@@ -10,8 +10,6 @@ import {
   ChevronDown,
   Code2,
   Film,
-  Handshake,
-  Layers3,
   ShieldCheck,
   ShoppingBag,
   Target,
@@ -19,7 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import styled from 'styled-components';
-import { CompanyBusinessAreaSections } from '@/components/corp/CompanyBusinessAreaExperience';
+import ProductMotionShowcase from '@/components/corp/ProductMotionShowcase';
 import CompanyExecutionSystem from '@/components/corp/CompanyExecutionSystem';
 
 type ProductScreen = {
@@ -429,49 +427,49 @@ const PRODUCT_CATEGORIES: readonly ProductCategory[] = [
   },
   {
     id: 'partner',
-    label: '리셀러 파트너',
-    eyebrow: 'RESELLER PARTNER',
-    description: '파트너와 고객이 같은 제품 언어로 일하도록 돕는 운영 패키지입니다.',
+    label: '크리에디터',
+    eyebrow: 'CREEDITOR · CONTENT & COMMERCE',
+    description: '생성형 콘텐츠를 판매 상품으로 만들고, 광고 콘텐츠를 스토어·제휴 상품 링크와 연결합니다.',
     accent: '#f5c766',
-    icon: Layers3,
+    icon: ShoppingBag,
     products: [
       {
         id: 'partner-onboarding',
-        name: '파트너 온보딩 키트',
-        summary: '첫 교육부터 운영 기준까지 빠르게 맞춥니다.',
-        description: '계약, 권한, 제품 정보와 고객 지원 경로를 정리해 새 파트너가 같은 기준으로 제품을 소개하고 운영하게 합니다.',
-        includes: ['온보딩 체크리스트', '제품·가격·운영 가이드', '지원·문의 채널 정리'],
-        delivery: '맞춤 견적 · 파트너 운영 현황 진단',
-        image: '/images/corp/workflows/reseller-partner-workflow.webp',
-        imageAlt: '리셀러 파트너 온보딩과 운영의 전체 과정 인포그래픽',
+        name: '생성형 콘텐츠 판매 패키지',
+        summary: '만든 영상·이미지·웹툰을 판매할 수 있는 상품으로 구성합니다.',
+        description: '생성형 콘텐츠를 용도와 형식에 따라 묶고 미리보기, 사용 범위, 전달 파일을 정리해 구매자가 이해하기 쉬운 디지털 상품으로 만듭니다.',
+        includes: ['영상·이미지·웹툰 상품 구성', '미리보기·상세 소개·사용 범위', '구매 후 파일 전달 흐름'],
+        delivery: '맞춤 견적 · 콘텐츠와 판매 채널별 범위 협의',
+        image: '/images/corp/workflows/creator-workflow.webp',
+        imageAlt: '디지털 콘텐츠 기획과 제작, 운영을 연결하는 과정 인포그래픽',
       },
       {
         id: 'partner-portal',
-        name: '파트너 포털',
-        summary: '제품 자료와 고객 정보를 하나의 창구로 연결합니다.',
-        description: '파트너가 필요한 카탈로그, 제안 자료, 교육 자료와 지원 요청을 한곳에서 확인하고 관리할 수 있게 구성합니다.',
-        includes: ['파트너별 권한과 자료실', '문의·지원 요청 흐름', '운영자 관리 화면'],
-        delivery: '맞춤 견적 · 운영 권한 설계 포함',
-        image: '/images/corp/technology/reseller-partner-stack.webp',
-        imageAlt: '리셀러 파트너 포털의 기술 구성 인포그래픽',
+        name: '광고형 상품 콘텐츠',
+        summary: '제품의 매력을 숏폼·이미지·블로그 콘텐츠로 소개합니다.',
+        description: '네이버스토어, 쿠팡파트너스, AliExpress, TEMU 등에서 소개할 상품에 맞춰 광고 소재를 기획하고 상품 정보와 구매·제휴 링크를 연결합니다.',
+        includes: ['상품별 광고 영상·이미지·글', '채널에 맞는 구매 유도 문구', '상품 정보·링크·광고 표시 검수'],
+        delivery: '맞춤 견적 · 상품과 채널별 제작 범위 협의',
+        image: '/images/corp/technology/creator-stack.webp',
+        imageAlt: '상품 소개 콘텐츠 제작을 지원하는 기술 구성 인포그래픽',
       },
       {
         id: 'partner-co-selling',
-        name: '공동 영업 운영',
-        summary: '상담부터 견적까지 다음 행동이 끊기지 않게 합니다.',
-        description: '리드, 데모, 견적, 계약과 고객 지원 역할을 연결해 파트너와 내부 담당자가 같은 정보를 보며 움직이도록 설계합니다.',
-        includes: ['리드·기회 관리 기준', '견적·데모 협업 흐름', '고객 지원 역할 분담'],
-        delivery: '맞춤 견적 · 영업 흐름 워크숍 포함',
-        image: '/images/corp/workflows/web-app-delivery-process.webp',
-        imageAlt: '협업형 웹 제품을 만들고 운영하는 과정 인포그래픽',
+        name: '채널·상품 링크 운영',
+        summary: '콘텐츠를 본 사람이 관심 있는 상품에 바로 도달하게 합니다.',
+        description: 'YouTube, TikTok, Instagram, 블로그의 게시 형식에 맞춰 콘텐츠와 상품 링크를 배치하고 채널별 게시 일정과 링크 상태를 관리합니다.',
+        includes: ['채널별 콘텐츠·게시 일정', '스토어·제휴 상품 링크 구성', '연결 상태와 상품 정보 점검'],
+        delivery: '맞춤 견적 · 운영 채널과 상품 수 기준 협의',
+        image: '/images/corp/workflows/video-editing-workflow.webp',
+        imageAlt: '콘텐츠 편집에서 채널 배포까지 이어지는 과정 인포그래픽',
       },
       {
         id: 'partner-performance',
-        name: '파트너 성과 대시보드',
-        summary: '매출뿐 아니라 고객 성공과 다음 기회를 함께 봅니다.',
-        description: '리드 전환, 수주, 고객 지원과 교육 이력을 함께 확인해 파트너별 다음 지원과 확장 계획을 더 선명하게 만듭니다.',
-        includes: ['성과·전환·지원 지표', '파트너별 운영 기록', '다음 분기 실행 계획'],
-        delivery: '맞춤 견적 · 성과 지표 정의부터 지원',
+        name: '콘텐츠·판매 성과 대시보드',
+        summary: '콘텐츠 반응과 판매 결과를 함께 보고 다음 제작을 결정합니다.',
+        description: '확인 가능한 채널 조회·클릭, 콘텐츠 판매 내역과 플랫폼 제공 실적을 모아 어떤 소재와 상품을 개선할지 판단할 수 있게 구성합니다.',
+        includes: ['조회·클릭·판매 지표 정리', '채널·소재·상품별 결과 비교', '다음 콘텐츠와 상품 개선 계획'],
+        delivery: '맞춤 견적 · 제공 가능한 데이터 범위 확인',
         image: '/images/corp/technology/automation-stack.webp',
         imageAlt: '운영 데이터를 연결하는 자동화 기술 구성 인포그래픽',
       },
@@ -502,26 +500,26 @@ function getCyQuoteMailto(product: ProductItem): string {
 const PARTNER_VALUE_PROPOSITIONS = [
   {
     icon: Target,
-    label: '같은 영업 기준',
-    description: '제품·가격·고객 대응 기준을 한 번에 맞춰 제안의 편차를 줄입니다.',
+    label: '콘텐츠를 판매 상품으로',
+    description: '영상·이미지·웹툰의 구성, 미리보기와 사용 범위를 정리해 상품의 가치를 전달합니다.',
   },
   {
     icon: ShieldCheck,
-    label: '운영 가능한 체계',
-    description: '권한, 자료, 문의와 지원 경로를 정리해 담당자가 바뀌어도 흐름을 유지합니다.',
+    label: '광고에서 상품으로 연결',
+    description: '콘텐츠마다 적절한 스토어·제휴 링크와 상품 정보를 연결해 구매까지의 흐름을 설계합니다.',
   },
   {
     icon: ChartNoAxesCombined,
-    label: '함께 보는 성과',
-    description: '리드와 수주뿐 아니라 교육·지원 이력을 연결해 다음 실행을 결정합니다.',
+    label: '반응을 다음 제작에 반영',
+    description: '조회·클릭과 확인 가능한 판매 데이터를 비교해 다음 콘텐츠와 상품 구성을 개선합니다.',
   },
 ] as const;
 
 const PARTNER_JOURNEY = [
-  ['01', '현황 진단', '제품과 기존 파트너 운영 방식을 확인합니다.'],
-  ['02', '운영 설계', '역할·자료·고객 대응 기준을 함께 정의합니다.'],
-  ['03', '온보딩 실행', '교육과 첫 공동 영업을 작은 범위부터 시작합니다.'],
-  ['04', '성과 개선', '운영 기록을 바탕으로 지원과 확장 계획을 조정합니다.'],
+  ['01', '상품 기획', '판매할 콘텐츠나 소개할 상품과 고객을 정합니다.'],
+  ['02', '콘텐츠 제작', '생성형 상품과 채널별 광고 소재를 제작합니다.'],
+  ['03', '판매 연결', '콘텐츠 판매 페이지와 스토어·제휴 링크를 구성합니다.'],
+  ['04', '반응 개선', '조회·클릭·판매 결과를 다음 제작에 반영합니다.'],
 ] as const;
 
 function findProductCategory(categoryId: string) {
@@ -529,7 +527,6 @@ function findProductCategory(categoryId: string) {
 }
 
 export default function ProductCatalogExperience() {
-  const [showcaseReady, setShowcaseReady] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(PRODUCT_CATEGORIES[0]!.id);
   const [openProductId, setOpenProductId] = useState(PRODUCT_CATEGORIES[0]!.products[0]!.id);
   const activeCategory = findProductCategory(activeCategoryId) ?? PRODUCT_CATEGORIES[0]!;
@@ -554,10 +551,9 @@ export default function ProductCatalogExperience() {
         setActiveCategoryId(category.id);
         setOpenProductId(category.products[0]!.id);
       }
-      if (!showcaseReady) return;
       const target = category ? 'product-catalog'
         : ['product-catalog', 'product-business-panorama', 'company-introduction-execution'].includes(hash) ? hash : null;
-      // Native hash navigation happens before the iframe has its final height.
+      // Restore category deep links inside the page's own scroll container.
       if (target) frameId = window.requestAnimationFrame(() => {
         document.getElementById(target)?.scrollIntoView({ block: 'start', behavior: 'instant' });
       });
@@ -569,7 +565,7 @@ export default function ProductCatalogExperience() {
       window.cancelAnimationFrame(frameId);
       window.removeEventListener('hashchange', syncCategoryFromHash);
     };
-  }, [showcaseReady]);
+  }, []);
 
   const handleCategoryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const currentIndex = PRODUCT_CATEGORIES.findIndex((category) => category.id === activeCategory.id);
@@ -601,8 +597,8 @@ export default function ProductCatalogExperience() {
   return (
     <CatalogPage id="content-area" aria-labelledby="product-catalog-title">
       <SkipLink href="#product-catalog">제품 목록으로 건너뛰기</SkipLink>
-      <CompanyBusinessAreaSections id="product-business-panorama" showBusinessVideoSection={false} pageLabel="제품소개" onPreviewReady={setShowcaseReady} />
-      <CompanyExecutionSystem readyToReveal={showcaseReady} />
+      <ProductMotionShowcase />
+      <CompanyExecutionSystem readyToReveal />
       <CatalogContent data-product-catalog>
       <CatalogHeader>
         <HeaderCopy>
@@ -625,7 +621,7 @@ export default function ProductCatalogExperience() {
           <div>
             <span>PRODUCT CATALOG</span>
             <h2 id="product-catalog-section-title">제품소개</h2>
-            <p>기존 제품군과 상품은 그대로 유지하고, 웹·앱 제품과 업무자동화 안에 CY 실제 구동 화면 기반 상품을 함께 소개합니다.</p>
+            <p>웹·앱, 업무자동화, 생성형 콘텐츠, 크리에디터까지. 실제 구동 화면과 제품별 구성으로 비즈니스에 맞는 서비스를 확인하세요.</p>
           </div>
           <ActiveCategoryMark aria-hidden="true" $accent={activeCategory.accent}>
             <ActiveIcon size={24} strokeWidth={2.1} />
@@ -677,22 +673,22 @@ export default function ProductCatalogExperience() {
           {activeCategory.id === 'partner' ? (
             <PartnerOverview aria-labelledby="partner-overview-title">
               <PartnerOverviewIntro>
-                <span>PARTNERSHIP OPERATING SYSTEM</span>
-                <h4 id="partner-overview-title">계약 이후에도 실제로 움직이는 파트너 운영 체계</h4>
+                <span>CREEDITOR · CREATE, CONNECT, SELL</span>
+                <h4 id="partner-overview-title">직접 만든 콘텐츠도, 소개하는 상품도 판매로 연결</h4>
                 <p>
-                  자료만 전달하고 끝나는 제휴가 아니라, 제품 이해부터 공동 영업·고객 지원·성과 개선까지
-                  하나의 운영 흐름으로 연결합니다.
+                  생성형은 영상·이미지·웹툰을 판매하고, 광고형은 네이버스토어·쿠팡파트너스·AliExpress·TEMU 등의
+                  상품을 콘텐츠로 소개합니다. 제작부터 상품 링크 연결과 반응 확인까지 한 흐름으로 구성합니다.
                 </p>
                 <PartnerOverviewActions>
                   <PartnerPrimaryLink href="/corp/partnership/business?product=partner-onboarding">
-                    파트너 운영 상담하기
+                    크리에디터 도입 상담하기
                     <ArrowRight size={17} strokeWidth={2.4} aria-hidden="true" />
                   </PartnerPrimaryLink>
-                  <PartnerTextLink href="#partner-products">4개 운영 패키지 보기</PartnerTextLink>
+                  <PartnerTextLink href="#partner-products">4개 판매·운영 패키지 보기</PartnerTextLink>
                 </PartnerOverviewActions>
               </PartnerOverviewIntro>
 
-              <PartnerValueGrid aria-label="파트너 운영 핵심 가치">
+              <PartnerValueGrid aria-label="크리에디터 핵심 가치">
                 {PARTNER_VALUE_PROPOSITIONS.map((value) => {
                   const ValueIcon = value.icon;
                   return (
@@ -707,10 +703,10 @@ export default function ProductCatalogExperience() {
 
               <PartnerJourney aria-labelledby="partner-journey-title">
                 <PartnerJourneyHeading>
-                  <span><Handshake size={18} strokeWidth={2.2} aria-hidden="true" /></span>
+                  <span><Workflow size={18} strokeWidth={2.2} aria-hidden="true" /></span>
                   <div>
-                    <strong id="partner-journey-title">도입부터 개선까지 한 흐름으로</strong>
-                    <p>현재 운영 방식에 맞춰 필요한 단계와 패키지만 선택합니다.</p>
+                    <strong id="partner-journey-title">콘텐츠 기획부터 판매와 개선까지</strong>
+                    <p>생성형 콘텐츠 판매와 광고형 상품 소개에 맞춰 필요한 패키지를 선택합니다.</p>
                   </div>
                 </PartnerJourneyHeading>
                 <PartnerJourneySteps>
