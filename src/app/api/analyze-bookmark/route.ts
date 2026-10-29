@@ -5,7 +5,9 @@ import { fetchExternalHttpUrl, normalizeExternalHttpUrl } from '@/lib/server/htt
 import { requireUserAuth } from '@/lib/server/user-auth';
 import { z } from 'zod';
 
-// Zod schema for the enhanced Gemini response
+const shouldLogBookmarkAnalysisDebug = process.env.NODE_ENV !== 'production';
+
+// Zod schema for the enhanced AI response
 const AnalysisResponseSchema = z.object({
     title: z.string(),
     description: z.string(),
@@ -27,7 +29,7 @@ type BasicMetadata = {
 const DEFAULT_CATEGORIES = ['업무', '학습', '개인', '참고', '엔터테인먼트', '기술'];
 
 type AnalyzeStatus = 'ok' | 'fallback';
-type AnalyzeSource = 'gemini' | 'grok' | 'fallback';
+type AnalyzeSource = 'openrouter' | 'fallback';
 
 type AnalyzeMeta = {
     status: AnalyzeStatus;
@@ -57,13 +59,7 @@ type ModelPricing = {
     outputPer1MTokensUsd: number;
 };
 
-const GEMINI_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {
-    'gemini-2.5-flash': { inputPer1MTokensUsd: 0.3, outputPer1MTokensUsd: 2.5 },
-    'gemini-2.5-pro': { inputPer1MTokensUsd: 3.5, outputPer1MTokensUsd: 10.0 },
-    'gemini-2.0-flash': { inputPer1MTokensUsd: 0.1, outputPer1MTokensUsd: 0.4 },
-    'gemini-1.5-flash': { inputPer1MTokensUsd: 0.075, outputPer1MTokensUsd: 0.3 },
-    'gemini-1.5-pro': { inputPer1MTokensUsd: 1.25, outputPer1MTokensUsd: 5.0 },
-};
+const OPENROUTER_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {};
 
 const KRW_PER_USD = 1350;
 
@@ -71,10 +67,10 @@ function resolveModelPricing(modelName: string): ModelPricing | null {
     const normalized = String(modelName || '').toLowerCase();
     if (!normalized) return null;
 
-    const exact = GEMINI_MODEL_PRICING_USD_PER_1M[normalized];
+    const exact = OPENROUTER_MODEL_PRICING_USD_PER_1M[normalized];
     if (exact) return exact;
 
-    for (const [key, pricing] of Object.entries(GEMINI_MODEL_PRICING_USD_PER_1M)) {
+    for (const [key, pricing] of Object.entries(OPENROUTER_MODEL_PRICING_USD_PER_1M)) {
         if (normalized.includes(key)) return pricing;
     }
 
@@ -216,7 +212,7 @@ function extractJsonObjectText(text: string): string {
     const cleaned = cleanModelText(text);
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-        throw new Error('Gemini response does not contain JSON object');
+        throw new Error('AI response does not contain JSON object');
     }
     return jsonMatch[0];
 }
@@ -460,7 +456,7 @@ function buildFallbackAnalysis(
         channelName: basicMetadata.author || '',
         favicon: basicMetadata.favicon || buildFallbackFaviconUrl(url),
         detailedAnalysis: detailed
-            ? 'AI 상세 분석을 사용할 수 없어 제목, 설명, URL을 바탕으로 한국어 요약을 생성했습니다. 더 정확한 자동채우기가 필요하면 Gemini API 키를 갱신한 뒤 다시 시도해 주세요.'
+            ? 'AI 상세 분석을 사용할 수 없어 제목, 설명, URL을 바탕으로 한국어 요약을 생성했습니다. 더 정확한 자동채우기가 필요하면 OpenRouter 설정을 확인한 뒤 다시 시도해 주세요.'
             : undefined,
     };
 
@@ -563,7 +559,9 @@ export async function POST(req: NextRequest) {
 
         if (youtubeTarget) {
             const targetLabel = youtubeTarget.targetType === 'channel' ? 'Channel' : 'Video';
-            console.log(`[API] Detected YouTube ${targetLabel}. Trying oEmbed...`);
+            if (shouldLogBookmarkAnalysisDebug) {
+                console.info(`[API] Detected YouTube ${targetLabel}. Trying oEmbed...`);
+            }
             const oembedData = await fetchYoutubeOembed(youtubeTarget.canonicalUrl);
             if (oembedData) {
                 const author = oembedData.author_name || '';
@@ -693,8 +691,12 @@ ${htmlContext}`;
 
         const fallbackData = buildFallbackAnalysis(fetchUrl, basicMetadata, categoryList, isDetailed);
 
-        // 3. Call Gemini
-        console.log(`[API] Analyzing (detailed=${isDetailed}): ${url}`);
+        // 3. Call the configured AI provider
+        if (shouldLogBookmarkAnalysisDebug) {
+            console.info(
+                `[API] Analyzing bookmark (detailed=${isDetailed}, targetType=${resolvedTargetType || 'unknown'})`,
+            );
+        }
         try {
             const textResult = await runManagedTextChat([
                 { role: 'system', content: systemPrompt },
@@ -713,12 +715,14 @@ ${htmlContext}`;
                 }
                 : undefined;
             const costEstimate =
-                textResult.provider === 'gemini'
+                textResult.provider === 'openrouter'
                     ? estimateUsageCost(usage, textResult.model)
                     : undefined;
 
             const content = textResult.response.content.trim();
-            console.log(`[API] ${textResult.provider} Response:`, content);
+            if (shouldLogBookmarkAnalysisDebug) {
+                console.info(`[API] ${textResult.provider} bookmark response received (${content.length} chars)`);
+            }
 
             let parsedData: z.infer<typeof AnalysisResponseSchema>;
             try {
@@ -743,7 +747,7 @@ ${htmlContext}`;
                 return fallbackResponse(
                     parsedFallback,
                     'parse_failed',
-                    'Gemini 응답 파싱에 실패했습니다.',
+                    'AI 응답 파싱에 실패했습니다.',
                     requireAI === true,
                     { usage, costEstimate },
                 );

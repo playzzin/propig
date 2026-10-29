@@ -1,0 +1,4 @@
+[
+  {"role":"qa","goal":"owner panel_integration_qa. 실제 React 영상 Panel+Journey+SceneEditor의 검수·승인·조립·동일설정 보존을 mocked IO로 통합 검증. allowed 파일만 작성, 모든 제품 소스·기존검사·공유파일 forbidden. acceptance: WSL 격리 React 도구로 script PASS. root가 제품 수정과 서버·전체 빌드 소유.","files":["scripts/verify-storyboard-panel-integration.cjs"]},
+  {"role":"qa","goal":"owner resume_boundary_audit. 자동 제작 중단/재개와 승인 영상 재사용 오류를 actual callbacks로 검증. allowed 검사파일만 수정, 제품소스와 기타파일 forbidden. acceptance: node scripts/verify-storyboard-video-lifecycle.cjs PASS. root가 제품 소스 소유.","files":["scripts/verify-storyboard-video-lifecycle.cjs"]}
+]

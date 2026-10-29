@@ -103,8 +103,8 @@ export function TestPanel({
     };
 
     const queueAndProcess = async (queueFn: () => Promise<string | null>, label: string): Promise<VideoStudioJob> => {
-        if (runtimeStatus && !runtimeStatus.grokApiKeyConfigured) {
-            throw new Error('GROK_API_KEY가 설정되지 않아 실전 생성이 불가능합니다. .env 또는 관리 설정에서 키를 등록하세요.');
+        if (runtimeStatus && !runtimeStatus.openRouterApiKeyConfigured) {
+            throw new Error('OPENROUTER_API_KEY가 설정되지 않아 실전 생성이 불가능합니다. 서버 환경 변수 또는 Firebase Secret에 키를 등록하세요.');
         }
 
         const jobId = await queueFn();
@@ -223,7 +223,7 @@ export function TestPanel({
                         fontWeight: 'bold',
                     }}
                 >
-                    {runtimeStatus?.devMode ? 'DEV 모드 (강제 실전 실행 사용)' : '실전 모드 (Grok)'}
+                    {runtimeStatus?.devMode ? 'DEV 모드 (강제 실전 실행 사용)' : '실전 모드 (OpenRouter)'}
                 </span>
             </div>
             <p style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>
@@ -239,7 +239,7 @@ export function TestPanel({
                 }}
             >
                 <div style={{ padding: '8px 10px', border: '1px solid #dee2e6', borderRadius: '6px', backgroundColor: '#fff' }}>
-                    Grok API: {runtimeStatus ? (runtimeStatus.grokApiKeyConfigured ? '연결됨' : '미설정') : '확인 중'}
+                    OpenRouter API: {runtimeStatus ? (runtimeStatus.openRouterApiKeyConfigured ? '연결됨' : '미설정') : '확인 중'}
                 </div>
                 <div style={{ padding: '8px 10px', border: '1px solid #dee2e6', borderRadius: '6px', backgroundColor: '#fff' }}>
                     실행 모드: {runtimeStatus ? (runtimeStatus.devMode ? '개발 모드' : '실전 모드') : '확인 중'}
@@ -252,7 +252,7 @@ export function TestPanel({
                 </div>
             </div>
 
-            {runtimeStatus && !runtimeStatus.grokApiKeyConfigured && (
+            {runtimeStatus && !runtimeStatus.openRouterApiKeyConfigured && (
                 <div
                     style={{
                         marginBottom: '15px',

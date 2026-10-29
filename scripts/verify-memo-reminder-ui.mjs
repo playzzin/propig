@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+
+const root = process.cwd();
+const runtime = process.env.PROPIG_TEST_RUNTIME || root;
+const require = createRequire(path.join(runtime, 'package.json'));
+const { build } = require('esbuild');
+const { chromium } = require('playwright-core');
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'propig-reminder-ui-'));
+await build({ stdin: { contents: `
+import React from 'react'; import {createRoot} from 'react-dom/client';
+import Settings from '${root.replaceAll('\\', '/')}/src/components/propig/memos/MemoReminderSettings.tsx';
+import Bell from '${root.replaceAll('\\', '/')}/src/components/propig/memos/MemoNotificationBell.tsx';
+window.qa={uid:'A',fail:false,saves:[],reads:[],updates:[], items:[{id:'n1',memoId:'note-1',title:'회의 준비',scheduledAt:Date.now(),createdAt:Date.now(),readAt:false}], subscribe:null};
+const root=createRoot(document.getElementById('app'));
+window.qa.render=uid=>{window.qa.uid=uid;root.render(<div key={uid}><div style={{display:'flex',justifyContent:'flex-end'}}><Bell uid={uid}/></div><Settings note={{id:'note-1',content:'회의 준비',tags:[]}} flushNote={async()=>{if(window.qa.fail)throw Error('sync failed');}} onUpdate={(...x)=>window.qa.updates.push(x)}/></div>)};
+window.qa.render('A');
+`, resolveDir: root, loader: 'tsx' }, outfile: path.join(temp, 'app.js'), bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', nodePaths: [path.join(runtime, 'node_modules'), path.join(root, 'node_modules')], define: { 'process.env.NODE_ENV': '"production"' }, plugins: [{ name: 'test-services', setup(b) {
+  b.onResolve({filter:/^@\/contexts\/AuthContext$/},()=>({path:'auth',namespace:'mock'}));
+  b.onResolve({filter:/^@\/services\/memoReminderService$/},()=>({path:'service',namespace:'mock'}));
+  b.onLoad({filter:/.*/,namespace:'mock'}, args=>({loader:'js',contents:args.path==='auth' ? `export const useAuth=()=>({currentUser:{uid:window.qa.uid}});` : `
+export const reminderRepeatLabels={none:'한 번',daily:'매일',weekdays:'평일',weekly:'매주',monthly:'매월'};
+export const subscribeMemoReminder=(uid,id,next)=>{const timer=setTimeout(()=>next(null));window.qa.subscribe=next;return()=>clearTimeout(timer)};
+export const saveServerMemoReminder=async(...args)=>{window.qa.saves.push(args);window.qa.subscribe({status:args[2]===null?'cancelled':'scheduled',nextAt:args[2],repeat:args[3],revision:window.qa.saves.length})};
+export const subscribeMemoNotifications=(uid,next)=>{const timer=setTimeout(()=>next(uid==='A'?window.qa.items:[]));return()=>clearTimeout(timer)};
+export const readMemoNotification=async(...args)=>window.qa.reads.push(args);
+export const readAllMemoNotifications=async(...args)=>window.qa.reads.push(args);
+`}));
+  b.onResolve({filter:/^next\/link$/},()=>({path:'link',namespace:'link'}));
+  b.onLoad({filter:/.*/,namespace:'link'},()=>({contents:'import React from "react"; export default function Link(props){return React.createElement("a",props)}',loader:'js',resolveDir:root}));
+  b.onResolve({filter:/^@\//},args=>({path:path.join(root,'src',args.path.slice(2)+'.ts')}));
+} }] });
+const server=http.createServer((req,res)=>{if(req.url==='/app.js'){res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(temp,'app.js')));}else{res.end('<!doctype html><html lang="ko"><title>알림 검증</title><style>:root{--bg-card:#fff;--bg-tertiary:#f3f6fa;--border-color:#d5dae3;--text-primary:#202734;--text-muted:#536176}body{margin:16px;font-family:Arial;background:#fff}*{box-sizing:border-box}button,input,select{font:inherit}</style><main id="app"></main><script src="/app.js"></script></html>');}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({executablePath:process.env.CHROME_PATH,args:['--no-sandbox']});
+try {
+ const context=await browser.newContext({viewport:{width:1440,height:900}});
+ const page=await context.newPage(); const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(`http://127.0.0.1:${server.address().port}/propig/memos`);
+ await page.getByRole('button',{name:'알림 저장',exact:true}).waitFor();
+ await page.evaluate(()=>window.qa.fail=true);
+ await page.getByRole('button',{name:'알림 저장',exact:true}).click();
+ await page.getByRole('alert').waitFor(); assert.equal(await page.evaluate(()=>window.qa.saves.length),0);
+ await page.evaluate(()=>window.qa.fail=false);
+ await page.getByLabel('알림 반복 주기').selectOption('monthly');
+ await page.getByRole('button',{name:'알림 저장',exact:true}).click();
+ await page.getByText('서버에 알림을 예약했습니다.',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>window.qa.saves[0][3]),'monthly');
+ await page.getByRole('button',{name:'알림 해제',exact:true}).click();
+ await page.getByText('알림을 해제했습니다.',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>window.qa.saves[1][2]),null);
+ await page.getByRole('button',{name:/메모 알림함/}).click();
+ await page.getByRole('link',{name:/회의 준비/}).click();
+ assert.ok(page.url().endsWith('?memoId=note-1'));assert.equal(await page.evaluate(()=>window.qa.reads[0][1]),'n1');
+ await page.setViewportSize({width:390,height:844});
+ await page.getByRole('button',{name:/메모 알림함/}).click();
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ const {default:AxeBuilder}=require('@axe-core/playwright');
+ const axe=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa']).analyze();
+ assert.deepEqual(axe.violations.map(x=>({id:x.id,targets:x.nodes.map(n=>n.target)})),[]);
+ await page.screenshot({path:path.join(temp,'reminder-mobile.png'),fullPage:true});
+ await page.keyboard.press('Escape');assert.equal(await page.getByRole('button',{name:/메모 알림함/}).getAttribute('aria-expanded'),'false');
+ await page.evaluate(()=>window.qa.render('B'));
+ await page.getByRole('button',{name:'메모 알림함',exact:true}).click();
+ await page.getByText('도착한 알림이 없습니다.',{exact:false}).waitFor();
+ assert.equal(await page.getByRole('link',{name:/회의 준비/}).count(),0);
+ assert.deepEqual(errors,[]);
+ console.log('PASS authenticated reminder UI: failed sync blocks scheduling, monthly save/cancel, read/deep link, account switch, 390px, Escape, WCAG A/AA; mocked services, no production writes.');
+ console.log(`Screenshot: ${path.join(temp,'reminder-mobile.png')}`);
+} finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

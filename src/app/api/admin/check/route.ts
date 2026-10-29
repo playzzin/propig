@@ -2,13 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import admin, { db as adminDb } from '@/lib/firebase-admin';
 import { requireAdminAuth } from '@/lib/server/admin-auth';
 import {
-  DEFAULT_USER_PERMISSIONS,
-  USER_PERMISSION_KEYS,
   USER_POSITION_OPTIONS,
-  USER_ROLE_OPTIONS,
-  type ManagedUserPermissions,
   type ManagedUserPosition,
-  type ManagedUserRole,
   type ManagedUserMenuAccess,
   type ManagedUserSiteAccess,
 } from '@/types/userAccess';
@@ -16,14 +11,6 @@ import {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
-const allPermissions = (): ManagedUserPermissions =>
-  USER_PERMISSION_KEYS.reduce<ManagedUserPermissions>(
-    (acc, key) => ({ ...acc, [key]: true }),
-    { ...DEFAULT_USER_PERMISSIONS },
-  );
-
-const normalizeRole = (value: unknown, fallback: ManagedUserRole): ManagedUserRole =>
-  USER_ROLE_OPTIONS.includes(value as ManagedUserRole) ? (value as ManagedUserRole) : fallback;
 
 const normalizePosition = (value: unknown): ManagedUserPosition =>
   USER_POSITION_OPTIONS.includes(value as ManagedUserPosition)
@@ -50,17 +37,6 @@ const normalizeMenuAccess = (value: unknown): ManagedUserMenuAccess => {
   }, {});
 };
 
-const normalizePermissions = (role: ManagedUserRole, value: unknown): ManagedUserPermissions => {
-  if (role === 'admin') return allPermissions();
-  const source = isRecord(value) ? value : {};
-  return {
-    menuManagement: source.menuManagement === true,
-    userManagement: source.userManagement === true,
-    projectBoardManagement: source.projectBoardManagement === true,
-    photoManagement: source.photoManagement === true,
-    storageManagement: source.storageManagement === true,
-  };
-};
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAdminAuth(request);
@@ -77,7 +53,7 @@ export async function GET(request: NextRequest) {
   const claims = (authUser?.customClaims ?? {}) as Record<string, unknown>;
   const adminData = adminDoc?.exists ? adminDoc.data() ?? {} : {};
   const accessData = userAccessDoc?.exists ? userAccessDoc.data() ?? {} : {};
-  const role = normalizeRole(accessData.role ?? adminData.role ?? claims.role, 'admin');
+  const role = authResult.role;
   const position = normalizePosition(accessData.position ?? adminData.position ?? claims.position);
   const siteAccess = {
     ...normalizeSiteAccess(claims.siteAccess),
@@ -89,10 +65,7 @@ export async function GET(request: NextRequest) {
     ...normalizeMenuAccess(adminData.menuAccess),
     ...normalizeMenuAccess(accessData.menuAccess),
   };
-  const permissions = normalizePermissions(
-    role,
-    accessData.permissions ?? adminData.permissions ?? claims.permissions,
-  );
+  const permissions = authResult.permissions;
 
   return NextResponse.json({
     ok: true,
@@ -103,6 +76,6 @@ export async function GET(request: NextRequest) {
     siteAccess,
     menuAccess,
     permissions,
-    canWriteFirestore: Boolean(adminDoc?.exists || claims.admin === true || claims.role === 'admin'),
+    canWriteFirestore: true,
   });
 }

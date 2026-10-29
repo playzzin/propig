@@ -23,20 +23,24 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { PhotoAlbum, PhotoItem, photoService } from '@/services/photoService';
 import { toast } from 'sonner';
-import PhotoModal from '@/components/photos/PhotoModal';
-import ImportFromAIModal from '@/components/photos/ImportFromAIModal';
-import BulkPhotoUploadModal from '@/components/photos/BulkPhotoUploadModal';
 import type { ImageConverterSeedPhoto } from '@/components/photos/ImageConverter';
 import { useMenuSitesQuery } from '@/hooks/useMenuSitesQuery';
 import { useSystem } from '@/contexts/SystemContext';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { getSwitchableSiteEntries } from '@/constants/accountMenu';
+import { isPersistableBrandAssetUrl, normalizeBrandAssetUrl } from '@/constants/brandAssets';
+import { getPhotoImagePreviewSources, uniquePhotoImageSources } from '@/utils/photoImageUrls';
 
 const ImageConverter = dynamic(() => import('@/components/photos/ImageConverter'), { ssr: false });
+const PhotoModal = dynamic(() => import('@/components/photos/PhotoModal'), { ssr: false });
+const ImportFromAIModal = dynamic(() => import('@/components/photos/ImportFromAIModal'), { ssr: false });
+const BulkPhotoUploadModal = dynamic(() => import('@/components/photos/BulkPhotoUploadModal'), { ssr: false });
 
 type DeleteRequest =
     | { type: 'category'; album: PhotoAlbum }
     | { type: 'photo'; item: PhotoItem };
+
+const LOAD_CATEGORIES_TIMEOUT_MS = 8000;
 
 /* ═══════════════════════════════════════════════════════════════
    Styled Components
@@ -721,6 +725,25 @@ const PhotoPreviewFallback = styled.div<{ $error?: boolean }>`
     }
 `;
 
+const PhotoPreviewStatus = styled.span<{ $error?: boolean }>`
+    position: absolute;
+    left: 8px;
+    bottom: 48px;
+    max-width: calc(100% - 16px);
+    z-index: 2;
+    border-radius: 6px;
+    background: ${(p) => (p.$error ? 'rgba(190, 18, 60, 0.88)' : 'rgba(17, 24, 39, 0.76)')};
+    color: white;
+    font-size: 0.64rem;
+    font-weight: 700;
+    line-height: 1.25;
+    padding: 3px 6px;
+    pointer-events: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+`;
+
 const PhotoSelectButton = styled.button`
     position: absolute;
     inset: 0;
@@ -941,27 +964,48 @@ const ConfirmDialog = styled.div`
    Sortable Category Card
 ═══════════════════════════════════════════════════════════════ */
 
-function getAlbumCoverPreview(album: PhotoAlbum) {
-    return album.photoItems.find((item) => item.thumbnailUrl)?.thumbnailUrl || album.coverUrl || '';
+function getAlbumCoverPreviewSources(album: PhotoAlbum) {
+    const thumbnailItem = album.photoItems.find((item) => {
+        if (item.type === 'video' || item.mimeType?.startsWith('video/')) return false;
+        return getPhotoImagePreviewSources({ thumbnailUrl: item.thumbnailUrl }).length > 0;
+    });
+    if (thumbnailItem) {
+        const sources = getPhotoImagePreviewSources(thumbnailItem);
+        if (sources.length > 0) return sources;
+    }
+
+    const photoItem = album.photoItems.find((item) => {
+        if (item.type === 'video' || item.mimeType?.startsWith('video/')) return false;
+        return getPhotoImagePreviewSources({ url: item.url }).length > 0;
+    });
+    if (photoItem) {
+        const sources = getPhotoImagePreviewSources({ url: photoItem.url });
+        if (sources.length > 0) return sources;
+    }
+
+    return uniquePhotoImageSources([album.coverUrl]);
 }
 
-function SafeThumbImage({ src, alt, width, height }: { src?: string; alt: string; width: number; height: number }) {
-    const [failedSrc, setFailedSrc] = useState<string | null>(null);
-    const failed = Boolean(src && failedSrc === src);
+function SafeThumbImage({ src, alt, width, height }: { src?: string | string[]; alt: string; width: number; height: number }) {
+    const [failedSources, setFailedSources] = useState<string[]>([]);
+    const sources = useMemo(() => (Array.isArray(src) ? src : src ? [src] : []), [src]);
+    const currentSrc = sources.find((source) => !failedSources.includes(source)) ?? '';
 
-    if (!src || failed) {
+    if (!currentSrc) {
         return <i className="fa-solid fa-images" aria-hidden="true" />;
     }
 
     return (
         <img
-            src={src}
+            src={currentSrc}
             alt={alt}
             width={width}
             height={height}
             loading="lazy"
             decoding="async"
-            onError={() => setFailedSrc(src)}
+            onError={() => setFailedSources((current) => (
+                current.includes(currentSrc) ? current : [...current, currentSrc]
+            ))}
         />
     );
 }
@@ -1001,7 +1045,7 @@ function SortableCategoryCard({ album, selected, onSelect, onEdit, onDelete }: S
                     aria-label={`${album.title} 카테고리 선택, 사진 ${album.photoItems.length}장`}
                 >
                     <CategoryThumb>
-                        <SafeThumbImage src={getAlbumCoverPreview(album)} alt="" width={44} height={44} />
+                        <SafeThumbImage src={getAlbumCoverPreviewSources(album)} alt="" width={44} height={44} />
                     </CategoryThumb>
                     <CategoryInfo>
                         <div className="name">{album.title}</div>
@@ -1057,29 +1101,73 @@ async function copyTextToClipboard(value: string) {
     }
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+    });
+}
+
+function getPreviewFailureMessage(error: unknown, fallback = '미리보기 로드 실패') {
+    const message = error instanceof Error ? error.message : String(error || '');
+    if (message.includes('402')) return 'Storage 402: 결제/할당량 확인';
+    if (message.includes('403')) return 'Storage 권한 확인 필요';
+    if (message.includes('404')) return 'Storage 파일 없음';
+    if (message.includes('502')) return '원본 프록시 502: URL 접근 실패';
+    if (message.includes('Failed to fetch') || message.includes('NetworkError')) return '네트워크 로드 실패';
+    return fallback;
+}
+
+function getImageLoadFailureMessage(item: PhotoItem) {
+    const src = `${item.url || ''} ${item.thumbnailUrl || ''}`;
+    if (item.storagePath || item.thumbnailPath || src.includes('firebasestorage.googleapis.com') || src.includes('firebasestorage.app')) {
+        return 'Storage 이미지 로드 실패: 결제/권한/토큰 확인';
+    }
+
+    return '이미지 URL 로드 실패';
+}
+
 interface SortablePhotoCardProps {
     item: PhotoItem;
     selected?: boolean;
     previewPreparing?: boolean;
-    previewFailed?: boolean;
+    previewFailed?: string;
     onSelect: (id: string) => void;
+    onPreviewLoadError: (item: PhotoItem) => void;
     onCopyUrl: (item: PhotoItem) => void;
     onEdit: (item: PhotoItem) => void;
     onDelete: (id: string) => void;
 }
 
-function SortablePhotoCard({ item, selected, previewPreparing, previewFailed, onSelect, onCopyUrl, onEdit, onDelete }: SortablePhotoCardProps) {
+function SortablePhotoCard({ item, selected, previewPreparing, previewFailed, onSelect, onPreviewLoadError, onCopyUrl, onEdit, onDelete }: SortablePhotoCardProps) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
-    const [failedPreviewSrc, setFailedPreviewSrc] = useState<string | null>(null);
+    const [failedPreviewState, setFailedPreviewState] = useState<{ signature: string; sources: string[] }>({
+        signature: '',
+        sources: [],
+    });
 
     const style = { transform: CSS.Transform.toString(transform), transition };
 
     const isVideo = isVideoPhotoItem(item);
     const canEdit = !isVideo;
     const photoLabel = item.fileName || item.prompt || item.id;
-    const previewSrc = item.thumbnailUrl || (item.source === 'ai' || !photoService.needsPreviewAsset(item) ? item.url : '');
-    const previewLoadFailed = Boolean(previewSrc && failedPreviewSrc === previewSrc);
-    const showPreviewError = previewLoadFailed || (!previewSrc && previewFailed);
+    const previewSources = getPhotoImagePreviewSources(item);
+    const previewSignature = previewSources.join('\n');
+    const failedPreviewSources = failedPreviewState.signature === previewSignature ? failedPreviewState.sources : [];
+    const previewSrc = previewSources.find((source) => !failedPreviewSources.includes(source)) ?? '';
+    const previewLoadFailed = previewSources.length > 0 && !previewSrc;
+    const showPreviewError = previewLoadFailed || previewSources.length === 0;
+    const previewStatusLabel = previewLoadFailed
+        ? previewFailed || '이미지 로드 실패'
+        : previewFailed
+            ? previewFailed
+            : previewPreparing
+                ? '썸네일 생성 중'
+                : '';
     const selectedMarkerRight = canEdit ? 108 : 74;
 
     return (
@@ -1087,6 +1175,7 @@ function SortablePhotoCard({ item, selected, previewPreparing, previewFailed, on
             <PhotoCardWrapper
                 $dragging={isDragging}
                 $selected={selected}
+                data-photo-card={item.id}
             >
                 <PhotoSelectButton
                     type="button"
@@ -1097,7 +1186,7 @@ function SortablePhotoCard({ item, selected, previewPreparing, previewFailed, on
                     {isVideo ? (
                         <video
                             src={item.url}
-                            poster={item.thumbnailUrl}
+                            poster={previewSrc || undefined}
                             preload="metadata"
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             muted
@@ -1110,26 +1199,52 @@ function SortablePhotoCard({ item, selected, previewPreparing, previewFailed, on
                         />
                     ) : (
                         previewSrc && !showPreviewError ? (
-                            <img
-                                src={previewSrc}
-                                alt={item.prompt || item.fileName || '사진'}
-                                loading="lazy"
-                                decoding="async"
-                                width={item.width ?? undefined}
-                                height={item.height ?? undefined}
-                                onError={() => setFailedPreviewSrc(previewSrc)}
-                            />
+                            <>
+                                <img
+                                    data-photo-preview-image="true"
+                                    src={previewSrc}
+                                    alt={item.prompt || item.fileName || '사진'}
+                                    loading="lazy"
+                                    decoding="async"
+                                    width={item.width ?? undefined}
+                                    height={item.height ?? undefined}
+                                    onError={() => {
+                                        const remainingSources = previewSources.filter((source) => (
+                                            source !== previewSrc && !failedPreviewSources.includes(source)
+                                        ));
+                                        setFailedPreviewState((current) => {
+                                            const currentSources = current.signature === previewSignature ? current.sources : [];
+                                            return {
+                                                signature: previewSignature,
+                                                sources: currentSources.includes(previewSrc)
+                                                    ? currentSources
+                                                    : [...currentSources, previewSrc],
+                                            };
+                                        });
+                                        if (remainingSources.length === 0) {
+                                            onPreviewLoadError(item);
+                                        }
+                                    }}
+                                />
+                                {previewStatusLabel ? (
+                                    <PhotoPreviewStatus $error={Boolean(previewFailed || previewLoadFailed)}>
+                                        {previewStatusLabel}
+                                    </PhotoPreviewStatus>
+                                ) : null}
+                            </>
                         ) : (
-                            <PhotoPreviewFallback $error={showPreviewError} aria-label={`${photoLabel} 미리보기 상태`}>
+                            <PhotoPreviewFallback
+                                $error={showPreviewError}
+                                aria-label={`${photoLabel} 미리보기 상태`}
+                                data-photo-preview-state={showPreviewError ? 'error' : 'loading'}
+                            >
                                 <i className={`fa-solid ${showPreviewError ? 'fa-triangle-exclamation' : 'fa-image'}`} aria-hidden="true" />
                                 <span>
-                                    {showPreviewError
-                                        ? item.source === 'ai'
-                                            ? '원본 파일 없음'
-                                            : '미리보기 실패'
-                                        : previewPreparing
-                                            ? '미리보기 생성 중'
-                                            : '미리보기 준비 중'}
+                                    {previewLoadFailed
+                                        ? previewFailed || '이미지 URL을 불러올 수 없습니다'
+                                        : previewSrc
+                                            ? '미리보기 확인 중'
+                                            : '이미지 URL이 없습니다'}
                                 </span>
                             </PhotoPreviewFallback>
                         )
@@ -1228,6 +1343,7 @@ export default function PhotosPage() {
     const [activeTab, setActiveTab] = useState<ActiveTab>('album');
     const [categories, setCategories] = useState<PhotoAlbum[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<PhotoAlbum | null>(null);
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingCategory, setEditingCategory] = useState<PhotoAlbum | null>(null);
@@ -1240,7 +1356,7 @@ export default function PhotosPage() {
     const [pendingBulkFiles, setPendingBulkFiles] = useState<File[]>([]);
     const [deleteRequest, setDeleteRequest] = useState<DeleteRequest | null>(null);
     const [previewPreparingIds, setPreviewPreparingIds] = useState<Record<string, boolean>>({});
-    const [previewFailedIds, setPreviewFailedIds] = useState<Record<string, boolean>>({});
+    const [previewFailedIds, setPreviewFailedIds] = useState<Record<string, string>>({});
     const fileInputRef = useRef<HTMLInputElement>(null);
     const didAutoSelectRef = useRef(false);
     const previewAssetRunRef = useRef<string | null>(null);
@@ -1251,8 +1367,14 @@ export default function PhotosPage() {
     );
 
     const loadCategories = async () => {
+        setLoading(true);
+        setLoadError(null);
         try {
-            const data = await photoService.getAlbums();
+            const data = await withTimeout(
+                photoService.getAlbums(),
+                LOAD_CATEGORIES_TIMEOUT_MS,
+                '사진첩 데이터를 불러오는 시간이 초과되었습니다.',
+            );
             setCategories(data);
             if (selectedCategory?.id) {
                 const updated = data.find((c) => c.id === selectedCategory.id);
@@ -1263,6 +1385,7 @@ export default function PhotosPage() {
             }
         } catch (e) {
             console.error(e);
+            setLoadError(e instanceof Error ? e.message : '사진첩 목록을 불러오지 못했습니다.');
             toast.error('카테고리 목록을 불러오지 못했습니다.');
         } finally {
             setLoading(false);
@@ -1282,6 +1405,27 @@ export default function PhotosPage() {
             didAutoSelectRef.current = true;
         }
     }, [categories, selectedCategory]);
+
+    const mergePhotoItemIntoState = (albumId: string, updatedItem: PhotoItem) => {
+        setSelectedCategory((current) => {
+            if (current?.id !== albumId) return current;
+            return {
+                ...current,
+                coverUrl: current.photoItems[0]?.id === updatedItem.id ? updatedItem.url : current.coverUrl,
+                photoItems: current.photoItems.map((item) => (item.id === updatedItem.id ? { ...item, ...updatedItem } : item)),
+            };
+        });
+        setCategories((current) =>
+            current.map((album) => {
+                if (album.id !== albumId) return album;
+                return {
+                    ...album,
+                    coverUrl: album.photoItems[0]?.id === updatedItem.id ? updatedItem.url : album.coverUrl,
+                    photoItems: album.photoItems.map((item) => (item.id === updatedItem.id ? { ...item, ...updatedItem } : item)),
+                };
+            }),
+        );
+    };
 
     useEffect(() => {
         if (!selectedCategory?.id) return;
@@ -1312,42 +1456,21 @@ export default function PhotosPage() {
             return next;
         });
 
-        const mergeUpdatedItem = (updatedItem: PhotoItem) => {
-            setSelectedCategory((current) => {
-                if (current?.id !== albumId) return current;
-                return {
-                    ...current,
-                    coverUrl: current.photoItems[0]?.id === updatedItem.id ? updatedItem.url : current.coverUrl,
-                    photoItems: current.photoItems.map((item) => (item.id === updatedItem.id ? { ...item, ...updatedItem } : item)),
-                };
-            });
-            setCategories((current) =>
-                current.map((album) => {
-                    if (album.id !== albumId) return album;
-                    return {
-                        ...album,
-                        coverUrl: album.photoItems[0]?.id === updatedItem.id ? updatedItem.url : album.coverUrl,
-                        photoItems: album.photoItems.map((item) => (item.id === updatedItem.id ? { ...item, ...updatedItem } : item)),
-                    };
-                }),
-            );
-        };
-
         void photoService.ensureAlbumPreviewAssets(
             albumId,
             queue,
             (updatedItem) => {
                 if (cancelled) return;
-                mergeUpdatedItem(updatedItem);
+                mergePhotoItemIntoState(albumId, updatedItem);
                 setPreviewPreparingIds((current) => {
                     const next = { ...current };
                     delete next[updatedItem.id];
                     return next;
                 });
             },
-            (item) => {
+            (item, error) => {
                 if (cancelled) return;
-                setPreviewFailedIds((current) => ({ ...current, [item.id]: true }));
+                setPreviewFailedIds((current) => ({ ...current, [item.id]: getPreviewFailureMessage(error, getImageLoadFailureMessage(item)) }));
                 setPreviewPreparingIds((current) => {
                     const next = { ...current };
                     delete next[item.id];
@@ -1375,12 +1498,41 @@ export default function PhotosPage() {
 
     const selectedPhoto = selectedCategory?.photoItems.find((item) => item.id === selectedPhotoId) || null;
     const selectedPhotoIsVideo = selectedPhoto ? isVideoPhotoItem(selectedPhoto) : false;
+    const selectedBrandAssetUrl = selectedPhoto ? normalizeBrandAssetUrl(selectedPhoto.url) : '';
+    const canApplySelectedPhotoToBrand = isPersistableBrandAssetUrl(selectedBrandAssetUrl);
 
     useEffect(() => {
         if (selectedPhoto) {
             setIsBrandPanelOpen(true);
         }
     }, [selectedPhoto]);
+
+    const handlePreviewLoadError = async (item: PhotoItem) => {
+        if (!selectedCategory?.id) {
+            setPreviewFailedIds((current) => ({ ...current, [item.id]: getImageLoadFailureMessage(item) }));
+            return;
+        }
+
+        const albumId = selectedCategory.id;
+        setPreviewFailedIds((current) => ({ ...current, [item.id]: '이미지 URL 복구 시도 중' }));
+
+        try {
+            const refreshedItem = await photoService.refreshPhotoDownloadUrl(albumId, item);
+            if (refreshedItem) {
+                mergePhotoItemIntoState(albumId, refreshedItem);
+                setPreviewFailedIds((current) => {
+                    const next = { ...current };
+                    delete next[item.id];
+                    return next;
+                });
+                return;
+            }
+
+            setPreviewFailedIds((current) => ({ ...current, [item.id]: getImageLoadFailureMessage(item) }));
+        } catch (error) {
+            setPreviewFailedIds((current) => ({ ...current, [item.id]: getPreviewFailureMessage(error, getImageLoadFailureMessage(item)) }));
+        }
+    };
 
     const openPhotosInConverter = (items: PhotoItem[]) => {
         if (!selectedCategory?.id) return;
@@ -1439,12 +1591,18 @@ export default function PhotosPage() {
             return;
         }
 
+        const brandAssetUrl = normalizeBrandAssetUrl(selectedPhoto.url);
+        if (!isPersistableBrandAssetUrl(brandAssetUrl)) {
+            toast.error('저장 가능한 http(s) 이미지 URL만 로고/파비콘으로 적용할 수 있습니다.');
+            return;
+        }
+
         try {
             if (target === 'logo') {
                 await updateSettings({
                     envLogos: {
                         ...(settings.envLogos ?? {}),
-                        [siteId]: selectedPhoto.url,
+                        [siteId]: brandAssetUrl,
                     },
                 });
                 toast.success(`${siteId} 사이트 로고로 등록했습니다.`);
@@ -1454,7 +1612,7 @@ export default function PhotosPage() {
             await updateSettings({
                 envFavicons: {
                     ...(settings.envFavicons ?? {}),
-                    [siteId]: selectedPhoto.url,
+                    [siteId]: brandAssetUrl,
                 },
             });
             toast.success(`${siteId} 사이트 파비콘으로 등록했습니다.`);
@@ -1698,9 +1856,16 @@ export default function PhotosPage() {
                         </FaviconHeader>
 
                         <FaviconContent>
+                            <ApplyHint>
+                                파비콘은 현재 사이트 모드의 브라우저 탭 아이콘입니다. 모드마다 다른 아이콘을 원하면 서로 다른 이미지를 적용해주세요.
+                                작은 정사각형 PNG·ICO 또는 가벼운 SVG를 권장합니다. 설치된 앱·홈 화면 아이콘은 별도 설정입니다.
+                            </ApplyHint>
                             {siteEntries.map(([siteId, site]) => {
-                                const faviconUrl = settings.envFavicons?.[siteId];
-                                const logoUrl = settings.envLogos?.[siteId];
+                                const faviconUrl = normalizeBrandAssetUrl(settings.envFavicons?.[siteId]);
+                                const logoUrl = normalizeBrandAssetUrl(settings.envLogos?.[siteId]);
+                                const sameFaviconSites = faviconUrl
+                                    ? siteEntries.filter(([otherId]) => otherId !== siteId && normalizeBrandAssetUrl(settings.envFavicons?.[otherId]) === faviconUrl).map(([, otherSite]) => otherSite.name)
+                                    : [];
 
                                 return (
                                     <FaviconRow key={siteId} $active={siteId === currentSite}>
@@ -1710,29 +1875,26 @@ export default function PhotosPage() {
                                                 {site.name}
                                             </div>
                                             <div style={{ fontSize: '0.72rem', color: '#6b7280' }}>{siteId}</div>
+                                            {sameFaviconSites.length > 0 && (
+                                                <div style={{ fontSize: '0.72rem', color: '#92400e' }}>
+                                                    {sameFaviconSites.join(', ')} 모드와 같은 파비콘
+                                                </div>
+                                            )}
                                         </div>
 
                                         <FaviconPreview className="logo-preview">
-                                            {logoUrl ? (
-                                                <img src={logoUrl} alt={`${site.name} logo`} width={30} height={30} />
-                                            ) : (
-                                                <i className="fa-solid fa-image" style={{ fontSize: '0.7rem' }} />
-                                            )}
+                                            <SafeThumbImage src={logoUrl} alt={`${site.name} logo`} width={30} height={30} />
                                         </FaviconPreview>
 
                                         <FaviconPreview className="favicon-preview">
-                                            {faviconUrl ? (
-                                                <img src={faviconUrl} alt={`${site.name} favicon`} width={30} height={30} />
-                                            ) : (
-                                                <i className="fa-solid fa-image" style={{ fontSize: '0.7rem' }} />
-                                            )}
+                                            <SafeThumbImage src={faviconUrl} alt={`${site.name} favicon`} width={30} height={30} />
                                         </FaviconPreview>
 
                                         <FaviconActions>
                                             <FaviconActionButton
                                                 type="button"
                                                 onClick={() => void applyPhotoToSiteSetting(siteId, 'logo')}
-                                                disabled={!selectedPhoto?.url}
+                                                disabled={!canApplySelectedPhotoToBrand}
                                                 aria-label={`${site.name} 로고 적용`}
                                             >
                                                 <i className="fa-solid fa-image" aria-hidden="true" />
@@ -1742,7 +1904,7 @@ export default function PhotosPage() {
                                             <FaviconActionButton
                                                 type="button"
                                                 onClick={() => void applyPhotoToSiteSetting(siteId, 'favicon')}
-                                                disabled={!selectedPhoto?.url || selectedPhotoIsVideo}
+                                                disabled={!canApplySelectedPhotoToBrand || selectedPhotoIsVideo}
                                                 aria-label={`${site.name} 파비콘 적용`}
                                             >
                                                 <i className="fa-solid fa-icons" aria-hidden="true" />
@@ -1766,7 +1928,9 @@ export default function PhotosPage() {
 
                             <ApplyHint>
                                 {selectedPhoto
-                                    ? `선택된 사진: ${selectedPhoto.fileName || selectedPhoto.id}`
+                                    ? canApplySelectedPhotoToBrand
+                                        ? `선택된 사진: ${selectedPhoto.fileName || selectedPhoto.id}`
+                                        : '선택된 사진 URL은 로고/파비콘으로 저장할 수 없습니다.'
                                     : '사진을 1장 선택하면 사이트별 로고/파비콘 적용 버튼이 활성화됩니다.'}
                             </ApplyHint>
 
@@ -1786,6 +1950,15 @@ export default function PhotosPage() {
 
                     {loading ? (
                         <p style={{ color: '#9ca3af', fontSize: '0.9rem' }}>불러오는 중…</p>
+                    ) : loadError ? (
+                        <div style={{ color: '#be123c', fontSize: '0.86rem', lineHeight: 1.55, paddingTop: 12 }}>
+                            <div style={{ fontWeight: 700 }}>사진첩을 불러오지 못했습니다.</div>
+                            <div style={{ marginTop: 4, color: '#9f1239', overflowWrap: 'anywhere' }}>{loadError}</div>
+                            <SecondaryButton type="button" onClick={() => void loadCategories()} style={{ marginTop: 10 }}>
+                                <i className="fa-solid fa-rotate-right" aria-hidden="true" />
+                                다시 시도
+                            </SecondaryButton>
+                        </div>
                     ) : categories.length === 0 ? (
                         <p style={{ color: '#9ca3af', fontSize: '0.9rem', textAlign: 'center', paddingTop: 30 }}>
                             카테고리가 없습니다.<br />추가 버튼을 눌러 시작하세요.
@@ -1874,6 +2047,7 @@ export default function PhotosPage() {
                                                 previewPreparing={previewPreparingIds[item.id]}
                                                 previewFailed={previewFailedIds[item.id]}
                                                 onSelect={setSelectedPhotoId}
+                                                onPreviewLoadError={handlePreviewLoadError}
                                                 onCopyUrl={handleCopyPhotoUrl}
                                                 onEdit={(photo) => openPhotosInConverter([photo])}
                                                 onDelete={handleDeletePhoto}
@@ -1885,7 +2059,7 @@ export default function PhotosPage() {
                         )}
                     </DetailPanel>
                 ) : (
-                    !loading && categories.length > 0 && (
+                    !loading && !loadError && categories.length > 0 && (
                         <EmptyArea style={{ flex: 1 }}>
                             <i className="fa-regular fa-hand-pointer" />
                             <p>왼쪽 카테고리를 선택하면<br />사진을 관리할 수 있습니다</p>

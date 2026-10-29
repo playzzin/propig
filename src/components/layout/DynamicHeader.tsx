@@ -3,7 +3,6 @@
 import React from 'react';
 import { usePathname } from 'next/navigation';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { getSwitchableSiteEntries } from '@/constants/accountMenu';
 import { useMenuContext } from '@/contexts/MenuContext';
 import { useMenuSitesQuery } from '@/hooks/useMenuSitesQuery';
 
@@ -21,9 +20,8 @@ export function DynamicHeader({
   onTogglePositionPanel 
 }: DynamicHeaderProps) {
   const pathname = usePathname();
-  const { currentSite, setCurrentSite, currentPosition } = useMenuContext();
+  const { currentSite, currentPosition } = useMenuContext();
   const { data: sites = {} } = useMenuSitesQuery();
-  const siteEntries = getSwitchableSiteEntries(sites);
 
   const activeSite = sites[currentSite];
   const activeConfig = {
@@ -91,46 +89,6 @@ export function DynamicHeader({
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex gap-2 bg-gray-800/50 rounded-xl p-1">
-            {siteEntries.map(([siteId, site]) => {
-              const config = {
-                name: site.name,
-                icon: site.icon || defaultSiteConfig.icon,
-                color: site.color || defaultSiteConfig.color,
-              };
-              const isActive = currentSite === siteId;
-              
-              return (
-                <button
-                  key={siteId}
-                  onClick={() => setCurrentSite(siteId)}
-                  className={`group relative flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
-                    isActive
-                      ? 'bg-gray-700 text-white'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
-                  }`}
-                  style={isActive ? { color: config.color } : {}}
-                >
-                  <i className={`fa-solid fa-${config.icon || 'globe'} w-4 h-4`} />
-                  <span className="text-sm">{config.name}</span>
-                  
-                  {isActive && (
-                    <div 
-                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full"
-                      style={{ background: config.color }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-
-            {siteEntries.length === 0 && (
-              <span className="px-3 py-2 text-xs text-gray-500">사이트모드 없음</span>
-            )}
-          </div>
-
-          <div className="h-8 w-px bg-gray-800" />
-
           <button
             onClick={onTogglePositionPanel}
             className="flex items-center gap-2 px-4 py-2 bg-gray-800/50 hover:bg-gray-800 rounded-xl transition-colors"

@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import styled from 'styled-components';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast } from 'sonner';
 import { Category } from '@/types/bookmark-new';
 
@@ -439,6 +441,66 @@ function createFormValues(category?: Category | null): CategoryFormValues {
   };
 }
 
+
+// SDK transitions invalidate even A→B→A while AuthContext has not rendered yet.
+// This fence cannot cancel a callback/request already sent to the server.
+function useModalSession(isOpen: boolean, uid: string | undefined, resetBusy: () => void) {
+  const session = useRef({ active: false, generation: 0, busy: false });
+  const resetBusyEvent = React.useEffectEvent(resetBusy);
+  React.useLayoutEffect(() => {
+    const state = session.current;
+    state.active = isOpen;
+    state.generation += 1;
+    state.busy = false;
+    resetBusyEvent();
+    // Guest dialogs must remain dismissible, and hidden dialogs need no SDK listener.
+    if (!isOpen || !uid) return () => {
+      state.active = false;
+      state.generation += 1;
+      state.busy = false;
+    };
+    const auth = getAuth();
+    let observedUid = auth.currentUser?.uid;
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (observedUid !== user?.uid) {
+        observedUid = user?.uid;
+        state.generation += 1;
+        state.busy = false;
+        resetBusyEvent();
+      }
+    });
+    return () => {
+      state.active = false;
+      state.generation += 1;
+      state.busy = false;
+      unsubscribe();
+    };
+  }, [isOpen, uid]);
+  const isCurrent = (generation: number) => session.current.active
+    && session.current.generation === generation
+    && !!uid && getAuth().currentUser?.uid === uid;
+  const begin = () => {
+    const state = session.current;
+    if (state.busy || !state.active) return null;
+    if (!uid) { toast.error('로그인이 필요합니다.'); return null; }
+    if (!isCurrent(state.generation)) return null;
+    state.busy = true;
+    return state.generation;
+  };
+  const finish = (generation: number) => {
+    if (!isCurrent(generation)) return false;
+    session.current.busy = false;
+    return true;
+  };
+  const close = () => {
+    if (session.current.busy || !session.current.active) return false;
+    session.current.active = false;
+    session.current.generation += 1;
+    return true;
+  };
+  return { begin, isCurrent, finish, close };
+}
+
 export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   isOpen,
   onClose,
@@ -449,13 +511,19 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   onUpdate,
   onDelete,
 }) => {
+  const { currentUser } = useAuth();
+  const revision = useRef(0);
   const [formValues, setFormValues] = useState<CategoryFormValues>(createFormValues(initialCategory));
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(initialCategory?.id ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isOpen) return;
+  const session = useModalSession(isOpen, currentUser?.uid, () => {
+    setIsSubmitting(false);
+    setDeletingCategoryId(null);
+  });
+  const initializeDraft = React.useEffectEvent(() => {
+    revision.current += 1;
 
     if (initialCategory) {
       setEditingCategoryId(initialCategory.id);
@@ -465,46 +533,61 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
 
     setEditingCategoryId(null);
     setFormValues(createFormValues(null));
-  }, [isOpen, initialCategory]);
+  });
+  React.useLayoutEffect(() => {
+    if (isOpen) initializeDraft();
+  }, [isOpen, initialCategory?.id, currentUser?.uid]);
 
   useEffect(() => {
     if (!isOpen || !editingCategoryId) return;
 
     const stillExists = categories.some((category) => category.id === editingCategoryId);
     if (!stillExists) {
+      revision.current += 1;
       setEditingCategoryId(null);
       setFormValues(createFormValues(null));
     }
   }, [categories, editingCategoryId, isOpen]);
 
   const handleStartCreate = () => {
+    revision.current += 1;
     setEditingCategoryId(null);
     setFormValues(createFormValues(null));
   };
 
   const handleStartEdit = (category: Category) => {
+    revision.current += 1;
     setEditingCategoryId(category.id);
     setFormValues(createFormValues(category));
   };
 
   const handleDelete = async (category: Category) => {
+
+    const generation = session.begin();
+    if (generation === null) return;
+    const editRevision = revision.current;
     setDeletingCategoryId(category.id);
 
     try {
       await onDelete(category);
+      if (!session.isCurrent(generation) || revision.current !== editRevision) return;
       if (editingCategoryId === category.id) {
         handleStartCreate();
       }
     } catch (error) {
+      if (!session.isCurrent(generation)) return;
       const message = error instanceof Error ? error.message : '카테고리 삭제에 실패했습니다.';
       toast.error(message);
     } finally {
-      setDeletingCategoryId(null);
+      if (session.finish(generation)) setDeletingCategoryId(null);
     }
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const generation = session.begin();
+    if (generation === null) return;
+    const editRevision = revision.current;
 
     setIsSubmitting(true);
     try {
@@ -514,17 +597,19 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
         await onCreate(formValues);
       }
 
+      if (!session.isCurrent(generation) || revision.current !== editRevision) return;
       handleStartCreate();
     } catch (error) {
+      if (!session.isCurrent(generation)) return;
       const message = error instanceof Error ? error.message : '카테고리 저장에 실패했습니다.';
       toast.error(message);
     } finally {
-      setIsSubmitting(false);
+      if (session.finish(generation)) setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
-    if (!isSubmitting && !deletingCategoryId) {
+    if (session.close()) {
       onClose();
     }
   };
@@ -593,7 +678,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                         $danger
                         aria-label={`${category.name} 삭제`}
                         title={`${category.name} 삭제`}
-                        disabled={deletingCategoryId === category.id}
+                        disabled={isSubmitting || !!deletingCategoryId}
                         onClick={() => handleDelete(category)}
                       >
                         <i className="fa-regular fa-trash-can" aria-hidden="true"></i>
@@ -611,7 +696,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
             <Form onSubmit={handleSubmit}>
               <FormHeader>
                 <FormHeaderTitle>{editingCategoryId ? '카테고리 수정' : '새 카테고리 추가'}</FormHeaderTitle>
-                <GhostButton type="button" onClick={handleStartCreate} disabled={isSubmitting}>
+                <GhostButton type="button" onClick={handleStartCreate} disabled={isSubmitting || !!deletingCategoryId}>
                   새로 입력
                 </GhostButton>
               </FormHeader>
@@ -623,10 +708,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     name="categoryName"
                     autoComplete="off"
                   value={formValues.name}
-                  onChange={(event) => setFormValues((prev) => ({ ...prev, name: event.target.value }))}
+                  onChange={(event) => { revision.current += 1; setFormValues((prev) => ({ ...prev, name: event.target.value })); }}
                   placeholder="예: 디자인 레퍼런스"
                   maxLength={50}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !!deletingCategoryId}
                 />
               </FormGroup>
 
@@ -638,8 +723,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     type="color"
                     name="categoryColor"
                     value={formValues.color}
-                    onChange={(event) => setFormValues((prev) => ({ ...prev, color: event.target.value }))}
-                    disabled={isSubmitting}
+                    onChange={(event) => { revision.current += 1; setFormValues((prev) => ({ ...prev, color: event.target.value })); }}
+                    disabled={isSubmitting || !!deletingCategoryId}
                   />
                   <ColorValue>{formValues.color.toUpperCase()}</ColorValue>
                 </ColorField>
@@ -654,8 +739,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       type="button"
                       $active={formValues.icon === icon.value}
                       $color={formValues.color}
-                      onClick={() => setFormValues((prev) => ({ ...prev, icon: icon.value }))}
-                      disabled={isSubmitting}
+                      onClick={() => { revision.current += 1; setFormValues((prev) => ({ ...prev, icon: icon.value })); }}
+                      disabled={isSubmitting || !!deletingCategoryId}
                       aria-pressed={formValues.icon === icon.value}
                       aria-label={`${icon.label} 아이콘 선택`}
                     >
@@ -680,10 +765,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
               </FormGroup>
 
               <SubmitRow>
-                <GhostButton type="button" onClick={handleClose} disabled={isSubmitting}>
+                <GhostButton type="button" onClick={handleClose} disabled={isSubmitting || !!deletingCategoryId}>
                   닫기
                 </GhostButton>
-                <PrimaryButton type="submit" disabled={isSubmitting}>
+                <PrimaryButton type="submit" disabled={isSubmitting || !!deletingCategoryId}>
                   {editingCategoryId ? '카테고리 저장' : '카테고리 추가'}
                 </PrimaryButton>
               </SubmitRow>

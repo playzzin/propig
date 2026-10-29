@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BrowserAgent = void 0;
 const Agent_1 = require("./Agent");
 const LLMAdapter_1 = require("./llm/LLMAdapter");
+const security_1 = require("../api/security");
 /**
  * Browser Agent
  *
@@ -61,15 +62,14 @@ class BrowserAgent extends Agent_1.BaseAgent {
     }
     async fetchPage(url, logs) {
         try {
-            const response = await fetch(url, {
-                redirect: 'follow',
+            const response = await (0, security_1.fetchExternalHttpUrl)(url, {
                 headers: BrowserAgent.DEFAULT_HEADERS,
             });
             if (!response.ok) {
                 logs.push(`[BrowserAgent] Fetch failed: ${response.status}`);
                 return null;
             }
-            const rawHtml = await response.text();
+            const rawHtml = await (0, security_1.readCappedTextResponse)(response, BrowserAgent.MAX_HTML_BYTES);
             const html = BrowserAgent.clampText(rawHtml, BrowserAgent.MAX_HTML_CHARS);
             logs.push(`[BrowserAgent] Fetched ${rawHtml.length} chars (clamped: ${html.length})`);
             const title = this.extractTitleFromHtml(html);
@@ -281,6 +281,7 @@ Analyze this content and extract relevant information.`;
 }
 exports.BrowserAgent = BrowserAgent;
 BrowserAgent.MAX_HTML_CHARS = 250000;
+BrowserAgent.MAX_HTML_BYTES = 512 * 1024;
 BrowserAgent.MAX_TEXT_CHARS = 12000;
 BrowserAgent.DEFAULT_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

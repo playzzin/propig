@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireUserAuth } from '@/lib/server/user-auth';
+import { requireAdminAuth } from '@/lib/server/admin-auth';
 import { VideoStudioServerError, getVideoStudioJob } from '@/lib/server/video-studio-admin';
 import { executeQueuedVideoStudioJob } from '@/lib/server/video-studio-job-executor';
 
@@ -19,6 +19,15 @@ function hasInternalProcessorAccess(req: NextRequest): boolean {
 
 export async function POST(req: NextRequest) {
     try {
+        const hasInternalAccess = hasInternalProcessorAccess(req);
+        const adminAuth = hasInternalAccess ? null : await requireAdminAuth(req);
+        if (adminAuth && !adminAuth.ok) {
+            return NextResponse.json(
+                { success: false, error: adminAuth.message },
+                { status: adminAuth.status },
+            );
+        }
+
         const body = await req.json();
         const parsed = ProcessVideoStudioJobSchema.safeParse(body);
         if (!parsed.success) {
@@ -33,15 +42,31 @@ export async function POST(req: NextRequest) {
         }
 
         let userId: string;
-        if (hasInternalProcessorAccess(req)) {
+        if (hasInternalAccess) {
             const job = await getVideoStudioJob(parsed.data.jobId);
             userId = job.userId;
         } else {
-            const auth = await requireUserAuth(req);
-            if (!auth.ok) {
-                return NextResponse.json({ success: false, error: auth.message }, { status: auth.status });
+            // The non-internal branch is reached only after successful admin auth.
+            userId = adminAuth!.uid;
+            const job = await getVideoStudioJob(parsed.data.jobId);
+            if (job.userId !== userId) {
+                throw new VideoStudioServerError(403, 'You do not have access to this job.');
             }
-            userId = auth.uid;
+            return NextResponse.json({
+                success: true,
+                jobId: job.id,
+                status: job.status,
+                clipId: job.clipId || null,
+                videoUrl: job.resultVideoUrl || null,
+                lastFrameUrl: job.resultFrameUrl || null,
+                resultVideoUrl: job.resultVideoUrl || null,
+                resultFrameUrl: job.resultFrameUrl || null,
+                pending:
+                    job.status === 'queued'
+                    || job.status === 'running'
+                    || job.status === 'uploading',
+                dispatch: 'firebase-functions',
+            });
         }
 
         const result = await executeQueuedVideoStudioJob({

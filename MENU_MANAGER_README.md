@@ -49,31 +49,16 @@
 
 ## 🚀 사용 방법
 
-### 1. 컴포넌트 임포트
+### 1. 정식 관리 화면
 
-```tsx
-import AdvancedMenuManager from '@/pages/admin/menu/AdvancedMenuManager';
+`/admin/menu`에서 사이트 탭을 선택하고 메뉴를 편집합니다.
+실제 구현은 `src/app/admin/menu/page.tsx`입니다.
 
-// 페이지에서 사용
-export default function MenuManagementPage() {
-  return <AdvancedMenuManager />;
-}
-```
+### 2. 구형 주소 호환
 
-### 2. 라우트 설정
-
-Next.js App Router 구조:
-```
-src/app/admin/menu/page.tsx
-```
-
-```tsx
-import AdvancedMenuManager from '@/pages/admin/menu/AdvancedMenuManager';
-
-export default function MenuPage() {
-  return <AdvancedMenuManager />;
-}
-```
+`/admin/menu/AdvancedMenuManager`는 정식 화면으로 이동하는 호환 주소입니다.
+구형 Pages Router 파일을 App Router 컴포넌트로 import하지 마세요.
+[사이트 모드 운영·검증 안내](docs/site-mode-navigation.md)를 참고하세요.
 
 ### 3. 메뉴 조작
 
@@ -114,7 +99,7 @@ src/
 │   ├── Inspector.tsx                    # 속성 편집 패널
 │   └── MenuItemNode.tsx                 # 메뉴 아이템 노드
 ├── pages/admin/menu/
-│   └── AdvancedMenuManager.tsx          # 메인 컴포넌트
+│   └── AdvancedMenuManager.tsx          # 정식 /admin/menu 이동 전용
 └── lib/
     └── fontawesome.ts                   # FontAwesome 설정
 ```

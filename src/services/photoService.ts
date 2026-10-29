@@ -1,4 +1,5 @@
-import { db, storage } from '@/firebase/config';
+import { auth, db } from '@/firebase/config';
+import { storage } from '@/firebase/storage';
 import {
     collection,
     doc,
@@ -9,10 +10,19 @@ import {
     updateDoc,
     writeBatch,
     serverTimestamp,
+    deleteField,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import imageCompression from 'browser-image-compression';
 import { z } from 'zod';
+import {
+    extractStoragePathFromDownloadUrl,
+    normalizePhotoStoragePath,
+    PhotoImageSourceSchema,
+    resolveFirstPhotoImageSource,
+    resolvePhotoImageSource,
+    sanitizePhotoImageUrl,
+} from '@/utils/photoImageUrls';
 
 /* ─── Types ─────────────────────────────────────────────────── */
 
@@ -38,6 +48,11 @@ export const PhotoItemSchema = z.object({
 
 export type PhotoItem = z.infer<typeof PhotoItemSchema>;
 
+const PhotoItemWriteSchema = PhotoItemSchema.extend({
+    url: PhotoImageSourceSchema,
+    thumbnailUrl: PhotoImageSourceSchema.optional(),
+});
+
 export const PhotoSchema = z.object({
     id: z.string().optional(),
     title: z.string().min(1, '제목을 입력해주세요.'),
@@ -52,30 +67,209 @@ export const PhotoSchema = z.object({
 
 export type PhotoAlbum = z.infer<typeof PhotoSchema>;
 
+export const PHOTO_ALBUMS_UPDATED_EVENT = 'propig:photo-albums-updated';
+
 /* ─── Helpers ────────────────────────────────────────────────── */
 
-function normalizeAlbum(data: Record<string, unknown>, id: string): PhotoAlbum {
-    let photoItems: PhotoItem[] = (data.photoItems as PhotoItem[] | undefined) ?? [];
-    if (photoItems.length === 0 && Array.isArray(data.images) && (data.images as string[]).length > 0) {
-        // Migrate legacy images array → photoItems
-        photoItems = (data.images as string[]).map((url, i) => ({
-            id: `legacy_${i}_${Date.now()}`,
-            url,
-            order: i,
-            source: 'upload' as const,
-        }));
+function notifyPhotoAlbumsChanged() {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(PHOTO_ALBUMS_UPDATED_EVENT));
+}
+
+function asString(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+    const numberValue = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function hashString(value: string): string {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
     }
+    return Math.abs(hash).toString(36);
+}
+
+function coercePhotoSource(value: unknown): 'upload' | 'ai' {
+    return value === 'ai' ? 'ai' : 'upload';
+}
+
+function coercePhotoType(value: unknown): 'image' | 'video' | undefined {
+    return value === 'image' || value === 'video' ? value : undefined;
+}
+
+async function resolvePhotoImageSourceSafely(...values: unknown[]): Promise<string> {
+    return resolveFirstPhotoImageSource(values).catch(() => '');
+}
+
+function compactPhotoItem(item: PhotoItem): PhotoItem {
+    return removeUndefinedDeep(item);
+}
+
+function getAlbumCoverUrl(items: PhotoItem[]): string | undefined {
+    return items.find((item) => !isVideoItem(item) && sanitizePhotoImageUrl(item.url))?.url;
+}
+
+async function normalizePhotoItemForRead(raw: unknown, fallbackId: string, fallbackOrder: number): Promise<PhotoItem | null> {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const data = raw as Record<string, unknown>;
+    const storagePath = normalizePhotoStoragePath(data.storagePath);
+    const thumbnailPath = normalizePhotoStoragePath(data.thumbnailPath);
+    const resolvedUrl = await resolvePhotoImageSourceSafely(data.url, storagePath);
+    const resolvedThumbnailUrl = await resolvePhotoImageSourceSafely(data.thumbnailUrl, thumbnailPath);
+    const inferredStoragePath = storagePath || extractStoragePathFromDownloadUrl(resolvedUrl);
+    const inferredThumbnailPath = thumbnailPath || extractStoragePathFromDownloadUrl(resolvedThumbnailUrl);
+
+    const candidate: PhotoItem = compactPhotoItem({
+        id: asString(data.id) || fallbackId,
+        url: resolvedUrl,
+        order: asNumber(data.order, fallbackOrder),
+        source: coercePhotoSource(data.source),
+        type: coercePhotoType(data.type),
+        prompt: asString(data.prompt) || undefined,
+        fileName: asString(data.fileName) || undefined,
+        extension: asString(data.extension) || undefined,
+        mimeType: asString(data.mimeType) || undefined,
+        sizeBytes: typeof data.sizeBytes === 'number' ? data.sizeBytes : undefined,
+        sizeLabel: asString(data.sizeLabel) || undefined,
+        width: typeof data.width === 'number' ? data.width : undefined,
+        height: typeof data.height === 'number' ? data.height : undefined,
+        storagePath: inferredStoragePath || undefined,
+        thumbnailUrl: resolvedThumbnailUrl || undefined,
+        thumbnailPath: inferredThumbnailPath || undefined,
+        uploadedAt: data.uploadedAt,
+    });
+
+    const parsed = PhotoItemSchema.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+
+    console.warn('Skipping invalid photo item.', parsed.error.flatten());
+    return null;
+}
+
+async function normalizePhotoItemForWrite(raw: Omit<PhotoItem, 'order'> | PhotoItem, order: number): Promise<PhotoItem> {
+    const storagePath = normalizePhotoStoragePath(raw.storagePath);
+    const thumbnailPath = normalizePhotoStoragePath(raw.thumbnailPath);
+    const resolvedUrl = await resolvePhotoImageSource(raw.url || storagePath);
+    const resolvedThumbnailUrl = raw.thumbnailUrl || thumbnailPath
+        ? await resolvePhotoImageSourceSafely(raw.thumbnailUrl, thumbnailPath)
+        : '';
+
+    const candidate = compactPhotoItem({
+        ...raw,
+        id: raw.id.trim(),
+        url: resolvedUrl,
+        order,
+        source: coercePhotoSource(raw.source),
+        type: coercePhotoType(raw.type),
+        prompt: raw.prompt?.trim() || undefined,
+        fileName: raw.fileName?.trim() || undefined,
+        extension: raw.extension?.trim() || undefined,
+        mimeType: raw.mimeType?.trim() || undefined,
+        sizeLabel: raw.sizeLabel?.trim() || undefined,
+        storagePath: storagePath || extractStoragePathFromDownloadUrl(resolvedUrl) || undefined,
+        thumbnailUrl: resolvedThumbnailUrl || undefined,
+        thumbnailPath: thumbnailPath || extractStoragePathFromDownloadUrl(resolvedThumbnailUrl) || undefined,
+    });
+
+    return PhotoItemWriteSchema.parse(candidate);
+}
+
+async function normalizePhotoItemsForWrite(items: Array<Omit<PhotoItem, 'order'> | PhotoItem>, startOrder = 0): Promise<PhotoItem[]> {
+    const settled = await Promise.allSettled(
+        items.map((item, index) => normalizePhotoItemForWrite(item, startOrder + index)),
+    );
+    const normalized = settled
+        .filter((result): result is PromiseFulfilledResult<PhotoItem> => result.status === 'fulfilled')
+        .map((result, index) => ({ ...result.value, order: startOrder + index }));
+
+    const failed = settled.length - normalized.length;
+    if (failed > 0) {
+        console.warn(`Skipped ${failed} invalid photo item(s) before saving.`);
+    }
+
+    return normalized;
+}
+
+function buildAlbumWritePayload(items: PhotoItem[]): Record<string, unknown> {
+    const coverUrl = getAlbumCoverUrl(items);
+    return {
+        photoItems: removeUndefinedDeep(items),
+        coverUrl: coverUrl || deleteField(),
+        images: items.map((item) => item.url).filter(Boolean),
+        updatedAt: serverTimestamp(),
+    };
+}
+
+async function normalizeAlbum(data: Record<string, unknown>, id: string): Promise<PhotoAlbum> {
+    const rawItems = Array.isArray(data.photoItems) ? data.photoItems : [];
+    let photoItems = (await Promise.all(
+        rawItems.map((item, index) => normalizePhotoItemForRead(item, `photo_${index}_${id}`, index)),
+    )).filter((item): item is PhotoItem => Boolean(item));
+    const legacyImages = Array.isArray(data.images)
+        ? (await Promise.all((data.images as unknown[]).map((url) => resolvePhotoImageSourceSafely(url))))
+            .filter(Boolean)
+        : [];
+
+    if (photoItems.length === 0 && legacyImages.length > 0) {
+        // Migrate legacy images array → photoItems
+        photoItems = (await Promise.all(
+            legacyImages.map((url, index) =>
+                normalizePhotoItemForRead(
+                    {
+                        id: `legacy_${index}_${hashString(url)}`,
+                        url,
+                        order: index,
+                        source: 'upload',
+                    },
+                    `legacy_${index}_${hashString(url)}`,
+                    index,
+                ),
+            ),
+        )).filter((item): item is PhotoItem => Boolean(item));
+    }
+    const coverUrl =
+        await resolvePhotoImageSourceSafely(data.coverUrl) ||
+        getAlbumCoverUrl(photoItems) ||
+        legacyImages[0] ||
+        undefined;
+
     return {
         id,
-        title: (data.title as string) || '',
-        description: data.description as string | undefined,
-        order: (data.order as number) ?? 0,
+        title: asString(data.title),
+        description: asString(data.description) || undefined,
+        order: asNumber(data.order),
         photoItems,
-        images: (data.images as string[]) || [],
-        coverUrl: (data.coverUrl as string | undefined) || photoItems[0]?.url,
+        images: legacyImages.length > 0 ? legacyImages : photoItems.map((item) => item.url).filter(Boolean),
+        coverUrl,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
     };
+}
+
+function removeUndefinedDeep<T>(value: T): T {
+    if (Array.isArray(value)) {
+        return value.map((item) => removeUndefinedDeep(item)) as T;
+    }
+
+    if (value && typeof value === 'object') {
+        const prototype = Object.getPrototypeOf(value);
+        if (prototype !== Object.prototype && prototype !== null) {
+            return value;
+        }
+
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>)
+                .filter(([, entryValue]) => entryValue !== undefined && entryValue !== null)
+                .map(([key, entryValue]) => [key, removeUndefinedDeep(entryValue)]),
+        ) as T;
+    }
+
+    return value;
 }
 
 export function formatBytes(bytes: number): string {
@@ -174,32 +368,20 @@ function ensureFileExtension(fileName: string, mimeType: string, fallbackExtensi
     return `${fileName}.${extension}`;
 }
 
-function extractStoragePathFromDownloadUrl(url: string) {
-    try {
-        const parsed = new URL(url);
-        const marker = '/o/';
-        const start = parsed.pathname.indexOf(marker);
-        if (start < 0) return '';
-
-        return decodeURIComponent(parsed.pathname.slice(start + marker.length));
-    } catch {
-        return '';
-    }
-}
-
 function resolveStoragePathFromPhotoItem(item: Pick<PhotoItem, 'fileName' | 'storagePath' | 'url'>) {
-    if (item.storagePath) return item.storagePath;
+    const explicitStoragePath = normalizePhotoStoragePath(item.storagePath);
+    if (explicitStoragePath) return explicitStoragePath;
 
     const fileName = item.fileName || '';
     if (fileName.includes('%2F')) {
         try {
-            return decodeURIComponent(fileName);
+            return normalizePhotoStoragePath(decodeURIComponent(fileName));
         } catch {
-            return fileName;
+            return normalizePhotoStoragePath(fileName);
         }
     }
 
-    return extractStoragePathFromDownloadUrl(item.url);
+    return normalizePhotoStoragePath(item.url) || extractStoragePathFromDownloadUrl(item.url);
 }
 
 function isVideoItem(item: Pick<PhotoItem, 'type' | 'extension' | 'mimeType' | 'url'>) {
@@ -252,9 +434,14 @@ async function createThumbnailFile(file: File, fallbackName: string): Promise<Fi
 }
 
 async function fetchImageUrlAsFile(url: string, fileName?: string) {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('이미지를 불러오려면 로그인이 필요합니다.');
     const response = await fetch('/api/fetch-image', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ url, fileName }),
     });
 
@@ -337,12 +524,15 @@ class PhotoService {
     needsPreviewAsset(item: PhotoItem): boolean {
         if (isVideoItem(item)) return false;
         if (shouldUseOriginalPreview(item)) return false;
+        if (!sanitizePhotoImageUrl(item.url) && !normalizePhotoStoragePath(item.storagePath)) return false;
         return !item.thumbnailUrl || (item.source === 'ai' && !item.storagePath);
     }
 
     async getAlbums(): Promise<PhotoAlbum[]> {
         const snapshot = await getDocs(collection(db, this.col));
-        const albums = snapshot.docs.map((d) => normalizeAlbum(d.data() as Record<string, unknown>, d.id));
+        const albums = await Promise.all(
+            snapshot.docs.map((d) => normalizeAlbum(d.data() as Record<string, unknown>, d.id)),
+        );
         return albums.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }
 
@@ -362,15 +552,16 @@ class PhotoService {
             order: maxOrder + 1,
             photoItems: [],
             images: [],
-            coverUrl: null,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
         });
+        notifyPhotoAlbumsChanged();
         return newRef.id;
     }
 
     async updateAlbum(id: string, data: Partial<PhotoAlbum>): Promise<void> {
-        await updateDoc(doc(db, this.col, id), { ...data, updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, this.col, id), { ...removeUndefinedDeep(data), updatedAt: serverTimestamp() });
+        notifyPhotoAlbumsChanged();
     }
 
     /** Batch-update category sort order */
@@ -380,31 +571,24 @@ class PhotoService {
             batch.update(doc(db, this.col, id), { order: index, updatedAt: serverTimestamp() });
         });
         await batch.commit();
+        notifyPhotoAlbumsChanged();
     }
 
     /** Persist new photo order for an album */
     async updatePhotoOrder(albumId: string, items: PhotoItem[]): Promise<void> {
-        const ordered = items.map((it, i) => ({ ...it, order: i }));
-        await updateDoc(doc(db, this.col, albumId), {
-            photoItems: ordered,
-            coverUrl: ordered[0]?.url ?? null,
-            images: ordered.map((i) => i.url),
-            updatedAt: serverTimestamp(),
-        });
+        const ordered = await normalizePhotoItemsForWrite(items);
+        await updateDoc(doc(db, this.col, albumId), buildAlbumWritePayload(ordered));
+        notifyPhotoAlbumsChanged();
     }
 
     /** Add a single photo item to an album */
     async addPhotoItem(albumId: string, item: Omit<PhotoItem, 'order'>): Promise<void> {
         const album = await this.getAlbum(albumId);
         if (!album) throw new Error('Album not found');
-        const newItem: PhotoItem = { ...item, order: album.photoItems.length };
+        const newItem = await normalizePhotoItemForWrite(item, album.photoItems.length);
         const updated = [...album.photoItems, newItem];
-        await updateDoc(doc(db, this.col, albumId), {
-            photoItems: updated,
-            coverUrl: updated[0]?.url ?? null,
-            images: updated.map((i) => i.url),
-            updatedAt: serverTimestamp(),
-        });
+        await updateDoc(doc(db, this.col, albumId), buildAlbumWritePayload(updated));
+        notifyPhotoAlbumsChanged();
     }
 
     /** Add multiple photo items at once for bulk registration */
@@ -412,37 +596,56 @@ class PhotoService {
         const album = await this.getAlbum(albumId);
         if (!album) throw new Error('Album not found');
 
+        const nextItems = await normalizePhotoItemsForWrite(items, album.photoItems.length);
         const merged = [
             ...album.photoItems,
-            ...items.map((item, index) => ({
-                ...item,
-                order: album.photoItems.length + index,
-            })),
-        ];
+            ...nextItems,
+        ].map((item, index) => ({ ...item, order: index }));
 
-        await updateDoc(doc(db, this.col, albumId), {
-            photoItems: merged,
-            coverUrl: merged[0]?.url ?? null,
-            images: merged.map((i) => i.url),
-            updatedAt: serverTimestamp(),
-        });
+        await updateDoc(doc(db, this.col, albumId), buildAlbumWritePayload(merged));
+        notifyPhotoAlbumsChanged();
     }
 
     private async patchPhotoItem(albumId: string, itemId: string, nextItem: PhotoItem): Promise<void> {
         const album = await this.getAlbum(albumId);
         if (!album) throw new Error('Album not found');
 
-        const updated = album.photoItems.map((item) => {
+        const merged = album.photoItems.map((item) => {
             if (item.id !== itemId) return item;
             return { ...item, ...nextItem, order: item.order };
         });
+        const updated = await normalizePhotoItemsForWrite(merged);
 
-        await updateDoc(doc(db, this.col, albumId), {
-            photoItems: updated,
-            coverUrl: updated[0]?.url ?? null,
-            images: updated.map((item) => item.url),
-            updatedAt: serverTimestamp(),
-        });
+        await updateDoc(doc(db, this.col, albumId), buildAlbumWritePayload(updated));
+        notifyPhotoAlbumsChanged();
+    }
+
+    async refreshPhotoDownloadUrl(albumId: string, item: PhotoItem): Promise<PhotoItem | null> {
+        const storagePath = resolveStoragePathFromPhotoItem(item);
+        const nextItem: PhotoItem = { ...item };
+
+        if (storagePath) {
+            const refreshedUrl = await getDownloadURL(ref(storage, storagePath));
+            if (refreshedUrl && refreshedUrl !== item.url) {
+                nextItem.url = refreshedUrl;
+                nextItem.storagePath = item.storagePath || storagePath;
+            }
+        }
+
+        const thumbnailPath = normalizePhotoStoragePath(item.thumbnailPath) || extractStoragePathFromDownloadUrl(item.thumbnailUrl);
+        if (thumbnailPath) {
+            const refreshedThumbnailUrl = await getDownloadURL(ref(storage, thumbnailPath));
+            if (refreshedThumbnailUrl && refreshedThumbnailUrl !== item.thumbnailUrl) {
+                nextItem.thumbnailUrl = refreshedThumbnailUrl;
+                nextItem.thumbnailPath = item.thumbnailPath || thumbnailPath;
+            }
+        }
+
+        const changed = JSON.stringify(nextItem) !== JSON.stringify(item);
+        if (!changed) return null;
+
+        await this.patchPhotoItem(albumId, item.id, nextItem);
+        return nextItem;
     }
 
     async ensurePhotoPreviewAsset(albumId: string, item: PhotoItem): Promise<PhotoItem | null> {
@@ -461,8 +664,19 @@ class PhotoService {
             }
 
             const refreshedUrl = await getDownloadURL(ref(storage, storagePath));
-            sourceFile = await fetchImageUrlAsFile(refreshedUrl, sourceFileName);
             nextItem.url = refreshedUrl;
+            nextItem.storagePath = item.storagePath || storagePath;
+
+            try {
+                sourceFile = await fetchImageUrlAsFile(refreshedUrl, sourceFileName);
+            } catch (refreshError) {
+                if (refreshedUrl !== item.url || !item.storagePath) {
+                    await this.patchPhotoItem(albumId, item.id, nextItem);
+                    return nextItem;
+                }
+
+                throw refreshError;
+            }
         }
 
         let thumbnailSourceFile = sourceFile;
@@ -556,12 +770,8 @@ class PhotoService {
         const updated = album.photoItems
             .filter((i) => i.id !== itemId)
             .map((it, idx) => ({ ...it, order: idx }));
-        await updateDoc(doc(db, this.col, albumId), {
-            photoItems: updated,
-            coverUrl: updated[0]?.url ?? null,
-            images: updated.map((i) => i.url),
-            updatedAt: serverTimestamp(),
-        });
+        await updateDoc(doc(db, this.col, albumId), buildAlbumWritePayload(updated));
+        notifyPhotoAlbumsChanged();
         if (target) {
             await this.deletePhotoItemFiles(target);
         }
@@ -592,38 +802,34 @@ class PhotoService {
             order: targetAlbum.photoItems.length + index,
         }));
 
-        const nextTargetItems = [...targetAlbum.photoItems, ...movedItems];
+        const nextTargetItems = [...targetAlbum.photoItems, ...movedItems]
+            .map((item, index) => ({ ...item, order: index }));
         const batch = writeBatch(db);
 
-        batch.update(doc(db, this.col, sourceAlbumId), {
-            photoItems: remainingItems,
-            coverUrl: remainingItems[0]?.url ?? null,
-            images: remainingItems.map((item) => item.url),
-            updatedAt: serverTimestamp(),
-        });
+        batch.update(doc(db, this.col, sourceAlbumId), buildAlbumWritePayload(remainingItems));
 
-        batch.update(doc(db, this.col, targetAlbumId), {
-            photoItems: nextTargetItems,
-            coverUrl: nextTargetItems[0]?.url ?? null,
-            images: nextTargetItems.map((item) => item.url),
-            updatedAt: serverTimestamp(),
-        });
+        batch.update(doc(db, this.col, targetAlbumId), buildAlbumWritePayload(nextTargetItems));
 
         await batch.commit();
+        notifyPhotoAlbumsChanged();
     }
 
     /** Import an AI-generated image into Storage first so preview URLs do not expire. */
     async importFromAI(albumId: string, image: { url: string; prompt?: string; type?: 'image' | 'video' }): Promise<void> {
         const id = `ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const sourceUrl = await resolvePhotoImageSource(image.url);
+        if (!sourceUrl) {
+            throw new Error('Invalid AI image URL.');
+        }
         
         // 확장자 및 타입 판별
-        const isVideo = image.type === 'video' || image.url.includes('.mp4');
-        const extension = isVideo ? 'mp4' : (image.url.includes('.webp') ? 'webp' : (image.url.includes('.png') ? 'png' : 'jpg'));
-        const fileName = sanitizeStorageFileName(image.url.split('/').pop()?.split('?')[0] || 'ai-media', 'ai-media');
+        const isVideo = image.type === 'video' || sourceUrl.includes('.mp4');
+        const extension = isVideo ? 'mp4' : (sourceUrl.includes('.webp') ? 'webp' : (sourceUrl.includes('.png') ? 'png' : 'jpg'));
+        const fileName = sanitizeStorageFileName(sourceUrl.split('/').pop()?.split('?')[0] || 'ai-media', 'ai-media');
 
         const newItem: PhotoItem = {
             id,
-            url: image.url,
+            url: sourceUrl,
             order: 0,
             source: 'ai',
             prompt: image.prompt || '',
@@ -634,7 +840,14 @@ class PhotoService {
         };
 
         if (!isVideo) {
-            const sourceFile = await fetchImageUrlAsFile(image.url, fileName);
+            let sourceFile: File;
+            try {
+                sourceFile = await fetchImageUrlAsFile(sourceUrl, fileName);
+            } catch (error) {
+                console.warn('AI image proxy import failed. Saving the validated source URL without a generated thumbnail.', error);
+                await this.addPhotoItem(albumId, newItem);
+                return;
+            }
             const uploadFile = await compressImageForUpload(sourceFile);
             const uploaded = await uploadAlbumStorageFile({
                 albumId,
@@ -746,14 +959,12 @@ class PhotoService {
             );
         }
         await deleteDoc(doc(db, this.col, id));
+        notifyPhotoAlbumsChanged();
     }
 
     async deleteFileFromUrl(fileUrl: string): Promise<void> {
-        const decodedUrl = decodeURIComponent(fileUrl);
-        const start = decodedUrl.indexOf('/o/') + 3;
-        const end = decodedUrl.indexOf('?alt=media');
-        if (start > 2 && end > -1) {
-            const filePath = decodedUrl.substring(start, end);
+        const filePath = normalizePhotoStoragePath(fileUrl) || extractStoragePathFromDownloadUrl(fileUrl);
+        if (filePath) {
             await deleteObject(ref(storage, filePath));
         }
     }

@@ -1,0 +1,23 @@
+[
+  {
+    "role": "security",
+    "goal": "이모티콘 생성의 읽기 전용 작업 복구 API, 모델 고정, 기획 비용·상태 응답을 Next/Hosting 동일 계약으로 구현",
+    "files": [
+      "src/app/api/generate-image/route.ts",
+      "src/app/api/emoticon-studio/plan/route.ts",
+      "functions/src/api/hostingGenerationRoutes.ts",
+      "functions/src/api/hostingEmoticonStudioRoutes.ts",
+      "functions/src/api/hostingApi.ts"
+    ]
+  },
+  {
+    "role": "qa",
+    "goal": "이모티콘 저장 왕복·연결·상한 회귀와 4단계 UX 검증을 유지 보강",
+    "files": [
+      "scripts/verify-emoticon-studio-state.cjs",
+      "scripts/verify-semi-auto-emoticon-studio.mjs",
+      "scripts/verify-emoticon-studio-free-navigation.mjs",
+      "scripts/verify-emoticon-studio-complete.mjs"
+    ]
+  }
+]

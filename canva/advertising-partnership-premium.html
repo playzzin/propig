@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>광고 파트너십 | Campaign OS</title>
+  <style>
+    :root {
+      --blue: #2563eb;
+      --blue-600: #1d4ed8;
+      --navy: #0f172a;
+      --sky: #38bdf8;
+      --ink: #1e293b;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --canvas: #f8fafc;
+      --white: #ffffff;
+      --green: #22c55e;
+      --red: #ef4444;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --shadow: 0 20px 55px rgba(15, 23, 42, .09);
+      --shadow-soft: 0 12px 30px rgba(37, 99, 235, .08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: -0.025em;
+    }
+    .page { overflow: hidden; }
+    .container { width: min(1200px, calc(100% - 48px)); margin: 0 auto; }
+    .grid-12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px;
+      color: var(--blue-600); background: #eff6ff; border: 1px solid #dbeafe; font-size: 12px; font-weight: 750; letter-spacing: .02em;
+    }
+    .eyebrow .dot { width: 6px; height: 6px; border-radius: 99px; background: var(--sky); box-shadow: 0 0 0 4px rgba(56,189,248,.14); }
+    h1,h2,h3,p { margin: 0; }
+    h1,h2,h3 { font-family: Pretendard, Inter, -apple-system, sans-serif; color: var(--navy); }
+    h1 { font-size: clamp(42px, 5.5vw, 72px); line-height: 1.12; font-weight: 800; letter-spacing: -0.06em; }
+    h2 { font-size: clamp(32px, 3.5vw, 46px); line-height: 1.16; font-weight: 800; letter-spacing: -0.055em; }
+    h3 { font-size: 20px; line-height: 1.35; font-weight: 750; }
+    .body-lg { font-size: 18px; line-height: 1.7; color: var(--muted); }
+    .body { font-size: 15px; line-height: 1.7; color: var(--muted); }
+    .section { padding: 130px 0; position: relative; }
+    .section-head { max-width: 640px; margin-bottom: 52px; }
+    .section-head h2 { margin-top: 16px; }
+    .section-head p { margin-top: 18px; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .btn { display: inline-flex; min-height: 52px; align-items: center; justify-content: center; gap: 10px; padding: 0 20px; border-radius: 14px; font-size: 15px; font-weight: 750; text-decoration: none; transition: transform .2s ease, box-shadow .2s ease, background .2s ease; }
+    .btn:hover { transform: translateY(-2px); }
+    .btn.primary { background: var(--blue); color: white; box-shadow: 0 12px 22px rgba(37,99,235,.23); }
+    .btn.primary:hover { background: var(--blue-600); box-shadow: 0 16px 28px rgba(37,99,235,.29); }
+    .btn.secondary { background: white; color: var(--navy); border: 1px solid #dbe2ea; box-shadow: 0 5px 14px rgba(15,23,42,.04); }
+    .arrow { font-size: 17px; line-height: 1; }
+
+    /* Layer: Global Nav */
+    .nav-shell { padding: 18px 0 0; position: relative; z-index: 5; }
+    .nav { height: 68px; padding: 0 18px 0 22px; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(226,232,240,.85); border-radius: 18px; background: rgba(255,255,255,.78); box-shadow: 0 8px 34px rgba(15,23,42,.055); backdrop-filter: blur(16px); }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 800; color: var(--navy); }
+    .brand-mark { width: 28px; height: 28px; position: relative; border-radius: 9px; background: var(--blue); box-shadow: inset 0 1px 0 rgba(255,255,255,.32); }
+    .brand-mark:before,.brand-mark:after { content:""; position:absolute; background:#fff; border-radius:3px; }
+    .brand-mark:before { width:5px; height:14px; left:7px; bottom:6px; }
+    .brand-mark:after { width:5px; height:20px; left:16px; bottom:6px; opacity:.78; }
+    .nav-links { display: flex; gap: 28px; color: #475569; font-size: 14px; font-weight: 620; }
+    .nav-links span:first-child { color: var(--blue); }
+    .nav-cta { padding: 10px 14px; background: #eff6ff; color: var(--blue-600); border-radius: 10px; font-size: 13px; font-weight: 750; }
+
+    /* Layer: Hero */
+    .hero { min-height: 740px; display: flex; align-items: center; padding: 84px 0 102px; position: relative; }
+    .hero:before { content:""; position:absolute; width:680px; height:680px; left:-260px; top:-120px; border-radius:50%; background: radial-gradient(circle, rgba(147,197,253,.38) 0%, rgba(219,234,254,.15) 45%, transparent 70%); filter: blur(3px); }
+    .hero:after { content:""; position:absolute; width:540px; height:440px; right:-200px; top:60px; background: radial-gradient(circle, rgba(56,189,248,.18), transparent 70%); filter: blur(14px); }
+    .hero-copy { grid-column: span 7; position:relative; z-index:1; padding: 56px 0; }
+    .hero-copy h1 { margin-top: 20px; }
+    .hero-copy h1 em { color: var(--blue); font-style: normal; }
+    .hero-copy .body-lg { max-width: 560px; margin-top: 22px; }
+    .trust-row { display:flex; align-items:center; gap:13px; margin-top:28px; color:#475569; font-size:13px; font-weight:600; }
+    .face-stack { display:flex; padding-left:8px; }
+    .face { width:28px; height:28px; border-radius:50%; border:2px solid white; margin-left:-8px; display:grid; place-items:center; color:white; font-size:10px; font-weight:800; }
+    .face:nth-child(1){background:#1e40af}.face:nth-child(2){background:#0ea5e9}.face:nth-child(3){background:#334155}.face:nth-child(4){background:#7c3aed}
+    .hero-art { grid-column: 8 / span 5; position:relative; z-index:1; min-height:440px; display:flex; align-items:center; justify-content:center; }
+    .visual { width: 390px; height: 390px; position: relative; }
+    .orb { position:absolute; inset:34px; border-radius:50%; background: linear-gradient(145deg, #eff6ff 5%, #dbeafe 52%, #bfdbfe 100%); box-shadow: inset 22px 22px 38px rgba(255,255,255,.82), inset -14px -17px 35px rgba(37,99,235,.18), 0 32px 48px rgba(37,99,235,.16); }
+    .ring { position:absolute; width:326px; height:326px; left:32px; top:32px; border:1px solid rgba(37,99,235,.25); border-radius:50%; transform:rotate(-24deg) scaleY(.46); }
+    .ring.r2 { transform:rotate(43deg) scaleY(.46); border-color:rgba(56,189,248,.33); }
+    .chart-card { position:absolute; padding:18px; background:rgba(255,255,255,.86); border:1px solid rgba(255,255,255,.84); backdrop-filter:blur(15px); border-radius:18px; box-shadow:var(--shadow); }
+    .chart-card.top { width:220px; right:-12px; top:24px; }
+    .chart-card.bottom { width:202px; left:-22px; bottom:32px; }
+    .chart-title { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:11px; font-weight:700; }
+    .chart-title b { color:var(--green); background:#f0fdf4; padding:4px 7px; border-radius:8px; font-size:10px; }
+    .chart-value { margin-top:8px; color:var(--navy); font-size:27px; font-weight:800; letter-spacing:-.06em; }
+    .spark { display:flex; align-items:end; height:49px; gap:6px; margin-top:10px; }
+    .spark i { display:block; flex:1; border-radius:5px 5px 2px 2px; background:linear-gradient(180deg,var(--sky),var(--blue)); opacity:.88; }
+    .spark i:nth-child(1){height:24%}.spark i:nth-child(2){height:34%}.spark i:nth-child(3){height:29%}.spark i:nth-child(4){height:53%}.spark i:nth-child(5){height:68%}.spark i:nth-child(6){height:86%}.spark i:nth-child(7){height:100%}
+    .mini-stats { display:flex; gap:18px; margin-top:14px; padding-top:13px; border-top:1px solid var(--line); }
+    .mini-stats span { color:var(--muted); font-size:10px; }.mini-stats b{display:block; margin-top:3px; color:var(--navy); font-size:14px;}
+    .float-dot { position:absolute; border-radius:50%; background:var(--sky); box-shadow:0 0 0 9px rgba(56,189,248,.11); }.float-dot.one{width:12px;height:12px;left:12px;top:78px}.float-dot.two{width:8px;height:8px;right:26px;bottom:104px;background:var(--blue)}
+
+    /* Layer: Product Cards */
+    .product-section { background: var(--white); }
+    .product-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+    .product-card { padding:28px; border:1px solid var(--line); background:white; border-radius:var(--radius-md); transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease; }
+    .product-card:hover { transform:translateY(-6px); border-color:#bfdbfe; box-shadow:var(--shadow-soft); }
+    .icon-box { width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:#eff6ff;color:var(--blue);font-size:20px; }
+    .product-card h3 { margin-top:20px; }.product-card p{margin-top:10px; min-height:51px;}.product-card ul{list-style:none;padding:0;margin:21px 0 24px;display:grid;gap:10px;}.product-card li{font-size:13px;color:#475569;}.product-card li:before{content:"✓";color:var(--blue);font-weight:800;margin-right:8px;}.price-line{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:19px;}.price-line span{font-size:12px;color:var(--muted);}.price-line b{font-size:15px;color:var(--navy);}
+
+    /* Layer: Process Timeline */
+    .process { background:linear-gradient(180deg,#f8fafc 0%,#eff6ff 100%); }
+    .timeline { position:relative; display:grid; grid-template-columns:repeat(6,1fr); gap:16px; }
+    .timeline:before { content:""; position:absolute; top:37px; left:5%; right:5%; height:1px; background:linear-gradient(90deg,#bfdbfe,#60a5fa,#bfdbfe); }
+    .step { position:relative; z-index:1; }.step-no{width:74px;height:74px;border-radius:24px;background:#fff;border:1px solid #dbeafe;box-shadow:0 10px 20px rgba(37,99,235,.09);display:flex;align-items:center;justify-content:center;color:var(--blue);font-weight:800;font-size:20px;}.step-label{color:var(--blue-600);font-size:11px;font-weight:800;margin-top:20px;letter-spacing:.05em;}.step h3{font-size:16px;margin-top:8px;}.step p{font-size:13px;margin-top:7px;line-height:1.6;}
+
+    /* Layer: KPI */
+    .kpi-wrap { padding: 34px; background: var(--navy); border-radius: var(--radius-lg); box-shadow: 0 24px 54px rgba(15,23,42,.16); }
+    .kpi-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; }.kpi-top h3{color:white;font-size:20px;}.kpi-note{font-size:11px;color:#94a3b8;background:rgba(255,255,255,.08);padding:8px 10px;border-radius:9px;}
+    .kpi-grid { display:grid;grid-template-columns:1.2fr repeat(3,1fr);gap:14px; }.kpi-feature,.kpi-card { border:1px solid rgba(148,163,184,.18);border-radius:18px;background:rgba(255,255,255,.055);padding:23px; }.kpi-feature{background:linear-gradient(135deg,rgba(37,99,235,.48),rgba(56,189,248,.12));}.kpi-label{color:#93c5fd;font-size:11px;font-weight:750;}.kpi-value{color:white;font-size:38px;line-height:1;margin-top:13px;font-weight:800;letter-spacing:-.06em;}.kpi-card .kpi-value{font-size:29px;}.kpi-caption{font-size:12px;color:#cbd5e1;margin-top:10px;line-height:1.55;}.line-chart{height:49px;margin-top:16px;position:relative;background:linear-gradient(transparent 31%,rgba(255,255,255,.09) 32%,transparent 33%,transparent 65%,rgba(255,255,255,.09) 66%,transparent 67%);overflow:hidden;}.line-chart svg{position:absolute;inset:0;width:100%;height:100%;}.trend{font-size:11px;color:#86efac;margin-top:15px;font-weight:700;}
+
+    /* Layer: Case Study */
+    .case-section { background: white; }.case-grid{display:grid;grid-template-columns:1.35fr .85fr;gap:22px;}.case-main{min-height:420px;padding:38px;border-radius:24px;color:white;background:linear-gradient(135deg,#0f172a 0%,#172554 55%,#1d4ed8 100%);position:relative;overflow:hidden;}.case-main:after{content:"";position:absolute;width:420px;height:420px;border:1px solid rgba(255,255,255,.16);border-radius:50%;right:-180px;bottom:-220px;box-shadow:0 0 0 46px rgba(255,255,255,.04),0 0 0 92px rgba(255,255,255,.03);}.case-main>*{position:relative;z-index:1}.case-label{color:#bae6fd;font-size:12px;font-weight:750;}.case-main h3{color:white;font-size:30px;line-height:1.2;margin-top:16px;max-width:450px;}.case-main p{color:#cbd5e1;margin-top:16px;max-width:480px;}.before-after{margin-top:31px;display:flex;align-items:center;gap:11px}.ba{padding:14px 16px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);border-radius:13px;min-width:105px}.ba span{display:block;color:#bfdbfe;font-size:10px}.ba b{display:block;color:white;font-size:19px;margin-top:3px}.ba-arrow{font-size:20px;color:#7dd3fc}.case-side{display:grid;gap:18px}.logo-card,.quote-card{border:1px solid var(--line);border-radius:20px;padding:27px}.logo-card h3{font-size:16px}.logos{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:19px}.logo{height:52px;border-radius:12px;background:#f8fafc;display:grid;place-items:center;color:#475569;font-size:12px;font-weight:800;letter-spacing:-.04em}.quote-card{background:#f8fafc}.quote-mark{color:#60a5fa;font-size:38px;line-height:.6}.quote-card p{font-size:14px;line-height:1.7;color:#334155;margin-top:14px}.quote-by{font-size:12px;font-weight:750;color:var(--blue);margin-top:18px}
+
+    /* Layer: Pricing Comparison */
+    .comparison { background:#f8fafc; }.table-wrap{background:white;border:1px solid var(--line);border-radius:24px;overflow:hidden;box-shadow:0 16px 38px rgba(15,23,42,.04)}.price-table{width:100%;border-collapse:collapse;text-align:center}.price-table th,.price-table td{padding:20px 17px;border-bottom:1px solid var(--line);font-size:14px}.price-table th{font-size:12px;color:#64748b;font-weight:700;background:#fcfdff}.price-table th:first-child,.price-table td:first-child{text-align:left;color:#475569;font-weight:650;width:31%}.price-table .recommended{background:#eff6ff;color:var(--blue-600);position:relative}.price-table .recommended .pill{display:inline-block;margin-bottom:7px;padding:4px 7px;border-radius:999px;background:var(--blue);color:white;font-size:9px;letter-spacing:.03em}.price-table .recommended strong{display:block}.price-table tr:last-child td{border-bottom:0}.check{color:var(--green);font-weight:900}.muted-dash{color:#cbd5e1}.price-button{display:inline-flex;padding:9px 13px;border-radius:9px;background:#eff6ff;color:var(--blue);font-size:12px;font-weight:750}.price-button.hot{background:var(--blue);color:white}
+
+    /* Layer: FAQ */
+    .faq-grid{display:grid;grid-template-columns:.82fr 1.18fr;gap:80px;align-items:start}.faq-aside{padding:28px;border-radius:20px;background:#eff6ff;border:1px solid #dbeafe}.faq-aside h3{font-size:20px}.faq-aside p{margin-top:11px}.faq-aside .btn{min-height:45px;margin-top:22px;font-size:13px}.faq-list{border-top:1px solid var(--line)}.faq{padding:21px 2px;border-bottom:1px solid var(--line)}.faq-q{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:16px;font-weight:750;color:var(--navy)}.faq-q span{width:24px;height:24px;border-radius:50%;background:#eff6ff;color:var(--blue);display:grid;place-items:center;font-size:17px;font-weight:500}.faq-a{margin-top:12px;padding-right:40px;font-size:14px;color:var(--muted);line-height:1.75}
+
+    /* Layer: Contact CTA */
+    .contact-section { padding-top: 36px; padding-bottom: 130px; }.contact-box{display:grid;grid-template-columns:.8fr 1.2fr;border-radius:24px;overflow:hidden;background:white;border:1px solid var(--line);box-shadow:var(--shadow)}.contact-copy{padding:42px;background:linear-gradient(145deg,#0f172a,#172554)}.contact-copy .eyebrow{color:#bfdbfe;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.14)}.contact-copy h2{color:white;margin-top:17px;font-size:36px}.contact-copy p{color:#cbd5e1;margin-top:14px}.manager{display:flex;align-items:center;gap:12px;padding:14px;margin-top:33px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:16px}.avatar{width:42px;height:42px;border-radius:14px;background:linear-gradient(140deg,#38bdf8,#2563eb);display:grid;place-items:center;color:white;font-size:16px;font-weight:800}.manager b{display:block;color:white;font-size:13px}.manager span{display:block;color:#bfdbfe;font-size:11px;margin-top:3px}.contact-form{padding:40px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.field{display:grid;gap:7px}.field.full{grid-column:span 2}.field label{font-size:12px;color:#475569;font-weight:700}.input{min-height:47px;border:1px solid #dbe2ea;border-radius:11px;padding:13px;font-size:13px;color:#94a3b8;background:#fff}.textarea{height:92px}.form-bottom{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px}.privacy{font-size:11px;color:#94a3b8;line-height:1.5}.privacy b{color:#64748b}.form-bottom .btn{min-height:48px;white-space:nowrap;font-size:13px}
+
+    /* Layer: Footer */
+    .footer{padding:26px 0 38px;border-top:1px solid var(--line);display:flex;justify-content:space-between;color:#94a3b8;font-size:12px}.footer strong{color:#64748b}
+    @media (max-width: 900px) {
+      .nav-links{display:none}.hero{min-height:0;padding:56px 0 80px}.hero-copy{grid-column:span 12;padding:20px 0}.hero-art{grid-column:span 12;min-height:390px;margin-top:18px}.product-grid{grid-template-columns:1fr}.timeline{grid-template-columns:repeat(3,1fr);row-gap:34px}.timeline:before{display:none}.kpi-grid{grid-template-columns:repeat(2,1fr)}.kpi-feature{grid-column:span 2}.case-grid,.faq-grid{grid-template-columns:1fr;gap:28px}.contact-box{grid-template-columns:1fr}.contact-copy{padding:34px}.contact-form{padding:32px}
+    }
+    @media (max-width: 560px) {
+      .container{width:min(100% - 32px,1200px)}.nav{height:60px}.nav-cta{display:none}.section{padding:82px 0}.hero-copy h1{font-size:44px}.hero-art{min-height:330px;transform:scale(.83);margin:-20px 0}.timeline{grid-template-columns:repeat(2,1fr)}.kpi-wrap{padding:20px}.kpi-grid{grid-template-columns:1fr}.kpi-feature{grid-column:auto}.kpi-top{align-items:flex-start;gap:13px;flex-direction:column}.case-main{padding:28px}.case-main h3{font-size:26px}.price-table th,.price-table td{padding:15px 8px;font-size:11px}.price-table th:first-child,.price-table td:first-child{width:25%}.price-button{padding:7px 8px;font-size:10px}.form-grid{grid-template-columns:1fr}.field.full{grid-column:auto}.form-bottom{align-items:flex-start;flex-direction:column}.footer{flex-direction:column;gap:10px}
+    }
+  </style>
+</head>
+<body>
+  <main class="page" aria-label="광고 파트너십 랜딩 페이지">
+    <div class="nav-shell container" id="layer-global-navigation" aria-label="Global Navigation">
+      <nav class="nav">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>Campaign OS</span></div>
+        <div class="nav-links"><span>광고제휴</span><span>광고 상품</span><span>진행 절차</span><span>성공 사례</span></div>
+        <div class="nav-cta">광고 문의하기</div>
+      </nav>
+    </div>
+
+    <section class="hero" id="layer-hero-advertising-partnership" aria-label="Hero — 광고 파트너십">
+      <div class="container grid-12">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="dot"></span>Partnership Campaign OS</div>
+          <h1>브랜드의 다음 성장을<br /><em>성과로 연결하는</em> 광고제휴</h1>
+          <p class="body-lg">광고 캠페인 제휴 요청부터 채널 운영, 집행 결과까지.<br />명확한 목표와 신뢰할 수 있는 리포트로 캠페인 성과를 만듭니다.</p>
+          <div class="btn-row">
+            <a class="btn primary" href="#contact">광고 제휴 문의하기 <span class="arrow">→</span></a>
+            <a class="btn secondary" href="#products">광고 상품 살펴보기 <span class="arrow">↘</span></a>
+          </div>
+          <div class="trust-row"><div class="face-stack"><span class="face">A</span><span class="face">B</span><span class="face">C</span><span class="face">D</span></div><span>브랜드·광고 캠페인을 한 곳에서 관리합니다</span></div>
+        </div>
+        <div class="hero-art" id="layer-hero-3d-graphic" aria-label="Campaign growth illustration">
+          <div class="visual"><div class="orb"></div><div class="ring"></div><div class="ring r2"></div><div class="float-dot one"></div><div class="float-dot two"></div>
+            <div class="chart-card top"><div class="chart-title"><span>Campaign reach</span><b>+37.4%</b></div><div class="chart-value">128.4K</div><div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+            <div class="chart-card bottom"><div class="chart-title"><span>Target match</span><b>LIVE</b></div><div class="chart-value">94.8%</div><div class="mini-stats"><span>Target<b>01</b></span><span>Channel<b>08</b></span><span>Report<b>W-12</b></span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section product-section" id="products" aria-label="Layer: 광고 상품 소개">
+      <div class="container">
+        <div class="section-head"><div class="eyebrow">AD PRODUCTS</div><h2>목표에 맞춰 설계하는<br />광고 상품</h2><p class="body">브랜드 인지도부터 전환까지, 캠페인 목적과 고객군을 먼저 고정하고 가장 효율적인 채널 조합을 제안합니다.</p></div>
+        <div class="product-grid">
+          <article class="product-card" id="layer-product-brand-awareness"><div class="icon-box">◎</div><h3>브랜드 임팩트</h3><p class="body">도달과 인지도를 넓히는 프리미엄 브랜드 캠페인입니다.</p><ul><li>메인·콘텐츠 노출 설계</li><li>브랜드 세이프티 가이드</li><li>주간 리포트 제공</li></ul><div class="price-line"><span>캠페인 단위</span><b>맞춤 견적 <span class="arrow">→</span></b></div></article>
+          <article class="product-card" id="layer-product-performance"><div class="icon-box">↗</div><h3>퍼포먼스 드라이브</h3><p class="body">세그먼트별 반응을 검증하고 전환을 높이는 상품입니다.</p><ul><li>타깃 세그먼트 설계</li><li>채널별 A/B 운영</li><li>전환 최적화 인사이트</li></ul><div class="price-line"><span>캠페인 단위</span><b>맞춤 견적 <span class="arrow">→</span></b></div></article>
+          <article class="product-card" id="layer-product-content"><div class="icon-box">✦</div><h3>콘텐츠 스폰서십</h3><p class="body">맥락 있는 콘텐츠로 브랜드 메시지의 신뢰를 만듭니다.</p><ul><li>브랜디드 콘텐츠 제작</li><li>배포 채널 패키지</li><li>성과 아카이브 제공</li></ul><div class="price-line"><span>프로젝트 단위</span><b>상담 후 제안 <span class="arrow">→</span></b></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section process" id="process" aria-label="Layer: 광고 진행 절차">
+      <div class="container"><div class="section-head"><div class="eyebrow">PROCESS</div><h2>복잡한 광고 집행을<br />명확한 6단계로</h2><p class="body">목표, 채널, 예산, 리포트를 하나의 캠페인 루프로 연결해 모든 이해관계자가 같은 기준으로 움직입니다.</p></div>
+        <div class="timeline">
+          <article class="step"><div class="step-no">01</div><div class="step-label">DISCOVER</div><h3>문의 접수</h3><p>목적과 업종, 일정에 맞춰 기본 정보를 확인합니다.</p></article>
+          <article class="step"><div class="step-no">02</div><div class="step-label">DEFINE</div><h3>목표·타깃 설정</h3><p>캠페인 목적과 고객군을 먼저 고정합니다.</p></article>
+          <article class="step"><div class="step-no">03</div><div class="step-label">DESIGN</div><h3>상품 제안</h3><p>노출 채널과 제작 범위를 한눈에 비교합니다.</p></article>
+          <article class="step"><div class="step-no">04</div><div class="step-label">LAUNCH</div><h3>제작·집행</h3><p>합의된 기준에 따라 일정과 품질을 관리합니다.</p></article>
+          <article class="step"><div class="step-no">05</div><div class="step-label">OPTIMIZE</div><h3>중간 점검</h3><p>채널별 예산과 효율 지표를 추적합니다.</p></article>
+          <article class="step"><div class="step-no">06</div><div class="step-label">REPORT</div><h3>성과 리포트</h3><p>재사용 가능한 구조로 결과와 인사이트를 정리합니다.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="layer-ad-effect-kpi" aria-label="Layer: 광고 효과">
+      <div class="container"><div class="section-head"><div class="eyebrow">CAMPAIGN EFFECT</div><h2>보이는 노출을 넘어,<br />판단 가능한 성과로</h2><p class="body">성과 리포트는 결과 보고서가 아니라 다음 캠페인의 기준입니다. 아래 지표 영역은 실제 집행 데이터로 즉시 교체할 수 있도록 구성했습니다.</p></div>
+        <div class="kpi-wrap"><div class="kpi-top"><h3>광고제휴 운영 지표</h3><span class="kpi-note">SAMPLE DATA · 실제 성과로 교체</span></div><div class="kpi-grid">
+          <div class="kpi-feature"><div class="kpi-label">CAMPAIGN REACH</div><div class="kpi-value">128.4K</div><div class="line-chart"><svg viewBox="0 0 230 50" preserveAspectRatio="none"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#38bdf8"/><stop offset="1" stop-color="#ffffff"/></linearGradient></defs><path d="M0 42 C25 39, 31 34, 48 37 S79 28, 94 31 S122 22, 139 26 S169 12, 184 16 S214 4,230 7" fill="none" stroke="url(#g)" stroke-width="3" stroke-linecap="round"/></svg></div><div class="trend">↑ 37.4% vs. prior period</div></div>
+          <div class="kpi-card"><div class="kpi-label">TARGET MATCH</div><div class="kpi-value">94.8%</div><div class="kpi-caption">정의된 고객군과의 타깃 적합도</div></div>
+          <div class="kpi-card"><div class="kpi-label">ENGAGEMENT</div><div class="kpi-value">2.4x</div><div class="kpi-caption">콘텐츠 반응 지수 변화</div></div>
+          <div class="kpi-card"><div class="kpi-label">REPORT READY</div><div class="kpi-value">100%</div><div class="kpi-caption">표준 리포트 구성 완료율</div></div>
+        </div></div>
+      </div>
+    </section>
+
+    <section class="section case-section" id="cases" aria-label="Layer: 광고 사례">
+      <div class="container"><div class="section-head"><div class="eyebrow">CASE STUDIES</div><h2>전략이 성과로 전환된<br />광고 사례</h2><p class="body">브랜드의 과제와 고객의 맥락을 함께 읽고, 결과를 다음 의사결정에 사용할 수 있게 남깁니다.</p></div>
+        <div class="case-grid"><article class="case-main" id="layer-case-featured"><div class="case-label">FEATURED CAMPAIGN · B2C LAUNCH</div><h3>“신규 서비스의 가치를<br />고객 언어로 다시 설계하다”</h3><p class="body">세그먼트별 메시지와 채널을 재구성해 관심에서 행동까지의 전환 흐름을 명확히 만들었습니다.</p><div class="before-after"><div class="ba"><span>BEFORE</span><b>0.8x</b></div><div class="ba-arrow">→</div><div class="ba"><span>AFTER</span><b>2.4x</b></div></div></article>
+          <div class="case-side"><article class="logo-card" id="layer-client-logo-area"><h3>함께하는 파트너</h3><div class="logos"><div class="logo">NOVA</div><div class="logo">MOMENT</div><div class="logo">HORIZON</div><div class="logo">WAVE</div></div></article><article class="quote-card" id="layer-testimonial"><div class="quote-mark">“</div><p>전략과 운영 지표가 한 화면에서 정리되어, 다음 단계의 의사결정이 훨씬 빨라졌습니다.</p><div class="quote-by">파트너사 마케팅 리드</div></article></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section comparison" id="comparison" aria-label="Layer: 광고 상품 비교">
+      <div class="container"><div class="section-head"><div class="eyebrow">COMPARE PRODUCTS</div><h2>필요한 범위만,<br />투명하게 비교하세요</h2><p class="body">캠페인 목적과 운영 범위에 따라 시작점을 고르고, 상담에서 최적의 조합으로 확장할 수 있습니다.</p></div>
+        <div class="table-wrap"><table class="price-table" aria-label="광고 상품 비교표"><thead><tr><th>포함 항목</th><th>브랜드 임팩트</th><th class="recommended"><span class="pill">RECOMMENDED</span><strong>퍼포먼스 드라이브</strong></th><th>콘텐츠 스폰서십</th></tr></thead><tbody><tr><td>추천 목적</td><td>인지·도달 확대</td><td class="recommended">전환·효율 개선</td><td>신뢰·맥락 강화</td></tr><tr><td>타깃 세그먼트</td><td><span class="check">●</span></td><td class="recommended"><span class="check">●</span></td><td><span class="check">●</span></td></tr><tr><td>채널별 최적화</td><td><span class="muted-dash">—</span></td><td class="recommended"><span class="check">●</span></td><td><span class="muted-dash">—</span></td></tr><tr><td>콘텐츠 제작</td><td>옵션</td><td class="recommended">옵션</td><td><span class="check">●</span></td></tr><tr><td>성과 리포트</td><td>주간</td><td class="recommended">주간 + 인사이트</td><td>프로젝트 종료</td></tr><tr><td>상담 시작</td><td><span class="price-button">문의하기</span></td><td class="recommended"><span class="price-button hot">추천 상품 문의</span></td><td><span class="price-button">문의하기</span></td></tr></tbody></table></div>
+      </div>
+    </section>
+
+    <section class="section" id="faq" aria-label="Layer: FAQ">
+      <div class="container faq-grid"><div class="faq-aside"><div class="eyebrow">FAQ</div><h3>궁금한 점이 남았다면</h3><p class="body">상품, 일정, 예산에 맞는 상담을 도와드립니다.</p><a class="btn primary" href="#contact">상담 요청하기 <span class="arrow">→</span></a></div>
+        <div class="faq-list"><article class="faq"><div class="faq-q">광고 제휴는 어떤 브랜드가 문의할 수 있나요?<span>−</span></div><p class="faq-a">업종과 브랜드 규모에 관계없이 캠페인 목표가 명확하다면 상담할 수 있습니다. 초기 문의에서 타깃, 일정, 예산 범위를 확인한 뒤 맞춤 제안을 드립니다.</p></article><article class="faq"><div class="faq-q">집행까지 얼마나 걸리나요?<span>＋</span></div></article><article class="faq"><div class="faq-q">예산이 정해지지 않아도 문의할 수 있나요?<span>＋</span></div></article><article class="faq"><div class="faq-q">캠페인 종료 후에는 어떤 리포트를 제공하나요?<span>＋</span></div></article></div>
+      </div>
+    </section>
+
+    <section class="contact-section" id="contact" aria-label="Layer: 광고 제휴 문의">
+      <div class="container"><div class="contact-box"><div class="contact-copy"><div class="eyebrow">LET'S GROW TOGETHER</div><h2>좋은 광고는<br />좋은 대화에서 시작됩니다.</h2><p class="body">우리 브랜드에 맞는 광고 상품과 캠페인 방향을 함께 설계해 보세요.</p><div class="manager"><div class="avatar">J</div><div><b>광고 제휴 전담 매니저</b><span>영업일 기준 1일 내 답변드립니다</span></div></div></div>
+        <form class="contact-form" id="layer-premium-contact-form"><div class="form-grid"><div class="field"><label>회사명</label><div class="input">회사명을 입력해 주세요</div></div><div class="field"><label>담당자명</label><div class="input">성함을 입력해 주세요</div></div><div class="field"><label>이메일</label><div class="input">example@company.com</div></div><div class="field"><label>관심 상품</label><div class="input">상품을 선택해 주세요 ▾</div></div><div class="field full"><label>문의 내용</label><div class="input textarea">캠페인 목적, 예상 일정, 궁금한 점을 알려주세요</div></div></div><div class="form-bottom"><p class="privacy"><b>문의하기</b>를 누르면 개인정보 수집 및 이용에 동의하게 됩니다.</p><a class="btn primary" href="#">광고 제휴 문의 보내기 <span class="arrow">→</span></a></div></form>
+      </div></div>
+    </section>
+
+    <footer class="footer container" id="layer-footer"><span><strong>Campaign OS</strong> · Advertising Partnership</span><span>© 2026 All rights reserved.</span></footer>
+  </main>
+</body>
+</html>
