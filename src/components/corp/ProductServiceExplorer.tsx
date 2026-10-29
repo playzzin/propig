@@ -1,18 +1,20 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import { Bot, CreditCard, FileText, Globe2, Landmark, Megaphone, MessageCircle, Monitor, Repeat2, ShoppingBag, Smartphone, type LucideIcon } from 'lucide-react';
-import styled from 'styled-components';
+import styled, { css } from 'styled-components';
 import ProductMotionArtwork from './ProductMotionArtwork';
+import ProductShowcaseWorkspace from './ProductShowcaseWorkspace';
+import ProductAutomationDirector from './ProductAutomationDirector';
 
 type ServiceOption = { label: string; title: string; description: string; icon: LucideIcon };
 
 const OPTIONS: Record<number, ServiceOption[]> = {
   0: [
-    { label: 'PC 웹', title: '넓은 화면에서 시작하는 업무', description: '브라우저에서 서비스를 열고, 필요한 작업을 한 화면에서 이어갑니다.', icon: Monitor },
-    { label: '모바일 웹', title: '외부에서도, 손안에서 이어지는 경험', description: '휴대폰 크기에 맞춘 화면과 터치 반응으로 같은 서비스에 연결합니다.', icon: Smartphone },
-    { label: '글로벌 연결', title: '언어와 지역을 넘어 만나는 고객', description: '한국어·영어·일본어 화면으로 세계의 사용자와 연결되는 경험입니다.', icon: Globe2 },
+    { label: '그뚠웹', title: '전 세계의 프로젝트를 한 화면에서', description: 'PC 콘셉트 · 지역 현황·프로젝트·팀 업무를 한 화면에.', icon: Monitor },
+    { label: '그뚠앱', title: '오늘의 업무를 손안에서 가볍게', description: '모바일 콘셉트 · 현장 일정과 할 일을 확인하고 팀과 공유합니다.', icon: Smartphone },
+    { label: '글로벌 연결', title: '서울에서 시작해 세계로 이어지는 웹앱', description: '서울·도쿄·런던·뉴욕을 잇는 데이터 흐름과 한국어·영어·일본어 전환 시연입니다.', icon: Globe2 },
   ],
   1: [
     { label: '자동 순환', title: '자료 접수 → 서류 작성 → 업무 실행', description: '18종 서류를 작성하고 검토한 뒤, 발행·이체·안내·결제·브라우저 작업으로 연결하는 시연입니다.', icon: Repeat2 },
@@ -21,7 +23,7 @@ const OPTIONS: Record<number, ServiceOption[]> = {
     { label: '보고·증명', title: '일상의 보고와 신청도 자연스럽게', description: '업무보고서·출장신청서·휴가신청서·재직증명서·납품확인서·정산보고서', icon: FileText },
   ],
   3: [
-    { label: '생성형 콘텐츠 판매', title: '만든 콘텐츠가 나만의 판매 상품으로', description: '영상·이미지·웹툰을 콘텐츠 패키지로 구성하고, 상품 소개부터 주문 확인과 파일 전달까지 이어갑니다.', icon: ShoppingBag },
+    { label: '생성형 콘텐츠 판매', title: '그뚠이와 만드는 나만의 콘텐츠 상품', description: '그뚠이의 콘텐츠 제작·상품 소개·주문 확인·파일 전달 시연입니다.', icon: ShoppingBag },
     { label: '광고형 리셀러', title: '상품을 발견하고, 콘텐츠로 판매를 연결', description: '플랫폼을 선택해 상품 소개 → 광고 소재 → 상품·제휴 링크 → 고객 반응의 시연을 살펴보세요.', icon: Megaphone },
   ],
 };
@@ -55,13 +57,13 @@ const COMMERCE_PLATFORMS = [
   { id: 'temu', label: '테무', detail: '상품 발견 · 광고 콘텐츠', description: '발견한 상품을 짧은 광고 콘텐츠로 소개하고 상품·제휴 링크로 연결합니다.' },
 ] as const;
 
-const Explorer = styled.div`
+const Explorer = styled.div<{ $docked: boolean }>`
   min-width: 0;
   width: 100%;
-  padding: 16px 12px 10px;
+  padding: ${({ $docked }) => $docked ? '0' : '8px 4px 8px'};
   color: #f3f7ff;
 
-  @media (max-width: 600px) { padding: 12px 8px 10px; }
+  @media (max-width: 600px) { padding: ${({ $docked }) => $docked ? '0' : '4px 2px 6px'}; }
 `;
 
 const Options = styled.div`
@@ -156,22 +158,21 @@ const Option = styled.button`
 
 const Caption = styled.div`
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: start;
-  gap: 10px;
-  margin: 0 12px;
+  gap: 8px;
+  margin: 0;
   border-top: 1px solid #314c6b;
-  padding: 14px 0 4px;
-  min-height: 83px;
+  padding: 5px 0;
 
-  > span { color: #93c5fd; font-size: 10px; font-weight: 700; line-height: 22px; }
-  strong { display: block; font-size: 13px; line-height: 1.6; font-weight: 650; }
-  p { margin: 4px 0 0; color: #adbed4; font-size: 11px; line-height: 1.8; word-break: keep-all; overflow-wrap: anywhere; }
+  > span { color: #93c5fd; font-size: 10px; font-weight: 700; line-height: 20px; }
+  > div { display: flex; align-items: baseline; gap: 4px 12px; }
+  strong { flex-shrink: 0; font-size: 13px; line-height: 1.5; font-weight: 650; }
+  p { margin: 0; color: #adbed4; font-size: 12px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
   @media (max-width: 600px) {
-    margin: 0 8px;
-    padding-top: 11px;
-    min-height: 99px;
-    strong { font-size: 12px; }
+    > div { display: block; }
+    strong { display: block; font-size: 12px; }
+    p { font-size: 11px; margin-top: 2px; }
   }
 `;
 
@@ -189,7 +190,7 @@ const PlatformPicker = styled.div`
     flex-direction: column;
     gap: 8px;
     min-width: 0;
-    min-height: 83px;
+    min-height: 64px;
     padding: 10px 5px;
     border: 1px solid #314c6b;
     border-radius: 8px;
@@ -217,17 +218,48 @@ const PlatformPicker = styled.div`
   @media (prefers-reduced-motion: reduce) { button { transition: none; } button:hover, button:active { transform: none; } }
 `;
 
+const NavigationControls = styled.div<{ $docked: boolean }>`
+  min-width: 0;
+  ${({ $docked }) => $docked && css`
+    ${Options} { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 0; }
+    ${Option} { min-width: 0; justify-content: flex-start; text-align: left; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
+    ${Categories} {
+      margin: 0 0 8px; padding: 0 0 8px;
+      button { min-height: 48px; padding: 6px 3px; font-size: 10px; }
+    }
+    &[data-service-controls='1'] ${Options} { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    &[data-service-controls='1'] ${Option} {
+      justify-content: center; padding: 7px 5px; text-align: center; font-size: 11px; line-height: 1.4;
+      svg { display: none; }
+    }
+    ${PlatformPicker} {
+      grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 8px 0 0;
+      button { min-height: 60px; padding: 6px 4px; gap: 5px; font-size: 10px; line-height: 1.4; word-break: keep-all; }
+      img { width: 24px; height: 24px; }
+      [data-commerce-option='coupang'] img { width: min(92px, 100%); height: 24px; }
+    }
+    @container (max-width: 760px) {
+      &[data-service-controls='0'] ${Options} { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      &[data-service-controls='3'] ${Options} { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      ${Option} { justify-content: center; padding: 7px 5px; text-align: center; font-size: 11px; }
+    }
+  `}
+`;
+
 type ProductServiceExplorerProps = {
   chapter: number;
   playing: boolean;
   reducedMotion: boolean;
   cycle: number;
+  sceneElapsedMs?: number;
   onInteract: () => void;
   selection?: { variant: number; platform?: number };
   onSelectionChange?: (selection: { variant: number; platform?: number }) => void;
+  introduction?: ReactNode;
+  renderNavigation?: (controls: ReactNode) => ReactNode;
 };
 
-export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, onInteract, selection, onSelectionChange }: ProductServiceExplorerProps) {
+export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, sceneElapsedMs = 0, onInteract, selection, onSelectionChange, introduction, renderNavigation }: ProductServiceExplorerProps) {
   const [selections, setSelections] = useState<Record<number, number>>({});
   const [selectedPlatform, setCommercePlatform] = useState(0);
   const [selectedAutomationCategory, setAutomationCategory] = useState<AutomationCategory>('documents');
@@ -258,8 +290,8 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
     else onInteract();
   }
 
-  return (
-    <Explorer data-service-explorer={chapter} data-service-variant={variant} data-automation-category={chapter === 1 ? automationCategory : undefined}>
+  const controls = (
+    <NavigationControls $docked={Boolean(renderNavigation)} data-service-controls={chapter}>
       {chapter === 1 && <Categories role="group" aria-label="자동화 분야 선택">
         {AUTOMATION_CATEGORIES.map(({ id, label }) => <button
           key={id}
@@ -299,11 +331,33 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
           <span>{label}</span>
         </button>)}
       </PlatformPicker>}
-      <ProductMotionArtwork key={`${chapter}-${variant}-${commercePlatform}-${cycle}`} chapter={chapter} variant={variant} platform={commercePlatform} playing={playing} reducedMotion={reducedMotion} />
-      <Caption id={descriptionId} aria-live={playing ? 'off' : 'polite'} aria-atomic="true">
+    </NavigationControls>
+  );
+
+  const content = (
+    <div data-product-canvas data-product-interactive>
+      {introduction}
+      {chapter === 1 ? <AutomationStage data-automation-stage>
+        <ProductAutomationDirector elapsedMs={sceneElapsedMs} variant={variant} cycle={cycle} playing={playing} reducedMotion={reducedMotion} />
+        <ProductMotionArtwork key={`${chapter}-${variant}-${cycle}`} chapter={chapter} variant={variant} playing={playing} reducedMotion={reducedMotion} />
+      </AutomationStage> : <ProductMotionArtwork key={`${chapter}-${variant}-${commercePlatform}-${cycle}`} chapter={chapter} variant={variant} platform={commercePlatform} playing={playing} reducedMotion={reducedMotion} />}
+      <Caption data-product-caption id={descriptionId} aria-live={playing ? 'off' : 'polite'} aria-atomic="true">
         <span aria-hidden="true">{String(variant + 1).padStart(2, '0')}</span>
         <div><strong>{advertising ? `${platform.label} · ${platform.detail}` : active.title}</strong><p>{advertising ? `${platform.description} 브랜드 시연 콘텐츠입니다.` : active.description}</p></div>
       </Caption>
+    </div>
+  );
+
+  return (
+    <Explorer $docked={Boolean(renderNavigation)} data-service-explorer={chapter} data-service-variant={variant} data-automation-category={chapter === 1 ? automationCategory : undefined}>
+      {renderNavigation ? (
+        <ProductShowcaseWorkspace navigation={renderNavigation(controls)}>{content}</ProductShowcaseWorkspace>
+      ) : <>{controls}{content}</>}
     </Explorer>
   );
 }
+
+const AutomationStage = styled.div`
+  display: grid; grid-template-columns: minmax(220px, .95fr) minmax(0, 1.65fr); gap: 18px; align-items: center; flex: 1; min-width: 0;
+  @container (max-width: 640px) { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; }
+`;

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600" fill="none">
+  <title>그뚠웹 — 한글 업무 대시보드 시연</title>
+  <defs>
+    <linearGradient id="ocean" x1="260" y1="190" x2="680" y2="410" gradientUnits="userSpaceOnUse"><stop stop-color="#172f49"/><stop offset="1" stop-color="#0c2035"/></linearGradient>
+    <linearGradient id="chart" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#32bda8" stop-opacity=".25"/><stop offset="1" stop-color="#32bda8" stop-opacity="0"/></linearGradient>
+  </defs>
+  <rect width="960" height="600" fill="#f0f4f7"/>
+  <path d="M0 0h178v600H0z" fill="#10243b"/>
+  <g font-family="Arial, 'Malgun Gothic', sans-serif">
+    <rect x="22" y="23" width="30" height="30" rx="9" fill="#66e5cd"/>
+    <path d="M32 44V32h7a4 4 0 0 1 0 8h-7" stroke="#10243b" stroke-width="3" stroke-linecap="round"/>
+    <text x="62" y="43" font-size="20" font-weight="700" fill="#f6fbff">그뚠웹</text>
+    <text x="24" y="93" font-size="9" letter-spacing="2" fill="#7f9ab8">함께 쓰는 업무 공간</text>
+    <rect x="14" y="112" width="150" height="37" rx="7" fill="#24435e"/>
+    <g fill="#b2c6d9" font-size="12"><text x="49" y="136" fill="#fff">전체 현황</text><text x="49" y="180">프로젝트</text><text x="49" y="224">팀과 지역</text><text x="49" y="268">최근 활동</text></g>
+    <g stroke="#8caac4" stroke-width="1.7"><rect x="27" y="123" width="12" height="12" rx="2"/><path d="M27 168h12v12H27zM27 211h12v12H27zM28 266v-8m5 8v-13m5 13v-5"/></g>
+    <path d="M23 303h132" stroke="#28445c"/>
+    <text x="24" y="330" font-size="9" letter-spacing="1.6" fill="#7f9ab8">연결된 지역</text>
+    <g font-size="11" fill="#c7d6e4"><text x="43" y="360">서울 · 도쿄</text><text x="43" y="390">런던</text><text x="43" y="420">뉴욕</text></g>
+    <g fill="#70dcc6"><circle cx="29" cy="356" r="3"/><circle cx="29" cy="386" r="3"/><circle cx="29" cy="416" r="3"/></g>
+    <rect x="17" y="528" width="144" height="53" rx="9" fill="#1c354d"/>
+    <circle cx="41" cy="554" r="14" fill="#436980"/><text x="32" y="558" font-size="10" fill="#fff">그</text><text x="63" y="551" font-size="11" fill="#edf5fc">그뚠이의 팀</text><text x="63" y="567" font-size="9" fill="#94adc3">함께 쓰는 공간</text>
+    <path d="M178 0h782v69H178z" fill="#fff"/><path d="M178 69h782" stroke="#dce5ed"/>
+    <text x="208" y="40" font-size="12" fill="#63768a">업무 공간 / <tspan fill="#102e49" font-weight="700">전체 현황</tspan></text>
+    <rect x="766" y="22" width="104" height="27" rx="13.5" fill="#eaf1f6"/><text x="785" y="40" font-size="10" fill="#34556d">한국어 · 서울</text><circle cx="910" cy="35" r="16" fill="#c9e6dd"/><text x="902" y="39" font-size="10" fill="#1d5b4c">그</text>
+    <text x="208" y="111" font-size="24" font-weight="700" fill="#12324e">그뚠웹으로, 함께 가볍게.</text>
+    <text x="208" y="134" font-size="11" fill="#657e91">흩어진 프로젝트와 팀의 업무를 한눈에 확인하세요.</text>
+    <rect x="798" y="93" width="131" height="34" rx="7" fill="#143f59"/><text x="817" y="115" font-size="11" fill="#fff">+ 새 프로젝트</text>
+    <rect x="207" y="155" width="477" height="265" rx="13" fill="url(#ocean)"/>
+    <text x="227" y="183" font-size="12" font-weight="700" fill="#e3f4ff">세계를 잇는 업무 공간</text><text x="592" y="183" font-size="9" fill="#84bdca">4개 지역</text>
+    <g stroke="#32506b" stroke-width=".8" opacity=".65"><path d="M227 232h435M227 275h435M227 318h435M227 361h435M284 211v184M357 211v184M430 211v184M503 211v184M576 211v184M649 211v184"/></g>
+    <g fill="#2c5067" stroke="#3c667c" stroke-linejoin="round"><path d="m259 230 25-17 38 4 18 20-19 14-4 26-21 11-12-23-25-9-12-16zM321 292l27 11 14 28-11 34-17 25-8-30-10-27zM412 233l23-17 30 5 18-12 40 9 20-7 52 26 15 28-32 8-21-19-29 3-18 24-30-2-14-31-23 6-11-17zM431 265l31 5 18 33-10 37-15 15-15-21-13-37zM572 337l22-10 28 9 14 22-36 12-23-14z"/></g>
+    <g stroke="#6fe4d1" stroke-width="1.8"><path d="M303 262Q424 157 563 263M449 244Q511 206 563 263M563 263Q576 236 590 274"/></g>
+    <g fill="#a7ffed" stroke="#1b3b51" stroke-width="4"><circle cx="303" cy="262" r="5"/><circle cx="449" cy="244" r="5"/><circle cx="563" cy="263" r="5"/><circle cx="590" cy="274" r="5"/></g>
+    <g fill="#d9ebf7" font-size="10"><text x="272" y="288">뉴욕</text><text x="427" y="231">런던</text><text x="542" y="248">서울</text><text x="594" y="296">도쿄</text></g>
+    <rect x="225" y="384" width="164" height="22" rx="11" fill="#214758"/><circle cx="239" cy="395" r="3" fill="#7ee9cc"/><text x="249" y="399" fill="#c8efea" font-size="9">어디서든 같은 팀으로</text>
+    <rect x="702" y="155" width="227" height="124" rx="12" fill="#fff" stroke="#dce6ee"/><text x="720" y="182" font-size="11" fill="#60788b">프로젝트 진행률</text><text x="720" y="216" font-size="28" font-weight="700" fill="#17455b">84%</text><text x="791" y="214" font-size="10" fill="#258771">이번 주 +12</text><path d="M720 252c20-20 35 8 54-8s35-12 48-24 24 8 40-11 29-7 47-22" stroke="#40ab99" stroke-width="2.5"/>
+    <rect x="702" y="293" width="227" height="127" rx="12" fill="#fff" stroke="#dce6ee"/><text x="720" y="320" font-size="12" font-weight="700" fill="#23465d">팀 업무 전달</text><path d="M725 344v47" stroke="#c8d9df" stroke-width="2"/><circle cx="725" cy="344" r="5" fill="#43ab97"/><circle cx="725" cy="384" r="5" fill="#6296d1"/><text x="741" y="347" font-size="11" fill="#35566c">서울 → 런던</text><text x="741" y="364" font-size="9" fill="#7b8c99">디자인 검토 · 준비 완료</text><text x="741" y="387" font-size="11" fill="#35566c">도쿄 → 뉴욕</text><text x="741" y="404" font-size="9" fill="#7b8c99">출시 체크리스트 · 공유됨</text>
+    <rect x="207" y="438" width="722" height="140" rx="12" fill="#fff" stroke="#dce6ee"/><text x="227" y="466" font-size="12" font-weight="700" fill="#23465d">우리 팀의 프로젝트</text><text x="852" y="466" font-size="9" fill="#8095a4">화면 시연</text><path d="M227 481h682M227 524h682" stroke="#edf1f4"/>
+    <rect x="228" y="492" width="24" height="24" rx="7" fill="#d6efe7"/><text x="265" y="508" font-size="11" fill="#2b4c60">글로벌 브랜드 출시</text><text x="500" y="508" font-size="10" fill="#708796">서울 / 도쿄</text><rect x="672" y="494" width="73" height="20" rx="10" fill="#e4f4ed"/><text x="688" y="507" font-size="9" fill="#2d806b">검토 중</text><path d="M789 505h103" stroke="#e4ecef" stroke-width="5" stroke-linecap="round"/><path d="M789 505h75" stroke="#50bba2" stroke-width="5" stroke-linecap="round"/>
+    <rect x="228" y="536" width="24" height="24" rx="7" fill="#e0eafa"/><text x="265" y="552" font-size="11" fill="#2b4c60">모바일 현장 업무</text><text x="500" y="552" font-size="10" fill="#708796">런던 / 뉴욕</text><rect x="672" y="538" width="73" height="20" rx="10" fill="#e7effb"/><text x="688" y="551" font-size="9" fill="#4d71a5">진행 중</text><path d="M789 549h103" stroke="#e4ecef" stroke-width="5" stroke-linecap="round"/><path d="M789 549h49" stroke="#709bd9" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

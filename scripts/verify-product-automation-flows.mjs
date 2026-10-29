@@ -5,7 +5,7 @@ import { chromium } from 'playwright-core';
 import axe from 'axe-core';
 
 const base = process.env.BASE_URL || 'http://localhost:3002';
-const output = path.resolve('.tmp-product-motion-v5');
+const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'automation') : '.tmp-product-motion-v5');
 const flows = [
   { category: 'integrations', variant: 4, name: '세금계산서 발행', id: 'tax-invoice' },
   { category: 'integrations', variant: 5, name: '급여이체', id: 'payroll' },
@@ -53,6 +53,27 @@ async function accessibility(page) {
   });
 }
 
+async function deskMotion(page, explorer, category) {
+  const layer = explorer.locator(`[data-desk-effects="${category}"]`);
+  const selector = category === 'documents' ? '[data-paper-flight]' : category === 'integrations' ? '[data-digital-window]' : '[data-bot-reply]';
+  const before = await layer.evaluate(element => element.getAnimations({ subtree: true }).map(animation => ({ time: animation.currentTime, state: animation.playState })));
+  assert.ok(before.length > 0 && before.every(animation => animation.state === 'paused'), 'Desk effects pause through the shared playback control.');
+  await page.waitForTimeout(200);
+  assert.deepEqual(await layer.evaluate(element => element.getAnimations({ subtree: true }).map(animation => ({ time: animation.currentTime, state: animation.playState }))), before, 'Flying objects and bot replies stay frozen while paused.');
+  const phases = [];
+  for (const time of [0, 1800, 5500, 9500]) {
+    await sample(page, layer, time);
+    phases.push(await layer.locator(selector).evaluateAll(elements => elements.map(element => ({ opacity: Number(getComputedStyle(element).opacity), transform: getComputedStyle(element).transform }))));
+  }
+  const visible = phases.map(items => items.filter(item => item.opacity > .95).length);
+  assert.equal(visible[0], 0, 'New desk scenes begin before any objects arrive.');
+  assert.ok(visible[1] > 0 && visible[1] < visible[2] && visible[2] < visible[3], 'Objects arrive progressively and remain present in the completed scene.');
+  assert.equal(visible[3], phases[3].length);
+  if (category !== 'agents') assert.notEqual(phases[0][0].transform, phases[3][0].transform, 'Documents and digital windows travel into position.');
+  if (category === 'agents') assert.equal(await layer.locator('[data-bot-summary]').evaluate(element => Number(getComputedStyle(element).opacity)), 1, 'The final bot answer appears above the monitor.');
+  return { category, visible, pause: 'pass' };
+}
+
 try {
   for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }]) {
     const context = await browser.newContext({ viewport, reducedMotion: 'no-preference' });
@@ -76,8 +97,9 @@ try {
       assert.ok(!(await showcase.innerText()).includes('가능성을 설계하고,'), 'The removed introductory copy no longer occupies the showcase.');
       assert.equal((await showcase.locator('#product-film-title').innerText()).trim(), 'PRODUCT SHOWCASE');
       const story = await showcase.locator('h3').evaluate(element => element.parentElement.getBoundingClientRect().toJSON());
-      const preview = await showcase.locator('[data-product-interactive]').boundingBox();
-      if (viewport.width === 1440) assert.ok(preview.width >= story.width * 2.2, 'Desktop layout gives the product preview the dominant share of the scene.');
+      const preview = await showcase.locator('[data-product-canvas]').boundingBox();
+      const navigation = await showcase.locator('[data-product-navigation]').boundingBox();
+      if (viewport.width === 1440) assert.ok(preview.width >= navigation.width * 2.2, 'Desktop layout gives the product content the dominant share beside the unified navigation.');
       result.layout = { storyWidth: story.width, previewWidth: preview.width };
       assert.equal(await showcase.locator('[id^="product-film-chapter-"]').count(), 4, 'The four main service chapters remain intact.');
       assert.equal(await explorer.locator('[data-automation-category-option]').count(), 3);
@@ -92,6 +114,7 @@ try {
       await artwork.scrollIntoViewIfNeeded();
       await page.waitForTimeout(250);
       await playback(showcase, false);
+      result.deskEffects = [await deskMotion(page, explorer, 'documents')];
       const workPhases = [];
       for (const [index, time] of [1500, 5500, 9500].entries()) {
         await sample(page, artwork, time);
@@ -131,12 +154,13 @@ try {
         assert.equal(await explorer.locator('[data-service-option][aria-pressed="true"]').count(), 1);
         assert.equal(await artwork.locator(`[data-automation-flow="${flow.id}"]`).count(), 1, 'Each option displays its matching distinct automation scene.');
         assert.equal(await artwork.locator('[data-automation-flow]').count(), 1);
-        assert.equal(await artwork.locator('svg').getAttribute('aria-hidden'), 'true', 'The adjacent text describes the decorative workflow.');
+        assert.equal(await artwork.locator(':scope > svg').getAttribute('aria-hidden'), 'true', 'The adjacent text describes the decorative workflow.');
         assert.equal(await artwork.locator('a, button, input, form').count(), 0, 'Workflow diagrams are local demonstrations with no transaction controls.');
         await playback(showcase, true);
         await artwork.scrollIntoViewIfNeeded();
         await page.waitForTimeout(250);
         await playback(showcase, false);
+        result.deskEffects.push(await deskMotion(page, explorer, flow.category));
         const stages = [];
         const packets = [];
         for (const [index, time] of [1500, 5500, 9500].entries()) {
@@ -166,14 +190,12 @@ try {
 
       await playback(showcase, true);
       await artwork.scrollIntoViewIfNeeded();
-      await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).click();
+      assert.equal(await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).count(), 0);
       const cycle = Number(await showcase.getAttribute('data-cycle'));
       await page.waitForFunction(previous => Number(document.querySelector('#product-business-panorama')?.getAttribute('data-cycle')) > previous, cycle, { timeout: 15_000 });
-      assert.equal(await showcase.getAttribute('data-chapter'), '1');
-      assert.equal(await explorer.getAttribute('data-automation-category'), 'agents');
-      assert.equal(await explorer.getAttribute('data-service-variant'), '9');
-      assert.equal(await artwork.locator('[data-automation-flow="agent"]').count(), 1, 'Repeating a scene preserves the selected automation flow.');
-      result.repeatSelection = 'pass';
+      assert.equal(await showcase.getAttribute('data-chapter'), '2');
+      assert.equal(await showcase.getAttribute('data-step-id'), 'youtube', 'The last automation flow continues into content creation.');
+      result.automaticChapterTransition = 'pass';
 
       await showcase.locator('#product-film-chapter-2').click();
       const studio = showcase.locator('[data-content-studio]');
@@ -184,13 +206,13 @@ try {
         await playback(showcase, true);
         await studio.scrollIntoViewIfNeeded();
         await page.waitForFunction(() => {
-          const video = document.querySelector('[data-content-studio] video');
-          return video && video.readyState >= 2 && video.videoWidth > 0 && !video.paused;
+          const video = document.querySelector('[data-content-studio] [data-video-id]');
+          return video?.getAttribute('data-player-state') === 'playing' && Number(video.getAttribute('data-player-duration')) > 0;
         });
-        const video = studio.locator('video');
-        const before = await video.evaluate(element => element.currentTime);
-        await page.waitForTimeout(700);
-        const media = await video.evaluate(element => ({ time: element.currentTime, width: element.videoWidth, height: element.videoHeight, duration: element.duration, error: element.error?.code ?? null }));
+        const video = studio.locator('[data-video-id]');
+        const before = Number(await video.getAttribute('data-player-time'));
+        await page.waitForTimeout(1100);
+        const media = await video.evaluate(element => ({ id: element.dataset.videoId, time: Number(element.dataset.playerTime), duration: Number(element.dataset.playerDuration), error: element.dataset.playerStatus === 'error' ? 'embed' : null }));
         const elapsed = media.time >= before ? media.time - before : media.time + media.duration - before;
         assert.ok(elapsed > .3, `${name} video still plays in the larger product frame.`);
         assert.equal(media.error, null);
@@ -230,6 +252,9 @@ try {
         await explorer.getByRole('button', { name: flow.name, exact: true }).click();
         assert.equal(await artwork.locator(`[data-automation-flow="${flow.id}"]`).count(), 1);
         assert.equal(await artwork.evaluate(element => element.getAnimations({ subtree: true }).length), 0, 'Reduced-motion flows are stable and do not animate.');
+        const desk = explorer.locator('[data-desk-effects]');
+        assert.equal(await desk.evaluate(element => element.getAnimations({ subtree: true }).length), 0);
+        assert.ok(await desk.locator('[data-digital-window], [data-bot-reply], [data-bot-summary]').evaluateAll(elements => elements.every(element => Number(getComputedStyle(element).opacity) === 1)), 'Reduced motion preserves completed windows and readable bot answers.');
         assert.ok(await artwork.locator('.motion-only, .motion-secondary').evaluateAll(items => items.every(element => getComputedStyle(element).display === 'none')));
       }
       await explorer.getByRole('button', { name: '업무자동화', exact: true }).click();
@@ -237,6 +262,8 @@ try {
       assert.equal(await artwork.locator('[data-document-title]').count(), 18);
       const readable = await artwork.locator('[data-document-batch]').evaluateAll(items => items.filter(element => getComputedStyle(element).display !== 'none' && Number(getComputedStyle(element).opacity) > .95).length);
       assert.equal(readable, 1, 'Reduced-motion documents keep one readable batch instead of overlapping all 18 forms.');
+      assert.equal(await explorer.locator('[data-desk-effects]').evaluate(element => element.getAnimations({ subtree: true }).length), 0);
+      assert.ok(await explorer.locator('[data-paper-flight]').evaluateAll(elements => elements.length === 5 && elements.every(element => Number(getComputedStyle(element).opacity) === 1)), 'Reduced motion retains the complete paper stack.');
       result.reducedMotion = 'pass';
       result.preservedDocuments = expectedDocuments;
       assert.deepEqual(result.accessibility.flatMap(item => item.violations), [], 'No accessibility violations across automation flows.');

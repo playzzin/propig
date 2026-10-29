@@ -5,12 +5,12 @@ import { chromium } from 'playwright-core';
 import axe from 'axe-core';
 
 const base = process.env.BASE_URL || 'http://localhost:3002';
-const output = path.resolve('.tmp-product-motion-v6');
+const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'creeditor') : '.tmp-product-motion-v6');
 const platforms = [
-  { id: 'naver', name: '네이버스토어', product: '데스크 조명' },
-  { id: 'coupang', name: '쿠팡파트너스', product: '무선 헤드폰' },
-  { id: 'aliexpress', name: '알리익스프레스', product: '미니 카메라' },
-  { id: 'temu', name: '테무', product: '테이블 클록' },
+  { id: 'naver', name: '네이버스토어', product: '데스크 조명', character: 'lamp' },
+  { id: 'coupang', name: '쿠팡파트너스', product: '무선 헤드폰', character: 'headphones' },
+  { id: 'aliexpress', name: '알리익스프레스', product: '미니 카메라', character: 'camera' },
+  { id: 'temu', name: '테무', product: '테이블 클록', character: 'clock' },
 ];
 const candidates = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].filter(Boolean);
 let executablePath;
@@ -47,6 +47,8 @@ async function verifyTimeline(page, showcase, artwork) {
   await playback(showcase, false);
   const steps = [];
   const packets = [];
+  const creator = await artwork.locator('[data-content-creator]').count() > 0;
+  const poses = [];
   for (const [index, milliseconds] of [1500, 5500, 9500].entries()) {
     await artwork.evaluate((element, time) => {
       for (const animation of element.getAnimations({ subtree: true })) {
@@ -58,6 +60,13 @@ async function verifyTimeline(page, showcase, artwork) {
     const visible = await artwork.locator('[data-creeditor-step]').evaluateAll(items => items.filter(element => Number(getComputedStyle(element).opacity) > .95).map(element => Number(element.dataset.creeditorStep)));
     assert.deepEqual(visible, [index], `Only the matching creation, commerce, or response stage is shown at ${milliseconds}ms.`);
     steps.push(visible[0]);
+    if (creator) {
+      const visiblePoses = await artwork.locator('[data-content-pose]').evaluateAll(items => items.filter(element => Number(getComputedStyle(element).opacity) > .95).map(element => element.dataset.contentPose));
+      assert.deepEqual(visiblePoses, [['create'], ['present'], ['deliver']][index], 'The character and speech bubble follow creation, presentation, and delivery in order.');
+      poses.push(visiblePoses[0]);
+      const completion = await artwork.locator('[data-content-confirmation]').evaluate(element => Number(getComputedStyle(element).opacity));
+      assert.equal(completion > .95, index === 2, 'Delivery confirmation only appears in the completed phase.');
+    }
     packets.push(await artwork.locator('.signal-packet').first().evaluate(element => getComputedStyle(element).strokeDashoffset));
   }
   assert.ok(new Set(packets).size > 1, 'Signal packets move along the commerce connection.');
@@ -66,11 +75,11 @@ async function verifyTimeline(page, showcase, artwork) {
   await page.waitForTimeout(250);
   const after = await artwork.evaluate(element => element.getAnimations({ subtree: true }).map(animation => animation.currentTime));
   assert.deepEqual(after, before, 'The global pause control freezes every scene timeline.');
-  return { steps, packets, pause: 'pass' };
+  return { steps, packets, poses, pause: 'pass' };
 }
 
 try {
-  for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }]) {
+  for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }, { width: 320, height: 844 }]) {
     const context = await browser.newContext({ viewport, reducedMotion: 'no-preference' });
     const page = await context.newPage();
     const errors = [];
@@ -99,6 +108,17 @@ try {
       assert.equal(await scene.getAttribute('data-creeditor-mode'), 'content');
       assert.equal(await content.getAttribute('aria-pressed'), 'true');
       for (const title of ['브랜드 영상', '디자인 팩', '웹툰 시리즈', '주문 확인', '파일 전달']) assert.ok((await scene.textContent()).includes(title), `Content commerce includes ${title}.`);
+      const creatorImages = await scene.locator('[data-content-character]').evaluateAll(async items => Promise.all(items.map(async element => {
+        const image = new Image(); image.src = element.getAttribute('href'); await image.decode();
+        return { pose: element.dataset.contentCharacter, src: image.src, width: image.naturalWidth, height: image.naturalHeight };
+      })));
+      assert.deepEqual(creatorImages.map(image => image.pose), ['create', 'present', 'deliver']);
+      assert.ok(creatorImages.every(image => image.width > 1000 && image.height > 1000), 'All three original character poses decode.');
+      assert.equal(await scene.locator('[data-content-delivery-preview]').count(), 1);
+      assert.equal(await scene.locator('[data-content-flying-card]').count(), 3);
+      const speechFits = await scene.locator('[data-content-speech]').evaluateAll(items => items.every(element => { const box = element.getBBox(); return box.x >= 286 && box.x + box.width <= 489 && box.y >= 134 && box.y + box.height <= 167; }));
+      assert.ok(speechFits, 'Every Korean speech bubble fits its fixed artwork frame.');
+      result.creatorImages = creatorImages;
       result.contentMotion = await verifyTimeline(page, showcase, artwork);
       await explorer.screenshot({ path: path.join(output, `creeditor-${viewport.width}-content.png`) });
       result.accessibility.push({ mode: 'content', violations: await accessibility(page) });
@@ -126,6 +146,13 @@ try {
         assert.ok(focus.style !== 'none' && focus.width >= 2 && focus.height >= 44, 'Platform controls have visible focus and a usable touch target.');
         assert.equal(await scene.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), platform.id);
         assert.ok((await scene.textContent()).includes(platform.product), 'Platform selection switches the original product illustration and name.');
+        const character = scene.locator(`[data-commerce-character="${platform.id}"]`);
+        assert.equal(await scene.locator('[data-commerce-character]').count(), 1, 'Only the selected product-use scene is shown.');
+        const source = `/images/corp/products/commerce/geudduni-${platform.character}.png`;
+        assert.equal(await character.getAttribute('href'), source);
+        assert.equal(await scene.locator('[data-commerce-character-preview]').getAttribute('href'), source, 'The product link preview follows the same character scene.');
+        const image = await page.evaluate(async src => { const image = new Image(); image.src = src; await image.decode(); return { width: image.naturalWidth, height: image.naturalHeight }; }, source);
+        assert.ok(image.width >= 1000 && image.height >= 1000, 'Every product-use character image decodes successfully.');
         const caption = await explorer.locator('[aria-live="polite"]').innerText();
         assert.ok(caption.includes(platform.name) && caption.includes('시연'), 'The accessible caption describes the selected platform as a demonstration.');
         assert.equal(await artwork.locator('a, button, input, form').count(), 0, 'The commerce artwork contains no real purchase or affiliate submission action.');
@@ -133,7 +160,7 @@ try {
         await explorer.screenshot({ path: path.join(output, `creeditor-${viewport.width}-${platform.id}.png`) });
         await noOverflow(page, explorer);
         result.accessibility.push({ platform: platform.id, violations: await accessibility(page) });
-        result.platforms.push({ ...platform, motion, caption, focus });
+        result.platforms.push({ ...platform, motion, caption, focus, image });
       }
 
       await content.click();
@@ -143,23 +170,26 @@ try {
       assert.equal(await explorer.locator('[data-commerce-option="temu"]').getAttribute('aria-pressed'), 'true', 'Switching modes preserves the selected advertising platform.');
       await playback(showcase, true);
       await artwork.scrollIntoViewIfNeeded();
-      await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).click();
+      assert.equal(await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).count(), 0);
       const cycle = Number(await showcase.getAttribute('data-cycle'));
       await page.waitForFunction(previous => Number(document.querySelector('#product-business-panorama')?.getAttribute('data-cycle')) > previous, cycle, { timeout: 15_000 });
-      assert.equal(await showcase.getAttribute('data-chapter'), '3');
-      assert.equal(await explorer.getAttribute('data-service-variant'), '1');
-      assert.equal(await explorer.locator('[data-commerce-option="temu"]').getAttribute('aria-pressed'), 'true');
-      assert.equal(await scene.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), 'temu', 'The 12-second loop preserves mode and platform selection.');
-      result.modeAndLoopMemory = 'pass';
+      assert.equal(await showcase.getAttribute('data-chapter'), '0');
+      assert.equal(await showcase.getAttribute('data-step-id'), 'pc-web', 'The final selling scene returns to the start of the tour.');
+      result.modeMemoryAndTourWrap = 'pass';
 
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-reduced-motion') === 'true');
       assert.equal(await showcase.getAttribute('data-running'), 'false');
+      await showcase.locator('#product-film-chapter-3').click();
       for (const mode of [content, advertising]) {
         await mode.click();
         assert.equal(await artwork.evaluate(element => element.getAnimations({ subtree: true }).length), 0, 'Reduced-motion commerce scenes are static.');
         assert.ok(await artwork.locator('.motion-only, .motion-secondary').evaluateAll(items => items.every(element => getComputedStyle(element).display === 'none')));
         assert.ok((await scene.textContent()).includes('브랜드 시연'));
+        if (await scene.locator('[data-content-creator]').count()) {
+          assert.deepEqual(await scene.locator('[data-content-pose]').evaluateAll(items => items.filter(element => Number(getComputedStyle(element).opacity) > .95).map(element => element.dataset.contentPose)), ['create'], 'Reduced motion retains one clear character and speech bubble.');
+          await explorer.screenshot({ path: path.join(output, `creeditor-${viewport.width}-content-reduced.png`) });
+        }
       }
       await explorer.locator('[data-commerce-option="naver"]').click();
       assert.equal(await scene.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), 'naver', 'Platform navigation remains usable with reduced motion.');

@@ -5,7 +5,7 @@ import { chromium } from 'playwright-core';
 import axe from 'axe-core';
 
 const base = process.env.BASE_URL || 'http://localhost:3002';
-const output = path.resolve('.tmp-product-motion-v4');
+const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'content') : '.tmp-product-motion-v4');
 const candidates = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].filter(Boolean);
 let executablePath;
 for (const candidate of candidates) {
@@ -46,36 +46,53 @@ async function ensurePlayback(showcase, playing) {
 }
 
 async function selectChapter(page, showcase, chapter) {
+  // Streaming can briefly retain a hidden server tree during a reload.
+  await page.waitForFunction(() => {
+    const roots = document.querySelectorAll('#product-business-panorama');
+    const buttons = document.querySelectorAll('#product-film-chapter-0');
+    return roots.length === 1 && buttons.length === 1 && Object.keys(buttons[0]).some(key => key.startsWith('__reactProps'));
+  });
   await showcase.locator(`#product-film-chapter-${chapter}`).click();
   await showcase.locator('h3').scrollIntoViewIfNeeded();
   assert.equal(await showcase.getAttribute('data-chapter'), String(chapter));
-  const repeat = showcase.getByRole('button', { name: '현재 장면 반복', exact: true });
-  if (await showcase.getAttribute('data-reduced-motion') !== 'true') {
-    if (await showcase.getAttribute('data-playback-mode') !== 'chapter') await repeat.click();
-    assert.equal(await showcase.getAttribute('data-playback-mode'), 'chapter', 'Media checks explicitly hold one scene; the complete tour has its own coverage.');
-  }
+  assert.equal(await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).count(), 0);
+  assert.equal(await showcase.getAttribute('data-playback-mode'), 'tour');
   await page.waitForTimeout(900);
 }
 
-async function currentVideo(studio) {
-  const video = studio.locator('video');
+async function currentVideo(studio, waitForDuration = true) {
+  const video = studio.locator('[data-video-id]');
   assert.equal(await video.count(), 1, 'Only the selected channel mounts its media player.');
-  await video.evaluate(element => new Promise((resolve, reject) => {
-    if (element.readyState >= 2) return resolve();
-    const timeout = setTimeout(() => reject(new Error('Video did not load usable frames within 15 seconds.')), 15_000);
-    element.addEventListener('loadeddata', () => { clearTimeout(timeout); resolve(); }, { once: true });
-    element.addEventListener('error', () => { clearTimeout(timeout); reject(new Error(`Video error ${element.error?.code}`)); }, { once: true });
-  }));
+  await video.locator('iframe[data-youtube-player]').waitFor();
+  await studio.page().waitForFunction(requireDuration => {
+    const player = document.querySelector('[data-video-id]');
+    return requireDuration ? Number(player?.getAttribute('data-player-duration')) > 0 : player?.getAttribute('data-player-status') === 'ready';
+  }, waitForDuration, { timeout: 20000 });
   return video;
 }
 
 async function mediaSnapshot(video) {
-  return video.evaluate(element => ({ width: element.videoWidth, height: element.videoHeight, currentTime: element.currentTime, duration: element.duration, paused: element.paused, muted: element.muted, loop: element.loop, inline: element.playsInline, error: element.error?.code ?? null, src: new URL(element.currentSrc).pathname }));
+  return video.evaluate(element => {
+    const frame = element.querySelector('iframe'); const url = new URL(frame.src); const box = frame.getBoundingClientRect();
+    return { id: element.dataset.videoId, width: box.width, height: box.height, currentTime: Number(element.dataset.playerTime), duration: Number(element.dataset.playerDuration), paused: element.dataset.playerState !== 'playing', muted: element.dataset.playerMuted === 'true', loop: url.searchParams.get('loop') === '1', inline: url.searchParams.get('playsinline') === '1', error: element.dataset.playerStatus === 'error' ? 'embed' : null, src: url.href };
+  });
 }
 
 async function assertVideoAdvances(page, video) {
+  await page.waitForFunction(() => {
+    const player = document.querySelector('[data-video-id]');
+    return player?.getAttribute('data-player-state') === 'playing' && Number(player.getAttribute('data-player-time')) > 0;
+  }, null, { timeout: 15000 });
   const before = await mediaSnapshot(video);
-  await page.waitForTimeout(700);
+  // External streaming can buffer after its first frame. Verify real progress
+  // within a bounded window instead of assuming uninterrupted network delivery.
+  await page.waitForFunction(start => {
+    const player = document.querySelector('[data-video-id]');
+    const current = Number(player?.getAttribute('data-player-time'));
+    const duration = Number(player?.getAttribute('data-player-duration'));
+    const elapsed = current >= start ? current - start : current + duration - start;
+    return player?.getAttribute('data-player-state') === 'playing' && elapsed > .3;
+  }, before.currentTime, { timeout: 7000 });
   const after = await mediaSnapshot(video);
   const elapsed = after.currentTime >= before.currentTime ? after.currentTime - before.currentTime : after.currentTime + after.duration - before.currentTime;
   assert.ok(elapsed > .3, `Video should advance after playback: ${JSON.stringify({ before, after })}`);
@@ -85,7 +102,7 @@ async function assertVideoAdvances(page, video) {
 }
 
 async function assertVideoPaused(page, video) {
-  await page.waitForTimeout(180);
+  await page.waitForTimeout(700);
   const before = await mediaSnapshot(video);
   await page.waitForTimeout(500);
   const after = await mediaSnapshot(video);
@@ -116,23 +133,38 @@ try {
       await studio.waitFor();
       const tabs = studio.getByRole('tab');
       assert.equal(await tabs.count(), 4);
+      assert.equal(await tabs.locator('[data-channel-logo] svg').count(), 4, 'Each channel tab has a visible channel mark.');
+      assert.equal(await showcase.getByRole('link', { name: '콘텐츠 제품 보기', exact: true }).count(), 0);
       assert.equal(await tabs.evaluateAll(items => items.filter(item => item.tabIndex === 0).length), 1, 'Channel tabs use roving tabIndex.');
 
       for (const channel of ['YouTube', 'TikTok']) {
         await studio.getByRole('tab', { name: channel, exact: true }).click();
+        assert.equal(await studio.locator('[data-content-brand-strip]').getAttribute('data-active-channel'), channel.toLowerCase());
+        assert.equal(await studio.locator('[data-channel-stop][data-active="true"]').getAttribute('data-channel-stop'), channel.toLowerCase());
         await studio.scrollIntoViewIfNeeded();
         await ensurePlayback(showcase, true);
         await studio.scrollIntoViewIfNeeded();
         const video = await currentVideo(studio);
         const media = await assertVideoAdvances(page, video);
-        assert.ok(media.duration >= 11.5 && media.duration <= 12.5, 'Brand demo has a complete 12-second timeline.');
-        assert.ok(channel === 'YouTube' ? media.width / media.height > 1.7 : media.height / media.width > 1.7, `${channel} uses its native aspect ratio.`);
+        assert.ok(media.duration >= 14 && media.duration <= 17, 'The linked Shorts expose their actual duration.');
+        assert.ok(media.width >= 200 && media.height >= 200, `${channel} meets YouTube minimum player dimensions.`);
+        assert.equal(media.id, channel === 'YouTube' ? 'k56Wglp9hI4' : 'eiivhfQJFOA');
+        const brand = channel.toLowerCase();
+        assert.equal(await studio.locator(`[data-video-window-brand="${brand}"]`).innerText(), channel);
+        assert.ok((await video.locator(`[data-video-brand="${brand}"]`).innerText()).includes(channel), 'The video details name the selected channel.');
+        assert.equal(await video.locator(`[data-video-brand="${brand}"] [data-channel-logo="${brand}"] svg`).count(), 1, 'The video details show the selected channel logo.');
         assert.equal(media.muted, true);
         assert.equal(media.loop, true);
         assert.equal(media.inline, true);
-        assert.ok(media.src.startsWith('/videos/'), 'Brand demos use local media assets.');
+        assert.ok(media.src.startsWith(`https://www.youtube-nocookie.com/embed/${media.id}?`), 'The selected channel embeds the exact requested Short.');
+        assert.equal(await studio.getByRole('link', { name: `${channel} 원본 영상 보기`, exact: true }).getAttribute('href'), `https://youtube.com/shorts/${media.id}`);
         await ensurePlayback(showcase, false);
         await assertVideoPaused(page, video);
+        await studio.getByRole('button', { name: `${channel} 소리 켜기`, exact: true }).click();
+        assert.equal((await mediaSnapshot(video)).muted, false);
+        await studio.getByRole('button', { name: `${channel} 소리 끄기`, exact: true }).click();
+        assert.equal((await mediaSnapshot(video)).muted, true);
+        assert.equal(await studio.locator('[data-content-brand-strip]').evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Brand motion pauses with the preview.');
         await ensurePlayback(showcase, true);
         await studio.scrollIntoViewIfNeeded();
         await assertVideoAdvances(page, video);
@@ -142,7 +174,8 @@ try {
         await slider.focus();
         await page.keyboard.press('Home');
         await page.keyboard.press('ArrowRight');
-        assert.ok((await mediaSnapshot(video)).currentTime < .3, 'Keyboard seeking moves to the requested point.');
+        await page.waitForFunction(() => Number(document.querySelector('[data-video-id]')?.getAttribute('data-player-time')) < .6, null, { timeout: 5000 });
+        assert.ok((await mediaSnapshot(video)).currentTime < .6, 'Keyboard seeking waits for the external player to reach the requested point.');
         await studio.getByRole('button', { name: `${channel} 영상 재생`, exact: true }).click();
         await assertVideoAdvances(page, video);
         await page.screenshot({ path: path.join(output, `content-${viewport.width}-${channel.toLowerCase()}.png`) });
@@ -151,10 +184,20 @@ try {
       }
 
       await studio.getByRole('tab', { name: '블로그', exact: true }).click();
+      assert.equal(await studio.locator('[data-content-brand-strip]').getAttribute('data-active-channel'), 'blog');
+      assert.deepEqual(await studio.locator('[data-blog-platform]').evaluateAll(items => items.map(item => item.textContent)), ['네이버', '티스토리', '워드프레스']);
       const article = studio.locator('article');
       assert.ok((await article.innerText()).length > 400, 'Blog contains a complete readable sample article.');
       assert.ok(await article.locator('p').count() >= 4);
-      assert.equal(await studio.locator('video').count(), 0, 'Leaving a video channel unmounts the active video.');
+      assert.ok((await article.innerText()).includes('그뚠이의 업무일지'));
+      assert.equal(await article.locator('[data-blog-character] img').count(), 2, 'The blog includes an opening character illustration and an in-story scene.');
+      const blogImages = await article.locator('[data-blog-character] img').evaluateAll(async images => Promise.all(images.map(async element => {
+        const image = new Image(); image.src = element.src; await image.decode();
+        return { src: new URL(element.src).pathname, width: image.naturalWidth, height: image.naturalHeight, alt: element.alt };
+      })));
+      assert.ok(blogImages.every(image => image.width > 0 && image.height > 0 && image.alt.includes('그뚠이')), 'Blog character assets load with descriptive text alternatives.');
+      await page.screenshot({ path: path.join(output, `content-${viewport.width}-blog-cover.png`) });
+      assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0, 'Leaving a video channel unmounts the active player.');
       await article.focus();
       const pageScroll = await page.locator('#content-area').evaluate(element => element.scrollTop);
       await page.keyboard.press('PageDown');
@@ -163,9 +206,10 @@ try {
       assert.ok(Math.abs(await page.locator('#content-area').evaluate(element => element.scrollTop) - pageScroll) < 3, 'Reading the article keeps the public page in place.');
       await page.screenshot({ path: path.join(output, `content-${viewport.width}-blog.png`) });
       facts.accessibility.push({ channel: '블로그', violations: await inspectAccessibility(page, '#product-business-panorama') });
-      facts.channels.push({ channel: '블로그', article: 'pass', internalKeyboardScroll: 'pass' });
+      facts.channels.push({ channel: '블로그', article: 'pass', internalKeyboardScroll: 'pass', blogImages });
 
       await studio.getByRole('tab', { name: 'Instagram', exact: true }).click();
+      assert.equal(await studio.locator('[data-content-brand-strip]').getAttribute('data-active-channel'), 'instagram');
       await page.waitForTimeout(500);
       const comic = studio.getByRole('img', { name: /^웹툰 / });
       assert.match(await comic.getAttribute('aria-label'), /^웹툰 1번째 컷/);
@@ -192,7 +236,7 @@ try {
         await ensurePlayback(showcase, true);
         await studio.scrollIntoViewIfNeeded();
         await page.waitForTimeout(4300);
-        assert.match(await comic.getAttribute('aria-label'), /^웹툰 3번째 컷/, 'Automatic webtoon pages turn after four seconds.');
+        assert.match(await comic.getAttribute('aria-label'), /^웹툰 2번째 컷/, 'Resuming the tour displays its second webtoon panel after four seconds.');
         await ensurePlayback(showcase, false);
         const pausedPanel = await comic.getAttribute('aria-label');
         await page.waitForTimeout(4300);
@@ -224,18 +268,21 @@ try {
       await ensurePlayback(showcase, true);
       await studio.scrollIntoViewIfNeeded();
       const cycle = Number(await showcase.getAttribute('data-cycle'));
-      await page.waitForFunction(previous => Number(document.querySelector('#product-business-panorama')?.getAttribute('data-cycle')) > previous, cycle, { timeout: 15_000 });
-      assert.equal(await showcase.getAttribute('data-chapter'), '2', 'Explicit scene repeat holds the selected channel.');
-      assert.equal(await studio.getByRole('tab', { name: 'TikTok', exact: true }).getAttribute('aria-selected'), 'true', 'Looping keeps the chosen content channel.');
+      await page.waitForFunction(previous => Number(document.querySelector('#product-business-panorama')?.getAttribute('data-cycle')) > previous, cycle, { timeout: 25_000 });
+      assert.equal(await showcase.getAttribute('data-chapter'), '2');
+      assert.equal(await studio.getByRole('tab', { name: '블로그', exact: true }).getAttribute('aria-selected'), 'true', 'TikTok continues into the next content channel.');
+      assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0, 'The finished video unmounts on the blog channel.');
+      await studio.getByRole('tab', { name: 'TikTok', exact: true }).click();
+      await studio.scrollIntoViewIfNeeded();
       await assertVideoAdvances(page, await currentVideo(studio));
-      facts.channelLoop = 'pass';
+      facts.channelTransition = 'pass';
 
       await page.locator('#product-catalog').scrollIntoViewIfNeeded();
       await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-running') === 'false');
       await assertVideoPaused(page, await currentVideo(studio));
       facts.offscreenPause = 'pass';
 
-      for (const [chapter, labels] of [[0, ['PC 웹', '모바일 웹', '글로벌 연결']], [1, ['자동 순환', '급여·거래', '계약·발주', '보고·증명']], [3, ['생성형 콘텐츠 판매', '광고형 리셀러']]]) {
+      for (const [chapter, labels] of [[0, ['그뚠웹', '그뚠앱', '글로벌 연결']], [1, ['자동 순환', '급여·거래', '계약·발주', '보고·증명']], [3, ['생성형 콘텐츠 판매', '광고형 리셀러']]]) {
         await selectChapter(page, showcase, chapter);
         const explorer = showcase.locator(`[data-service-explorer="${chapter}"]`);
         assert.equal(await explorer.locator('[data-service-option]').count(), labels.length);
@@ -264,11 +311,11 @@ try {
       const partnerCycle = Number(await showcase.getAttribute('data-cycle'));
       await page.waitForFunction(previous => Number(document.querySelector('#product-business-panorama')?.getAttribute('data-cycle')) > previous, partnerCycle, { timeout: 15_000 });
       assert.equal(await showcase.getAttribute('data-chapter'), '3');
-      assert.equal(await showcase.locator('[data-service-explorer]').getAttribute('data-service-variant'), '1', 'Repeating keeps the selected service variant.');
-      facts.serviceLoop = 'pass';
+      assert.equal(await showcase.locator('[data-service-explorer]').getAttribute('data-service-variant'), '1', 'The tour continues through advertising platforms.');
+      facts.serviceTransition = 'pass';
 
       // Complete 21-step ordering, boundaries, and the real first 36 seconds are
-      // covered by verify-product-showreel-sequence.mjs. Native media stays on real time here.
+      // covered by verify-product-showreel-sequence.mjs. External media stays on real time here.
 
       const chapterButtons = showcase.locator('[id^="product-film-chapter-"]');
       await chapterButtons.last().click();
@@ -302,7 +349,8 @@ try {
       const reducedStudio = showcase.locator('[data-content-studio]');
       await reducedStudio.getByRole('tab', { name: 'YouTube', exact: true }).click();
       await reducedStudio.scrollIntoViewIfNeeded();
-      const reducedVideo = await currentVideo(reducedStudio);
+      // A deliberately unplayed iframe may defer metadata until the user's first play.
+      const reducedVideo = await currentVideo(reducedStudio, false);
       await assertVideoPaused(page, reducedVideo);
       await reducedStudio.getByRole('button', { name: 'YouTube 영상 재생', exact: true }).click();
       await assertVideoAdvances(page, reducedVideo);
@@ -329,7 +377,7 @@ try {
   const resilienceErrors = recordErrors(resiliencePage);
   let failVideo = true;
   let videoRequests = 0;
-  await resiliencePage.route('**/videos/corp/product-story-youtube.mp4', route => {
+  await resiliencePage.route('https://www.youtube.com/iframe_api', route => {
     videoRequests++;
     return failVideo ? route.abort('failed') : route.continue();
   });
@@ -344,6 +392,7 @@ try {
   assert.equal(await resilienceShowcase.getAttribute('data-chapter'), '0', 'An early requestAnimationFrame timestamp cannot select a negative chapter.');
   await selectChapter(resiliencePage, resilienceShowcase, 2);
   await resilienceShowcase.getByText('영상을 불러오지 못했습니다.', { exact: true }).waitFor();
+  assert.equal(await resilienceShowcase.getByRole('link', { name: 'YouTube에서 보기', exact: true }).getAttribute('href'), 'https://youtube.com/shorts/k56Wglp9hI4');
   failVideo = false;
   await resilienceShowcase.getByRole('button', { name: '다시 불러오기', exact: true }).click();
   await resilienceShowcase.locator('[data-content-studio]').scrollIntoViewIfNeeded();

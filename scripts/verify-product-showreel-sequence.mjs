@@ -6,12 +6,12 @@ import { chromium } from 'playwright-core';
 import axe from 'axe-core';
 
 const base = process.env.BASE_URL || 'http://localhost:3002';
-const output = path.resolve('.tmp-product-motion-v7');
+const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'sequence') : '.tmp-product-motion-v7');
 // This independent expectation describes the requested public journey, rather
 // than importing the implementation's sequence and testing it against itself.
 const steps = [
-  { id: 'pc-web', label: 'PC 웹', chapter: 0, variant: 0 },
-  { id: 'mobile-web', label: '모바일 웹', chapter: 0, variant: 1 },
+  { id: 'pc-web', label: '그뚠웹', chapter: 0, variant: 0 },
+  { id: 'mobile-web', label: '그뚠앱', chapter: 0, variant: 1 },
   { id: 'global-web', label: '글로벌 연결', chapter: 0, variant: 2 },
   { id: 'payroll-documents', label: '급여·거래', chapter: 1, variant: 1 },
   { id: 'contract-documents', label: '계약·발주', chapter: 1, variant: 2 },
@@ -22,8 +22,8 @@ const steps = [
   { id: 'pg-payment', label: 'PG 결제 연결', chapter: 1, variant: 7, flow: 'pg-payment' },
   { id: 'browser-agent', label: '브라우저 자동화', chapter: 1, variant: 8, flow: 'browser' },
   { id: 'task-agent', label: '에이전트 봇', chapter: 1, variant: 9, flow: 'agent' },
-  { id: 'youtube', label: 'YouTube 영상', chapter: 2, channel: 'youtube' },
-  { id: 'tiktok', label: 'TikTok 영상', chapter: 2, channel: 'tiktok' },
+  { id: 'youtube', label: 'YouTube 영상', chapter: 2, channel: 'youtube', duration: 20_000 },
+  { id: 'tiktok', label: 'TikTok 영상', chapter: 2, channel: 'tiktok', duration: 15_000 },
   { id: 'blog', label: '블로그 콘텐츠', chapter: 2, channel: 'blog', duration: 24_000 },
   { id: 'instagram', label: 'Instagram 웹툰', chapter: 2, channel: 'instagram', duration: 48_000 },
   { id: 'content-sales', label: '생성형 콘텐츠 판매', chapter: 3, variant: 0 },
@@ -32,7 +32,7 @@ const steps = [
   { id: 'aliexpress', label: '알리익스프레스', chapter: 3, variant: 1, platform: 'aliexpress' },
   { id: 'temu', label: '테무', chapter: 3, variant: 1, platform: 'temu' },
 ];
-assert.equal(steps.reduce((sum, step) => sum + (step.duration || 12_000), 0), 300_000);
+assert.equal(steps.reduce((sum, step) => sum + (step.duration || 12_000), 0), 311_000);
 const candidates = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].filter(Boolean);
 let executablePath;
 for (const candidate of candidates) {
@@ -120,12 +120,13 @@ try {
       assert.equal(response.status(), 200);
       const showcase = page.locator('#product-business-panorama');
       await attribute(showcase, 'data-running', true);
-      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 50));
+      // Allow the browser protocol round trip; chapter selection below resets the tour.
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
       await showcase.locator('#product-film-chapter-0').click();
-      await showcase.locator('[data-product-interactive]').scrollIntoViewIfNeeded();
+      await showcase.locator('[data-product-canvas]').scrollIntoViewIfNeeded();
       await page.clock.runFor(64);
       assert.equal(await showcase.getAttribute('data-playback-mode'), 'tour');
-      assert.equal(await showcase.locator('[aria-label^="전체 300초"]').count(), 1, 'Elapsed time announces the complete five-minute journey.');
+      assert.equal(await showcase.locator('[aria-label^="전체 311초"]').count(), 1, 'Elapsed time includes the 20-second YouTube and 15-second TikTok scenes.');
       const initialTourCycle = Number(await showcase.getAttribute('data-tour-cycle'));
       let cycle = Number(await showcase.getAttribute('data-cycle'));
 
@@ -133,7 +134,19 @@ try {
         const step = steps[index];
         result.orderedSteps.push(await assertStep(showcase, index));
         assert.equal(await showcase.getAttribute('data-running'), 'true');
-        if (index === 14) {
+        if (index === 3) {
+          const director = showcase.locator('[data-automation-director]');
+          assert.equal(await director.getAttribute('data-command-mode'), 'pc');
+          await tick(page, 4000);
+          assert.equal(await director.getAttribute('data-command-mode'), 'phone');
+          await tick(page, 4000);
+          assert.equal(await director.getAttribute('data-command-mode'), 'voice');
+          const poses = await director.locator('img').evaluateAll(images => images.map(image => ({ loaded: image.complete && image.naturalWidth > 0, src: image.getAttribute('src') })));
+          assert.equal(poses.length, 3);
+          assert.ok(poses.every(pose => pose.loaded), 'All three command poses load without a blank transition.');
+          result.automationCommandModes = ['pc', 'phone', 'voice'];
+          await tick(page, 4100);
+        } else if (index === 14) {
           await tick(page, 12_000);
           await assertStep(showcase, 14);
           await tick(page, 12_100);
@@ -147,7 +160,7 @@ try {
           assert.deepEqual(panels, Array.from({ length: 12 }, (_, panel) => panel + 1), 'Every webtoon panel is shown before the next product begins.');
           result.webtoonPanels = panels;
           await tick(page, 4100);
-        } else await tick(page, 12_100);
+        } else await tick(page, (step.duration || 12_000) + 100);
         await attribute(showcase, 'data-step', (index + 1) % steps.length);
         const nextCycle = Number(await showcase.getAttribute('data-cycle'));
         assert.equal(nextCycle, cycle + 1, 'Each ordered boundary restarts the artwork exactly once.');
@@ -189,23 +202,18 @@ try {
       await showcase.locator('#product-film-chapter-3').click();
       await showcase.getByRole('button', { name: '광고형 리셀러', exact: true }).click();
       await showcase.locator('[data-commerce-option="temu"]').click();
-      await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).click();
+      assert.equal(await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).count(), 0);
       await playback(showcase, true);
-      await showcase.locator('[data-product-interactive]').scrollIntoViewIfNeeded();
+      await showcase.locator('[data-product-canvas]').scrollIntoViewIfNeeded();
       await page.clock.runFor(64);
-      const repeatCycle = Number(await showcase.getAttribute('data-cycle'));
-      const repeatTour = Number(await showcase.getAttribute('data-tour-cycle'));
-      await tick(page, 12_100);
-      await attribute(showcase, 'data-step', 20);
-      assert.equal(await showcase.getAttribute('data-playback-mode'), 'chapter');
-      assert.equal(Number(await showcase.getAttribute('data-cycle')), repeatCycle + 1);
-      assert.equal(Number(await showcase.getAttribute('data-tour-cycle')), repeatTour);
-      assert.equal(await showcase.locator('[data-commerce-option="temu"]').getAttribute('aria-pressed'), 'true');
-      await showcase.getByRole('button', { name: '전체 이어보기', exact: true }).click();
-      await page.clock.runFor(64);
+      const cycleBeforeWrap = Number(await showcase.getAttribute('data-cycle'));
+      const tourBeforeWrap = Number(await showcase.getAttribute('data-tour-cycle'));
       await tick(page, 12_100);
       await assertStep(showcase, 0);
-      result.explicitRepeatAndResume = 'pass';
+      assert.equal(await showcase.getAttribute('data-playback-mode'), 'tour');
+      assert.equal(Number(await showcase.getAttribute('data-cycle')), cycleBeforeWrap + 1);
+      assert.equal(Number(await showcase.getAttribute('data-tour-cycle')), tourBeforeWrap + 1);
+      result.automaticTourWrap = 'pass';
 
       await playback(showcase, false);
       const pausedCycle = await showcase.getAttribute('data-cycle');
@@ -218,7 +226,7 @@ try {
       await attribute(showcase, 'data-running', false);
       await tick(page, 30_000);
       assert.equal(await showcase.getAttribute('data-cycle'), pausedCycle);
-      await showcase.locator('[data-product-interactive]').scrollIntoViewIfNeeded();
+      await showcase.locator('[data-product-canvas]').scrollIntoViewIfNeeded();
       await attribute(showcase, 'data-running', true);
       await page.clock.runFor(64);
       await assertStep(showcase, 0);
@@ -265,7 +273,7 @@ try {
     await attribute(showcase, 'data-running', true);
     const started = Date.now();
     await showcase.locator('#product-film-chapter-0').click();
-    await showcase.locator('[data-product-interactive]').scrollIntoViewIfNeeded();
+    await showcase.locator('[data-product-canvas]').scrollIntoViewIfNeeded();
     const observed = [{ index: 0, elapsed: 0 }];
     for (let index = 1; index <= 3; index++) {
       await page.waitForFunction(expected => document.querySelector('#product-business-panorama')?.getAttribute('data-step') === String(expected), index, { timeout: 16_000 });

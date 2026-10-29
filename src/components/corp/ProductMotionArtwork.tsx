@@ -2,7 +2,8 @@
 
 import { memo } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { GlobalWebScene, DocumentAutomationScene } from './ProductWebDocumentScenes';
+import { DocumentAutomationScene } from './ProductWebDocumentScenes';
+import { GlobalWebScene } from './ProductGlobalWebScene';
 import { ProductCreEditorScene } from './ProductCreEditorScene';
 import { ProductAutomationFlowScene } from './ProductAutomationFlowScenes';
 
@@ -87,9 +88,9 @@ const clipSweep = keyframes`
   65%, 100% { opacity: 0; transform: translateX(220px); }
 `;
 
-const Artwork = styled.div<{ $playing: boolean; $reducedMotion: boolean }>`
-  width: 100%; min-width: 0; aspect-ratio: 760 / 520; isolation: isolate; color: #f3f7ff;
-  svg { display: block; width: 100%; height: 100%; overflow: visible; font-family: inherit; }
+const Artwork = styled.div<{ $playing: boolean; $reducedMotion: boolean; $wide: boolean }>`
+  position: relative; width: 100%; min-width: 0; height: ${({ $wide }) => $wide ? 'clamp(180px, 28cqw, 330px)' : 'clamp(220px, 33cqw, 320px)'}; isolation: isolate; color: #f3f7ff;
+  > svg { display: block; width: 100%; height: 100%; overflow: visible; font-family: inherit; }
   text { font-weight: 600; }
   .assemble { animation: ${assemble} .9s cubic-bezier(.22, 1, .36, 1) both; }
   .trace { stroke-dasharray: 1; animation: ${trace} 1.8s cubic-bezier(.22, 1, .36, 1) both; }
@@ -131,12 +132,14 @@ const SCENES = [GlobalWebScene, DocumentAutomationScene, GlobalWebScene] as cons
 
 function ProductMotionArtwork({ chapter, playing, reducedMotion, variant = 0, platform = 0 }: ProductMotionArtworkProps) {
   const Scene = chapter === 1 && variant >= 4 ? ProductAutomationFlowScene : SCENES[chapter] ?? GlobalWebScene;
+  const wide = chapter === 0;
+  const bottom = wide ? 420 : 500;
   return (
-    <Artwork $playing={playing} $reducedMotion={reducedMotion} data-product-motion-artwork={chapter}>
-      <svg viewBox="0 0 760 520" aria-hidden="true" focusable="false">
+    <Artwork $playing={playing} $reducedMotion={reducedMotion} $wide={wide} data-product-motion-artwork={chapter}>
+      <svg viewBox={`0 0 760 ${wide ? 440 : 520}`} aria-hidden="true" focusable="false">
         <g fill="none" stroke="#577390" opacity=".3">
-          <path d="M26 55V20h35M699 20h35v35M26 465v35h35M699 500h35v-35" />
-          {[130, 230, 330, 430, 530, 630].map(x => <path key={x} d={`M${x} 17v6M${x} 497v6`} />)}
+          <path d={`M26 55V20h35M699 20h35v35M26 ${bottom - 35}v35h35M699 ${bottom}h35v-35`} />
+          {[130, 230, 330, 430, 530, 630].map(x => <path key={x} d={`M${x} 17v6M${x} ${bottom - 3}v6`} />)}
         </g>
         {chapter === 3 ? <ProductCreEditorScene variant={variant} platform={platform} /> : <Scene variant={variant} />}
       </svg>

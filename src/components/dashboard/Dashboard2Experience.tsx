@@ -15,6 +15,11 @@ import CeoGreeting from '@/components/corp/CeoGreeting';
 import { ceoCharacterStages } from '@/components/corp/ceoCharacterStages';
 import { getDashboardStyleCorpVariant } from '@/constants/dashboardStyleCorpRoutes';
 
+const CeoStatisticsExperience = dynamic(
+  () => import('@/components/corp/CeoStatisticsExperience'),
+  { loading: () => <section role="status" style={{ minHeight: 500, display: 'grid', placeItems: 'center', color: '#526c5b' }}>대표통계를 준비하는 중입니다…</section> },
+);
+
 const CompanyHistoryExperience = dynamic(
   () => import('@/components/corp/CompanyHistoryExperience').then((module) => module.CompanyHistoryExperience),
   { loading: () => <DeferredCorpSection /> },
@@ -293,7 +298,7 @@ const heroStats: NumberMetric[] = [
   { label: '품질 검증단계', value: 6, unit: '단계' },
 ];
 
-const operatingHighlights = [
+const operatingHighlights: OperatingHighlight[] = [
   {
     eyebrow: '사업 포트폴리오',
     title: '4대 전문영역의 연결',
@@ -515,81 +520,6 @@ const ceoHeroProfiles: CeoHeroProfile[] = [
   },
 ];
 
-const ceoOperatingHighlights: OperatingHighlight[] = [
-  {
-    eyebrow: '원칙 정렬',
-    title: '대표 메시지를 운영 기준으로',
-    desc: 'CEO 소개를 인물 홍보가 아니라 조직이 따르는 판단 기준으로 보여줍니다.',
-    metric: 'CORE',
-    helper: '대표 상세 소개서',
-  },
-  {
-    eyebrow: '현장 판단',
-    title: '결정 흐름이 보이는 구조',
-    desc: '문제 확인, 기준 선택, 실행, 회고까지 리더십의 작동 방식을 시각화합니다.',
-    metric: 'LOOP',
-    helper: '의사결정 루프',
-  },
-  {
-    eyebrow: '책임 확장',
-    title: '조직이 따라 할 수 있는 방식',
-    desc: '대표 개인의 이력이 아니라 팀과 협력사가 공유할 수 있는 운영 언어로 재구성합니다.',
-    metric: 'SCALE',
-    helper: '책임 경영 기준',
-  },
-];
-
-const ceoOperatingPanels: OperatingPanel[] = [
-  {
-    key: 'leadership-principle',
-    eyebrow: 'CEO 리더십 지표',
-    title: '원칙 실행 그래프',
-    summary: '현장, 책임, 신뢰라는 대표 메시지의 핵심 기준이 조직 운영에서 얼마나 선명하게 드러나는지 보여줍니다.',
-    chartType: 'bar',
-    score: '94%',
-    accent: '#2563eb',
-    barData: [
-      { name: '현장', value: 94 },
-      { name: '책임', value: 91 },
-      { name: '신뢰', value: 96 },
-    ],
-    pieData: [],
-    balanceData: [],
-  },
-  {
-    key: 'decision-loop',
-    eyebrow: 'CEO 리더십 지표',
-    title: '판단 비중 그래프',
-    summary: '대표 메시지가 어느 영역에 무게를 두는지 현장 실행, 구성원 성장, 파트너 신뢰로 나누어 확인합니다.',
-    chartType: 'pie',
-    score: '89%',
-    accent: '#00b894',
-    barData: [],
-    pieData: [
-      { name: '현장 실행', value: 42, color: '#2563eb' },
-      { name: '구성원 성장', value: 31, color: '#00b894' },
-      { name: '파트너 신뢰', value: 27, color: '#ff8a00' },
-    ],
-    balanceData: [],
-  },
-  {
-    key: 'responsibility-balance',
-    eyebrow: 'CEO 리더십 지표',
-    title: '책임 균형 그래프',
-    summary: '대표가 강조하는 빠른 실행과 신중한 검토, 현장 자율과 본사 기준의 균형을 비교합니다.',
-    chartType: 'balance',
-    score: '86%',
-    accent: '#7c3aed',
-    barData: [],
-    pieData: [],
-    balanceData: [
-      { name: '판단 속도', leftLabel: '실행', leftValue: 57, rightLabel: '검토', rightValue: 43 },
-      { name: '운영 기준', leftLabel: '현장', leftValue: 61, rightLabel: '본사', rightValue: 39 },
-      { name: '성장 방식', leftLabel: '도전', leftValue: 52, rightLabel: '안정', rightValue: 48 },
-    ],
-  },
-];
-
 const ceoDocumentTabs: CeoDocumentTabOption[] = [
   { id: 'greeting', label: '대표인사말', eyebrow: 'GREETING' },
   { id: 'resume', label: '대표이력서', eyebrow: 'RESUME' },
@@ -754,8 +684,8 @@ export default function Dashboard2Experience({
     : isBrandStoryActive
       ? activeBrandStorySlide.stats
       : heroStats;
-  const activeOperatingHighlights = isCeoVariant ? ceoOperatingHighlights : operatingHighlights;
-  const activeOperatingPanels = isCeoVariant ? ceoOperatingPanels : operatingPanels;
+  const activeOperatingHighlights = operatingHighlights;
+  const activeOperatingPanels = operatingPanels;
   const selectedPanel = activeOperatingPanels[selectedOperatingIndex] ?? activeOperatingPanels[0];
   const selectedPieSegments = getPieDonutSegments(selectedPanel.pieData);
   const activeCeoMedia = activeCeoProfile.media;
@@ -1570,6 +1500,7 @@ export default function Dashboard2Experience({
 
             <CeoDocumentPanel
               id="ceo-document-panel"
+              $statistics={activeCeoDocumentTab === 'analysis'}
               role="tabpanel"
               aria-labelledby={`ceo-document-tab-${activeCeoDocumentTab}`}
               tabIndex={0}
@@ -1580,11 +1511,7 @@ export default function Dashboard2Experience({
 
               {activeCeoDocumentTab === 'introduction' ? <FounderStory /> : null}
 
-              {activeCeoDocumentTab === 'analysis' ? (
-                <StatisticsPresentation>
-                  {operatingContent}
-                </StatisticsPresentation>
-              ) : null}
+              {activeCeoDocumentTab === 'analysis' ? <CeoStatisticsExperience /> : null}
             </CeoDocumentPanel>
           </CeoDocumentHub>
         </SectionInner>
@@ -4146,7 +4073,7 @@ const CeoDocumentTabs = styled.div`
   }
 `;
 
-const CeoDocumentPanel = styled.div`
+const CeoDocumentPanel = styled.div<{ $statistics?: boolean }>`
   margin-top: 16px;
   border: 1px solid #dfe6ef;
   border-radius: 16px;
@@ -4164,6 +4091,14 @@ const CeoDocumentPanel = styled.div`
   @media (max-width: 720px) {
     padding: 18px;
   }
+
+  ${({ $statistics }) => $statistics ? `
+    padding: 0;
+    background: #faf9f4;
+    border-color: #dfe3d8;
+    box-shadow: none;
+    @media (max-width: 720px) { padding: 0; }
+  ` : ''}
 
   @media (max-width: 480px) {
     margin-right: -4px;

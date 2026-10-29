@@ -2,6 +2,7 @@
 
 import { useId, type ReactNode } from 'react';
 import { ReactionBurst, SignalPath, SignalPing } from './ProductMotionEffects';
+import { ProductContentSaleScene } from './ProductContentSaleScene';
 
 const C = {
   ink: '#07101f', surface: '#0d203c', raised: '#172e4a', border: '#314968',
@@ -9,10 +10,10 @@ const C = {
 };
 
 const PLATFORMS = [
-  { id: 'naver', name: '네이버스토어', logo: '/images/corp/commerce/naver.png', accent: '#53e38b', item: '데스크 조명', detail: '스토어 상품 소개' },
-  { id: 'coupang', name: '쿠팡파트너스', logo: '/images/corp/commerce/coupang.png', accent: '#7dbdff', item: '무선 헤드폰', detail: '제휴 상품 소개' },
-  { id: 'aliexpress', name: 'AliExpress', logo: '/images/corp/commerce/aliexpress.png', accent: '#ffaf83', item: '미니 카메라', detail: '글로벌 상품 소개' },
-  { id: 'temu', name: 'TEMU', logo: '/images/corp/commerce/temu.png', accent: '#ffc077', item: '테이블 클록', detail: '라이프 상품 소개' },
+  { id: 'naver', name: '네이버스토어', logo: '/images/corp/commerce/naver.png', accent: '#53e38b', item: '데스크 조명', detail: '스토어 상품 소개', character: 'lamp', moment: '조명 아래, 나만의 독서 시간' },
+  { id: 'coupang', name: '쿠팡파트너스', logo: '/images/corp/commerce/coupang.png', accent: '#7dbdff', item: '무선 헤드폰', detail: '제휴 상품 소개', character: 'headphones', moment: '좋아하는 음악에 집중하는 순간' },
+  { id: 'aliexpress', name: 'AliExpress', logo: '/images/corp/commerce/aliexpress.png', accent: '#ffaf83', item: '미니 카메라', detail: '글로벌 상품 소개', character: 'camera', moment: '오늘의 장면을 한 컷에 담기' },
+  { id: 'temu', name: 'TEMU', logo: '/images/corp/commerce/temu.png', accent: '#ffc077', item: '테이블 클록', detail: '라이프 상품 소개', character: 'clock', moment: '내일의 시작 시간을 맞춰두기' },
 ] as const;
 
 function Enter({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
@@ -109,11 +110,10 @@ function ContentSale({ id }: { id: string }) {
   return (
     <>
       <defs>
-        <clipPath id={`${id}-film`}><rect x="279" y="133" width="217" height="131" rx="9" /></clipPath>
         <clipPath id={`${id}-thumb`}><rect width="62" height="60" rx="7" /></clipPath>
       </defs>
       <Enter>
-        <text x="38" y="46" fill={C.text} fontSize="25">만든 콘텐츠가, 하나의 상품이 되다.</text>
+        <text x="38" y="46" fill={C.text} fontSize="25">그뚠이의 아이디어가, 콘텐츠 상품으로.</text>
         <text x="721" y="44" fill={C.muted} fontSize="14" textAnchor="end">브랜드 시연</text>
         <path d="M38 64h684" stroke={C.border} />
       </Enter>
@@ -156,31 +156,16 @@ function ContentSale({ id }: { id: string }) {
       </Enter>
 
       <Enter delay={.5}>
-        <rect x="258" y="86" width="259" height="316" rx="16" fill={C.text} />
-        <circle cx="278" cy="109" r="3" fill={C.border} /><circle cx="290" cy="109" r="3" fill={C.border} opacity=".5" /><circle cx="302" cy="109" r="3" fill={C.border} opacity=".25" />
-        <text x="495" y="114" textAnchor="end" fill={C.ink} fontSize="14">CREEDITOR / SHOP</text>
-        <g clipPath={`url(#${id}-film)`}>
-          <image className="video-pan" href="/videos/corp/product-story-youtube.jpg" x="279" y="133" width="217" height="131" preserveAspectRatio="xMidYMid slice" />
-          <Play x={387} y={198} radius={23} />
-          <rect x="287" y="142" width="56" height="22" rx="5" fill={C.ink} />
-          <text x="315" y="158" textAnchor="middle" fill={C.text} fontSize="12">PREVIEW</text>
-          <rect className="clip-sweep motion-only" x="279" y="133" width="70" height="131" fill={C.text} />
-        </g>
-        <text x="279" y="295" fill={C.ink} fontSize="23">브랜드 스토리 팩</text>
-        <text x="279" y="321" fill={C.border} fontSize="16">영상 + 이미지 + 웹툰</text>
-        <rect x="279" y="340" width="217" height="42" rx="8" fill={C.ink} />
-        <text x="386" y="367" textAnchor="middle" fill={C.text} fontSize="19">콘텐츠 상품 보기</text>
-        <g className="motion-only reaction-pop" style={{ animationDelay: '4.5s' }}>
-          <path d="m467 360 8 23 5-9 9-4Z" fill={C.teal} stroke={C.ink} strokeWidth="2" />
-        </g>
-        <SignalPing x={387} y={361} radius={24} delay={4.8} duration={4} />
+        <ProductContentSaleScene id={id} />
       </Enter>
 
       <Enter delay={.9}>
         <text x="552" y="103" fill={C.teal} fontSize="18">03 · 주문과 전달</text>
         <rect x="548" y="119" width="174" height="283" rx="15" fill={C.surface} stroke={C.border} />
-        <circle cx="635" cy="175" r="31" fill={C.raised} stroke={C.teal} strokeOpacity=".5" />
-        <path d="M622 169h26v25h-26Z" fill="none" stroke={C.teal} strokeWidth="2" /><path d="M628 169v-5a7 7 0 0 1 14 0v5" fill="none" stroke={C.teal} strokeWidth="2" />
+        <rect x="565" y="133" width="140" height="74" rx="9" fill="#e8eee2" />
+        <image data-content-delivery-preview href="/images/corp/products/global/ddunddun-success.png" x="568" y="136" width="69" height="69" preserveAspectRatio="xMidYMid meet" />
+        <rect x="647" y="153" width="43" height="42" rx="7" fill={C.surface} />
+        <Check x={661} y={174} />
         <text x="635" y="230" fill={C.text} textAnchor="middle" fontSize="21">디지털 상품</text>
         <path d="M568 248h134" stroke={C.border} />
         <text x="566" y="276" fill={C.muted} fontSize="18">주문 확인</text><Check x={682} y={269} />
@@ -197,9 +182,9 @@ function ContentSale({ id }: { id: string }) {
       <path d="M177 468h58m-7-5 7 5-7 5M421 468h58m-7-5 7 5-7 5" fill="none" stroke={C.border} strokeWidth="2" />
       <text x="269" y="474" fill={C.text} fontSize="19">상품 구성 · 판매</text>
       <text x="514" y="474" fill={C.teal} fontSize="19">주문 확인 · 전달</text>
-      <StepRibbon step={0} title="콘텐츠를 상품으로 구성" detail="영상 · 이미지 · 웹툰" accent={C.blue} />
-      <StepRibbon step={1} title="상품 미리보기 공개" detail="패키지 소개 · 구매 연결" accent={C.blue} />
-      <StepRibbon step={2} title="주문에서 콘텐츠 전달까지" detail="파일 전달 완료 시연" />
+      <StepRibbon step={0} title="그뚠이와 콘텐츠 만들기" detail="영상 · 이미지 · 웹툰" accent={C.blue} />
+      <StepRibbon step={1} title="나만의 콘텐츠 상품 소개" detail="패키지 구성 · 판매" accent={C.blue} />
+      <StepRibbon step={2} title="주문 확인! 콘텐츠 전달 완료" detail="그뚠이의 완료 알림" />
     </>
   );
 }
@@ -209,7 +194,10 @@ function AdvertisingSale({ id, platform }: { id: string; platform: number }) {
   const index = PLATFORMS.indexOf(selected);
   return (
     <g data-commerce-platform={selected.id}>
-      <defs><clipPath id={`${id}-creative`}><rect x="263" y="126" width="239" height="231" rx="9" /></clipPath></defs>
+      <defs>
+        <clipPath id={`${id}-creative`}><rect x="263" y="126" width="239" height="231" rx="9" /></clipPath>
+        <clipPath id={`${id}-product-use`}><rect x="561" y="183" width="146" height="86" rx="9" /></clipPath>
+      </defs>
       <Enter>
         <text x="38" y="46" fill={C.text} fontSize="25">상품을 발견하고, 콘텐츠로 연결하다.</text>
         <text x="721" y="44" fill={C.muted} fontSize="14" textAnchor="end">브랜드 시연</text>
@@ -246,28 +234,27 @@ function AdvertisingSale({ id, platform }: { id: string; platform: number }) {
       <Enter delay={.45}>
         <rect x="247" y="84" width="271" height="323" rx="17" fill={C.text} />
         <circle cx="270" cy="107" r="4" fill={selected.accent} />
-        <text x="283" y="113" fill={C.ink} fontSize="16">CREEDITOR / AD STUDIO</text>
+        <text x="283" y="113" fill={C.ink} fontSize="16">그뚠이의 상품 이야기</text>
         <g clipPath={`url(#${id}-creative)`}>
-          <rect x="263" y="126" width="239" height="231" fill={C.raised} />
-          <circle cx="382" cy="234" r="91" fill="none" stroke={selected.accent} strokeOpacity=".22" />
-          <circle cx="382" cy="234" r="70" fill="none" stroke={selected.accent} strokeOpacity=".13" />
-          <text x="278" y="151" fill={selected.accent} fontSize="12">EVERYDAY, REIMAGINED.</text>
-          <g transform="translate(382 181)"><g className="float"><ProductObject kind={index} color={selected.accent} /></g></g>
-          <path className="clip-sweep motion-only" d="m245 126 45 0 90 231h-45Z" fill={C.text} />
-          <rect x="275" y="330" width="135" height="20" rx="10" fill={C.ink} />
-          <text x="343" y="345" fill={C.text} textAnchor="middle" fontSize="12">상품 소개 영상 · 시연</text>
-          <Play x={479} y={336} radius={13} />
+          <rect x="263" y="126" width="239" height="231" fill="#e8eee2" />
+          <circle cx="382" cy="242" r="95" fill={selected.accent} opacity=".18" />
+          <image data-commerce-character={selected.id} className="video-pan" href={`/images/corp/products/commerce/geudduni-${selected.character}.png`} x="267" y="146" width="231" height="211" preserveAspectRatio="xMidYMax meet" />
+          <rect x="274" y="136" width="132" height="22" rx="11" fill={C.ink} />
+          <text x="340" y="151" textAnchor="middle" fill={C.text} fontSize="12">그뚠이의 사용 장면</text>
         </g>
-        <text x="264" y="387" fill={C.ink} fontSize="21">{selected.item} 스토리</text>
-        <g transform="translate(470 370)"><path d="M0 0v17m7-13v9m7-16v23m7-17v11" fill="none" stroke={C.border} strokeWidth="3" strokeLinecap="round" className="wave" /></g>
+        <text x="264" y="379" fill={C.ink} fontSize="20">{selected.item} 스토리</text>
+        <text x="264" y="397" fill={C.border} fontSize="12">{selected.moment}</text>
       </Enter>
 
       <Enter delay={.9}>
         <rect x="546" y="119" width="176" height="288" rx="19" fill={C.surface} stroke={C.border} />
         <rect x="608" y="129" width="52" height="5" rx="2.5" fill={C.border} />
         <text x="634" y="167" textAnchor="middle" fill={C.text} fontSize="20">콘텐츠에서 발견</text>
-        <rect x="561" y="183" width="146" height="86" rx="9" fill={C.raised} />
-        <g transform="translate(634 191) scale(.47)"><ProductObject kind={index} color={selected.accent} /></g>
+        <g clipPath={`url(#${id}-product-use)`}>
+          <rect x="561" y="183" width="146" height="86" fill="#e8eee2" />
+          <image data-commerce-character-preview={selected.id} href={`/images/corp/products/commerce/geudduni-${selected.character}.png`} x="558" y="183" width="98" height="90" preserveAspectRatio="xMidYMid meet" />
+          <g transform="translate(680 199) scale(.35)"><ProductObject kind={index} color={selected.accent} /></g>
+        </g>
         <text x="634" y="295" textAnchor="middle" fill={C.text} fontSize="19">{selected.item}</text>
         <rect x="560" y="312" width="148" height="37" rx="8" fill={selected.accent} />
         <text x="634" y="337" textAnchor="middle" fill={C.ink} fontSize="18">상품 링크 보기</text>

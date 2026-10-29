@@ -12,8 +12,8 @@ export type ShowreelStep = ShowreelSelection & {
 };
 
 export const SHOWREEL_STEPS: readonly ShowreelStep[] = [
-  { id: 'pc-web', label: 'PC 웹', chapter: 0, variant: 0, durationMs: 12_000 },
-  { id: 'mobile-web', label: '모바일 웹', chapter: 0, variant: 1, durationMs: 12_000 },
+  { id: 'pc-web', label: '그뚠웹', chapter: 0, variant: 0, durationMs: 12_000 },
+  { id: 'mobile-web', label: '그뚠앱', chapter: 0, variant: 1, durationMs: 12_000 },
   { id: 'global-web', label: '글로벌 연결', chapter: 0, variant: 2, durationMs: 12_000 },
   { id: 'payroll-documents', label: '급여·거래', chapter: 1, variant: 1, durationMs: 12_000 },
   { id: 'contract-documents', label: '계약·발주', chapter: 1, variant: 2, durationMs: 12_000 },
@@ -24,8 +24,8 @@ export const SHOWREEL_STEPS: readonly ShowreelStep[] = [
   { id: 'pg-payment', label: 'PG 결제 연결', chapter: 1, variant: 7, durationMs: 12_000 },
   { id: 'browser-agent', label: '브라우저 자동화', chapter: 1, variant: 8, durationMs: 12_000 },
   { id: 'task-agent', label: '에이전트 봇', chapter: 1, variant: 9, durationMs: 12_000 },
-  { id: 'youtube', label: 'YouTube 영상', chapter: 2, channel: 0, durationMs: 12_000 },
-  { id: 'tiktok', label: 'TikTok 영상', chapter: 2, channel: 1, durationMs: 12_000 },
+  { id: 'youtube', label: 'YouTube 영상', chapter: 2, channel: 0, durationMs: 20_000 },
+  { id: 'tiktok', label: 'TikTok 영상', chapter: 2, channel: 1, durationMs: 15_000 },
   { id: 'blog', label: '블로그 콘텐츠', chapter: 2, channel: 2, durationMs: 24_000 },
   { id: 'instagram', label: 'Instagram 웹툰', chapter: 2, channel: 3, durationMs: 48_000 },
   { id: 'content-sales', label: '생성형 콘텐츠 판매', chapter: 3, variant: 0, durationMs: 12_000 },
