@@ -42,7 +42,7 @@ function DeferredCorpSection() {
 }
 
 type Dashboard2ExperienceVariant = 'introduction' | 'ceo';
-type CeoDocumentTab = 'greeting' | 'resume' | 'introduction' | 'analysis';
+type CeoDocumentTab = 'greeting' | 'resume' | 'introduction' | 'analysis' | 'history';
 
 type NumberMetric = {
   label: string;
@@ -140,7 +140,6 @@ type CeoDocumentTabOption = {
 interface Dashboard2ExperienceProps {
   variant?: Dashboard2ExperienceVariant;
   enableBrandStory?: boolean;
-  includeCompanyHistory?: boolean;
   showIntroductionHero?: boolean;
   showTechnologyOverview?: boolean;
 }
@@ -525,6 +524,7 @@ const ceoDocumentTabs: CeoDocumentTabOption[] = [
   { id: 'resume', label: '대표이력서', eyebrow: 'RESUME' },
   { id: 'introduction', label: '창업배경', eyebrow: 'STORY' },
   { id: 'analysis', label: '대표통계', eyebrow: 'ANALYSIS' },
+  { id: 'history', label: '연혁도', eyebrow: 'HISTORY' },
 ];
 
 const companyBrandCollection = [
@@ -651,7 +651,6 @@ function AnimatedNumber({
 export default function Dashboard2Experience({
   variant,
   enableBrandStory = false,
-  includeCompanyHistory = false,
   showIntroductionHero = true,
   showTechnologyOverview = true,
 }: Dashboard2ExperienceProps = {}) {
@@ -1501,6 +1500,7 @@ export default function Dashboard2Experience({
             <CeoDocumentPanel
               id="ceo-document-panel"
               $statistics={activeCeoDocumentTab === 'analysis'}
+              $history={activeCeoDocumentTab === 'history'}
               role="tabpanel"
               aria-labelledby={`ceo-document-tab-${activeCeoDocumentTab}`}
               tabIndex={0}
@@ -1512,6 +1512,8 @@ export default function Dashboard2Experience({
               {activeCeoDocumentTab === 'introduction' ? <FounderStory /> : null}
 
               {activeCeoDocumentTab === 'analysis' ? <CeoStatisticsExperience /> : null}
+
+              {activeCeoDocumentTab === 'history' ? <CompanyHistoryExperience embedded id="ceo-company-history" /> : null}
             </CeoDocumentPanel>
           </CeoDocumentHub>
         </SectionInner>
@@ -1558,8 +1560,6 @@ export default function Dashboard2Experience({
 
       {!isCeoVariant && showTechnologyOverview ? <CompanyTechnologyOverview /> : null}
 
-
-      {!isCeoVariant && includeCompanyHistory ? <CompanyHistoryExperience embedded /> : null}
 
       {!isCeoVariant ? (
         <OperatingSection
@@ -3975,7 +3975,7 @@ const StatisticsPresentation = styled.section`
 
 const CeoDocumentTabs = styled.div`
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   border: 1px solid #dbe3ee;
   border-radius: 14px;
@@ -4034,8 +4034,13 @@ const CeoDocumentTabs = styled.div`
   }
 
   @media (max-width: 620px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 5px;
     padding: 5px;
+
+    button:last-child {
+      grid-column: 1 / -1;
+    }
 
     button {
       min-height: 62px;
@@ -4073,7 +4078,7 @@ const CeoDocumentTabs = styled.div`
   }
 `;
 
-const CeoDocumentPanel = styled.div<{ $statistics?: boolean }>`
+const CeoDocumentPanel = styled.div<{ $statistics?: boolean; $history?: boolean }>`
   margin-top: 16px;
   border: 1px solid #dfe6ef;
   border-radius: 16px;
@@ -4106,6 +4111,15 @@ const CeoDocumentPanel = styled.div<{ $statistics?: boolean }>`
     border-radius: 12px;
     padding: 14px;
   }
+
+  ${({ $history }) => $history ? `
+    padding: 0;
+    background: #020617;
+    border-color: #1e293b;
+    box-shadow: none;
+    > #ceo-company-history { border-radius: inherit; }
+    @media (max-width: 720px) { padding: 0; }
+  ` : ''}
 `;
 
 const CompanyBrandIntro = styled.header`

@@ -28,11 +28,10 @@ const pageSpecs = [
   {
     slug: 'company-introduction',
     path: '/corp/company/introduction',
-    requiredTexts: ['BRAND PORTFOLIO', '그냥돼지 연혁', '회사통계', '리셀러 파트너'],
+    requiredTexts: ['BRAND PORTFOLIO', '회사통계', '리셀러 파트너'],
     screenshotProbe: { label: 'company brands section', selector: '#company-brands', minWidth: 280, minHeight: 180 },
     targets: [
       { label: 'brands section', selector: '#company-brands', text: 'BRAND PORTFOLIO', minWidth: 150, minHeight: 28 },
-      { label: 'history section', selector: 'h2,section,div', text: '그냥돼지 연혁', minWidth: 150, minHeight: 28 },
     ],
   },
   {
@@ -66,7 +65,7 @@ const pageSpecs = [
   {
     slug: 'ceo-intro',
     path: '/corp/company/ceo-intro',
-    requiredTexts: ['대표인사말', '사진을 눌러 그뚠이의 이야기를 들어보세요.', '대표이력서', '창업배경', '대표통계'],
+    requiredTexts: ['대표인사말', '사진을 눌러 그뚠이의 이야기를 들어보세요.', '대표이력서', '창업배경', '대표통계', '연혁도'],
     screenshotProbe: { label: 'ceo greeting character', selector: 'img.portrait-image', minLuminanceRange: 20, minContrastPixelRatio: 0.002 },
     targets: [
       { label: 'ceo greeting prompt', selector: '.portrait-hint', text: '사진을 눌러 그뚠이의 이야기를 들어보세요.', minWidth: 160, minHeight: 16 },
@@ -450,7 +449,7 @@ async function verifyStaffDrawerAccessibility(page, viewportName, screenshotPath
 async function verifyCeoProfileSwitch(page, viewportName) {
   const tabs = page.getByRole('tablist', { name: '대표소개서 탭 선택' });
   assert.deepEqual(await tabs.getByRole('tab').evaluateAll((items) => items.map((item) => item.querySelector('strong')?.textContent)),
-    ['대표인사말', '대표이력서', '창업배경', '대표통계'], `${viewportName} CEO tab order changed`);
+    ['대표인사말', '대표이력서', '창업배경', '대표통계', '연혁도'], `${viewportName} CEO tab order changed`);
   assert.equal(await tabs.getByRole('tab', { name: /대표인사말/ }).getAttribute('aria-selected'), 'true');
   const greetingPhoto = page.locator('button[data-greeting-stage]');
   const speech = page.locator('#ceo-greeting-speech');
@@ -502,10 +501,110 @@ async function verifyCeoProfileSwitch(page, viewportName) {
   );
 }
 
+async function verifyCeoHistoryTab(page, viewportName) {
+  const tabs = page.getByRole('tablist', { name: '대표소개서 탭 선택' });
+  const historyTab = tabs.getByRole('tab', { name: /연혁도/ });
+  await historyTab.click();
+  await page.getByRole('heading', { name: '그뚠이 연혁', exact: true }).waitFor();
+  assert.equal(await historyTab.getAttribute('aria-selected'), 'true');
+  assert.equal(await page.getByRole('tabpanel').getAttribute('aria-labelledby'), 'ceo-document-tab-history');
+  const milestones = page.locator('#ceo-company-history [data-history-item]');
+  assert.deepEqual(await milestones.evaluateAll((items) => items.map((item) => [
+    item.getAttribute('data-history-phase'), item.getAttribute('data-history-year'), item.getAttribute('data-history-age'),
+  ])), [
+    ['탄생 · 유년기', '1983', '1–9세'], ['10대 초반', '1992', '10–14세'], ['10대 후반', '1997', '15–19세'],
+    ['20대 초반', '2002', '20–24세'], ['20대 후반', '2007', '25–29세'],
+    ['30대 초반', '2012', '30–34세'], ['30대 후반', '2017', '35–39세'],
+    ['40대 초반', '2022', '40–44세'], ['45세 · 다음 장', '2027', '45세'],
+  ], `${viewportName} history must group the story by life stage and end in 2027 at age 45`);
+  assert.ok((await milestones.last().innerText()).includes('45세 · 예정'));
+  assert.equal(await milestones.locator('h3').count(), 9);
+  assert.equal(await milestones.locator('blockquote').count(), 9);
+  assert.deepEqual(await page.locator('.history-chart-years span').allTextContents(), ['탄생', '10대', '20대', '30대', '40대']);
+  assert.equal(await page.getByText('PIG Timeline', { exact: true }).count(), 1);
+  const chapterNavigation = page.getByRole('navigation', { name: '시기별 이야기 바로가기' });
+  assert.equal(await chapterNavigation.getByRole('button').count(), 9);
+  await chapterNavigation.getByRole('button', { name: /30대 후반/ }).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#history-chapter-thirties-late .history-milestone-button')?.getAttribute('aria-pressed') === 'true');
+  assert.equal(await page.locator('#history-chapter-thirties-late .history-milestone-button').evaluate((button) => button === document.activeElement), true);
+  assert.equal(await page.locator('#history-chapter-thirties-late').getAttribute('data-history-revealed'), 'true');
+  assert.equal(await milestones.evaluateAll((items) => items.every((item) => getComputedStyle(item).filter === 'none')), true,
+    `${viewportName} story text must stay sharp while scrolling`);
+  const historySection = page.locator('#ceo-company-history');
+  await historySection.scrollIntoViewIfNeeded();
+  const waitForHistoryHead = (insideTimeline = false) => page.waitForFunction(
+    (inside) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+
+      const main = document.querySelector('main#content-area');
+      const rail = document.querySelector('#ceo-company-history .history-rail');
+      const head = document.querySelector('#ceo-company-history .history-rail-head');
+      if (!(main instanceof HTMLElement) || !(rail instanceof HTMLElement) || !(head instanceof HTMLElement)) return false;
+
+      const mainRect = main.getBoundingClientRect();
+      const railRect = rail.getBoundingClientRect();
+      const headRect = head.getBoundingClientRect();
+      const railCenterX = railRect.left + railRect.width / 2;
+      const headCenterX = headRect.left + headRect.width / 2;
+      const headCenterY = headRect.top + headRect.height / 2;
+
+      const mainStyle = window.getComputedStyle(main);
+      const mainIsScrollRoot = /(auto|scroll|overlay)/.test(mainStyle.overflowY)
+        && main.scrollHeight > main.clientHeight + 1;
+      const viewportCenterY = mainIsScrollRoot
+        ? mainRect.top + main.clientHeight / 2
+        : window.innerHeight / 2;
+      const expectedCenterY = Math.min(railRect.bottom, Math.max(railRect.top, viewportCenterY));
+      if (inside && (viewportCenterY <= railRect.top || viewportCenterY >= railRect.bottom)) return false;
+
+      return Math.abs(railCenterX - headCenterX) <= 1 && Math.abs(expectedCenterY - headCenterY) <= 3;
+    },
+    insideTimeline,
+    { timeout: 10_000 },
+  );
+  await waitForHistoryHead();
+  await historySection.locator('[data-history-item]').nth(3).evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await waitForHistoryHead(true);
+
+  const historyScreenshot = path.join(screenshotDir, `ceo-history-${viewportName}.png`);
+  await historySection.locator('#company-history-title').scrollIntoViewIfNeeded();
+  await captureVerifiedScreenshot(page, {
+    screenshotPath: historyScreenshot,
+    minSize: 8_000,
+    viewportName,
+    slug: 'ceo-history',
+    probe: { label: 'history timeline heading', selector: '#company-history-title', minWidth: 150, minHeight: 28 },
+  });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false,
+    `${viewportName} history tab must not cause horizontal overflow`);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await chapterNavigation.getByRole('button', { name: /45세/ }).click();
+  assert.equal(await milestones.evaluateAll((items) => items.every((item) => {
+    const style = getComputedStyle(item);
+    return style.opacity === '1' && style.transform === 'none';
+  })), true, `${viewportName} reduced motion must expose every chapter immediately`);
+  assert.equal(await milestones.last().locator('.history-milestone-button').getAttribute('aria-pressed'), 'true');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  await historyTab.focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await tabs.getByRole('tab', { name: /대표인사말/ }).getAttribute('aria-selected'), 'true');
+  assert.equal(await historySection.count(), 0, `${viewportName} history unmounts when leaving the tab`);
+  await page.keyboard.press('End');
+  await page.getByRole('heading', { name: '그뚠이 연혁', exact: true }).waitFor();
+  assert.equal(await historyTab.evaluate((tab) => document.activeElement === tab), true);
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await tabs.getByRole('tab', { name: /대표통계/ }).getAttribute('aria-selected'), 'true');
+  await page.keyboard.press('Home');
+  assert.equal(await tabs.getByRole('tab', { name: /대표인사말/ }).getAttribute('aria-selected'), 'true');
+}
+
 async function verifyCompanyDashboardExperience(page, viewportName) {
   const expectedSectionOrder = [
     'company-brands',
-    'company-introduction-history',
     'dashboard2-operating',
   ];
 
@@ -543,42 +642,8 @@ async function verifyCompanyDashboardExperience(page, viewportName) {
   assert.equal(await page.locator('iframe[data-business-area-preview], #company-introduction-execution').count(), 0,
     `${viewportName} product showcase sections must no longer render on company introduction`);
 
-  const historySection = page.locator('#company-introduction-history');
-  await historySection.scrollIntoViewIfNeeded();
-  const waitForHistoryHead = (insideTimeline = false) => page.waitForFunction(
-    (inside) => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
-
-      const main = document.querySelector('main#content-area');
-      const rail = document.querySelector('#company-introduction-history .history-rail');
-      const head = document.querySelector('#company-introduction-history .history-rail-head');
-      if (!(main instanceof HTMLElement) || !(rail instanceof HTMLElement) || !(head instanceof HTMLElement)) return false;
-
-      const mainRect = main.getBoundingClientRect();
-      const railRect = rail.getBoundingClientRect();
-      const headRect = head.getBoundingClientRect();
-      const railCenterX = railRect.left + railRect.width / 2;
-      const headCenterX = headRect.left + headRect.width / 2;
-      const headCenterY = headRect.top + headRect.height / 2;
-
-      const mainStyle = window.getComputedStyle(main);
-      const mainIsScrollRoot = /(auto|scroll|overlay)/.test(mainStyle.overflowY)
-        && main.scrollHeight > main.clientHeight + 1;
-      const viewportCenterY = mainIsScrollRoot
-        ? mainRect.top + main.clientHeight / 2
-        : window.innerHeight / 2;
-      const expectedCenterY = Math.min(railRect.bottom, Math.max(railRect.top, viewportCenterY));
-      if (inside && (viewportCenterY <= railRect.top || viewportCenterY >= railRect.bottom)) return false;
-
-      return Math.abs(railCenterX - headCenterX) <= 1 && Math.abs(expectedCenterY - headCenterY) <= 3;
-    },
-    insideTimeline,
-    { timeout: 10_000 },
-  );
-  await waitForHistoryHead();
-  await historySection.locator('[data-history-item]').nth(3).evaluate((element) =>
-    element.scrollIntoView({ block: 'center', behavior: 'instant' }));
-  await waitForHistoryHead(true);
+  assert.equal(await page.locator('#company-introduction-history, [data-history-item]').count(), 0,
+    `${viewportName} company introduction must not render the timeline`);
 
   const radarTab = page.locator('[data-dashboard-operating-tab="radar"]');
   await radarTab.scrollIntoViewIfNeeded();
@@ -770,6 +835,7 @@ try {
 
       if (spec.slug === 'ceo-intro') {
         await verifyCeoProfileSwitch(page, viewport.name);
+        await verifyCeoHistoryTab(page, viewport.name);
       }
 
       if (spec.slug === 'company-introduction') {
