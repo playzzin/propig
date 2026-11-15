@@ -40,6 +40,9 @@ The repository `FIREBASE_SERVICE_ACCOUNT` secret can be reused for previews. If 
 is restricted to the `production` environment, configure a Hosting deployment
 credential in the `preview` environment. Missing credentials fail visibly; never
 paste credentials into workflow files or commit them.
+Public Firebase build settings must be repository secrets so the web job can use
+them before uploading its artifact. Preview-targeted pushes fail before building
+if a required setting is missing or the build and deployment project IDs differ.
 
 ## Required GitHub Secrets
 
