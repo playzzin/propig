@@ -20,8 +20,11 @@ turned off after the push completes. No self-hosted runner installation is neede
   branch-specific Firebase preview channel. The `Firebase Hosting preview` job waits
   for both `Web app` and `Firebase Functions`; a failure blocks the preview.
 - Preview deployment runs only on pushes inside `playzzin/propig`, never on PR events
-  or Dependabot branches. The URL appears in the Actions job summary and the `preview`
-  environment. It expires after seven days and is refreshed by the next successful push.
+  or Dependabot branches. The public URL is saved in the `preview-link-<commit>`
+  artifact and written to the Actions summary and `preview` environment. GitHub can
+  mask the latter when public Firebase identifiers are stored as secrets; the link
+  artifact contains only the public URL, never credentials. The preview expires after
+  seven days and is refreshed by the next successful push.
 - Preview channels deploy Hosting only. They share the existing Firebase project's
   authentication, data and backend services; they are not an isolated test database.
   New Functions, rules and indexes are deployed only through the production workflow.

@@ -199,9 +199,18 @@ jobs:
           const results = Object.values(data.result || {});
           const url = results.find(value => typeof value?.url === 'string')?.url;
           if (data.status !== 'success' || !url) throw new Error('Firebase did not return a preview URL');
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/preview-url.txt`, `${url}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `url=${url}\n`);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Preview: ${url}\n\nVerified commit: \`${process.env.GITHUB_SHA}\`\n\nExpires in 7 days. Hosting only; backend services use the existing Firebase project.\n`);
           NODE
+
+      - name: Save public preview link
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-link-${{ github.sha }}
+          path: ${{ runner.temp }}/preview-url.txt
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Remove temporary credentials
         if: always()
