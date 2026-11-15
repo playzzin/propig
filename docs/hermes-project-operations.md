@@ -35,7 +35,8 @@ Hermes가 제품 의도·구조·파일 소유권·검증·사용자 보고의 �
 
 ## 의존성·실행 환경
 
-- 원본: `C:\Users\playz\propig` / WSL `/mnt/c/Users/playz/propig`. 개발 포트 3002. CY의 3000은 사용하지 않는다.
+- 코드 정본은 GitHub `playzzin/propig`, 주 개발 환경은 Codex Cloud `/workspace/propig`다. `develop`이 개발 통합 기준이고 `main`이 운영 배포 기준이다. 환경 역할과 시작 절차는 `docs/cloud-development.md`를 따른다.
+- 로컬 `C:\Users\playz\propig` / WSL `/mnt/c/Users/playz/propig`는 보조 checkout이다. 5600X는 검수, 9950X는 무거운 로컬 작업과 별도 브랜치의 보조 개발을 맡는다. 개발 포트 3002. CY의 3000은 사용하지 않는다.
 - 제품 package.json/lockfile이 앱 의존성의 정본. 최신이라는 이유만으로 대량 업데이트하지 않는다. 필요·호환성·audit를 확인한다.
 - Windows node_modules를 WSL에서 삭제/재설치하지 않는다. release는 native Linux 복제본에 lockfile로 npm ci한다.
 - QA 전용 도구: `/home/hermes/.local/share/propig-tools`에 버전 고정한 Playwright Core, axe, esbuild, React/renderer를 격리 설치한다. 앱 dependencies가 아니며 자동 갱신하지 않는다.
@@ -59,7 +60,7 @@ Hermes가 제품 의도·구조·파일 소유권·검증·사용자 보고의 �
 
 자율 가능: 코드 조사, 관련 로컬 구현, 임시 격리 복제본·필요 개발 도구 설치, 테스트·빌드·로그·문서 개선.
 
-별도 명시 승인: commit/push/운영 배포, 운영 원본 변경·삭제, 유료 provider 실제 호출, 계정/credential 변경, 구형 함수 퇴역. 오래된 승인은 새 작업의 배포 승인으로 자동 승계하지 않는다. 승인 timeout이나 stop은 우회하지 않는다.
+코드 수정 요청에서는 사용자의 허용 범위 안에서 작업 브랜치 commit/push와 develop 대상 PR을 진행한다. 로컬 전용·게시 금지 지시를 우선한다. main 병합/운영 배포, 운영 원본 변경·삭제, 유료 provider 실제 호출, 계정/credential 변경, 구형 함수 퇴역은 해당 작업의 명시 승인이 필요하다. 승인 timeout이나 stop은 우회하지 않는다.
 
 금지: reset --hard, clean, 전체 formatter, 다른 profile 수정, 비밀정보/사용자 원본 로그·커밋, 권한검사 제거, 검증되지 않은 완료 보고. worktree는 HEAD 기준이므로 dirty 변경을 자동 포함한다고 가정하지 않는다. dirty 때 소유권 분리 또는 현재 파일 snapshot 복제본을 사용한다.
 

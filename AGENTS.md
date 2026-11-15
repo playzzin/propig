@@ -1,5 +1,14 @@
 # ProPig AI 개발 도구 규칙
 
+## 클라우드 주 개발
+
+- 주 개발·검토·통합은 Codex Cloud에서 수행한다. GitHub `playzzin/propig`가 코드 정본이고, 개발 통합 브랜치는 `develop`, 운영 브랜치는 `main`이다.
+- 5600X는 요청·미리보기 검수·실제 업무 확인, 9950X는 무거운 로컬 작업·Windows/기기 연동·보조 개발을 맡는다. 접속한 PC와 채팅의 실제 실행 환경을 혼동하지 않는다.
+- 작업 시작 시 `docs/cloud-development.md`를 읽고 실제 checkout과 원격 ref를 확인한다. 클라우드 작업은 최신 `develop`에서 `codex/cloud-<task>` 브랜치로 분리한다. 9950X 보조 수정은 `codex/9950x-<task>`, 5600X 수정은 명시 요청 시 `codex/5600x-<task>`를 사용한다.
+- 코드 수정 요청의 허용 범위에서 관련 검증·작업 브랜치 commit/push·`develop` 대상 PR까지 진행한다. 로컬 전용/게시 금지 지시는 우선한다. `main` 병합·운영 배포는 별도 요청으로 처리한다.
+- 전체 빌드·릴리스 검증·미리보기 배포는 GitHub Actions가 담당한다. 클라우드에서는 필요한 빠른 검증과 개발 서버를 실행한다. 두 PC에 self-hosted runner를 설치하지 않는다.
+- 클라우드 설치: `bash ops/cloud/setup.sh`, 시작: `bash ops/cloud/dev.sh`. 실행 스크립트는 branch를 바꾸거나 사용자 변경을 삭제하지 않는다.
+
 ## Hermes 전담 관리
 
 - 통합 책임자는 Hermes이며 전담 역할은 `ops/hermes/team.json`, 실행 절차는 `docs/hermes-project-operations.md`가 정본이다. 작업 시작 시 읽는다.
@@ -7,7 +16,7 @@
 - 최대 3개 leaf 작업을 병렬 실행하며 한 파일은 한 owner만 수정한다. `python3 scripts/hermes-project.py plan <plan.json>`으로 exact-file 범위를 검사한다.
 - 공유 package/lockfile·서버·전체 빌드·통합·배포는 lead 소유다. 자식의 PASS는 parent가 실제 재검증한다.
 - 저장소 기존 dirty 변경, 사용자 데이터·권한·유료 비용 경계·공개 스크롤을 보존한다. reset/clean/전체 formatter 금지.
-- commit/push/운영 배포·유료 호출·원본 삭제·인증 변경은 해당 작업의 명시 승인이 필요하다. 이전 승인 자동 재사용 금지.
+- commit/push는 위 작업 흐름과 사용자의 현재 허용 범위에 따른다. 운영 배포·유료 호출·원본 삭제·인증 변경은 해당 작업의 명시 승인이 필요하다.
 - 개발 포트 3002, CY 3000은 건드리지 않는다. Windows node_modules 전체 재설치 대신 Linux 격리 runtime을 사용한다.
 - 현재 작업 결과는 handoff에, 검증된 장기 결정은 Obsidian/skills에 남긴다. 비밀·개인정보·임시 진행 상태를 항구 지침에 넣지 않는다.
 
