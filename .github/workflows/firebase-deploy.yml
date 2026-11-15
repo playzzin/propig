@@ -17,6 +17,7 @@ env:
   CI: "true"
   NEXT_TELEMETRY_DISABLED: "1"
   DISABLE_SENTRY: "true"
+  NEXT_PUBLIC_DISABLE_SENTRY: "true"
   FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || 'propig-63524' }}
   NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
@@ -25,7 +26,7 @@ env:
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
   NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
   NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
-  NEXT_PUBLIC_FIREBASE_DATABASE_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_DATABASE_ID || '(default)' }}
+  NEXT_PUBLIC_FIREBASE_DATABASE_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_DATABASE_ID || 'pppp' }}
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   ADMIN_UIDS: ${{ secrets.ADMIN_UIDS }}
   OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openai/gpt-4.1-mini' }}
@@ -37,7 +38,8 @@ jobs:
   deploy:
     name: Deploy to Firebase
     runs-on: ubuntu-latest
-    if: github.repository == 'playzzin/propig'
+    if: github.repository == 'playzzin/propig' && github.ref == 'refs/heads/main'
+    timeout-minutes: 45
     environment: production
 
     steps:
@@ -91,20 +93,8 @@ jobs:
           npm run verify:release-static
           npm run build
 
-      - name: Browser release gate
-        run: |
-          npx playwright install --with-deps chromium
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "const { chromium } = require('playwright-core'); process.stdout.write(chromium.executablePath())")"
-          export CHROME_PATH="$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
-          npm run dev -- --hostname 127.0.0.1 > "$RUNNER_TEMP/propig-browser.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 90); do
-            if curl --fail --silent http://127.0.0.1:3002/admin/emoticon-studio >/dev/null; then break; fi
-            if [ "$attempt" -eq 90 ]; then cat "$RUNNER_TEMP/propig-browser.log"; exit 1; fi
-            sleep 2
-          done
-          BASE_URL=http://127.0.0.1:3002 npm run verify:release-browser
+      - name: Browser release gate on built static artifact
+        run: bash .github/scripts/verify-static-browser.sh
 
       - name: Verify functions
         run: npm run build --prefix functions

@@ -103,12 +103,20 @@ async function runViewport(browser, viewport) {
   }
 
   if (isDefaultCompanyCheck) {
-    await page.waitForTimeout(700);
-    const extendedSectionCount = await page.locator('main section').count();
-    assert.ok(
-      extendedSectionCount >= 4,
-      `${viewport.width}px company content did not finish rendering (${extendedSectionCount} sections)`,
-    );
+    // The personal timeline now belongs to CEO introduction. Check the current
+    // company page's actual content instead of an obsolete generic section count.
+    for (const [selector, text] of [
+      ['#company-brands', 'BRAND PORTFOLIO'],
+      ['#dashboard2-operating', '회사통계'],
+      ['section[aria-labelledby="company-next-step-title"]', '사업 제휴 문의'],
+    ]) {
+      const section = page.locator(`main ${selector}`);
+      await section.waitFor({ state: 'attached', timeout: maxTransitionMs });
+      assert.ok(
+        (await section.textContent())?.includes(text),
+        `${viewport.width}px company content did not finish rendering (${selector}: ${text})`,
+      );
+    }
   }
 
   if (isDefaultCompanyCheck) {
