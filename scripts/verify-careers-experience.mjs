@@ -87,40 +87,52 @@ async function inspectApply(browser, viewport) {
     timeout: 30_000,
   });
   assert.equal(response?.status(), 200);
-  await page.locator('main:visible form').waitFor({ state: 'visible' });
-  await page.waitForFunction(() => document.querySelectorAll('#content-area').length === 1);
-  assert.equal(await page.locator('main form').count(), 1, 'application form must render exactly once');
+  // The static React stream can retain a hidden copy while the route hydrates.
+  const main = page.locator('main:visible');
+  const form = main.locator('form:visible');
+  const nameInput = form.locator('#career-name');
+  const applicantName = '회귀 검증 지원자';
+  await form.waitFor({ state: 'visible' });
+  assert.equal(await form.count(), 1, 'exactly one application form must be active');
+  assert.equal(await nameInput.count(), 1, 'the active form must have one name input');
 
-  await page.getByRole('button', { name: '이메일 지원 초안 열기' }).click();
-  assert.equal(await page.evaluate(() => document.activeElement?.id), 'career-name', 'invalid submission must focus the name field');
-  await page.locator('#career-name-error').waitFor({ state: 'visible' });
+  const openEmailDraft = form.getByRole('button', { name: '이메일 지원 초안 열기' });
+  await openEmailDraft.click();
+  assert.equal(await nameInput.evaluate((input) => input === document.activeElement), true, 'invalid submission must focus the name field');
+  await form.locator('#career-name-error').waitFor({ state: 'visible' });
+  assert.equal(await nameInput.getAttribute('aria-invalid'), 'true');
 
-  await page.locator('#career-name').fill('회귀 검증 지원자');
-  await page.locator('#career-email').fill('qa@example.com');
-  await page.locator('#career-introduction').fill('작은 문제를 끝까지 정리하고, 변경 이유와 검증 결과를 함께 남깁니다.');
-  await page.locator('#career-portfolio').fill('https://example.com/portfolio');
-  await page.locator('#career-motivation').fill('사용자의 실제 문제를 작은 단위로 해결하고 오래 유지되는 제품 흐름을 함께 만들고 싶습니다.');
-  await page.locator('#career-consent').check();
-  await page.waitForTimeout(700);
+  await nameInput.fill(applicantName);
+  assert.equal(await nameInput.getAttribute('aria-invalid'), 'false');
+  await form.locator('#career-email').fill('qa@example.com');
+  await form.locator('#career-introduction').fill('작은 문제를 끝까지 정리하고, 변경 이유와 검증 결과를 함께 남깁니다.');
+  await form.locator('#career-portfolio').fill('https://example.com/portfolio');
+  await form.locator('#career-motivation').fill('사용자의 실제 문제를 작은 단위로 해결하고 오래 유지되는 제품 흐름을 함께 만들고 싶습니다.');
+  await form.locator('#career-consent').check();
+  await form.getByText('초안이 이 브라우저에 저장됐습니다.').waitFor();
 
-  const progressLabel = await page.locator('[aria-label^="지원서 준비 진행률"]').getAttribute('aria-label');
+  const progressLabel = await main.locator('[aria-label^="지원서 준비 진행률"]:visible').getAttribute('aria-label');
   assert.equal(progressLabel, '지원서 준비 진행률 100%', 'completed application draft must report 100% progress');
-  await page.getByRole('button', { name: '이메일 지원 초안 열기' }).click();
-  await page.getByText('이메일 앱을 열었습니다').waitFor();
+  await openEmailDraft.click();
+  await form.getByRole('status').filter({ hasText: '이메일 앱을 열었습니다' }).waitFor();
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.equal(overflow, 0, `${viewport.width}px careers apply overflowed horizontally`);
 
   assert.deepEqual(observed.pageErrors, [], 'careers apply emitted page errors');
 
-  const restoredPage = page;
-  const restoredObserved = observe(restoredPage);
-  await restoredPage.goto(`${baseUrl}/corp/careers/apply`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  await restoredPage.locator('#career-name').waitFor({ state: 'visible' });
-  await restoredPage.waitForFunction(() => document.querySelector('#career-name')?.value === '회귀 검증 지원자');
-  assert.equal(await restoredPage.locator('#career-track-creative').isChecked(), true, 'saved interest track must be restored');
-
-  assert.deepEqual(restoredObserved.pageErrors, [], 'restored application emitted page errors');
+  const restoredResponse = await page.goto(`${baseUrl}/corp/careers/apply`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30_000,
+  });
+  assert.equal(restoredResponse?.status(), 200);
+  await form.waitFor({ state: 'visible' });
+  assert.equal(await form.count(), 1, 'exactly one application form must be active after navigation');
+  assert.equal(await nameInput.count(), 1, 'the restored form must have one name input');
+  await nameInput.and(form.locator(`input[value="${applicantName}"]`)).waitFor();
+  assert.equal(await nameInput.inputValue(), applicantName, 'saved name must be restored');
+  assert.equal(await form.locator('#career-track-creative').isChecked(), true, 'saved interest track must be restored');
+  assert.deepEqual(observed.pageErrors, [], 'restored application emitted page errors');
   await context.close();
   return { overflow, progress: 100 };
 }
