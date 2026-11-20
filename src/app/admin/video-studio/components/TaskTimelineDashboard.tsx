@@ -2,7 +2,7 @@ import React from 'react';
 import { toast } from 'sonner';
 import type { VideoStudioClip, VideoStudioJob, VideoStudioJobStatus } from '@/lib/video-studio';
 import * as S from './VideoStudioStyles';
-import { dateLabel, jobKindLabel, jobStatusLabel, modeLabel } from '../utils';
+import { dateLabel, jobAllowsRetry, jobCostLabels, jobKindLabel, jobMessageLabel, jobStatusLabel, modeLabel, stamp } from '../utils';
 
 interface TaskTimelineDashboardProps {
     projectJobs: VideoStudioJob[];
@@ -119,13 +119,22 @@ export function TaskTimelineDashboard({
     kickoffQueuedJob,
     moveClip,
 }: TaskTimelineDashboardProps) {
+    const orderedJobs = React.useMemo(() => {
+        const isActive = (job: VideoStudioJob) => ['running', 'uploading', 'queued'].includes(job.status);
+        return [...projectJobs].sort((left, right) => {
+            const activeDelta = Number(isActive(right)) - Number(isActive(left));
+            if (activeDelta !== 0) return activeDelta;
+            return stamp(right.updatedAt ?? right.createdAt) - stamp(left.updatedAt ?? left.createdAt);
+        });
+    }, [projectJobs]);
     const activeJob =
-        projectJobs.find((job) => ['running', 'uploading', 'queued'].includes(job.status)) ??
-        projectJobs[0] ??
+        orderedJobs.find((job) => ['running', 'uploading', 'queued'].includes(job.status)) ??
+        orderedJobs[0] ??
         null;
 
     const activeLoopProgress = activeJob ? readLoopProgress(activeJob) : null;
     const activeProgressValue = clampProgress(activeJob?.progress);
+    const activeCostLabels = activeJob ? jobCostLabels(activeJob) : [];
 
     return (
         <S.Right>
@@ -148,11 +157,12 @@ export function TaskTimelineDashboard({
                         <strong>{activeJob.title}</strong>
                         <S.JobStatus $status={activeJob.status}>{jobStatusLabel(activeJob.status)}</S.JobStatus>
                     </S.JobHeader>
-                    <S.JobMessage>{activeJob.message || '현재 작업 상태를 준비 중입니다.'}</S.JobMessage>
+                    <S.JobMessage aria-live="polite">{jobMessageLabel(activeJob)}</S.JobMessage>
                     <S.BadgeRow>
                         <S.Badge>{jobKindLabel(activeJob.kind)}</S.Badge>
                         <S.Badge>{dateLabel(activeJob.updatedAt ?? activeJob.createdAt)}</S.Badge>
                         {typeof activeJob.progress === 'number' ? <S.Badge>{`${activeProgressValue}%`}</S.Badge> : null}
+                        {activeCostLabels.map((label) => <S.Badge key={label}>{label}</S.Badge>)}
                     </S.BadgeRow>
                     <S.ProgressStack style={{ marginTop: 14 }}>
                         <S.ProgressMeta>
@@ -183,13 +193,16 @@ export function TaskTimelineDashboard({
             </S.Section>
 
             <S.JobList>
-                {projectJobs.length > 0 ? (
-                    projectJobs.slice(0, 6).map((job) => {
+                {orderedJobs.length > 0 ? (
+                    orderedJobs.slice(0, 6).map((job) => {
                         const loopProgress = readLoopProgress(job);
                         const repeatCount =
                             loopProgress?.totalSegments ??
                             (typeof job.metadata?.repeatCount === 'number' ? job.metadata.repeatCount : 1);
                         const progressValue = clampProgress(job.progress);
+                        const costLabels = jobCostLabels(job);
+                        const canCancel = ['queued', 'running', 'uploading'].includes(job.status);
+                        const retryAllowed = jobAllowsRetry(job);
 
                         return (
                             <S.JobCard key={job.id} $status={job.status}>
@@ -197,12 +210,13 @@ export function TaskTimelineDashboard({
                                     <strong>{job.title}</strong>
                                     <S.JobStatus $status={job.status}>{jobStatusLabel(job.status)}</S.JobStatus>
                                 </S.JobHeader>
-                                <S.JobMessage>{job.message || '작업 상세 상태를 준비 중입니다.'}</S.JobMessage>
+                                <S.JobMessage>{jobMessageLabel(job)}</S.JobMessage>
                                 <S.BadgeRow>
                                     <S.Badge>{jobKindLabel(job.kind)}</S.Badge>
                                     {repeatCount > 1 ? <S.Badge>{`${repeatCount}단계 릴레이`}</S.Badge> : null}
                                     {job.metadata?.autoMergeAfterLoop === true ? <S.Badge>자동 합치기</S.Badge> : null}
                                     {typeof job.progress === 'number' ? <S.Badge>{`${progressValue}%`}</S.Badge> : null}
+                                    {costLabels.map((label) => <S.Badge key={label}>{label}</S.Badge>)}
                                 </S.BadgeRow>
                                 {loopProgress ? (
                                     <S.ProgressStack style={{ marginTop: 12 }}>
@@ -218,10 +232,18 @@ export function TaskTimelineDashboard({
                                         </S.ProgressTrack>
                                     </S.ProgressStack>
                                 ) : null}
-                                {job.errorMessage ? <S.JobMessage style={{ marginTop: 10 }}>{job.errorMessage}</S.JobMessage> : null}
-                                {job.status === 'failed' || job.status === 'queued' ? (
+                                {job.errorMessage ? (
+                                    <details style={{ marginTop: 10 }}>
+                                        <summary>기술 정보</summary>
+                                        <S.JobMessage as="code">{job.errorMessage}</S.JobMessage>
+                                    </details>
+                                ) : null}
+                                {job.status === 'failed' && !retryAllowed ? (
+                                    <S.JobMessage>비용이 발생했을 수 있어 재시도를 막았습니다. OpenRouter 사용량을 확인한 뒤 새 작업 여부를 결정해 주세요.</S.JobMessage>
+                                ) : null}
+                                {job.status === 'failed' || canCancel || job.clipId ? (
                                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                                        {job.status === 'failed' ? (
+                                        {job.status === 'failed' && retryAllowed ? (
                                             <S.Button
                                                 $ghost
                                                 style={{ padding: '8px 10px' }}
@@ -236,7 +258,7 @@ export function TaskTimelineDashboard({
                                             >
                                                 다시 시도
                                             </S.Button>
-                                        ) : (
+                                        ) : canCancel ? (
                                             <S.Button
                                                 $ghost
                                                 style={{ padding: '8px 10px' }}
@@ -249,9 +271,9 @@ export function TaskTimelineDashboard({
                                                         });
                                                 }}
                                             >
-                                                작업 취소
+                                                {job.status === 'queued' ? '작업 취소' : '안전하게 취소'}
                                             </S.Button>
-                                        )}
+                                        ) : null}
                                         {job.status === 'queued' ? (
                                             <S.Button
                                                 $ghost

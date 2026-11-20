@@ -1,0 +1,1243 @@
+/* First-bundle evidence surfaces. No service-health meaning is assigned to color. */
+.office-app .dashboard-observations,
+.office-app .dashboard-delivery {
+  min-width: 0;
+  padding: 18px;
+  margin: 0 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.office-app .dashboard-observations > p,
+.office-app .dashboard-delivery > p {
+  color: #52635b;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.office-app .dashboard-observation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.office-app .dashboard-people { max-height: 260px; overflow: auto; }
+.office-app .dashboard-people:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.office-app .dashboard-observation-grid article {
+  min-width: 0;
+  background: #f7f8f4;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+.office-app .dashboard-observation-grid h4 { margin: 0 0 8px; }
+.office-app .dashboard-observation-grid p { font-size: 12px; }
+.office-app .dashboard-observations dl,
+.office-app .dashboard-delivery dl {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 5px 8px;
+  font-size: 12px;
+}
+.office-app .dashboard-observations dt,
+.office-app .dashboard-delivery dt { color: #52635b; }
+.office-app .dashboard-observations dd,
+.office-app .dashboard-delivery dd { margin: 0; min-width: 0; }
+.office-app .dashboard-delivery ol { list-style: none; padding: 0; margin: 12px 0 0; }
+.office-app .dashboard-delivery li { border-top: 1px solid var(--line); padding: 10px 0; }
+.office-app .dashboard-delivery li > div { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+.office-app .dashboard-delivery li span { font-size: 12px; color: #52635b; }
+.office-app .dashboard-observations summary,
+.office-app .dashboard-delivery summary { min-height: 44px; padding: 10px 0; cursor: pointer; }
+.office-app .dashboard-attention-row { align-items: start; }
+.office-app .office-feed .task-row.dashboard-attention-row p,
+.office-app .office-feed .task-row.dashboard-attention-row small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: unset;
+  display: block;
+  overflow: visible;
+  color: #52635b;
+}
+.office-app.observe .dashboard-observations { display: none; }
+@media (max-width: 600px) {
+  .office-app .dashboard-observations,
+  .office-app .dashboard-delivery { padding: 12px; }
+  .office-app .dashboard-attention-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .office-app .dashboard-attention-row > svg { display: none; }
+}
+
+/* Office product shell. Scene furniture and movement live in office-scene.css. */
+:root {
+  font-family: "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: #243a35;
+  background: #f5f5f0;
+  -webkit-font-smoothing: antialiased;
+}
+.office-app {
+  --green: #245d4d;
+  --ink: #243a35;
+  --muted: #626f68;
+  --line: #e0e5dd;
+  --cream: #f7f5ec;
+  --surface: #fff;
+  --office-radius: 14px;
+  --office-shadow: 0 3px 16px #243a3506;
+  --office-sidebar: 220px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: #f5f5f0;
+}
+.office-app h1,
+.office-app h2,
+.office-app h3,
+.office-app h4 {
+  letter-spacing: 0;
+}
+.office-app .sidebar {
+  width: var(--office-sidebar);
+  padding: 28px 16px 22px;
+  background: #1b3e35;
+  color: #d3dfd6;
+  border-right: 1px solid #102f26;
+}
+.office-app .brand {
+  padding: 0 10px 25px;
+  gap: 12px;
+  font-size: 20px;
+  letter-spacing: 1px;
+}
+.office-app .brand-mark {
+  background: #dbe5c3;
+  width: 40px;
+  height: 44px;
+  border-radius: 11px 11px 5px 5px;
+  box-shadow: inset 0 -3px #bccba2;
+}
+.office-app .brand small {
+  font-size: 9px;
+  letter-spacing: 3.3px;
+  color: #bfd0c2;
+}
+.workspace-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: #ffffff09;
+  border: 1px solid #ffffff1a;
+  border-radius: 10px;
+  color: #e6ece5;
+  padding: 13px 10px;
+  margin-bottom: 28px;
+  text-align: left;
+}
+.workspace-switch:hover {
+  background: #ffffff12;
+  border-color: #ffffff40;
+}
+.workspace-switch > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.workspace-switch strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-switch small {
+  display: block;
+  font-size: 11px;
+  color: #b7cbbc;
+  margin-top: 4px;
+}
+.workspace-symbol {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #ffffff0b;
+  color: #d1dfb8;
+  flex-shrink: 0;
+}
+.office-app .company-label {
+  padding: 0 12px 13px;
+  font-size: 11px;
+  color: #b0c4b6;
+  letter-spacing: 0;
+}
+.office-app .company-label > span {
+  font-size: 8px;
+  letter-spacing: 1.3px;
+  color: #a0baa9;
+}
+.office-app nav {
+  gap: 5px;
+}
+.office-app nav button {
+  min-height: 46px;
+  padding: 12px;
+  gap: 12px;
+  font-size: 13px;
+  border-radius: 8px;
+  color: #c9d8ce;
+  transition:
+    background 140ms,
+    color 140ms;
+}
+.office-app nav button.selected {
+  color: #183d30;
+  background: #e0e9ce;
+  box-shadow: 0 2px 5px #06271918;
+}
+.office-app nav button.selected svg {
+  stroke-width: 2.2;
+}
+.office-app nav button:hover:not(.selected) {
+  background: #ffffff0b;
+  color: white;
+}
+.office-app nav small {
+  background: #ffffff12;
+  color: inherit;
+  font-size: 11px;
+  border-radius: 5px;
+}
+.office-app nav .selected small {
+  background: #244b3e12;
+}
+.office-app .sidebar-bottom {
+  padding: 20px 10px 0;
+  color: #c4d5c8;
+  border-top: 1px solid #ffffff12;
+  margin-top: auto;
+}
+.sidebar-connection {
+  font-size: 12px;
+  font-weight: 500;
+}
+.office-app .sidebar-bottom p {
+  margin: 8px 0 19px;
+  font-size: 11px;
+  line-height: 1.9;
+  color: #b1c5b7;
+}
+.office-app .sidebar-bottom a {
+  font-size: 11px;
+  min-height: 36px;
+}
+.office-app .sidebar-bottom a:hover {
+  color: #fff;
+}
+.office-app main {
+  margin-left: var(--office-sidebar);
+  width: calc(100% - var(--office-sidebar));
+}
+.office-app .topbar {
+  min-height: 90px;
+  height: auto;
+  padding: 20px 30px;
+  background: #fcfcf8;
+  border-color: var(--line);
+}
+.office-app .topbar .eyebrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  font-weight: 500;
+  color: #69776b;
+}
+.office-app .topbar .eyebrow > span {
+  color: #adb6aa;
+}
+.office-app .topbar h1 {
+  font-size: 23px;
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+.office-app .header-actions {
+  align-items: center;
+  gap: 8px;
+}
+.office-app .primary,
+.office-app .secondary {
+  min-height: 40px;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 600;
+  transition:
+    background 140ms,
+    border-color 140ms,
+    box-shadow 140ms;
+}
+.office-app .primary {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+  box-shadow: 0 2px 3px #183e3510;
+}
+.office-app .primary:hover {
+  background: #194836;
+  border-color: #194836;
+}
+.office-app .secondary {
+  background: #fff;
+  border-color: #dce2d7;
+}
+.office-app .secondary:hover {
+  border-color: #aabcaa;
+  background: #f6f8f1;
+}
+.office-app button:disabled {
+  cursor: not-allowed;
+}
+.office-app button:focus-visible,
+.office-app a:focus-visible,
+.office-app input:focus-visible,
+.office-app select:focus-visible,
+.office-app textarea:focus-visible,
+.office-app summary:focus-visible,
+#office-inbox:focus-visible {
+  outline: 3px solid #c68e2e;
+  outline-offset: 3px;
+}
+.office-app .content {
+  padding: 26px 30px 30px;
+  max-width: 1800px;
+  min-height: calc(100vh - 150px);
+  margin: 0 auto;
+}
+.office-app .overview {
+  flex-direction: row;
+  align-items: center;
+  padding: 0 0 20px;
+  gap: 20px;
+}
+.office-app .intro h2 {
+  font-size: 24px;
+  margin: 0 0 5px;
+  line-height: 1.4;
+  font-weight: 650;
+}
+.office-app .intro p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.office-date {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.office-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.office-metric {
+  display: block;
+  text-align: left;
+  padding: 17px 20px 13px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 11px;
+  color: var(--ink);
+  min-width: 0;
+  box-shadow: var(--office-shadow);
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.office-metric:hover {
+  border-color: #afc1af;
+  box-shadow: 0 3px 12px #244a3610;
+}
+.metric-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #58665c;
+}
+.metric-label svg {
+  color: #738473;
+}
+.office-metric strong {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 5px 0 8px;
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.office-app .office-metric strong small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.metric-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #657168;
+}
+.metric-detail > span {
+  color: #829080;
+}
+.office-metric.metric-attention {
+  background: #fcf8ee;
+  border-color: #e8dfc8;
+}
+.metric-attention .metric-label svg,
+.metric-attention strong {
+  color: #805e20;
+}
+.office-metric.metric-active {
+  background: #f1f6ef;
+  border-color: #dbe5d6;
+}
+.metric-active strong {
+  color: #2d5e48;
+}
+.office-connection-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 14px;
+  padding: 0 2px;
+  color: #607064;
+  font-size: 11px;
+}
+.office-connection-bar > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.office-connection-bar .live-dot {
+  margin-right: 0;
+  width: 6px;
+  height: 6px;
+}
+.connection-reading {
+  font-weight: 600;
+}
+.office-connection-bar button {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 5px;
+  padding: 4px 0 4px 6px;
+  background: transparent;
+  color: #65685c;
+  font-size: 11px;
+}
+.office-connection-bar button:hover {
+  color: #254c3a;
+  text-decoration: underline;
+}
+.office-app .office-columns {
+  grid-template-columns: minmax(0, 1fr) 272px;
+  gap: 18px;
+  align-items: start;
+}
+.office-app .floor-panel,
+.office-app .office-feed > section,
+.office-app .panel {
+  border-radius: var(--office-radius);
+  border-color: var(--line);
+  box-shadow: var(--office-shadow);
+}
+.office-app .section-heading {
+  padding: 19px 20px 16px;
+}
+.office-app .section-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.section-index {
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #dae2d1;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #5b7654;
+  height: 22px;
+  width: 25px;
+}
+.office-app .section-heading p {
+  font-size: 11px;
+  color: #6a766a;
+  margin-top: 7px;
+}
+.office-app .section-heading .secondary {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.office-app .floor-tools {
+  padding: 0 20px 12px;
+  font-size: 10px;
+}
+.office-app .floor-tabs {
+  padding: 3px;
+  background: #f3f5ef;
+  border: 1px solid #e9ece3;
+  border-radius: 7px;
+  gap: 3px;
+}
+.office-app .floor-tabs button {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  min-width: 40px;
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.office-app .floor-tabs button.active {
+  background: #fff;
+  border-color: #dce4d5;
+  color: #2a5742;
+  box-shadow: 0 1px 3px #193e2510;
+}
+.office-app .office-feed {
+  gap: 16px;
+  min-width: 0;
+}
+.office-app .office-feed .section-heading {
+  padding: 17px 17px 14px;
+  border-bottom: 1px solid #edf0e8;
+}
+.office-app .count {
+  display: grid;
+  place-items: center;
+  min-width: 23px;
+  height: 23px;
+  background: #f2eee2;
+  color: #765b25;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-weight: 600;
+}
+.office-app .office-feed .task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  padding: 15px 16px;
+  background: #fffdfa;
+}
+.office-app .office-feed .task-row > div {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.office-app .office-feed .task-row strong {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.office-app .office-feed .task-row p {
+  font-size: 11px;
+  margin: 4px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #6c7064;
+}
+.office-app .office-feed .task-row .badge {
+  justify-self: start;
+}
+.office-app .office-feed .task-row > svg {
+  justify-self: end;
+  color: #7d836e;
+}
+.office-app .quiet {
+  padding: 25px 17px;
+}
+.office-app .quiet > span {
+  width: 44px;
+  height: 44px;
+  background: #f0f4e9;
+  border-color: #e0e7d4;
+  color: #718c5d;
+  margin-bottom: 11px;
+}
+.office-app .quiet strong {
+  font-size: 13px;
+}
+.office-app .quiet p {
+  font-size: 11px;
+  color: #657164;
+  margin-bottom: 0;
+}
+.panel-link {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: #fafbf7;
+  color: #50694e;
+  border: 0;
+  border-top: 1px solid #e9ede4;
+  padding: 12px 17px;
+  font-size: 11px;
+  text-align: left;
+  min-height: 40px;
+}
+.panel-link:hover {
+  background: #f0f5e9;
+}
+.office-app .activity-list {
+  padding: 6px 17px 8px;
+  max-height: 335px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #cdd7c6 transparent;
+}
+.office-app .activity {
+  gap: 11px;
+  padding: 12px 0;
+  position: relative;
+}
+.office-app .activity + .activity {
+  border-top: 1px solid #f1f3ec;
+}
+.office-app .activity p {
+  font-size: 12px;
+  line-height: 1.75;
+  color: #435848;
+  margin: 0 0 5px;
+  overflow-wrap: anywhere;
+}
+.office-app .activity small {
+  font-size: 10px;
+  color: #6d796b;
+}
+.office-app .activity-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 8px;
+  background: #a3b096;
+  flex-shrink: 0;
+}
+.office-app .activity-dot.has-task {
+  background: #47725a;
+  box-shadow: 0 0 0 4px #eaf0e4;
+}
+.office-app .page-footer {
+  padding: 16px 30px;
+  font-size: 10px;
+  border-color: #e4e7dd;
+  color: #515e4d;
+}
+.office-app .page-footer span {
+  font-size: 10px;
+  color: #515e4d;
+}
+.office-app .view-heading {
+  margin-bottom: 24px;
+  align-items: center;
+}
+.office-app .view-heading h2 {
+  font-size: 23px;
+  margin: 0 0 7px;
+}
+.office-app .view-heading p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.office-app .search {
+  background: #fff;
+  border-radius: 9px;
+  border-color: #dce3d6;
+  min-height: 45px;
+}
+.office-app .search input {
+  font-size: 13px;
+}
+.office-app .employee-grid {
+  gap: 14px;
+}
+.office-app .employee-card {
+  padding: 22px;
+  border-radius: 12px;
+  border-color: #e0e6da;
+  box-shadow: var(--office-shadow);
+  gap: 16px;
+}
+.office-app .employee-card:hover {
+  border-color: #93ae91;
+  background: #fcfdf9;
+  box-shadow: 0 4px 15px #284b3a0c;
+}
+.office-app .employee-card h3 {
+  font-size: 15px;
+  font-weight: 650;
+}
+.office-app .employee-card p {
+  font-size: 12px;
+  margin: 5px 0;
+}
+.office-app .employee-card small {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #697565;
+  overflow-wrap: anywhere;
+}
+.office-app .avatar {
+  box-shadow: 0 0 0 4px #f0f3ea;
+  border: 2px solid #fff;
+  border-radius: 16px;
+}
+.office-app .department-chips button {
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  min-height: 36px;
+}
+.office-app .kanban {
+  gap: 12px;
+}
+.office-app .kanban > section {
+  border-radius: 11px;
+  background: #eaece4;
+  padding: 10px;
+}
+.office-app .kanban > section > h3 {
+  font-size: 12px;
+  padding: 5px 4px 11px;
+}
+.office-app .work-card {
+  border-radius: 9px;
+  border-color: #dfe5d7;
+  padding: 16px;
+  box-shadow: 0 2px 3px #253d2610;
+}
+.office-app .work-card strong {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.office-app .work-card p,
+.office-app .work-card footer {
+  font-size: 11px;
+  line-height: 1.6;
+}
+.office-app .badge {
+  font-size: 10px;
+  border-radius: 5px;
+  padding: 4px 7px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.office-app .badge-review,
+.office-app .badge-approval,
+.office-app .badge-waiting_reply {
+  background: #f5edd6;
+  color: #775c24;
+}
+.office-app .badge-completed,
+.office-app .badge-verified {
+  background: #e8f1e1;
+  color: #395b2f;
+}
+.office-app .badge-running {
+  background: #e2eee7;
+  color: #286045;
+}
+.office-app .badge-failed {
+  background: #f8e8e2;
+  color: #973f2c;
+}
+.office-app .record-row {
+  padding: 20px;
+}
+.office-app .record-row strong {
+  font-size: 14px;
+}
+.office-app .record-row p {
+  font-size: 12px;
+}
+.office-app .record-row small {
+  font-size: 11px;
+}
+.office-app .panel {
+  padding: 22px;
+}
+.office-app .panel h3 {
+  font-size: 16px;
+}
+.office-app .panel > p {
+  font-size: 13px;
+}
+.office-app .field > span {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+.office-app .field input,
+.office-app .field select,
+.office-app .field textarea {
+  font-size: 13px;
+  min-height: 41px;
+  padding: 10px 12px;
+  border-color: #d8e0d2;
+  border-radius: 7px;
+  background: #fff;
+  line-height: 1.5;
+}
+.office-app .field textarea {
+  min-height: 94px;
+}
+.office-app .field input[type="color"] {
+  padding: 5px;
+}
+.office-app .field input:hover,
+.office-app .field select:hover,
+.office-app .field textarea:hover {
+  border-color: #a7bca1;
+}
+.office-app .modal-backdrop {
+  background: #132b23a1;
+  padding: 30px;
+  backdrop-filter: blur(3px);
+}
+.office-app .modal {
+  border: 1px solid #e1e6d8;
+  border-radius: 17px;
+  padding: 28px;
+  max-width: 760px;
+  box-shadow: 0 20px 80px #0d281d35;
+}
+.office-app .modal > header {
+  border-bottom: 1px solid #e6ebdf;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+}
+.office-app .modal h2 {
+  font-size: 19px;
+}
+.office-app .icon-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 7px;
+}
+.office-app .employee-profile {
+  padding: 18px;
+  background: #f5f6ef;
+  border-radius: 12px;
+  margin-bottom: 22px;
+}
+.office-app .employee-profile h3 {
+  font-size: 19px;
+}
+.office-app .employee-profile p {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.office-app .modal details {
+  border-radius: 8px;
+  border-color: #e1e7d9;
+}
+.office-app .modal summary {
+  min-height: 40px;
+  font-size: 13px;
+}
+.office-app .modal details p {
+  font-size: 12px;
+}
+.office-app .muted {
+  color: var(--muted);
+}
+.office-app .empty {
+  padding: 44px 22px;
+  color: #667963;
+}
+.office-app .empty h3 {
+  font-size: 17px;
+}
+.office-app .empty p {
+  font-size: 13px;
+}
+.office-app .notice {
+  background: #edf4e6;
+  border-bottom: 1px solid #d8e8ca;
+  font-size: 13px;
+}
+.office-app .alert {
+  background: #fcf1d9;
+  color: #775822;
+  font-size: 13px;
+}
+.office-app .alert.error {
+  background: #fae9e4;
+  color: #923f30;
+}
+.office-app.observe .sidebar,
+.office-app.observe .office-feed {
+  display: none;
+}
+.office-app.observe main {
+  margin-left: 0;
+  width: 100%;
+}
+.office-app.observe .office-columns {
+  grid-template-columns: minmax(0, 1fr);
+}
+.office-app.observe .content {
+  max-width: 1600px;
+}
+.office-app.boot {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+.office-app.boot > svg {
+  color: var(--green);
+  background: #e7eedb;
+  padding: 16px;
+  box-sizing: content-box;
+  border-radius: 18px;
+  margin-bottom: 12px;
+}
+.office-app.boot h1 {
+  font-size: 25px;
+  margin: 0;
+}
+
+@media (max-width: 1250px) and (min-width: 701px) {
+  .office-app {
+    --office-sidebar: 190px;
+  }
+  .office-app .sidebar {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .office-app .content {
+    padding: 24px;
+  }
+  .office-app .topbar {
+    padding: 20px 24px;
+  }
+  .office-app .office-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .office-app .office-feed {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+  .office-app .office-metric {
+    padding: 15px;
+  }
+  .workspace-switch {
+    gap: 7px;
+    padding: 12px 8px;
+  }
+  .workspace-symbol {
+    display: none;
+  }
+}
+@media (max-width: 900px) and (min-width: 701px) {
+  .office-app .office-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .office-app .overview {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .office-app .office-connection-bar button {
+    margin-left: 0;
+    padding-left: 0;
+  }
+}
+@media (max-width: 700px) {
+  .office-app {
+    display: block;
+    font-size: 13px;
+  }
+  .office-app .sidebar {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    padding: 16px 16px 0;
+    border: 0;
+  }
+  .office-app .brand {
+    padding: 0 2px 13px;
+    font-size: 17px;
+    gap: 10px;
+  }
+  .office-app .brand-mark {
+    height: 32px;
+    width: 31px;
+    border-radius: 8px 8px 4px 4px;
+  }
+  .office-app .brand small {
+    display: inline;
+    font-size: 8px;
+    margin-left: 12px;
+    letter-spacing: 1.8px;
+  }
+  .office-app .workspace-switch,
+  .office-app .company-label,
+  .office-app .sidebar-bottom {
+    display: none;
+  }
+  .office-app nav {
+    flex-direction: row;
+    overflow: auto;
+    gap: 4px;
+    padding-bottom: 11px;
+    scrollbar-width: thin;
+    scrollbar-color: #496b50 transparent;
+  }
+  .office-app nav button {
+    min-height: 40px;
+    padding: 9px 12px;
+    font-size: 12px;
+    flex-shrink: 0;
+    gap: 6px;
+  }
+  .office-app nav button svg {
+    width: 15px;
+    height: 15px;
+  }
+  .office-app nav small {
+    display: none;
+  }
+  .office-app main {
+    width: 100%;
+    margin: 0;
+  }
+  .office-app .topbar {
+    padding: 19px 18px;
+    min-height: 0;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .office-app .topbar .eyebrow {
+    font-size: 9px;
+    gap: 6px;
+  }
+  .office-app .topbar h1 {
+    font-size: 22px;
+  }
+  .office-app .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .office-app .header-actions .primary,
+  .office-app .header-actions .secondary {
+    min-height: 40px;
+    font-size: 12px;
+    padding: 9px 12px;
+  }
+  .office-app .header-actions svg {
+    width: 15px;
+  }
+  .office-app .content {
+    padding: 20px 16px 24px;
+  }
+  .office-app .overview {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+    padding-bottom: 18px;
+  }
+  .office-app .intro h2 {
+    font-size: 21px;
+  }
+  .office-app .intro p {
+    font-size: 12px;
+  }
+  .office-date {
+    font-size: 11px;
+  }
+  .office-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .office-metric {
+    padding: 14px;
+    border-radius: 10px;
+  }
+  .metric-label {
+    font-size: 11px;
+    gap: 6px;
+  }
+  .metric-label svg {
+    width: 15px;
+  }
+  .office-metric strong {
+    font-size: 29px;
+    margin: 5px 0;
+  }
+  .metric-detail {
+    font-size: 10px;
+  }
+  .office-connection-bar {
+    gap: 8px 15px;
+    margin-bottom: 14px;
+    font-size: 10px;
+  }
+  .office-connection-bar button {
+    margin: 0;
+    padding: 3px 0;
+    font-size: 10px;
+  }
+  .office-app .office-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .office-app .office-feed {
+    display: flex;
+    gap: 14px;
+  }
+  .office-app .section-heading {
+    padding: 16px 14px 13px;
+    gap: 9px;
+    align-items: flex-start;
+  }
+  .office-app .section-heading h3 {
+    font-size: 13px;
+    gap: 6px;
+  }
+  .office-app .section-heading p {
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .office-app .section-heading .secondary {
+    padding: 7px 8px;
+    font-size: 10px;
+    gap: 5px;
+  }
+  .office-app .floor-tools {
+    padding: 0 14px 10px;
+  }
+  .office-app .floor-tabs button {
+    min-height: 34px;
+    min-width: 37px;
+    padding: 5px 8px;
+  }
+  .office-app .page-footer {
+    padding: 16px;
+    font-size: 9px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .office-app .page-footer span {
+    font-size: 9px;
+  }
+  .office-app .view-heading {
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .office-app .view-heading h2 {
+    font-size: 21px;
+  }
+  .office-app .view-heading p {
+    font-size: 12px;
+  }
+  .office-app .employee-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .office-app .employee-card {
+    padding: 18px 16px;
+    gap: 13px;
+  }
+  .office-app .employee-card h3 {
+    font-size: 14px;
+  }
+  .office-app .employee-card p,
+  .office-app .employee-card small {
+    font-size: 11px;
+  }
+  .office-app .panel {
+    padding: 18px;
+  }
+  .office-app .modal-backdrop {
+    padding: 8px;
+  }
+  .office-app .modal {
+    padding: 20px 17px;
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+    border-radius: 13px;
+  }
+  .office-app .modal > header {
+    padding-bottom: 15px;
+    margin-bottom: 18px;
+  }
+  .office-app .employee-profile {
+    padding: 15px 12px;
+    gap: 13px;
+  }
+  .office-app .employee-profile h3 {
+    font-size: 17px;
+  }
+  .office-app .field > span {
+    font-size: 12px;
+  }
+  .office-app .field input,
+  .office-app .field select,
+  .office-app .field textarea {
+    font-size: 14px;
+    padding: 10px;
+    min-width: 0;
+  }
+  .office-app .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .office-app .record-row {
+    padding: 17px 13px;
+  }
+  .office-app .record-row strong {
+    font-size: 13px;
+  }
+  .office-app .record-row .badge {
+    font-size: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .office-app *,
+  .office-app *::before,
+  .office-app *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

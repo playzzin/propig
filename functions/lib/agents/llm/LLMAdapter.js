@@ -1,8 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LLMAdapterFactory = exports.MockAdapter = exports.GeminiAdapter = exports.ClaudeAdapter = exports.OpenAIAdapter = exports.llmChatResponseSchema = exports.llmChatRequestSchema = exports.llmMessageSchema = void 0;
+exports.LLMAdapterFactory = exports.MockAdapter = exports.OpenRouterAdapter = exports.ClaudeAdapter = exports.OpenAIAdapter = exports.llmChatResponseSchema = exports.llmChatRequestSchema = exports.llmMessageSchema = void 0;
 const zod_1 = require("zod");
-const generative_ai_1 = require("@google/generative-ai");
 /**
  * LLM Adapter Interface
  *
@@ -181,76 +180,22 @@ class ClaudeAdapter {
     }
 }
 exports.ClaudeAdapter = ClaudeAdapter;
-// Import SDK (add at top of file, but since I'm editing the class, I'll assume import exists or add it)
-// Wait, I need to add the import first.
-// I'll do this in two steps or use MultiReplace.
-// Actually, let's use MultiReplace to add import AND replace class.
-class GeminiAdapter {
+// ============================================
+// OpenRouter Adapter
+// ============================================
+class OpenRouterAdapter extends OpenAIAdapter {
     constructor(config) {
-        this.apiKey = config.apiKey;
-        this.model = config.model || 'gemini-2.5-flash';
-    }
-    async chat(messages, options) {
-        var _a, _b;
-        const validatedRequest = exports.llmChatRequestSchema.parse({
-            messages,
-            temperature: (_a = options === null || options === void 0 ? void 0 : options.temperature) !== null && _a !== void 0 ? _a : 0.7,
-            maxTokens: (_b = options === null || options === void 0 ? void 0 : options.maxTokens) !== null && _b !== void 0 ? _b : 2000,
+        super({
+            apiKey: config.apiKey,
+            model: config.model || 'openai/gpt-4.1-mini',
+            baseURL: 'https://openrouter.ai/api/v1',
         });
-        try {
-            const genAI = new generative_ai_1.GoogleGenerativeAI(this.apiKey);
-            // Extract system instruction
-            const systemMessage = validatedRequest.messages.find(m => m.role === 'system');
-            const systemInstruction = systemMessage === null || systemMessage === void 0 ? void 0 : systemMessage.content;
-            // Filter out system message to get conversation history
-            const conversationMessages = validatedRequest.messages.filter(m => m.role !== 'system');
-            // Convert to Gemini Content format
-            const history = conversationMessages.slice(0, -1).map(msg => ({
-                role: msg.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: msg.content }],
-            }));
-            const lastMessage = conversationMessages[conversationMessages.length - 1];
-            const modelParams = {
-                model: this.model,
-            };
-            // Gemini 1.5 and 2.0 support systemInstruction
-            if (systemInstruction) {
-                modelParams.systemInstruction = systemInstruction;
-            }
-            const model = genAI.getGenerativeModel(modelParams);
-            const chat = model.startChat({
-                history: history,
-                generationConfig: {
-                    temperature: validatedRequest.temperature,
-                    maxOutputTokens: validatedRequest.maxTokens,
-                },
-            });
-            const result = await chat.sendMessage(lastMessage.content);
-            const response = await result.response;
-            const text = response.text();
-            // Calculate mock usage if not provided by SDK
-            const usageMetadata = response.usageMetadata;
-            const llmResponse = {
-                content: text,
-                usage: {
-                    promptTokens: (usageMetadata === null || usageMetadata === void 0 ? void 0 : usageMetadata.promptTokenCount) || 0,
-                    completionTokens: (usageMetadata === null || usageMetadata === void 0 ? void 0 : usageMetadata.candidatesTokenCount) || 0,
-                    totalTokens: (usageMetadata === null || usageMetadata === void 0 ? void 0 : usageMetadata.totalTokenCount) || 0,
-                },
-                finishReason: 'stop',
-            };
-            return exports.llmChatResponseSchema.parse(llmResponse);
-        }
-        catch (error) {
-            console.error('Gemini Adapter Error Details:', error);
-            throw new Error(`Gemini chat failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
     }
     getProvider() {
-        return 'gemini';
+        return 'openrouter';
     }
 }
-exports.GeminiAdapter = GeminiAdapter;
+exports.OpenRouterAdapter = OpenRouterAdapter;
 // ============================================
 // Mock Adapter (for development/testing)
 // ============================================
@@ -368,11 +313,11 @@ class LLMAdapterFactory {
                     throw new Error('Claude API key is required');
                 }
                 return new ClaudeAdapter(config.claude);
-            case 'gemini':
-                if (!((_c = config === null || config === void 0 ? void 0 : config.gemini) === null || _c === void 0 ? void 0 : _c.apiKey)) {
-                    throw new Error('Gemini API key is required');
+            case 'openrouter':
+                if (!((_c = config === null || config === void 0 ? void 0 : config.openrouter) === null || _c === void 0 ? void 0 : _c.apiKey)) {
+                    throw new Error('OpenRouter API key is required');
                 }
-                return new GeminiAdapter(config.gemini);
+                return new OpenRouterAdapter(config.openrouter);
             case 'mock':
                 return new MockAdapter();
             default:
@@ -400,10 +345,10 @@ class LLMAdapterFactory {
                     apiKey: process.env.ANTHROPIC_API_KEY || '',
                     model: process.env.CLAUDE_MODEL,
                 });
-            case 'gemini':
-                return new GeminiAdapter({
-                    apiKey: process.env.GEMINI_API_KEY || '',
-                    model: process.env.GEMINI_MODEL,
+            case 'openrouter':
+                return new OpenRouterAdapter({
+                    apiKey: process.env.OPENROUTER_API_KEY || '',
+                    model: process.env.OPENROUTER_MODEL,
                 });
             default:
                 console.warn(`Using MockAdapter (LLM_PROVIDER=${provider})`);

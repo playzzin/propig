@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -37,6 +37,7 @@ export default function PropigStore() {
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
   const appRegistry = usePropigAppRegistry();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const previewDialogRef = useRef<HTMLDialogElement>(null);
   const [previewAppId, setPreviewAppId] = useState<PropigStoreApp['id'] | null>(null);
 
   const installedCount = useMemo(
@@ -56,16 +57,15 @@ export default function PropigStore() {
   );
 
   useEffect(() => {
-    if (!previewAppId) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setPreviewAppId(null);
-      }
+    const dialog = previewDialogRef.current;
+    if (!previewAppId || !dialog) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Native modal owns initial focus, Tab containment and background inertness.
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
     };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [previewAppId]);
 
   const handleSignIn = async () => {
@@ -84,8 +84,12 @@ export default function PropigStore() {
     async (app: PropigStoreApp) => {
       if (app.status !== 'available') return;
       const nextInstalled = !appRegistry.isInstalled(app.id);
-      await appRegistry.toggleApp(app.id);
-      toast.success(nextInstalled ? `${app.title} 등록 완료` : `${app.title} 등록 해제`);
+      try {
+        await appRegistry.toggleApp(app.id);
+        toast.success(nextInstalled ? `${app.title} 등록 완료` : `${app.title} 등록 해제`);
+      } catch {
+        toast.error('앱 등록 변경을 저장하지 못했습니다. 다시 시도해주세요.');
+      }
     },
     [appRegistry],
   );
@@ -102,17 +106,25 @@ export default function PropigStore() {
         return;
       }
 
-      await appRegistry.installApp(app.id);
-      toast.success(`${app.title} 등록 완료`);
-      setPreviewAppId(null);
+      try {
+        await appRegistry.installApp(app.id);
+        toast.success(`${app.title} 등록 완료`);
+        setPreviewAppId(null);
+      } catch {
+        toast.error('앱을 등록하지 못했습니다. 다시 시도해주세요.');
+      }
     },
     [appRegistry],
   );
 
   const handleMoveApp = useCallback(
     async (app: PropigStoreApp, direction: -1 | 1) => {
-      await appRegistry.moveApp(app.id, direction);
-      toast.success('메뉴 순서를 변경했습니다.');
+      try {
+        await appRegistry.moveApp(app.id, direction);
+        toast.success('메뉴 순서를 변경했습니다.');
+      } catch {
+        toast.error('메뉴 순서를 저장하지 못했습니다. 다시 시도해주세요.');
+      }
     },
     [appRegistry],
   );
@@ -147,6 +159,21 @@ export default function PropigStore() {
         </HeroActions>
       </StoreHero>
 
+      {appRegistry.error ? (
+        <section aria-label="앱 등록 상태 복구">
+          <ErrorText role="alert">{appRegistry.error}</ErrorText>
+          {appRegistry.canRetryLoad ? (
+            <LoginButton type="button" onClick={() => appRegistry.retryLoad()}>
+              앱 목록 다시 불러오기
+            </LoginButton>
+          ) : null}
+        </section>
+      ) : null}
+      {appRegistry.isAwaitingServer && !appRegistry.error ? (
+        <p role="status">기기에 저장된 목록을 표시하고 있어요. 서버 확인 후 등록·해제·순서 변경을 할 수 있어요.</p>
+      ) : null}
+      {appRegistry.isLoading ? <p role="status">앱 등록 정보를 확인하고 있어요.</p> : null}
+
       <StoreOrderPanel>
         <StoreOrderHead>
           <div>
@@ -172,7 +199,7 @@ export default function PropigStore() {
                   <StoreOrderButton
                     type="button"
                     onClick={() => void handleMoveApp(app, -1)}
-                    disabled={index === 0 || appRegistry.isLoading || appRegistry.isSavingOrder}
+                    disabled={index === 0 || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder}
                     aria-label={`${app.title} 위로 이동`}
                     title="위로 이동"
                   >
@@ -181,7 +208,7 @@ export default function PropigStore() {
                   <StoreOrderButton
                     type="button"
                     onClick={() => void handleMoveApp(app, 1)}
-                    disabled={index === installedApps.length - 1 || appRegistry.isLoading || appRegistry.isSavingOrder}
+                    disabled={index === installedApps.length - 1 || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder}
                     aria-label={`${app.title} 아래로 이동`}
                     title="아래로 이동"
                   >
@@ -199,16 +226,30 @@ export default function PropigStore() {
       <StoreGrid>
         {PROPIG_STORE_APPS.map((app) => renderStoreCard(app, appRegistry, handleStoreToggle, handlePreviewApp))}
       </StoreGrid>
-      {appRegistry.error ? <ErrorText>{appRegistry.error}</ErrorText> : null}
 
       {previewApp ? (
-        <PreviewBackdrop role="presentation" onClick={() => setPreviewAppId(null)}>
-          <PreviewDialog
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="propig-store-preview-title"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <PreviewBackdrop
+          ref={previewDialogRef}
+          aria-labelledby="propig-store-preview-title"
+          onCancel={() => setPreviewAppId(null)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Tab') return;
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+            )).filter((element) => element.getClientRects().length > 0);
+            const first = controls[0];
+            const last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first?.focus();
+            }
+          }}
+          onClick={(event) => { if (event.target === event.currentTarget) setPreviewAppId(null); }}
+        >
+          <PreviewDialog>
             <PreviewHeader>
               <StoreAppIcon $color={previewApp.color}>
                 <i className={`fa-solid fa-${previewApp.icon}`} aria-hidden="true" />
@@ -281,7 +322,7 @@ export default function PropigStore() {
               <PreviewConfirmButton
                 type="button"
                 onClick={() => void handleConfirmRegistration(previewApp)}
-                disabled={appRegistry.isInstalled(previewApp.id) || appRegistry.savingAppId === previewApp.id || appRegistry.isLoading}
+                disabled={appRegistry.isInstalled(previewApp.id) || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer}
               >
                 {appRegistry.isInstalled(previewApp.id) ? (
                   <Check size={16} />
@@ -337,7 +378,7 @@ function renderStoreCard(
         <StoreInstallButton
           type="button"
           $installed={installed}
-          disabled={planned || saving || appRegistry.isLoading}
+          disabled={planned || Boolean(appRegistry.savingAppId) || appRegistry.isSavingOrder || appRegistry.isLoading || appRegistry.canRetryLoad || appRegistry.isAwaitingServer}
           aria-pressed={planned ? undefined : installed}
           onClick={() => void handleStoreToggle(app)}
         >
@@ -843,7 +884,17 @@ const ErrorText = styled.p`
   max-width: 1240px;
 `;
 
-const PreviewBackdrop = styled.div`
+const PreviewBackdrop = styled.dialog`
+  border: 0;
+  color: inherit;
+  margin: 0;
+  max-height: none;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: contain;
+  &:not([open]) { display: none; }
+  &::backdrop { background: transparent; }
   align-items: center;
   background: rgba(3, 8, 7, 0.74);
   backdrop-filter: blur(14px);

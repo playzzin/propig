@@ -20,6 +20,7 @@ export interface ProjectBoardCategory {
 export interface ProjectBoardTask {
   id: string;
   title: string;
+  description?: string;
   done: boolean;
   imageUrl?: string;
 }
@@ -59,6 +60,7 @@ export interface ProjectBoardData {
 const ProjectBoardTaskSchema = z.object({
   id: z.string(),
   title: z.string(),
+  description: z.string().optional(),
   done: z.boolean(),
   imageUrl: z.string().optional(),
 });
@@ -109,40 +111,6 @@ function normalizeOptionalText(value?: string): string | undefined {
   return cleaned ? cleaned : undefined;
 }
 
-function normalizePlanStages(item: ProjectBoardItem): ProjectBoardPlanStage[] {
-  const normalized =
-    item.planStages
-      ?.map((stage, index) => ({
-        id: stage.id || `${item.id}-plan-stage-${index + 1}`,
-        title: stage.title?.trim() || `계획 ${index + 1}단계`,
-        body: stage.body?.trim() || item.planBody,
-        imageUrl: normalizeOptionalText(stage.imageUrl) || item.imageUrl,
-      }))
-      .filter((stage) => stage.title.length > 0 || stage.body.length > 0 || Boolean(stage.imageUrl)) ?? [];
-
-  if (normalized.length > 0) {
-    return normalized;
-  }
-
-  if (item.tasks.length > 0) {
-    return item.tasks.map((task, index) => ({
-      id: `${item.id}-plan-stage-${index + 1}`,
-      title: task.title || `계획 ${index + 1}단계`,
-      body: index === 0 ? item.planBody || item.summary : item.summary || item.planBody,
-      imageUrl: task.imageUrl || item.imageUrl,
-    }));
-  }
-
-  return [
-    {
-      id: `${item.id}-plan-stage-overview`,
-      title: item.stageLabel || '계획 개요',
-      body: item.planBody || '계획 본문을 입력하세요.',
-      imageUrl: item.imageUrl,
-    },
-  ];
-}
-
 function normalizeProjectBoardData(data: ProjectBoardData): ProjectBoardData {
   return {
     categories: data.categories.map((category) => ({
@@ -165,10 +133,10 @@ function normalizeProjectBoardData(data: ProjectBoardData): ProjectBoardData {
       currentHtml: normalizeOptionalText(item.currentHtml),
       planBody: item.planBody,
       planHtml: normalizeOptionalText(item.planHtml),
-      planStages: normalizePlanStages(item),
       tasks: item.tasks.map((task) => ({
         id: task.id,
         title: task.title,
+        description: normalizeOptionalText(task.description),
         done: task.done,
         imageUrl: task.imageUrl || item.imageUrl,
       })),
@@ -180,11 +148,11 @@ function normalizeProjectBoardData(data: ProjectBoardData): ProjectBoardData {
   };
 }
 
-function parseBoardSnapshot(value: unknown, fallback: ProjectBoardData): ProjectBoardData {
+function parseBoardSnapshot(value: unknown): ProjectBoardData {
   const parsed = ProjectBoardDataSchema.safeParse(value);
 
-  if (!parsed.success || parsed.data.categories.length === 0) {
-    return normalizeProjectBoardData(fallback);
+  if (!parsed.success) {
+    throw new Error('프로젝트 보드 데이터 형식이 올바르지 않습니다.');
   }
 
   return normalizeProjectBoardData(parsed.data as ProjectBoardData);
@@ -209,19 +177,22 @@ function stripUndefinedFields<T>(value: T): T {
 class ProjectBoardService {
   subscribe(
     mode: ProjectBoardMode,
-    fallback: ProjectBoardData,
-    onData: (data: ProjectBoardData, source: 'firestore' | 'fallback') => void,
+    onData: (data: ProjectBoardData, source: 'firestore' | 'empty') => void,
     onError: (error: Error) => void
   ): Unsubscribe {
     return onSnapshot(
       doc(db, BOARD_COLLECTION, mode),
       (snapshot) => {
         if (!snapshot.exists()) {
-          onData(normalizeProjectBoardData(fallback), 'fallback');
+          onData({ categories: [], items: [] }, 'empty');
           return;
         }
 
-        onData(parseBoardSnapshot(snapshot.data(), fallback), 'firestore');
+        try {
+          onData(parseBoardSnapshot(snapshot.data()), 'firestore');
+        } catch (error) {
+          onError(error instanceof Error ? error : new Error(String(error)));
+        }
       },
       (error) => {
         onError(error instanceof Error ? error : new Error(String(error)));

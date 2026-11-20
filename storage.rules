@@ -18,13 +18,42 @@ service firebase.storage {
       );
     }
 
+    function isStoryboardReferencePath(fileName) {
+      return fileName.matches('storyboards/[^/]+/references/.*');
+    }
+
+    function isValidStoryboardReferenceUpload() {
+      return request.resource.size <= 8 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(avif|gif|jpeg|png|webp)');
+    }
+
+    // Retired app assets remain inaccessible to browser clients until their
+    // legacy objects are removed with the Admin SDK.
+    function isRetiredUserProgramPath(fileName) {
+      return fileName.matches('emoticon-studio/.*');
+    }
+
+    function isRetiredStoragePath(fileName) {
+      return fileName.matches('users/[^/]+/emoticon-studio/.*');
+    }
+
     match /images/albums/{albumId}/{fileName=**} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
+    // Public corporate assets can be refreshed through the browser SDK.
+    match /corp/{fileName=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /users/{userId}/{fileName=**} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read: if (isOwner(userId) || isAdmin()) && !isRetiredUserProgramPath(fileName);
+      allow create, update: if (isOwner(userId) || isAdmin()) &&
+        !isRetiredUserProgramPath(fileName) &&
+        (!isStoryboardReferencePath(fileName) || isValidStoryboardReferenceUpload());
+      allow delete: if (isOwner(userId) || isAdmin()) && !isRetiredUserProgramPath(fileName);
     }
 
     match /drive/{userId}/{fileName=**} {
@@ -40,9 +69,19 @@ service firebase.storage {
       allow read, write: if isOwner(userId) || isAdmin();
     }
 
+    match /video_studio/{userId}/{projectId}/{fileName=**} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
     match /{fileName=**} {
-      allow read: if true;
-      allow write: if isAdmin();
+      // Undeclared namespaces never become public by omission. The
+      // authenticated admin storage browser keeps bounded legacy management.
+      allow read: if false;
+      allow create, update: if isAdmin() &&
+        !isRetiredStoragePath(fileName) &&
+        request.resource.size <= 100 * 1024 * 1024;
+      allow delete: if isAdmin() && !isRetiredStoragePath(fileName);
     }
   }
 }

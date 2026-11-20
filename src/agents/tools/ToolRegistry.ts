@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { evaluateArithmeticExpression } from './arithmetic';
 
 export interface Tool {
     name: string;
@@ -194,20 +195,13 @@ toolRegistry.registerTool({
     description: 'Perform mathematical calculations',
     category: 'data',
     parameters: z.object({
-        expression: z.string(),
+        expression: z.string().trim().min(1).max(512),
     }),
     execute: async (params) => {
         const { expression } = params as { expression: string };
 
-        // Simple evaluation (be careful with eval in production!)
-        // TODO: Use a safer math parser like math.js
         try {
-            // Very basic validation
-            if (!/^[\d+\-*/().\s]+$/.test(expression)) {
-                throw new Error('Invalid expression');
-            }
-
-            const result = eval(expression);
+            const result = evaluateArithmeticExpression(expression);
             return { expression, result };
         } catch {
             throw new Error('Calculation failed: Invalid expression');

@@ -1,0 +1,21 @@
+[
+  {
+    "role": "security",
+    "goal": "스토리보드 영구 삭제 API의 프로젝트 소유 파일·작업 이력 완전 정리와 권한·재시도·실행 중 작업 안전성을 구현한다. 다른 프로젝트와 공용 파일은 보존한다.",
+    "files": [
+      "functions/src/api/hostingStoryboardRoutes.ts",
+      "src/app/api/generate-image/route.ts",
+      "functions/src/api/hostingGenerationRoutes.ts"
+    ]
+  },
+  {
+    "role": "qa",
+    "goal": "가짜 저장소에서 서버 삭제 로직의 데이터 잔재·권한·재시도·실행 중 작업 경계를 검증한다.",
+    "files": ["scripts/verify-storyboard-project-deletion.cjs", "scripts/verify-storyboard-generation-cleanup-safety.mjs"]
+  },
+  {
+    "role": "security",
+    "goal": "삭제 잠금과 영상 작업 생성·재시도 transaction을 연결하여 삭제 이후 작업이 생성되지 않게 한다.",
+    "files": ["src/lib/server/video-studio-admin.ts", "functions/src/api/hostingVideoStudioRoutes.ts", "functions/src/videoStudio/processor.ts"]
+  }
+]

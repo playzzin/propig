@@ -1,0 +1,6 @@
+{
+  "kind": "wsl",
+  "distro": "Ubuntu-24.04",
+  "home": "/home/hermes/.hermes",
+  "host": "pc-wsl"
+}

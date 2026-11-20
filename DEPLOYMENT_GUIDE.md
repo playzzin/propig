@@ -97,12 +97,6 @@ curl -X POST http://localhost:6001/api/v1/chat \
 curl http://localhost:6001/api/v1/chat
 ```
 
-### 통합 예제 실행
-```bash
-# TypeScript 실행
-npx ts-node src/agents/examples/integration-example.ts
-```
-
 ---
 
 ## 🌐 프로덕션 배포

@@ -34,7 +34,8 @@ import {
 import { ref as storageRef, uploadBytes } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
-import { storage } from '@/firebase/config';
+import { storage } from '@/firebase/storage';
+import { recordActivityLog } from '@/services/activityLogService';
 import type {
   AdminStorageCreateFolderResponse,
   AdminStorageErrorResponse,
@@ -66,6 +67,8 @@ const STORAGE_LIST_LIMIT = 12000;
 const STORAGE_FOLDER_NAME_LIMIT = 120;
 const ROOT_NODE_ID = 'folder:__root__';
 const PREVIEW_LIMIT = 240;
+const ADMIN_STORAGE_VERIFY_FIXTURE_PARAM = '__adminStorageFixture';
+const ADMIN_STORAGE_VERIFY_TOKEN = 'admin-storage-fixture-token';
 const IMAGE_FILE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'heif', 'ico', 'jfif', 'jpg', 'jpeg', 'png', 'svg', 'tif', 'tiff', 'webp']);
 const VIDEO_FILE_EXTENSIONS = new Set(['m4v', 'mov', 'mp4', 'webm']);
 
@@ -251,7 +254,7 @@ const SummaryStrip = styled.div`
   }
 
   @media (max-width: 520px) {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 `;
 
@@ -992,6 +995,46 @@ function formatDate(value: string | null | undefined): string {
   }).format(date);
 }
 
+function readInitialStorageSearch(): string {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('q') ?? params.get('search') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function isAdminStorageVerifyFixtureEnabled(): boolean {
+  if (process.env.NODE_ENV === 'production' || typeof window === 'undefined') return false;
+
+  try {
+    return new URLSearchParams(window.location.search).get(ADMIN_STORAGE_VERIFY_FIXTURE_PARAM) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function createAdminStorageVerifyUser(): CurrentUser {
+  return {
+    uid: 'admin-storage-fixture-user',
+    email: 'admin-storage-fixture@example.com',
+    displayName: 'Admin Storage Fixture',
+    getIdToken: async () => ADMIN_STORAGE_VERIFY_TOKEN,
+    getIdTokenResult: async () =>
+      ({
+        claims: { admin: true, role: 'admin' },
+        token: ADMIN_STORAGE_VERIFY_TOKEN,
+        authTime: '',
+        issuedAtTime: '',
+        expirationTime: '',
+        signInProvider: null,
+        signInSecondFactor: null,
+      }) as Awaited<ReturnType<CurrentUser['getIdTokenResult']>>,
+  } as CurrentUser;
+}
+
 function getExtension(name: string): string {
   const lastDot = name.lastIndexOf('.');
   if (lastDot < 0 || lastDot === name.length - 1) return '';
@@ -1333,9 +1376,13 @@ function MediaPreview({
 
 export default function AdminStoragePage() {
   const { loginWithGoogle, isConfigured } = useAuth();
-  const { currentUser, isAdmin, isCheckingAdmin } = useAdminAccess();
+  const adminAccess = useAdminAccess();
+  const [verificationUser, setVerificationUser] = useState<CurrentUser | null>(null);
+  const currentUser = verificationUser ?? adminAccess.currentUser;
+  const isAdmin = verificationUser ? true : adminAccess.isAdmin;
+  const isCheckingAdmin = verificationUser ? false : adminAccess.isCheckingAdmin;
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(readInitialStorageSearch);
   const [currentFolderId, setCurrentFolderId] = useState(ROOT_NODE_ID);
   const [selectedId, setSelectedId] = useState(ROOT_NODE_ID);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
@@ -1385,6 +1432,16 @@ export default function AdminStoragePage() {
     return paths;
   }, [displayedItems, selectedNode]);
   const previewCandidateKey = previewCandidates.join('\n');
+
+  useEffect(() => {
+    if (!isAdminStorageVerifyFixtureEnabled()) return undefined;
+
+    const timer = window.setTimeout(() => {
+      setVerificationUser(createAdminStorageVerifyUser());
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!storageQuery.data) return;
@@ -1519,6 +1576,7 @@ export default function AdminStoragePage() {
 
     try {
       let lastUploadedPath = '';
+      const uploadedFiles: Array<{ name: string; path: string; size: number; contentType: string }> = [];
 
       for (const file of files) {
         const uploadFileName = normalizeUploadFileName(file.name);
@@ -1531,6 +1589,12 @@ export default function AdminStoragePage() {
           contentType: file.type || 'application/octet-stream',
         });
         lastUploadedPath = uploadPath;
+        uploadedFiles.push({
+          name: uploadFileName,
+          path: uploadPath,
+          size: file.size,
+          contentType: file.type || 'application/octet-stream',
+        });
       }
 
       if (lastUploadedPath) {
@@ -1538,6 +1602,21 @@ export default function AdminStoragePage() {
       }
 
       toast.success(`${files.length.toLocaleString('ko-KR')}개 파일을 업로드했습니다.`);
+      void recordActivityLog(currentUser, {
+        action: 'admin.storage.file.upload',
+        target: {
+          type: 'storageFolder',
+          path: currentFolder.path || '/',
+          label: currentFolder.id === ROOT_NODE_ID ? 'Storage root' : currentFolder.name,
+        },
+        summary: `${uploadedFiles.length.toLocaleString('ko-KR')}개 파일을 Storage에 업로드했습니다.`,
+        metadata: {
+          parentPath: currentFolder.path || '/',
+          fileCount: uploadedFiles.length,
+          totalBytes: uploadedFiles.reduce((total, file) => total + file.size, 0),
+          files: uploadedFiles.slice(0, 20),
+        },
+      });
       void storageQuery.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '파일 업로드에 실패했습니다.');
@@ -1614,7 +1693,7 @@ export default function AdminStoragePage() {
     );
   }
 
-  if (!isConfigured) {
+  if (!verificationUser && !isConfigured) {
     return (
       <PageShell>
         <AccessState>

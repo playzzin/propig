@@ -1,7 +1,6 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
-import { Capacitor } from '@capacitor/core';
 import {
   User,
   signInWithEmailAndPassword,
@@ -9,14 +8,9 @@ import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
-  setPersistence,
-  browserLocalPersistence,
   browserPopupRedirectResolver,
-  browserSessionPersistence,
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
-  indexedDBLocalPersistence,
-  inMemoryPersistence,
   sendPasswordResetEmail,
   UserCredential,
 } from 'firebase/auth';
@@ -54,46 +48,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const isNativeAuthPlatform = () => typeof window !== 'undefined' && Capacitor.isNativePlatform();
+const isNativeAuthPlatform = async () => {
+  if (typeof window === 'undefined') return false;
+  const { Capacitor } = await import('@capacitor/core');
+  return Capacitor.isNativePlatform();
+};
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 9000;
-const AUTH_PERSISTENCE_TIMEOUT_MS = 2500;
-
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timeoutId = setTimeout(() => resolve(null), timeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-};
-
-const configureAuthPersistence = async () => {
-  if (typeof window === 'undefined') return;
-
-  const persistenceOptions = [
-    indexedDBLocalPersistence,
-    browserLocalPersistence,
-    browserSessionPersistence,
-    inMemoryPersistence,
-  ];
-
-  let lastError: unknown = null;
-
-  for (const persistence of persistenceOptions) {
-    try {
-      await setPersistence(auth, persistence);
-      return;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  console.warn('[Firebase Auth] Unable to set persistence; continuing without persisted auth state.', lastError);
-};
 
 const isMissingNativeAuthPluginError = (error: unknown) => {
   if (!(error instanceof Error)) return false;
@@ -122,7 +82,7 @@ const signInWithNativeGoogle = async (): Promise<UserCredential> => {
 };
 
 const signOutNativeAuth = async () => {
-  if (!isNativeAuthPlatform()) return;
+  if (!(await isNativeAuthPlatform())) return;
 
   try {
     const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
@@ -175,8 +135,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const bootstrap = async () => {
       try {
-        await withTimeout(configureAuthPersistence(), AUTH_PERSISTENCE_TIMEOUT_MS);
-
         unsubscribe = onAuthStateChanged(auth, (user) => {
           if (didCancel) return;
           window.clearTimeout(bootstrapTimeout);
@@ -221,7 +179,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const loginWithGoogle = useCallback(async (): Promise<UserCredential> => {
     assertConfigured();
-    const credential = isNativeAuthPlatform()
+    const credential = await isNativeAuthPlatform()
       ? await signInWithNativeGoogle()
       : await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
     setCurrentUser(credential.user);

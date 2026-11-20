@@ -60,6 +60,8 @@ export interface ManagedUserAccess {
 }
 
 export interface ManagedUserRecord extends ManagedUserAccess {
+  /** Opaque authoritative snapshot revision; send unchanged when saving. */
+  revision: string;
   uid: string;
   email: string | null;
   displayName: string | null;
@@ -83,6 +85,8 @@ export interface AdminUsersStorageStatus {
 export interface AdminUsersResponse {
   users: ManagedUserRecord[];
   storage: AdminUsersStorageStatus;
+  /** Pagination covers only loaded accounts, not a global search or total count. */
+  nextPageToken?: string | null;
 }
 
 export interface AdminUserUpdateResponse {

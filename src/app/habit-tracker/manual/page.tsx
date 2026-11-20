@@ -1,7 +1,5 @@
-'use client';
-
-import HabitTrackerApp from '@/components/habits/HabitTrackerApp';
+import HabitTrackerRoute from '@/components/habits/HabitTrackerRoute';
 
 export default function HabitTrackerManualPage() {
-  return <HabitTrackerApp initialView="manual" />;
+  return <HabitTrackerRoute initialView="manual" />;
 }

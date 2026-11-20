@@ -4,6 +4,7 @@ exports.adminStorage = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const logger = require("firebase-functions/logger");
+const firestore_1 = require("../firestore");
 if (!admin.apps.length) {
     admin.initializeApp();
 }
@@ -11,6 +12,18 @@ const DEFAULT_LIST_LIMIT = 6000;
 const MAX_LIST_LIMIT = 20000;
 const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
 const MAX_FOLDER_NAME_LENGTH = 120;
+function buildFirebaseTokenUrl(bucketName, fileName, metadata) {
+    const customMetadata = metadata.metadata && typeof metadata.metadata === 'object'
+        ? metadata.metadata
+        : {};
+    const tokenValue = customMetadata.firebaseStorageDownloadTokens;
+    const token = typeof tokenValue === 'string'
+        ? tokenValue.split(',').map((item) => item.trim()).find(Boolean)
+        : null;
+    if (!token)
+        return null;
+    return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(fileName)}?alt=media&token=${encodeURIComponent(token)}`;
+}
 function parseBearerToken(header) {
     if (!header)
         return null;
@@ -20,7 +33,7 @@ function parseBearerToken(header) {
     return token.trim();
 }
 function parseAdminUidAllowList() {
-    const raw = process.env.GEMINI_ADMIN_UIDS || process.env.ADMIN_UIDS || '';
+    const raw = process.env.ADMIN_UIDS || '';
     return raw
         .split(',')
         .map((item) => item.trim())
@@ -40,10 +53,9 @@ async function requireAdmin(req) {
         if (hasAdminClaim || isAllowedByUid) {
             return { ok: true, uid: decoded.uid };
         }
-        const db = admin.firestore();
         const [adminDoc, accessDoc] = await Promise.all([
-            db.collection('admins').doc(decoded.uid).get().catch(() => null),
-            db.collection('userAccess').doc(decoded.uid).get().catch(() => null),
+            firestore_1.db.collection('admins').doc(decoded.uid).get().catch(() => null),
+            firestore_1.db.collection('userAccess').doc(decoded.uid).get().catch(() => null),
         ]);
         if ((adminDoc === null || adminDoc === void 0 ? void 0 : adminDoc.exists) || ((accessDoc === null || accessDoc === void 0 ? void 0 : accessDoc.exists) && ((_a = accessDoc.data()) === null || _a === void 0 ? void 0 : _a.role) === 'admin')) {
             return { ok: true, uid: decoded.uid };
@@ -131,6 +143,7 @@ function mapStorageFile(file, bucketName) {
     };
 }
 exports.adminStorage = (0, https_1.onRequest)({ cors: true, timeoutSeconds: 120, memory: '1GiB' }, async (req, res) => {
+    var _a;
     const authResult = await requireAdmin(req);
     if (!authResult.ok) {
         res.status(authResult.status).json({ ok: false, error: authResult.message });
@@ -186,18 +199,20 @@ exports.adminStorage = (0, https_1.onRequest)({ cors: true, timeoutSeconds: 120,
                 res.status(404).json({ ok: false, error: '요청한 Storage 파일을 찾을 수 없습니다.' });
                 return;
             }
-            const expiresAt = new Date(Date.now() + SIGNED_URL_TTL_MS);
-            const [url] = await file.getSignedUrl({
+            const [metadata] = await file.getMetadata();
+            const tokenUrl = buildFirebaseTokenUrl(bucket.name, file.name, metadata);
+            const expiresAt = tokenUrl ? null : new Date(Date.now() + SIGNED_URL_TTL_MS);
+            const url = tokenUrl || (await file.getSignedUrl({
                 action: 'read',
                 expires: expiresAt,
                 responseDisposition: forceDownload ? encodeContentDispositionFileName(readFileName(downloadPath)) : undefined,
-            });
+            }))[0];
             res.status(200).json({
                 ok: true,
                 bucket: bucket.name,
                 path: downloadPath,
                 url,
-                expiresAt: expiresAt.toISOString(),
+                expiresAt: (_a = expiresAt === null || expiresAt === void 0 ? void 0 : expiresAt.toISOString()) !== null && _a !== void 0 ? _a : null,
             });
             return;
         }

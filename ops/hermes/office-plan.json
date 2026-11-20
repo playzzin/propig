@@ -1,0 +1,5 @@
+[
+  {"role":"security","goal":"Phase 2 company domain per docs/hermes-office-phase2-contract.md; preserve data; workflows/reviews/training/layout/dispatch limits; tests","files":["src/lib/server/hermes-office/store.py","src/lib/server/hermes-office/test_store.py"]},
+  {"role":"admin","goal":"Phase 2 company UI per docs/hermes-office-phase2-contract.md; complete collaboration/layout/performance/training/controls; tests by lead","files":["src/components/admin/hermes-office/OfficeApp.tsx","src/components/admin/hermes-office/office.css","src/components/admin/hermes-office/types.ts","src/components/admin/hermes-office/client.ts","src/components/admin/hermes-office/CompanyFeatures.tsx","src/components/admin/hermes-office/OfficeScene.tsx"]},
+  {"role":"qa","goal":"Independent phase2 domain/runtime audit and new isolated test/browser coverage; no production mutations","files":["scripts/hermes-office/test_phase2.py","scripts/hermes-office/phase2-check.mjs"]}
+]

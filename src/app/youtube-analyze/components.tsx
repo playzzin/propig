@@ -13,7 +13,7 @@ export const MagazineWrapper = styled.div<{ $lockScroll?: boolean }>`
   -webkit-overflow-scrolling: touch;
   background-color: #0F0F12;
   color: #E2E8F0;
-  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --primary: #F43F5E;
   --accent: #38BDF8;
   --text-main: #E2E8F0;

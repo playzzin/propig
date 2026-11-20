@@ -158,7 +158,9 @@ export function useCurrentUserAccess() {
         claims.role === 'admin' ||
         adminDoc?.exists() === true ||
         serverAccess?.role === 'admin';
-      const role = normalizeRole(access.role ?? serverAccess?.role ?? claims.role, hasAdminAuthority ? 'admin' : 'user');
+      const role = hasAdminAuthority
+        ? 'admin'
+        : normalizeRole(access.role ?? serverAccess?.role ?? claims.role, 'user');
 
       return {
         role,

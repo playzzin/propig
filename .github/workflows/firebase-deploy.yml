@@ -17,6 +17,7 @@ env:
   CI: "true"
   NEXT_TELEMETRY_DISABLED: "1"
   DISABLE_SENTRY: "true"
+  NEXT_PUBLIC_DISABLE_SENTRY: "true"
   FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || 'propig-63524' }}
   NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
@@ -25,18 +26,14 @@ env:
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
   NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
   NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
-  NEXT_PUBLIC_FIREBASE_DATABASE_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_DATABASE_ID || '(default)' }}
-  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-  GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-  GEMINI_ADMIN_UIDS: ${{ secrets.GEMINI_ADMIN_UIDS }}
-  GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
-  GEMINI_IMAGE_MODEL: ${{ vars.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image' }}
+  NEXT_PUBLIC_FIREBASE_DATABASE_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_DATABASE_ID || 'pppp' }}
 
 jobs:
   deploy:
     name: Deploy to Firebase
     runs-on: ubuntu-latest
-    if: github.repository == 'playzzin/propig'
+    if: github.repository == 'playzzin/propig' && github.ref == 'refs/heads/main'
+    timeout-minutes: 45
     environment: production
 
     steps:
@@ -46,7 +43,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -85,21 +82,15 @@ jobs:
         run: |
           npm run lint
           npm run type-check
+          npm test
+          npm run verify:release-static
           npm run build
+
+      - name: Browser release gate on built static artifact
+        run: bash .github/scripts/verify-static-browser.sh
 
       - name: Verify functions
         run: npm run build --prefix functions
-
-      - name: Write functions runtime environment
-        run: |
-          {
-            printf "GEMINI_MODEL=%s\n" "$GEMINI_MODEL"
-            printf "GEMINI_IMAGE_MODEL=%s\n" "$GEMINI_IMAGE_MODEL"
-
-            if [ -n "$GEMINI_ADMIN_UIDS" ]; then
-              printf "GEMINI_ADMIN_UIDS=%s\n" "$GEMINI_ADMIN_UIDS"
-            fi
-          } > functions/.env
 
       - name: Install Firebase CLI
         run: npm install --global firebase-tools@15
@@ -112,30 +103,9 @@ jobs:
           printf "%s" "$FIREBASE_SERVICE_ACCOUNT" > "$credentials"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$credentials" >> "$GITHUB_ENV"
 
-      - name: Sync Firebase Functions secrets
-        run: |
-          set_secret() {
-            name="$1"
-            value="$2"
-            if [ -z "$value" ]; then
-              echo "Skipping empty Firebase secret: $name"
-              return 0
-            fi
-
-            secret_file="$RUNNER_TEMP/$name.txt"
-            printf "%s" "$value" > "$secret_file"
-            firebase functions:secrets:set "$name" \
-              --project "$FIREBASE_PROJECT_ID" \
-              --data-file "$secret_file" \
-              --force
-          }
-
-          set_secret GEMINI_API_KEY "$GEMINI_API_KEY"
-          set_secret GROK_API_KEY "$GROK_API_KEY"
-
       - name: Deploy Firebase
         run: |
           firebase deploy \
             --project "$FIREBASE_PROJECT_ID" \
-            --only hosting,functions,firestore:rules,firestore:indexes,storage \
+            --only hosting \
             --non-interactive

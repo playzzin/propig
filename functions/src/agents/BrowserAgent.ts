@@ -1,6 +1,7 @@
 import { BaseAgent } from './Agent';
 import { AgentRequest, AgentResponse } from './types';
 import { LLMAdapterFactory } from './llm/LLMAdapter';
+import { fetchExternalHttpUrl, readCappedTextResponse } from '../api/security';
 
 /**
  * Browser Agent
@@ -13,6 +14,7 @@ export class BrowserAgent extends BaseAgent {
     private llm = LLMAdapterFactory.fromEnv();
 
     private static readonly MAX_HTML_CHARS = 250_000;
+    private static readonly MAX_HTML_BYTES = 512 * 1024;
     private static readonly MAX_TEXT_CHARS = 12_000;
 
     private static readonly DEFAULT_HEADERS: Record<string, string> = {
@@ -87,8 +89,7 @@ export class BrowserAgent extends BaseAgent {
 
     private async fetchPage(url: string, logs: string[]): Promise<{ url: string; html: string; text: string; title: string; meta: Record<string, string> } | null> {
         try {
-            const response = await fetch(url, {
-                redirect: 'follow',
+            const response = await fetchExternalHttpUrl(url, {
                 headers: BrowserAgent.DEFAULT_HEADERS,
             });
 
@@ -97,7 +98,7 @@ export class BrowserAgent extends BaseAgent {
                 return null;
             }
 
-            const rawHtml = await response.text();
+            const rawHtml = await readCappedTextResponse(response, BrowserAgent.MAX_HTML_BYTES);
             const html = BrowserAgent.clampText(rawHtml, BrowserAgent.MAX_HTML_CHARS);
             logs.push(`[BrowserAgent] Fetched ${rawHtml.length} chars (clamped: ${html.length})`);
 
