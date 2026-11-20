@@ -88,14 +88,16 @@ async function inspectApply(browser, viewport) {
   });
   assert.equal(response?.status(), 200);
   // The static React stream can retain a hidden copy while the route hydrates.
-  const form = page.locator('main:visible form:visible');
+  const main = page.locator('main:visible');
+  const form = main.locator('form:visible');
   const nameInput = form.locator('#career-name');
   const applicantName = '회귀 검증 지원자';
   await form.waitFor({ state: 'visible' });
   assert.equal(await form.count(), 1, 'exactly one application form must be active');
   assert.equal(await nameInput.count(), 1, 'the active form must have one name input');
 
-  await form.getByRole('button', { name: '이메일 지원 초안 열기' }).click();
+  const openEmailDraft = form.getByRole('button', { name: '이메일 지원 초안 열기' });
+  await openEmailDraft.click();
   assert.equal(await nameInput.evaluate((input) => input === document.activeElement), true, 'invalid submission must focus the name field');
   await form.locator('#career-name-error').waitFor({ state: 'visible' });
   assert.equal(await nameInput.getAttribute('aria-invalid'), 'true');
@@ -109,8 +111,10 @@ async function inspectApply(browser, viewport) {
   await form.locator('#career-consent').check();
   await form.getByText('초안이 이 브라우저에 저장됐습니다.').waitFor();
 
-  const progressLabel = await page.locator('[aria-label^="지원서 준비 진행률"]').getAttribute('aria-label');
+  const progressLabel = await main.locator('[aria-label^="지원서 준비 진행률"]:visible').getAttribute('aria-label');
   assert.equal(progressLabel, '지원서 준비 진행률 100%', 'completed application draft must report 100% progress');
+  await openEmailDraft.click();
+  await form.getByRole('status').filter({ hasText: '이메일 앱을 열었습니다' }).waitFor();
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.equal(overflow, 0, `${viewport.width}px careers apply overflowed horizontally`);
