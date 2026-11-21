@@ -129,7 +129,7 @@ async function verifyPublicAnchors(page, mobile) {
   const home = await page.goto(new URL('/corp', base).href, { waitUntil: 'domcontentloaded' });
   assert.equal(home?.status(), 200);
   await waitForRouter();
-  await activate(page.locator(`main#content-area a[href="${productPath}"]`));
+  await activate(page.locator(`main#content-area:visible a[href="${productPath}"]:visible`));
   await page.waitForURL(new URL(productPath, base).href);
   await waitForProductAnchor(page, 'product-business-panorama');
 
@@ -137,7 +137,7 @@ async function verifyPublicAnchors(page, mobile) {
   assert.equal(company?.status(), 200);
   await waitForRouter();
   const executionPath = `${productPath}#company-introduction-execution`;
-  await activate(page.locator(`main#content-area a[href="${executionPath}"]`));
+  await activate(page.locator(`main#content-area:visible a[href="${executionPath}"]:visible`));
   await page.waitForURL(new URL(executionPath, base).href);
   await waitForProductAnchor(page, 'company-introduction-execution');
   await page.reload({ waitUntil: 'domcontentloaded' });
