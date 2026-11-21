@@ -1,6 +1,7 @@
 'use client';
 
 import styled, { keyframes } from 'styled-components';
+import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const POSES = [
   { id: 'create', image: 'work', message: '아이디어? 내가 만들어볼게!' },
@@ -50,7 +51,7 @@ export function ProductContentSaleScene({ id }: { id: string }) {
         <ellipse cx="387" cy="343" rx="72" ry="7" fill="#344c41" opacity=".12" />
         {POSES.map((item, index) => (
           <g key={item.id} className="creator-pose" data-content-pose={item.id} style={{ animationDelay: `${index * 4}s` }}>
-            <image data-content-character={item.id} href={`/images/corp/products/global/ddunddun-${item.image}.png`} x="290" y="172" width="195" height="179" preserveAspectRatio="xMidYMax meet" />
+            <image data-content-character={item.id} href={SHOWREEL_MEDIA.mascots[item.image]} x="290" y="172" width="195" height="179" preserveAspectRatio="xMidYMax meet" />
             <path d="M290 133h195a9 9 0 0 1 9 9v18a9 9 0 0 1-9 9h-82l-12 10-2-10h-99a9 9 0 0 1-9-9v-18a9 9 0 0 1 9-9Z" fill="#fff" stroke="#cad7cd" />
             <text data-content-speech x="387" y="156" textAnchor="middle" fill="#172e4a" fontSize="15">{item.message}</text>
           </g>

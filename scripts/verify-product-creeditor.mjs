@@ -148,7 +148,7 @@ try {
         assert.ok((await scene.textContent()).includes(platform.product), 'Platform selection switches the original product illustration and name.');
         const character = scene.locator(`[data-commerce-character="${platform.id}"]`);
         assert.equal(await scene.locator('[data-commerce-character]').count(), 1, 'Only the selected product-use scene is shown.');
-        const source = `/images/corp/products/commerce/geudduni-${platform.character}.png`;
+        const source = `/images/corp/products/commerce/geudduni-${platform.character}.webp`;
         assert.equal(await character.getAttribute('href'), source);
         assert.equal(await scene.locator('[data-commerce-character-preview]').getAttribute('href'), source, 'The product link preview follows the same character scene.');
         const image = await page.evaluate(async src => { const image = new Image(); image.src = src; await image.decode(); return { width: image.naturalWidth, height: image.naturalHeight }; }, source);

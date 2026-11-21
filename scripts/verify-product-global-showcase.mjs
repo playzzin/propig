@@ -189,7 +189,8 @@ async function workspaceEvidence(root, viewport) {
     assert.ok(evidence.speechBubble && evidence.speechBubble.x >= evidence.director.x && evidence.speechBubble.right <= evidence.director.right + 1, 'The speech bubble stays within the character column.');
   }
   assert.ok(evidence.story.y - evidence.content.y >= 0 && evidence.story.y - evidence.content.y <= 16, 'Context starts within 16px of the content top instead of being vertically centered.');
-  assert.ok(evidence.transport && evidence.transport.height <= 56, 'Playback controls remain in a compact footer of at most 56px.');
+  assert.ok(evidence.transport && evidence.transport.height <= 56, 'Playback controls occupy at most 56px above the stage.');
+  assert.ok(evidence.transport.bottom <= evidence.workspace.y, 'Playback is reachable above the artwork in the first viewport.');
   assert.deepEqual(evidence.clippedCaptionText, [], 'The shortened bottom caption preserves all of its text.');
   if (evidence.caption) assert.ok(evidence.caption.height <= (viewport.width >= 1000 ? 52 : 80), 'The actual bottom title/description caption is compact.');
   if (viewport.width >= 1000) {
@@ -227,7 +228,7 @@ async function workspaceEvidence(root, viewport) {
   assert.equal(await execution.count(), 1, 'The semantic execution-process link remains available.');
   assert.equal(await execution.getAttribute('href'), '#company-introduction-execution');
   const executionBounds = await execution.boundingBox();
-  assert.ok(executionBounds.width >= 43.5 && executionBounds.height >= 43.5, 'The compact footer preserves the execution link touch target.');
+  assert.ok(executionBounds.width >= 43.5 && executionBounds.height >= 43.5, 'The transport preserves the execution link touch target.');
   return evidence;
 }
 
@@ -451,7 +452,7 @@ try {
       assert.deepEqual(errors, [], 'No runtime or hydration errors.');
       results.push({ ...result, playback: 'pass', keyboard: 'pass', reducedMotion: 'pass', errors });
       await writeFile(path.join(output, 'results.json'), JSON.stringify(results, null, 2));
-      console.log(`PASS product global showcase ${viewport.width}px: embedded characters, compact caption/footer, integrated header, 20% shorter desktop, unified navigation, distinct images, pause/resume, keyboard, reduced motion, 44px controls, overflow, axe`);
+      console.log(`PASS product global showcase ${viewport.width}px: native images, compact captions, top playback, unified navigation, keyboard, reduced motion, 44px controls, overflow, axe`);
     } catch (error) {
       const state = await page.locator(rootSelector).evaluate(section => ({ attributes: Object.fromEntries([...section.attributes].map(attribute => [attribute.name, attribute.value])), height: section.getBoundingClientRect().height })).catch(() => null);
       await writeFile(path.join(output, `failure-${viewport.width}.json`), JSON.stringify({ error: String(error), state, result, errors }, null, 2));

@@ -37,7 +37,7 @@ const pageSpecs = [
   {
     slug: 'product-introduction',
     path: '/corp/company/product-introduction',
-    requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹제품 스타터', '크리에디터', 'CY 모바일 현장일보 웹앱', 'CY 실제 구동', 'CY 상품 견적 요청'],
+    requiredTexts: ['제품소개', 'PRODUCT CATALOG', '웹제품 스타터', '크리에디터', 'CY 모바일 현장일보 웹앱', 'CY 실제 구동'],
     screenshotProbe: { label: 'business panorama', selector: '#product-business-panorama', minWidth: 280, minHeight: 180 },
     visualReadySelector: '#product-film-title',
     targets: [
@@ -713,6 +713,42 @@ async function verifyProductShowcase(page, viewportName) {
   assert.equal(await panel.locator('[data-execution-stage]').count(), 5);
   assert.ok((await panel.textContent()).includes('업무 흐름 측정'));
   assert.ok((await panel.textContent()).includes('안정화와 확장'));
+
+  const main = page.locator('#content-area');
+  await main.evaluate(element => { element.scrollTop = 0; });
+  const catalogLink = page.getByRole('link', { name: '제품 목록', exact: true });
+  const inFirstViewport = await catalogLink.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return box.y >= 0 && box.bottom <= window.innerHeight && box.height >= 44;
+  });
+  assert.equal(inFirstViewport, true, 'The catalog link is usable in the first viewport.');
+  if (viewportName === 'mobile') await catalogLink.tap();
+  else {
+    await catalogLink.focus();
+    await page.keyboard.press('Enter');
+  }
+  await page.waitForFunction(() => location.hash === '#product-catalog' && document.activeElement?.id === 'product-catalog');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#product-category-tab-web-app').evaluate(tab => document.activeElement === tab), true);
+
+  const cyCards = page.locator('[data-product-id^="cy-"][data-product-accordion]');
+  assert.equal(await cyCards.locator('img').count(), 0, 'Closed CY cards do not mount images.');
+  const cyCard = cyCards.filter({ has: page.getByText('CY 모바일 현장일보 웹앱', { exact: true }) });
+  await cyCard.getByRole('button').click();
+  const quote = cyCard.getByRole('link', { name: 'CY 상품 견적 요청', exact: true });
+  const primaryImage = cyCard.locator('figure img').first();
+  const imageFollowsQuote = await cyCard.evaluate(card => {
+    const link = card.querySelector('a[href^="mailto:"]');
+    const image = card.querySelector('figure img');
+    return Boolean(link && image && (link.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING));
+  });
+  assert.equal(imageFollowsQuote, true, 'CY scope and quote precede the screenshots in reading order.');
+  assert.match(await quote.getAttribute('href'), /^mailto:support@propig\.com\?/);
+  await primaryImage.scrollIntoViewIfNeeded();
+  await primaryImage.evaluate(image => image.decode());
+  assert.equal(await primaryImage.getAttribute('loading'), 'lazy');
+  await cyCard.getByRole('button').click();
+  assert.equal(await cyCards.locator('img').count(), 0, 'Closing a card removes its lazy images.');
 }
 
 async function verifyCompanyRouteNavigation(context, viewport) {

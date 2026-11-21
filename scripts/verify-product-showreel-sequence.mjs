@@ -7,6 +7,7 @@ import axe from 'axe-core';
 
 const base = process.env.BASE_URL || 'http://localhost:3002';
 const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'sequence') : '.tmp-product-motion-v7');
+const productPath = '/corp/company/product-introduction';
 // This independent expectation describes the requested public journey, rather
 // than importing the implementation's sequence and testing it against itself.
 const steps = [
@@ -76,11 +77,14 @@ async function playback(showcase, playing) {
 
 async function assertStep(showcase, index) {
   const expected = steps[index];
+  const duration = expected.duration ?? 12_000;
   await attribute(showcase, 'data-step', index);
   assert.equal(await showcase.getAttribute('data-step-id'), expected.id);
   assert.equal(await showcase.getAttribute('data-chapter'), String(expected.chapter));
   assert.equal((await showcase.locator('[data-current-step-label]').innerText()).trim(), expected.label);
   assert.equal((await showcase.locator('[data-next-step-label]').innerText()).trim(), steps[(index + 1) % steps.length].label);
+  const sceneSeconds = String(duration / 1000).padStart(2, '0');
+  assert.equal(await showcase.locator('[data-product-header]').getByText(new RegExp(`^\\d{2}:\\d{2} / 00:${sceneSeconds}$`)).count(), 1, `${expected.id} displays its scene duration.`);
   if (expected.chapter === 2) {
     const studio = showcase.locator('[data-content-studio]');
     assert.equal(await studio.getAttribute('data-content-channel'), expected.channel);
@@ -98,7 +102,7 @@ async function assertStep(showcase, index) {
       assert.equal(await explorer.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), expected.platform);
     }
   }
-  return { index, ...expected };
+  return { index, ...expected, duration };
 }
 
 async function tick(page, milliseconds) {
@@ -107,12 +111,69 @@ async function tick(page, milliseconds) {
   await sleep(80);
 }
 
+async function waitForProductAnchor(page, target) {
+  await page.waitForFunction(id => {
+    const main = document.querySelector('main#content-area');
+    const section = document.getElementById(id);
+    if (!main?.contains(section)) return false;
+    const bounds = section.getBoundingClientRect();
+    const offset = bounds.top - main.getBoundingClientRect().top;
+    return bounds.height > 0 && offset >= -2 && offset <= 48;
+  }, target);
+}
+
+async function verifyPublicAnchors(page, mobile) {
+  const activate = link => mobile ? link.tap() : link.click();
+  // The server renders links before Next hydrates its route history.
+  const waitForRouter = () => page.waitForFunction(() => window.history.state?.__NA === true);
+  const home = await page.goto(new URL('/corp', base).href, { waitUntil: 'domcontentloaded' });
+  assert.equal(home?.status(), 200);
+  await waitForRouter();
+  await activate(page.locator(`main#content-area a[href="${productPath}"]`));
+  await page.waitForURL(new URL(productPath, base).href);
+  await waitForProductAnchor(page, 'product-business-panorama');
+
+  const company = await page.goto(new URL('/corp/company/introduction', base).href, { waitUntil: 'domcontentloaded' });
+  assert.equal(company?.status(), 200);
+  await waitForRouter();
+  const executionPath = `${productPath}#company-introduction-execution`;
+  await activate(page.locator(`main#content-area a[href="${executionPath}"]`));
+  await page.waitForURL(new URL(executionPath, base).href);
+  await waitForProductAnchor(page, 'company-introduction-execution');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForRouter();
+  await waitForProductAnchor(page, 'company-introduction-execution');
+
+  await page.goto(new URL(`${productPath}#product-business-panorama`, base).href, { waitUntil: 'domcontentloaded' });
+  await waitForProductAnchor(page, 'product-business-panorama');
+
+  const automationUrl = new URL(`${productPath}#automation`, base).href;
+  await page.goto(automationUrl, { waitUntil: 'domcontentloaded' });
+  const currentTab = page.locator('#product-category-tab-automation[aria-selected="true"]:visible');
+  await currentTab.waitFor();
+  await waitForProductAnchor(page, 'product-catalog');
+  await activate(page.locator('#product-category-tab-partner:visible'));
+  await page.waitForURL(new URL(`${productPath}#partner`, base).href);
+  await page.goBack();
+  await page.waitForURL(automationUrl);
+  await currentTab.waitFor();
+  await waitForProductAnchor(page, 'product-catalog');
+
+  return ['product-business-panorama', 'company-introduction-execution', 'automation'];
+}
+
 try {
   const viewports = process.env.SHOWREEL_REAL_TIME_ONLY === '1' ? [] : [{ width: 1440, height: 1100 }, { width: 390, height: 844 }];
   for (const viewport of viewports) {
-    const context = await browser.newContext({ viewport, reducedMotion: 'no-preference' });
+    const mobile = viewport.width === 390;
+    const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, reducedMotion: 'no-preference' });
     const page = await context.newPage();
     const errors = captureErrors(page);
+    const requestedPoses = new Set();
+    page.on('request', request => {
+      const pathname = new URL(request.url()).pathname;
+      if (/\/products\/automation\/geudduni-(pc|phone|voice)\.webp$/.test(pathname)) requestedPoses.add(pathname);
+    });
     const result = { viewport, orderedSteps: [], clockScope: 'Accelerated RAF verifies routing and state only. CSS and native media use real-clock regression tests.' };
     try {
       await page.clock.install();
@@ -120,8 +181,21 @@ try {
       assert.equal(response.status(), 200);
       const showcase = page.locator('#product-business-panorama');
       await attribute(showcase, 'data-running', true);
-      // Allow the browser protocol round trip; chapter selection below resets the tour.
+      // Allow the browser protocol round trip before seeking on the paused clock.
       await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+      await showcase.locator('[data-service-option="2"]').click();
+      await assertStep(showcase, 2);
+      await showcase.locator('[data-product-canvas]').scrollIntoViewIfNeeded();
+      await page.clock.runFor(64);
+      await tick(page, 8_000);
+      assert.equal(requestedPoses.size, 0, 'Automation poses stay unfetched until the next scene is near.');
+      await tick(page, 1_300);
+      await assertStep(showcase, 2);
+      for (let attempt = 0; requestedPoses.size < 3 && attempt < 20; attempt++) await sleep(50);
+      assert.equal(requestedPoses.size, 3, 'The next scene starts fetching its poses before it mounts.');
+      assert.equal(await showcase.locator('[data-automation-director]').count(), 0);
+      result.nextScenePreload = 'pass';
+
       await showcase.locator('#product-film-chapter-0').click();
       await showcase.locator('[data-product-canvas]').scrollIntoViewIfNeeded();
       await page.clock.runFor(64);
@@ -253,6 +327,11 @@ try {
       const violations = await page.evaluate(async () => (await window.axe.run('#product-business-panorama', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] } })).violations.map(({ id, nodes }) => ({ id, nodes: nodes.map(node => node.target) })));
       assert.deepEqual(violations, []);
       assert.deepEqual(errors, []);
+      const anchorPage = await context.newPage();
+      const anchorErrors = captureErrors(anchorPage);
+      await anchorPage.emulateMedia({ reducedMotion: 'reduce' });
+      result.publicAnchors = await verifyPublicAnchors(anchorPage, mobile);
+      assert.deepEqual(anchorErrors, []);
       result.errors = errors;
       results.push(result);
       console.log(`PASS ordered 21-scene journey ${viewport.width}x${viewport.height}`);

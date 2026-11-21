@@ -3,6 +3,7 @@
 import { useId, type ReactNode } from 'react';
 import { ReactionBurst, SignalPath, SignalPing } from './ProductMotionEffects';
 import { ProductContentSaleScene } from './ProductContentSaleScene';
+import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const C = {
   ink: '#07101f', surface: '#0d203c', raised: '#172e4a', border: '#314968',
@@ -129,7 +130,7 @@ function ContentSale({ id }: { id: string }) {
         <rect x="38" y="119" width="194" height="283" rx="15" fill={C.surface} stroke={C.border} />
         <g transform="translate(50 135)">
           <g clipPath={`url(#${id}-thumb)`}>
-            <image href="/videos/corp/product-story-youtube.jpg" width="62" height="60" preserveAspectRatio="xMidYMid slice" />
+            <image href={SHOWREEL_MEDIA.productFilmPoster} width="62" height="60" preserveAspectRatio="xMidYMid slice" />
             <Play x={31} y={30} radius={12} />
           </g>
           <text x="74" y="24" fill={C.text} fontSize="20">브랜드 영상</text>
@@ -146,7 +147,7 @@ function ContentSale({ id }: { id: string }) {
         <path d="M52 291h166" stroke={C.border} />
         <g transform="translate(50 303)">
           <g clipPath={`url(#${id}-thumb)`}>
-            <image href="/images/corp/founder-story/episode-1.png" width="124" height="186" preserveAspectRatio="xMinYMin slice" />
+            <image href={SHOWREEL_MEDIA.webtoon} width="124" height="186" preserveAspectRatio="xMinYMin slice" />
           </g>
           <text x="74" y="24" fill={C.text} fontSize="20">웹툰 시리즈</text>
           <text x="74" y="49" fill={C.muted} fontSize="15">이야기 · 일러스트</text>
@@ -163,7 +164,7 @@ function ContentSale({ id }: { id: string }) {
         <text x="552" y="103" fill={C.teal} fontSize="18">03 · 주문과 전달</text>
         <rect x="548" y="119" width="174" height="283" rx="15" fill={C.surface} stroke={C.border} />
         <rect x="565" y="133" width="140" height="74" rx="9" fill="#e8eee2" />
-        <image data-content-delivery-preview href="/images/corp/products/global/ddunddun-success.png" x="568" y="136" width="69" height="69" preserveAspectRatio="xMidYMid meet" />
+        <image data-content-delivery-preview href={SHOWREEL_MEDIA.mascots.success} x="568" y="136" width="69" height="69" preserveAspectRatio="xMidYMid meet" />
         <rect x="647" y="153" width="43" height="42" rx="7" fill={C.surface} />
         <Check x={661} y={174} />
         <text x="635" y="230" fill={C.text} textAnchor="middle" fontSize="21">디지털 상품</text>
@@ -238,7 +239,7 @@ function AdvertisingSale({ id, platform }: { id: string; platform: number }) {
         <g clipPath={`url(#${id}-creative)`}>
           <rect x="263" y="126" width="239" height="231" fill="#e8eee2" />
           <circle cx="382" cy="242" r="95" fill={selected.accent} opacity=".18" />
-          <image data-commerce-character={selected.id} className="video-pan" href={`/images/corp/products/commerce/geudduni-${selected.character}.png`} x="267" y="146" width="231" height="211" preserveAspectRatio="xMidYMax meet" />
+          <image data-commerce-character={selected.id} className="video-pan" href={SHOWREEL_MEDIA.commerce[selected.character]} x="267" y="146" width="231" height="211" preserveAspectRatio="xMidYMax meet" />
           <rect x="274" y="136" width="132" height="22" rx="11" fill={C.ink} />
           <text x="340" y="151" textAnchor="middle" fill={C.text} fontSize="12">그뚠이의 사용 장면</text>
         </g>
@@ -252,7 +253,7 @@ function AdvertisingSale({ id, platform }: { id: string; platform: number }) {
         <text x="634" y="167" textAnchor="middle" fill={C.text} fontSize="20">콘텐츠에서 발견</text>
         <g clipPath={`url(#${id}-product-use)`}>
           <rect x="561" y="183" width="146" height="86" fill="#e8eee2" />
-          <image data-commerce-character-preview={selected.id} href={`/images/corp/products/commerce/geudduni-${selected.character}.png`} x="558" y="183" width="98" height="90" preserveAspectRatio="xMidYMid meet" />
+          <image data-commerce-character-preview={selected.id} href={SHOWREEL_MEDIA.commerce[selected.character]} x="558" y="183" width="98" height="90" preserveAspectRatio="xMidYMid meet" />
           <g transform="translate(680 199) scale(.35)"><ProductObject kind={index} color={selected.accent} /></g>
         </g>
         <text x="634" y="295" textAnchor="middle" fill={C.text} fontSize="19">{selected.item}</text>

@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { ArrowRight, Mic, Monitor, Smartphone } from 'lucide-react';
 import styled, { css, keyframes } from 'styled-components';
 import ProductAutomationDeskEffects from './ProductAutomationDeskEffects';
+import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const MODES = [
   { id: 'pc', label: 'PC 명령', icon: Monitor, title: '클릭 한 번, 맡겨두기.' },
@@ -37,7 +38,7 @@ export default function ProductAutomationDirector({ elapsedMs, variant, cycle, p
       </Command>
       <Portrait role="img" aria-label={`책상에 발을 올리고 담배를 피우며 ${mode.label}으로 업무를 지시하는 그뚠이. ${variant < 4 ? '서류가 날아와 책상 위에 쌓입니다.' : variant < 8 ? '디지털 화면들이 날아와 모니터 주변에 모입니다.' : '모니터 속 봇들이 순서대로 답장합니다.'}`}>
         {MODES.map(({ id }, index) => <Pose key={id} data-command-pose={id} $active={index === phase}>
-          <Image src={`/images/corp/products/automation/geudduni-${id}.png`} alt="" fill sizes="(max-width: 760px) 150px, 300px" unoptimized draggable={false} />
+          <Image src={SHOWREEL_MEDIA.automation[id]} alt="" fill sizes="(max-width: 760px) 150px, 300px" unoptimized draggable={false} />
         </Pose>)}
         <ProductAutomationDeskEffects key={`${variant}-${cycle}`} variant={variant} playing={playing} reducedMotion={reducedMotion} />
       </Portrait>
@@ -49,7 +50,7 @@ export default function ProductAutomationDirector({ elapsedMs, variant, cycle, p
   );
 }
 
-const arrive = keyframes`from { opacity: .45; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); }`;
+const arrive = keyframes`from { transform: translateY(5px); } to { transform: translateY(0); }`;
 const breathe = keyframes`0%, 100% { opacity: .45; } 50% { opacity: 1; }`;
 const Director = styled.div<{ $playing: boolean; $reducedMotion: boolean }>`
   display: grid; align-content: center; min-width: 0; padding: 8px 0; color: #f3f7ff;
