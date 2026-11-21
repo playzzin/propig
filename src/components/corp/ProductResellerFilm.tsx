@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, type CSSProperties, type SyntheticEvent } from 'react';
+import type { CSSProperties } from 'react';
 import Image from 'next/image';
 import { Pause, Play } from 'lucide-react';
+import { showreelVideoEvents, useShowreelVideo } from './useShowreelVideo';
 import styled from 'styled-components';
 import { RESELLER_CUTS, RESELLER_EPISODE_MS, type ResellerEpisode } from './productResellerEpisodes';
 
@@ -15,77 +16,12 @@ type FilmProps = {
   onTogglePlayback?: () => void;
 };
 
-function revealDecodedFrame({ currentTarget: video }: SyntheticEvent<HTMLVideoElement>) {
-  if (!video.paused && !video.seeking && video.readyState >= video.HAVE_CURRENT_DATA) {
-    video.dataset.presented = 'true';
-  }
-}
-
-function revealIllustration({ currentTarget: video, type }: SyntheticEvent<HTMLVideoElement>) {
-  if (type === 'error' || !video.paused) delete video.dataset.presented;
-}
-
-function useResellerVideo({ episode, elapsedMs, playing, reducedMotion, onSelectShot }: FilmProps) {
-  const player = useRef<HTMLVideoElement>(null);
-  const source = episode.video;
-
-  useEffect(() => {
-    const video = player.current;
-    // Defer the URL until hydration so even direct entries respect the device preference.
-    if (!video || reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    video.muted = true;
-    video.src = source;
-    return () => {
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
-    };
-  }, [reducedMotion, source]);
-
-  useEffect(() => {
-    const video = player.current;
-    if (reducedMotion || !playing || !video?.hasAttribute('src')) return;
-    const synchronize = () => {
-      if (!Number.isFinite(video.duration)) return;
-      // The captions update once a second. The camera clock also retains subsecond pauses and seeks.
-      const progress = parseFloat(getComputedStyle(video).getPropertyValue('--scene-progress'));
-      const clockMs = Number.isFinite(progress) ? progress * RESELLER_EPISODE_MS : elapsedMs;
-      const target = Math.max(0, Math.min(clockMs / 1000, video.duration - .04));
-      if (Math.abs(video.currentTime - target) > .4) video.currentTime = target;
-    };
-    synchronize();
-    video.addEventListener('loadedmetadata', synchronize);
-    return () => video.removeEventListener('loadedmetadata', synchronize);
-  }, [elapsedMs, playing, reducedMotion, source]);
-
-  useEffect(() => {
-    const video = player.current;
-    if (reducedMotion || !video?.hasAttribute('src')) return;
-    if (playing) {
-      void video.play().catch((error: DOMException) => {
-        if (error.name !== 'AbortError' && video.paused) delete video.dataset.presented;
-      });
-    } else {
-      video.pause();
-    }
-  }, [playing, reducedMotion, source]);
-
-  const selectShot = (milliseconds: number) => {
-    // A thumbnail selects the original illustration. Ordinary pauses hold the decoded video frame.
-    const video = player.current;
-    if (video) {
-      video.pause();
-      delete video.dataset.presented;
-      if (Number.isFinite(video.duration)) video.currentTime = milliseconds / 1000;
-    }
-    onSelectShot(milliseconds);
-  };
-  return { player, selectShot };
-}
-
 export function ProductResellerFilm(props: FilmProps) {
   const { episode, elapsedMs, playing, reducedMotion, onTogglePlayback } = props;
-  const { player, selectShot } = useResellerVideo(props);
+  const { player, selectShot } = useShowreelVideo({
+    source: episode.video, durationMs: RESELLER_EPISODE_MS, elapsedMs,
+    playing, enabled: !reducedMotion, onSelectShot: props.onSelectShot,
+  });
   const index = RESELLER_CUTS.reduce<number>((current, start, i) => elapsedMs >= start ? i : current, 0);
   const shot = episode.shots[index];
   const start = RESELLER_CUTS[index];
@@ -113,8 +49,7 @@ export function ProductResellerFilm(props: FilmProps) {
                 />
               </div>
               {!reducedMotion && <video key={episode.id} ref={player} data-reseller-video={episode.id} muted playsInline disablePictureInPicture
-                aria-hidden="true" preload={playing ? 'auto' : 'metadata'} onPlaying={revealDecodedFrame} onSeeked={revealDecodedFrame}
-                onSeeking={revealIllustration} onWaiting={revealIllustration} onError={revealIllustration} />}
+                aria-hidden="true" preload={playing ? 'auto' : 'metadata'} {...showreelVideoEvents} />}
             </div>
           </div>
           <figcaption>

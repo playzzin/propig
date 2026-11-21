@@ -9,6 +9,8 @@ import ProductShowcaseWorkspace from './ProductShowcaseWorkspace';
 import ProductAutomationDirector from './ProductAutomationDirector';
 import { ProductResellerFilm } from './ProductResellerFilm';
 import { RESELLER_EPISODES } from './productResellerEpisodes';
+import ProductWebStory from './ProductWebStory';
+import { WEB_STORIES } from './productWebStories';
 
 type ServiceOption = { label: string; title: string; description: string; icon: LucideIcon };
 
@@ -248,7 +250,8 @@ type ProductServiceExplorerProps = {
   cycle: number;
   sceneElapsedMs: number;
   onSelectShot: (milliseconds: number) => void;
-  onToggleResellerPlayback?: () => void;
+  onToggleFilmPlayback?: () => void;
+  onInspectWebScreen: () => void;
   onInteract: () => void;
   selection?: { variant: number; platform?: number };
   onSelectionChange?: (selection: { variant: number; platform?: number }) => void;
@@ -256,7 +259,7 @@ type ProductServiceExplorerProps = {
   renderNavigation?: (controls: ReactNode) => ReactNode;
 };
 
-export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, sceneElapsedMs, onSelectShot, onToggleResellerPlayback, onInteract, selection, onSelectionChange, introduction, renderNavigation }: ProductServiceExplorerProps) {
+export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, sceneElapsedMs, onSelectShot, onToggleFilmPlayback, onInspectWebScreen, onInteract, selection, onSelectionChange, introduction, renderNavigation }: ProductServiceExplorerProps) {
   const [selections, setSelections] = useState<Record<number, number>>({});
   const [selectedPlatform, setCommercePlatform] = useState(0);
   const [selectedAutomationCategory, setAutomationCategory] = useState<AutomationCategory>('documents');
@@ -335,11 +338,15 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
   const content = (
     <div data-product-canvas data-product-interactive>
       {introduction}
-      {chapter === 1 ? <AutomationStage data-automation-stage>
+      {chapter === 0 ? (
+        <ProductWebStory key={cycle} story={WEB_STORIES[variant]} variant={variant} elapsedMs={sceneElapsedMs}
+          playing={playing} reducedMotion={reducedMotion} onSelectShot={onSelectShot}
+          onTogglePlayback={onToggleFilmPlayback} onInspect={onInspectWebScreen} />
+      ) : chapter === 1 ? <AutomationStage data-automation-stage>
         <ProductAutomationDirector elapsedMs={sceneElapsedMs} variant={variant} cycle={cycle} playing={playing} reducedMotion={reducedMotion} />
         <ProductMotionArtwork key={`${chapter}-${variant}-${cycle}`} chapter={chapter} variant={variant} playing={playing} reducedMotion={reducedMotion} />
       </AutomationStage> : advertising ? (
-        <ProductResellerFilm key={cycle} episode={platform} elapsedMs={sceneElapsedMs} playing={playing} reducedMotion={reducedMotion} onSelectShot={onSelectShot} onTogglePlayback={onToggleResellerPlayback} />
+        <ProductResellerFilm key={cycle} episode={platform} elapsedMs={sceneElapsedMs} playing={playing} reducedMotion={reducedMotion} onSelectShot={onSelectShot} onTogglePlayback={onToggleFilmPlayback} />
       ) : <ProductMotionArtwork key={`${chapter}-${variant}-${cycle}`} chapter={chapter} variant={variant} playing={playing} reducedMotion={reducedMotion} />}
       <Caption data-product-caption id={descriptionId} aria-live={playing ? 'off' : 'polite'} aria-atomic="true">
         <span aria-hidden="true">{String(variant + 1).padStart(2, '0')}</span>

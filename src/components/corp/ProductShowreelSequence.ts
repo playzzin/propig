@@ -1,12 +1,8 @@
 import type { ProductCategoryId, ProductId } from './productCatalogData';
 import { RESELLER_EPISODES, RESELLER_EPISODE_MS } from './productResellerEpisodes';
 import { SHOWREEL_MEDIA } from './productShowreelMedia';
+import { WEB_STORIES, WEB_STORY_MS } from './productWebStories';
 
-const WEB_IMAGES = [
-  ...Object.values(SHOWREEL_MEDIA.screens),
-  SHOWREEL_MEDIA.mascots.work,
-  SHOWREEL_MEDIA.mascots.success,
-];
 const AUTOMATION_IMAGES = Object.values(SHOWREEL_MEDIA.automation);
 const CONTENT_SALE_IMAGES = [
   ...Object.values(SHOWREEL_MEDIA.mascots),
@@ -50,9 +46,9 @@ export type ShowreelStep = {
 }[ProductCategoryId];
 
 export const SHOWREEL_STEPS: readonly ShowreelStep[] = [
-  { id: 'pc-web', label: '그뚠웹', chapterId: 'web-app', productId: 'web-product-starter', variant: 0, images: WEB_IMAGES, durationMs: 12_000 },
-  { id: 'mobile-web', label: '그뚠앱', chapterId: 'web-app', productId: 'web-product-starter', variant: 1, images: WEB_IMAGES, durationMs: 12_000 },
-  { id: 'global-web', label: '글로벌 연결', chapterId: 'web-app', productId: 'web-customer-portal', variant: 2, images: WEB_IMAGES, durationMs: 12_000 },
+  ...WEB_STORIES.map<ShowreelStep>(({ id, label, productId, image }, variant) => ({
+    id, label, chapterId: 'web-app', productId, variant, images: [image], durationMs: WEB_STORY_MS,
+  })),
   { id: 'payroll-documents', label: '급여·거래', chapterId: 'automation', productId: 'automation-document', variant: 1, images: AUTOMATION_IMAGES, durationMs: 12_000 },
   { id: 'contract-documents', label: '계약·발주', chapterId: 'automation', productId: 'automation-document', variant: 2, images: AUTOMATION_IMAGES, durationMs: 12_000 },
   { id: 'report-documents', label: '보고·증명', chapterId: 'automation', productId: 'automation-document', variant: 3, images: AUTOMATION_IMAGES, durationMs: 12_000 },

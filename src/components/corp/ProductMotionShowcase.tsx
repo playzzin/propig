@@ -6,6 +6,7 @@ import styled from 'styled-components';
 import ProductContentStudio from './ProductContentStudio';
 import ProductServiceExplorer from './ProductServiceExplorer';
 import { RESELLER_EPISODES } from './productResellerEpisodes';
+import { WEB_STORIES } from './productWebStories';
 import { SHOWREEL_CHAPTERS as CHAPTERS, SHOWREEL_STEPS, SHOWREEL_STARTS, SHOWREEL_TOTAL_MS, resolveShowreelSelection, type ShowreelSelection, type ShowreelStep } from './ProductShowreelSequence';
 
 const motionQuery = '(prefers-reduced-motion: reduce)';
@@ -71,6 +72,8 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   const chapter = CHAPTERS.findIndex(item => item.id === frame.step.chapterId);
   const current = CHAPTERS[chapter];
   const episode = frame.step.platform === undefined ? undefined : RESELLER_EPISODES[frame.step.platform];
+  const webStory = current.id === 'web-app' ? WEB_STORIES[frame.step.variant ?? 0] : undefined;
+  const title = webStory ? [webStory.label, webStory.feature] : episode ? [episode.label, `${episode.item} 편`] : current.title;
   const categoryHref = `#${current.id}`;
   const nextStep = SHOWREEL_STEPS[(frame.index + 1) % SHOWREEL_STEPS.length];
   const preloadNext = running && frame.elapsedMs >= frame.step.durationMs - NEXT_SCENE_PRELOAD_MS;
@@ -143,11 +146,11 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
     }
   }, [frame.step.images, nextStep, preloadNext]);
 
-  const moveTo = useCallback((selection: ShowreelSelection | number, resume: boolean) => {
+  const moveTo = useCallback((selection: ShowreelSelection | number, resume: boolean, elapsedMs = 0) => {
     const resolved = typeof selection === 'number'
       ? { index: (selection + SHOWREEL_STEPS.length) % SHOWREEL_STEPS.length, step: SHOWREEL_STEPS[(selection + SHOWREEL_STEPS.length) % SHOWREEL_STEPS.length] }
       : resolveShowreelSelection(selection);
-    const next = { ...resolved, elapsedMs: 0, cycle: timelineRef.current.cycle + 1, tourCycle: timelineRef.current.tourCycle };
+    const next = { ...resolved, elapsedMs, cycle: timelineRef.current.cycle + 1, tourCycle: timelineRef.current.tourCycle };
     timelineRef.current = next;
     setFrame(next);
     updateProgress(rootRef.current, next);
@@ -221,12 +224,16 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   };
 
   const togglePlayback = () => {
-    if (!playing && staticScene) moveTo(frame.step, true);
+    if (!playing && staticScene) moveTo(frame.step, true, webStory ? timelineRef.current.elapsedMs : 0);
     else setPlaying(value => !value);
   };
   const pauseForContent = () => setPlaying(false);
-  const selectResellerShot = (elapsedMs: number) => {
-    const next = { ...frame, elapsedMs };
+  const inspectWebScreen = () => {
+    setPlaying(false);
+    setStaticScene(true);
+  };
+  const selectFilmShot = (elapsedMs: number) => {
+    const next = { ...timelineRef.current, elapsedMs };
     timelineRef.current = next;
     setPlaying(false);
     setStaticScene(false);
@@ -253,8 +260,8 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
 
   const introduction = <Story data-product-story>
     <div>
-      <h3>{episode ? episode.label : current.title[0]} <em>{episode ? `${episode.item} 편` : current.title[1]}</em></h3>
-      <p>{episode?.teaser ?? current.description}</p>
+      <h3>{title[0]} <em>{title[1]}</em></h3>
+      <p>{webStory?.premise ?? episode?.teaser ?? current.description}</p>
     </div>
     {current.cta && <SceneLink href={categoryHref} onClick={onCatalogLink}>{current.cta}<ArrowUpRight size={15} aria-hidden="true" /></SceneLink>}
   </Story>;
@@ -360,8 +367,9 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
                 cycle={frame.cycle}
                 sceneElapsedMs={frame.elapsedMs}
                 selection={{ variant: frame.step.variant ?? 0, platform: frame.step.platform }}
-                onSelectShot={selectResellerShot}
-                onToggleResellerPlayback={reducedMotion ? undefined : togglePlayback}
+                onSelectShot={selectFilmShot}
+                onToggleFilmPlayback={reducedMotion ? undefined : togglePlayback}
+                onInspectWebScreen={inspectWebScreen}
                 onSelectionChange={selection => {
                   if (current.id === 'partner' && selection.variant === 1) selectAd(selection.platform ?? 0);
                   else seek({ chapterId: current.id, ...selection });
