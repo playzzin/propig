@@ -7,6 +7,10 @@ import styled, { css } from 'styled-components';
 import ProductMotionArtwork from './ProductMotionArtwork';
 import ProductShowcaseWorkspace from './ProductShowcaseWorkspace';
 import ProductAutomationDirector from './ProductAutomationDirector';
+import { ProductResellerFilm } from './ProductResellerFilm';
+import { RESELLER_EPISODES } from './productResellerEpisodes';
+import ProductWebStory from './ProductWebStory';
+import { WEB_STORIES } from './productWebStories';
 
 type ServiceOption = { label: string; title: string; description: string; icon: LucideIcon };
 
@@ -24,7 +28,7 @@ const OPTIONS: Record<number, ServiceOption[]> = {
   ],
   3: [
     { label: '생성형 콘텐츠 판매', title: '그뚠이와 만드는 나만의 콘텐츠 상품', description: '그뚠이의 콘텐츠 제작·상품 소개·주문 확인·파일 전달 시연입니다.', icon: ShoppingBag },
-    { label: '광고형 리셀러', title: '상품을 발견하고, 콘텐츠로 판매를 연결', description: '플랫폼을 선택해 상품 소개 → 광고 소재 → 상품·제휴 링크 → 고객 반응의 시연을 살펴보세요.', icon: Megaphone },
+    { label: '광고형 리셀러', title: '그뚠이의 상품 사용 후기', description: '네 편의 코미디 광고에서 그뚠이가 직접 상품을 써 봅니다.', icon: Megaphone },
   ],
 };
 
@@ -49,13 +53,6 @@ const AUTOMATION_CATEGORIES: { id: AutomationCategory; label: string; offset: nu
     ],
   },
 ];
-
-const COMMERCE_PLATFORMS = [
-  { id: 'naver', label: '네이버스토어', detail: '스토어 상품 소개', description: '상품 정보를 콘텐츠로 구성하고 네이버스토어 상품 페이지로 연결합니다.' },
-  { id: 'coupang', label: '쿠팡파트너스', detail: '추천 콘텐츠 · 제휴 링크', description: '상품 추천 영상과 제휴 링크를 연결하고, 콘텐츠에서 상품으로 이어지는 반응을 살펴봅니다.' },
-  { id: 'aliexpress', label: '알리익스프레스', detail: '글로벌 상품 콘텐츠', description: '글로벌 상품의 특징을 광고 콘텐츠로 만들고 상품·제휴 링크로 연결합니다.' },
-  { id: 'temu', label: '테무', detail: '상품 발견 · 광고 콘텐츠', description: '발견한 상품을 짧은 광고 콘텐츠로 소개하고 상품·제휴 링크로 연결합니다.' },
-] as const;
 
 const Explorer = styled.div<{ $docked: boolean }>`
   min-width: 0;
@@ -251,7 +248,10 @@ type ProductServiceExplorerProps = {
   playing: boolean;
   reducedMotion: boolean;
   cycle: number;
-  sceneElapsedMs?: number;
+  sceneElapsedMs: number;
+  onSelectShot: (milliseconds: number) => void;
+  onToggleFilmPlayback?: () => void;
+  onInspectWebScreen: () => void;
   onInteract: () => void;
   selection?: { variant: number; platform?: number };
   onSelectionChange?: (selection: { variant: number; platform?: number }) => void;
@@ -259,7 +259,7 @@ type ProductServiceExplorerProps = {
   renderNavigation?: (controls: ReactNode) => ReactNode;
 };
 
-export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, sceneElapsedMs = 0, onInteract, selection, onSelectionChange, introduction, renderNavigation }: ProductServiceExplorerProps) {
+export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, sceneElapsedMs, onSelectShot, onToggleFilmPlayback, onInspectWebScreen, onInteract, selection, onSelectionChange, introduction, renderNavigation }: ProductServiceExplorerProps) {
   const [selections, setSelections] = useState<Record<number, number>>({});
   const [selectedPlatform, setCommercePlatform] = useState(0);
   const [selectedAutomationCategory, setAutomationCategory] = useState<AutomationCategory>('documents');
@@ -272,10 +272,10 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
   const options = chapter === 1 ? automation.options : OPTIONS[chapter] ?? OPTIONS[0];
   const offset = chapter === 1 ? automation.offset : 0;
   const variant = selectedVariant ?? (chapter === 1 ? automationSelections[automationCategory] : Math.min(selections[chapter] ?? 0, options.length - 1));
-  const commercePlatform = selection?.platform !== undefined && Number.isFinite(selection.platform) ? Math.max(0, Math.min(COMMERCE_PLATFORMS.length - 1, Math.floor(selection.platform))) : selectedPlatform;
+  const commercePlatform = selection?.platform !== undefined && Number.isFinite(selection.platform) ? Math.max(0, Math.min(RESELLER_EPISODES.length - 1, Math.floor(selection.platform))) : selectedPlatform;
   const active = options[variant - offset];
   const advertising = chapter === 3 && variant === 1;
-  const platform = COMMERCE_PLATFORMS[commercePlatform];
+  const platform = RESELLER_EPISODES[commercePlatform];
 
   function selectVariant(nextVariant: number, nextPlatform = commercePlatform) {
     if (chapter === 1) {
@@ -319,10 +319,11 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
         ))}
       </Options>
       {advertising && <PlatformPicker role="group" aria-label="광고형 리셀러 플랫폼 선택">
-        {COMMERCE_PLATFORMS.map(({ id, label }, index) => <button
+        {RESELLER_EPISODES.map(({ id, label, item }, index) => <button
           key={id}
           type="button"
           data-commerce-option={id}
+          title={`${label} · ${item} 광고 재생`}
           aria-pressed={commercePlatform === index}
           aria-describedby={commercePlatform === index ? descriptionId : undefined}
           onClick={() => selectVariant(1, index)}
@@ -337,13 +338,19 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
   const content = (
     <div data-product-canvas data-product-interactive>
       {introduction}
-      {chapter === 1 ? <AutomationStage data-automation-stage>
+      {chapter === 0 ? (
+        <ProductWebStory key={cycle} story={WEB_STORIES[variant]} variant={variant} elapsedMs={sceneElapsedMs}
+          playing={playing} reducedMotion={reducedMotion} onSelectShot={onSelectShot}
+          onTogglePlayback={onToggleFilmPlayback} onInspect={onInspectWebScreen} />
+      ) : chapter === 1 ? <AutomationStage data-automation-stage>
         <ProductAutomationDirector elapsedMs={sceneElapsedMs} variant={variant} cycle={cycle} playing={playing} reducedMotion={reducedMotion} />
         <ProductMotionArtwork key={`${chapter}-${variant}-${cycle}`} chapter={chapter} variant={variant} playing={playing} reducedMotion={reducedMotion} />
-      </AutomationStage> : <ProductMotionArtwork key={`${chapter}-${variant}-${commercePlatform}-${cycle}`} chapter={chapter} variant={variant} platform={commercePlatform} playing={playing} reducedMotion={reducedMotion} />}
+      </AutomationStage> : advertising ? (
+        <ProductResellerFilm key={cycle} episode={platform} elapsedMs={sceneElapsedMs} playing={playing} reducedMotion={reducedMotion} onSelectShot={onSelectShot} onTogglePlayback={onToggleFilmPlayback} />
+      ) : <ProductMotionArtwork key={`${chapter}-${variant}-${cycle}`} chapter={chapter} variant={variant} playing={playing} reducedMotion={reducedMotion} />}
       <Caption data-product-caption id={descriptionId} aria-live={playing ? 'off' : 'polite'} aria-atomic="true">
         <span aria-hidden="true">{String(variant + 1).padStart(2, '0')}</span>
-        <div><strong>{advertising ? `${platform.label} · ${platform.detail}` : active.title}</strong><p>{advertising ? `${platform.description} 브랜드 시연 콘텐츠입니다.` : active.description}</p></div>
+        <div><strong>{advertising ? `${platform.label} · ${platform.item}` : active.title}</strong><p>{advertising ? platform.description : active.description}</p></div>
       </Caption>
     </div>
   );

@@ -5,16 +5,20 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { ArrowUpRight, BookOpen, ChevronLeft, ChevronRight, Film, Heart, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, RotateCcw, Send, Volume2, VolumeX } from 'lucide-react';
 import styled, { css, keyframes } from 'styled-components';
 import ProductShowcaseWorkspace from './ProductShowcaseWorkspace';
+import ProductYouTubeShort from './ProductYouTubeShort';
+import type { ContentChannelId } from './ProductShowreelSequence';
 import { BlogPlatformLogos, ContentBrandMark, ContentChannelMotion } from './ProductContentBrands';
 import { useShowcaseYouTubePlayer } from './useShowcaseYouTubePlayer';
+import { SHOWREEL_MEDIA, YOUTUBE_SHORT } from './productShowreelMedia';
 
 type ProductContentStudioProps = {
   playing: boolean;
   reducedMotion: boolean;
   onSelect: () => void;
   onPlaybackChange: (playing: boolean) => void;
-  selectedChannel?: number;
-  onChannelChange?: (index: number) => void;
+  onSeek: (milliseconds: number) => void;
+  selectedChannel?: ContentChannelId;
+  onChannelChange?: (channel: ContentChannelId) => void;
   automaticTour?: boolean;
   sceneElapsedMs?: number;
   introduction?: ReactNode;
@@ -54,7 +58,9 @@ function videoTime(seconds: number) {
   return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`;
 }
 
-function StudioVideo({ vertical, playing, reducedMotion, onSelect, onPlaybackChange }: ProductContentStudioProps & { vertical: boolean }) {
+type PlaybackProps = Pick<ProductContentStudioProps, 'playing' | 'reducedMotion' | 'onSelect' | 'onPlaybackChange'>;
+
+function StudioVideo({ vertical, playing, reducedMotion, onSelect, onPlaybackChange }: PlaybackProps & { vertical: boolean }) {
   const [explicitPlay, setExplicitPlay] = useState(false);
   const name = vertical ? 'TikTok' : 'YouTube';
   const videoId = vertical ? 'eiivhfQJFOA' : 'k56Wglp9hI4';
@@ -121,6 +127,32 @@ function StudioVideo({ vertical, playing, reducedMotion, onSelect, onPlaybackCha
   );
 }
 
+function YouTubeProgram({ playing, reducedMotion, onSelect, onPlaybackChange, sceneElapsedMs, onSeek, onRestart }: PlaybackProps & {
+  sceneElapsedMs: number;
+  onSeek: ProductContentStudioProps['onSeek'];
+  onRestart: () => void;
+}) {
+  const [edition, setEdition] = useState('duck-director');
+  const native = edition === 'duck-director';
+  return <>
+    <ProgramBar>
+      <ContentChannelMotion channel="youtube" playing={playing} reducedMotion={reducedMotion} />
+      <select aria-label="YouTube 영상 선택" value={edition} onChange={event => {
+        setEdition(event.currentTarget.value);
+        onRestart();
+      }}>
+        <option value="duck-director">{YOUTUBE_SHORT.title}</option>
+        <option value="original">그뚠목욕</option>
+      </select>
+    </ProgramBar>
+    <ContentViewport $playing={playing && !reducedMotion} data-content-preview="youtube" data-native-short={native || undefined}>
+      {native
+        ? <ProductYouTubeShort playing={playing} reducedMotion={reducedMotion} sceneElapsedMs={sceneElapsedMs} onPlaybackChange={onPlaybackChange} onSeek={onSeek} />
+        : <StudioVideo vertical={false} playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} onPlaybackChange={onPlaybackChange} />}
+    </ContentViewport>
+  </>;
+}
+
 function BlogPreview({ onSelect, playing, reducedMotion, automaticTour = false, sceneElapsedMs = 0 }: Pick<ProductContentStudioProps, 'onSelect' | 'playing' | 'reducedMotion' | 'automaticTour' | 'sceneElapsedMs'>) {
   const articleRef = useRef<HTMLElement>(null);
 
@@ -143,13 +175,13 @@ function BlogPreview({ onSelect, playing, reducedMotion, automaticTour = false, 
         <ArticleByline><span>그</span><div><b>그뚠이 · 프로피그</b><small>브랜드 콘텐츠 시연 · 3분 읽기</small></div></ArticleByline>
         <ArticleIllustration data-blog-character="cover">
           <div><h4>할 일은 가볍게,<br /><em>하루는 여유롭게.</em></h4><p>반복되는 일은 맡겨두고,<br />나는 중요한 것부터 확인한다.</p><span>그뚠이의 조금 편한 하루 <ArrowUpRight size={14} aria-hidden="true" /></span></div>
-          <Image src="/images/corp/products/global/ddunddun-work.png" alt="태블릿으로 오늘의 업무를 확인하는 그뚠이" width={280} height={280} unoptimized draggable={false} />
+          <Image src={SHOWREEL_MEDIA.mascots.work} alt="태블릿으로 오늘의 업무를 확인하는 그뚠이" width={280} height={280} unoptimized draggable={false} />
         </ArticleIllustration>
         <p>오늘도 책상에는 정리할 자료가 한가득이다. 견적서, 거래명세서, 이번 달 급여 자료까지. 하나씩 옮겨 적기 전에 그뚠이는 태블릿을 꺼내 오늘 할 일을 먼저 확인한다. 귀찮은 일일수록, 시작은 간단한 편이 좋다.</p>
         <h5>01. 같은 내용은 한 번만 입력하기</h5>
         <p>거래처 이름과 품목을 입력하면 필요한 서류의 초안으로 이어진다. 그뚠이는 금액과 날짜, 빠진 항목을 차례로 살펴본다. 반복 입력을 줄인 자리에는 꼼꼼하게 검토할 시간을 남긴다.</p>
         <ArticleFigure data-blog-character="story">
-          <Image src="/images/corp/products/automation/geudduni-pc.png" alt="책상에 발을 올리고 컴퓨터로 업무를 지시하는 그뚠이" width={1448} height={1086} unoptimized draggable={false} />
+          <Image src={SHOWREEL_MEDIA.automation.pc} alt="책상에 발을 올리고 컴퓨터로 업무를 지시하는 그뚠이" width={1448} height={1086} unoptimized draggable={false} />
           <figcaption>“자료 정리는 맡겼으니, 나는 확인부터.”<span>그뚠이의 업무자동화 장면</span></figcaption>
         </ArticleFigure>
         <h5>02. 자리를 옮겨도, 하던 일 그대로</h5>
@@ -191,7 +223,7 @@ function WebtoonPreview({ playing, reducedMotion, onSelect, automaticTour = fals
       <InstagramMasthead><ContentBrandMark channel="instagram" /><span>Instagram</span><small>스토리 웹툰</small><MoreHorizontal size={19} aria-hidden="true" /></InstagramMasthead>
       <InstagramAuthor><span>P</span><div><b>propig.story</b><small>그뚠이 스토리 · 1화 창업배경</small></div><span className="comic-original">시연</span></InstagramAuthor>
       <ComicViewport><ComicFrame key={panel} role="img" aria-label={`웹툰 ${panel + 1}번째 컷. ${COMIC_CAPTIONS[panel]}`} data-comic-panel={panel + 1} data-comic-ratio={aspectRatio} $moving={moving} style={{ aspectRatio, width: `min(100%, ${aspectRatio * 100}cqh)` }}>
-        <Image src="/images/corp/founder-story/episode-1.png" width={1024} height={1536} alt="" unoptimized aria-hidden="true" style={{ width: `${1024 / crop.width * 100}%`, height: `${1536 / crop.height * 100}%`, left: `${-crop.x / crop.width * 100}%`, top: `${-crop.y / crop.height * 100}%` }} />
+        <Image src={SHOWREEL_MEDIA.webtoon} width={1024} height={1536} alt="" unoptimized aria-hidden="true" style={{ width: `${1024 / crop.width * 100}%`, height: `${1536 / crop.height * 100}%`, left: `${-crop.x / crop.width * 100}%`, top: `${-crop.y / crop.height * 100}%` }} />
         <span aria-hidden="true">{String(panel + 1).padStart(2, '0')} / 12</span>
       </ComicFrame></ComicViewport>
       <ComicReactions aria-hidden="true"><Heart size={20} /><MessageCircle size={20} /><Send size={19} /><span>한 컷씩 이어지는 브랜드 이야기</span></ComicReactions>
@@ -206,16 +238,17 @@ function WebtoonPreview({ playing, reducedMotion, onSelect, automaticTour = fals
   );
 }
 
-export default function ProductContentStudio({ playing, reducedMotion, onSelect, onPlaybackChange, selectedChannel, onChannelChange, automaticTour = false, sceneElapsedMs = 0, introduction, renderNavigation }: ProductContentStudioProps) {
-  const [selectedChannelIndex, setChannelIndex] = useState(0);
-  const channelIndex = selectedChannel !== undefined && Number.isFinite(selectedChannel) ? Math.max(0, Math.min(CHANNELS.length - 1, Math.floor(selectedChannel))) : selectedChannelIndex;
+export default function ProductContentStudio({ playing, reducedMotion, onSelect, onPlaybackChange, onSeek, selectedChannel, onChannelChange, automaticTour = false, sceneElapsedMs = 0, introduction, renderNavigation }: ProductContentStudioProps) {
+  const [defaultChannel, setDefaultChannel] = useState<ContentChannelId>('youtube');
+  const channelIndex = CHANNELS.findIndex(channel => channel.id === (selectedChannel ?? defaultChannel));
   const id = useId();
   const tabsRef = useRef<HTMLDivElement>(null);
   const current = CHANNELS[channelIndex];
 
   function selectChannel(index: number) {
-    setChannelIndex(index);
-    if (onChannelChange) onChannelChange(index);
+    const channel = CHANNELS[index].id;
+    setDefaultChannel(channel);
+    if (onChannelChange) onChannelChange(channel);
     else onSelect();
   }
 
@@ -235,21 +268,26 @@ export default function ProductContentStudio({ playing, reducedMotion, onSelect,
   const content = (
     <StudioCanvas data-product-canvas data-product-interactive>
       {introduction}
-      <ContentChannelMotion channel={current.id} playing={playing} reducedMotion={reducedMotion} />
+      {current.id !== 'youtube' && <ContentChannelMotion channel={current.id} playing={playing} reducedMotion={reducedMotion} />}
       {!renderNavigation ? controls : null}
       <ProductWindow role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${current.id}`}>
-        <WindowBar>
-          <span aria-hidden="true"><i /><i /><i /></span>
-          {current.id === 'youtube' || current.id === 'tiktok' ? <b data-video-window-brand={current.id}><ContentBrandMark channel={current.id} />{current.label}</b> : <b>propig / {current.id}</b>}
-          <small>{current.id === 'tiktok' ? '15초 · ' : ''}{current.ratio}</small>
-        </WindowBar>
-        <ContentViewport key={current.id} $playing={playing && !reducedMotion} data-content-preview={current.id}>
-          {current.id === 'youtube' || current.id === 'tiktok' ? <StudioVideo vertical={current.id === 'tiktok'} playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} onPlaybackChange={onPlaybackChange} /> : null}
-          {current.id === 'blog' ? <BlogPreview onSelect={onSelect} playing={playing} reducedMotion={reducedMotion} automaticTour={automaticTour} sceneElapsedMs={sceneElapsedMs} /> : null}
-          {current.id === 'instagram' ? <WebtoonPreview playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} automaticTour={automaticTour} sceneElapsedMs={sceneElapsedMs} /> : null}
-        </ContentViewport>
+        {current.id === 'youtube' ? (
+          <YouTubeProgram playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} onPlaybackChange={onPlaybackChange}
+            sceneElapsedMs={sceneElapsedMs} onSeek={onSeek} onRestart={() => onChannelChange?.('youtube')} />
+        ) : <>
+          <WindowBar>
+            <span aria-hidden="true"><i /><i /><i /></span>
+            {current.id === 'tiktok' ? <b data-video-window-brand={current.id}><ContentBrandMark channel={current.id} />{current.label}</b> : <b>propig / {current.id}</b>}
+            <small>{current.id === 'tiktok' ? '15초 · ' : ''}{current.ratio}</small>
+          </WindowBar>
+          <ContentViewport key={current.id} $playing={playing && !reducedMotion} data-content-preview={current.id}>
+            {current.id === 'tiktok' ? <StudioVideo vertical playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} onPlaybackChange={onPlaybackChange} /> : null}
+            {current.id === 'blog' ? <BlogPreview onSelect={onSelect} playing={playing} reducedMotion={reducedMotion} automaticTour={automaticTour} sceneElapsedMs={sceneElapsedMs} /> : null}
+            {current.id === 'instagram' ? <WebtoonPreview playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} automaticTour={automaticTour} sceneElapsedMs={sceneElapsedMs} /> : null}
+          </ContentViewport>
+        </>}
       </ProductWindow>
-      <StudioFooter><span><i aria-hidden="true" />{current.format}</span><span>시연 콘텐츠 <b>·</b> ONE STORY, EVERY CHANNEL</span></StudioFooter>
+      {current.id !== 'youtube' && <StudioFooter><span><i aria-hidden="true" />{current.format}</span><span>시연 콘텐츠 <b>·</b> ONE STORY, EVERY CHANNEL</span></StudioFooter>}
     </StudioCanvas>
   );
 
@@ -273,13 +311,16 @@ const Studio = styled.div<{ $playing: boolean; $reducedMotion: boolean; $workspa
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 `;
 const StudioCanvas = styled.div`container-type: inline-size; min-width: 0; width: 100%;`;
-const ChannelTabs = styled.div<{ $sidebar: boolean }>`display: grid; grid-template-columns: repeat(${({ $sidebar }) => $sidebar ? 2 : 4}, minmax(0, 1fr)); gap: 3px; margin: 5px 0 10px; padding: 3px; border: 1px solid #304b6b; border-radius: 7px; background: #081426;`;
+const ChannelTabs = styled.div<{ $sidebar: boolean }>`
+  display: grid; grid-template-columns: repeat(${({ $sidebar }) => $sidebar ? 2 : 4}, minmax(0, 1fr)); gap: 3px; margin: 0; padding: 3px; border: 1px solid #304b6b; border-radius: 7px; background: #081426;
+  @container product-showreel (max-width: 760px) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+`;
 const ChannelTab = styled.button`
   min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 6px 4px; border: 0; border-radius: 4px; background: transparent; color: #bdc9da; font-size: 11px !important; font-weight: 650 !important; transition: background 180ms, color 180ms;
   &[aria-selected='true'] { background: #93c5fd; color: #07101f; }
   &:hover:not([aria-selected='true']) { background: #193a5d; color: #f3f7ff; }
   @container (max-width: 420px) { gap: 4px; font-size: 10px !important; [data-channel-logo] { width: 22px; height: 22px; > svg { width: 14px; height: 14px; } } }
-  @container (max-width: 310px) { flex-direction: column; gap: 3px; font-size: 9px !important; }
+  @container product-showreel (max-width: 390px) { flex-direction: column; gap: 3px; font-size: 10px !important; }
 `;
 const ProductWindow = styled.div`overflow: hidden; border: 1px solid #375875; border-radius: 9px; background: #eef0e7; box-shadow: 0 18px 28px -18px #0008;`;
 const WindowBar = styled.div`
@@ -290,10 +331,22 @@ const WindowBar = styled.div`
   [data-video-window-brand] [data-channel-logo] { width: 21px; height: 21px; border-radius: 5px; > svg { width: 14px; height: 14px; } }
   small { font-size: 8px; font-weight: 700; letter-spacing: .08em; }
 `;
+const ProgramBar = styled.div`
+  display: flex; align-items: center; gap: 14px; flex-shrink: 0; min-height: 46px; padding: 0 10px;
+  background: #10243a; border-bottom: 1px solid #385463;
+  [data-content-brand-strip] { flex: 1; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; }
+  select { min-height: 44px; max-width: 60%; padding: 3px 6px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; color: #f7e6bc; background: #132937; border: 0; }
+  select:focus-visible { outline: 2px solid #ffd78b; outline-offset: -3px; }
+  @container (max-width: 560px) { [data-content-brand-strip] > [aria-hidden='true'] { display: none; } }
+`;
 const ContentViewport = styled.div<{ $playing: boolean }>`
   height: 400px; overflow: hidden; position: relative;
   ${({ $playing }) => $playing && css`animation: ${switchIn} 450ms ease both;`}
   @container (max-width: 420px) { height: 360px; }
+  &[data-native-short] { height: clamp(430px, 60svh, 590px); }
+  @container product-showreel (min-width: 761px) {
+    &&[data-native-short] { min-height: clamp(450px, 53svh, 530px); }
+  }
 `;
 const StudioFooter = styled.div`
   display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 35px; color: #adbed4;

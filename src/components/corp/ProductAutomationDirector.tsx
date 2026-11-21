@@ -4,12 +4,14 @@ import Image from 'next/image';
 import { ArrowRight, Mic, Monitor, Smartphone } from 'lucide-react';
 import styled, { css, keyframes } from 'styled-components';
 import ProductAutomationDeskEffects from './ProductAutomationDeskEffects';
+import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const MODES = [
   { id: 'pc', label: 'PC 명령', icon: Monitor, title: '클릭 한 번, 맡겨두기.' },
   { id: 'phone', label: '스마트폰', icon: Smartphone, title: '손안에서, 가볍게.' },
   { id: 'voice', label: '음성 명령', icon: Mic, title: '말 한마디면 충분해.' },
 ] as const;
+type CommandMode = (typeof MODES)[number]['id'];
 const COMMANDS = [
   ['오늘 들어온 자료 정리해 줘.', '작성된 서류를 보여 줘.', '다음 업무도 이어서 해 줘.'],
   ['이번 달 급여 자료 정리해 줘.', '급여명세서 검토본 보내 줘.', '완성된 명세서를 모아 줘.'],
@@ -36,9 +38,18 @@ export default function ProductAutomationDirector({ elapsedMs, variant, cycle, p
         <span><i aria-hidden="true" /><span>명령을 업무 흐름으로</span><ArrowRight size={14} aria-hidden="true" /></span>
       </Command>
       <Portrait role="img" aria-label={`책상에 발을 올리고 담배를 피우며 ${mode.label}으로 업무를 지시하는 그뚠이. ${variant < 4 ? '서류가 날아와 책상 위에 쌓입니다.' : variant < 8 ? '디지털 화면들이 날아와 모니터 주변에 모입니다.' : '모니터 속 봇들이 순서대로 답장합니다.'}`}>
-        {MODES.map(({ id }, index) => <Pose key={id} data-command-pose={id} $active={index === phase}>
-          <Image src={`/images/corp/products/automation/geudduni-${id}.png`} alt="" fill sizes="(max-width: 760px) 150px, 300px" unoptimized draggable={false} />
-        </Pose>)}
+        {MODES.map(({ id }, index) => {
+          const source = SHOWREEL_MEDIA.automation[id];
+          const moving = index === phase && !reducedMotion;
+          return (
+            <Pose key={id} data-command-pose={id} data-command-animated={moving} $active={index === phase}>
+              <Image src={source} alt="" fill sizes="(max-width: 760px) 150px, 300px" unoptimized draggable={false} />
+              {moving && (
+                <CommandGesture key={cycle} mode={id} source={source} />
+              )}
+            </Pose>
+          );
+        })}
         <ProductAutomationDeskEffects key={`${variant}-${cycle}`} variant={variant} playing={playing} reducedMotion={reducedMotion} />
       </Portrait>
       <Modes role="group" aria-label="명령 방식">
@@ -49,7 +60,7 @@ export default function ProductAutomationDirector({ elapsedMs, variant, cycle, p
   );
 }
 
-const arrive = keyframes`from { opacity: .45; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); }`;
+const arrive = keyframes`from { transform: translateY(5px); } to { transform: translateY(0); }`;
 const breathe = keyframes`0%, 100% { opacity: .45; } 50% { opacity: 1; }`;
 const Director = styled.div<{ $playing: boolean; $reducedMotion: boolean }>`
   display: grid; align-content: center; min-width: 0; padding: 8px 0; color: #f3f7ff;
@@ -71,9 +82,93 @@ const Portrait = styled.div`
   @container (max-width: 640px) { grid-column: 1; grid-row: 1 / 3; align-self: center; margin: 0; }
 `;
 const Pose = styled.div<{ $active: boolean }>`
-  position: absolute; inset: 0; opacity: ${({ $active }) => $active ? 1 : 0}; transition: opacity 500ms ease;
+  position: absolute;
+  inset: 0;
+  opacity: ${({ $active }) => $active ? 1 : 0};
+  transition: opacity 500ms cubic-bezier(.25, .65, .3, 1);
+  --head-center: 23% 20%;
+  --head-prepare: rotate(-2deg);
+  --head-action: translate(.4%, .8%) rotate(4deg);
+  --head-settle: rotate(-.8deg);
+
   img { object-fit: contain; object-position: center bottom; }
+  &[data-command-animated='true'] img {
+    mask-image: radial-gradient(ellipse 13% 20% at var(--head-center), transparent 92%, #000 100%);
+  }
+  &[data-command-pose='phone'] {
+    --head-center: 24% 20%;
+    --head-prepare: rotate(-1.7deg);
+    --head-action: translate(.9%, 1.15%) rotate(4deg);
+    --head-settle: translate(.5%, .4%) rotate(1.5deg);
+  }
+  &[data-command-pose='voice'] {
+    --head-center: 24% 21%;
+    --head-prepare: translateY(.6%) rotate(1.5deg);
+    --head-action: translate(-.4%, -1%) rotate(-4deg);
+    --head-settle: rotate(1.2deg);
+  }
 `;
+
+const deskGesture = keyframes`
+  0%, 11%, 100% { transform: none; }
+  24% { transform: var(--head-prepare); }
+  38%, 47% { transform: var(--head-action); }
+  64% { transform: var(--head-settle); }
+  84% { transform: none; }
+`;
+const commandFeedback = keyframes`
+  0%, 34%, 72%, 100% { opacity: 0; transform: scale(.82); }
+  44%, 52% { opacity: .95; transform: scale(1); }
+  64% { opacity: .19; transform: scale(1.18); }
+`;
+const HeadMask = styled.svg`
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse 15.5% 23% at var(--head-center), #000 93%, transparent 100%);
+`;
+const Head = styled.image`
+  transform-box: fill-box;
+  transform-origin: 24% 28%;
+  animation: ${deskGesture} 4s ease-in-out both;
+`;
+const CommandFeedback = styled.svg`
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+
+  path {
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: ${commandFeedback} 4s ease-out both;
+  }
+`;
+
+const commandMarks: Record<CommandMode, { path: string; color: string }> = {
+  pc: { path: 'M83 20h-3v-3m12 3h3v-3M83 27h-3v3m12-3h3v3', color: '#a1d7fc' },
+  phone: { path: 'M45 19v-2m3 3 2-2m-1 5h3', color: '#9edbff' },
+  voice: { path: 'M40 16q3 3 0 6m4-8q5 5 0 10m4-12q7 7 0 14', color: '#a2eed4' },
+};
+
+function CommandGesture({ mode, source }: { mode: CommandMode; source: string }) {
+  const { path, color } = commandMarks[mode];
+  return (
+    <>
+      <HeadMask aria-hidden="true" viewBox="0 0 100 75">
+        <Head data-character-head={mode} href={source} width="100" height="75" />
+      </HeadMask>
+      <CommandFeedback aria-hidden="true" viewBox="0 0 100 75">
+        <path d={path} fill="none" stroke={color} strokeWidth=".8" strokeLinecap="round" />
+      </CommandFeedback>
+    </>
+  );
+}
+
 const Modes = styled.div`
   display: flex; justify-content: space-between; gap: 4px; margin-bottom: 0;
   > span { display: inline-flex; align-items: center; gap: 4px; padding: 5px 6px; border-radius: 5px; font-size: 10px; line-height: 1.4; white-space: nowrap; color: #b7cbe0; background: #10243b; }

@@ -61,13 +61,15 @@ try {
     await sample(3900);
     assert.ok(await artwork.locator('[data-document-batch="0"] .document-card').evaluateAll(cards => cards.every(el => Number(getComputedStyle(el).opacity) < .05)), 'Completed documents exit before the next batch.');
 
-    await startPausedTimeline(0);
+    // The document flow carries signal packets. The web chapter now opens its illustrated story.
     const packet = artwork.locator('.signal-packet').first();
     await sample(1100);
     const packetBefore = await packet.evaluate(el => getComputedStyle(el).strokeDashoffset);
     await sample(1700);
     assert.notEqual(await packet.evaluate(el => getComputedStyle(el).strokeDashoffset), packetBefore, 'Communication packet travels along its path.');
     await artwork.screenshot({ path: path.join(output, `signals-${width}.png`) });
+    await startPausedTimeline(0);
+    await artwork.locator('[data-web-video="pc-web"]').waitFor();
     await sample(11950);
     await showcase.getByRole('link', { name: '웹·앱 제품 보기', exact: true }).focus();
     assert.equal(await stage.getAttribute('data-reduced-motion'), 'true');
@@ -99,7 +101,7 @@ try {
     assert.equal(await stage.getAttribute('data-reduced-motion'), 'true');
     await showcase.getByRole('button', { name: '쇼릴 재생', exact: true }).click();
     assert.equal(await stage.getAttribute('data-reduced-motion'), 'false');
-    assert.match(await showcase.locator('[aria-label^="전체 300초"]').getAttribute('aria-label'), /^전체 300초 중 \d+초$/);
+    assert.match(await showcase.locator('[aria-label^="전체 311초"]').getAttribute('aria-label'), /^전체 311초 중 \d+초$/);
     await page.waitForTimeout(300);
     await showcase.getByRole('button', { name: '쇼릴 일시정지', exact: true }).click();
     const before = await stage.evaluate(el => el.getAnimations({ subtree: true }).map(a => a.currentTime));

@@ -31,7 +31,7 @@ export function ContentChannelMotion({ channel, playing, reducedMotion }: { chan
     <Ribbon data-content-brand-strip data-active-channel={channel} $moving={playing && !reducedMotion}>
       <Identity key={channel} $moving={playing && !reducedMotion}>
         <ContentBrandMark channel={channel} />
-        <div><strong>{brand.name}</strong><span>{brand.detail}</span></div>
+        <div><strong data-video-window-brand={channel === 'youtube' ? 'youtube' : undefined}>{brand.name}</strong><span>{brand.detail}</span></div>
       </Identity>
       <ChannelRoute aria-hidden="true" style={{ '--brand-progress': activeIndex / (CHANNEL_ORDER.length - 1) } as CSSProperties}>
         <RouteLine><i /></RouteLine>

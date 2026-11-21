@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
@@ -13,10 +14,12 @@ assert.ok(viewports.length, 'PRODUCT_GLOBAL_WIDTH must be 1440, 390, or 320.');
 
 // Acceptance values are independent of the component's implementation.
 const webScenes = [
-  { id: 'pc-web', mode: 'pc', label: '그뚠웹', variant: 0 },
-  { id: 'mobile-web', mode: 'mobile', label: '그뚠앱', variant: 1 },
-  { id: 'global-web', mode: 'global', label: '글로벌 연결', variant: 2 },
+  { id: 'pc-web', mode: 'pc', label: '그뚠웹', variant: 0, asset: 'desk' },
+  { id: 'mobile-web', mode: 'mobile', label: '그뚠앱', variant: 1, asset: 'phone' },
+  { id: 'global-web', mode: 'global', label: '글로벌 연결', variant: 2, asset: 'world' },
 ];
+const webCutTimes = [0, 3000, 6000, 9000];
+const webDuration = 12_000;
 const screens = {
   desktop: { href: '/images/corp/products/global/desktop-workspace.svg', width: 960, height: 600 },
   mobile: { href: '/images/corp/products/global/mobile-workspace.svg', width: 360, height: 720 },
@@ -61,14 +64,37 @@ async function pauseShowcase(page, root) {
   await waitAttribute(page, 'data-running', false);
 }
 
-async function selectScene(page, root, scene) {
-  await root.getByRole('button', { name: scene.label, exact: true }).click();
+async function activate(control, viewport, key) {
+  if (key) await control.press(key);
+  else if (viewport.width < 600) await control.tap();
+  else await control.click();
+}
+
+async function selectScene(page, root, scene, viewport) {
+  await activate(root.getByRole('button', { name: scene.label, exact: true }), viewport);
   await waitAttribute(page, 'data-step-id', scene.id);
   assert.equal(await root.getAttribute('data-chapter'), '0');
   assert.equal(await root.locator('[data-service-explorer]').getAttribute('data-service-variant'), String(scene.variant));
-  assert.equal(await root.locator('[data-web-mode]').getAttribute('data-web-mode'), scene.mode);
   assert.equal(await root.getByRole('button', { name: scene.label, exact: true }).getAttribute('aria-pressed'), 'true');
+  const story = root.locator(`[data-web-story="${scene.id}"][data-web-view="story"]`);
+  await story.waitFor();
+  assert.equal(await root.locator('[data-web-story]').count(), 1, 'Each web selection initially shows its own story.');
   await root.locator('[data-product-canvas]').scrollIntoViewIfNeeded();
+}
+
+async function openWebView(root, scene, view, viewport, key) {
+  const story = root.locator(`[data-web-story="${scene.id}"]`);
+  const toggle = story.locator('button[data-web-view-toggle]');
+  const labels = { story: '제품 화면 보기', screen: '이야기 보기' };
+  const currentView = await story.getAttribute('data-web-view');
+  assert.equal((await toggle.innerText()).trim(), labels[currentView]);
+  if (currentView !== view) await activate(toggle, viewport, key);
+  await root.locator(`[data-web-story="${scene.id}"][data-web-view="${view}"]`).waitFor();
+  assert.equal((await toggle.innerText()).trim(), labels[view]);
+  if (key) assert.equal(await toggle.evaluate(button => button === document.activeElement), true, 'The view switch keeps keyboard focus.');
+  assert.equal(await root.locator('[data-product-motion-artwork="0"]').count(), 1, 'Both views share one artwork surface.');
+  if (view === 'screen') assert.equal(await root.locator('[data-web-mode]').getAttribute('data-web-mode'), scene.mode);
+  else assert.equal(await root.locator('[data-web-mode]').count(), 0, 'Story and product screen do not draw over each other.');
 }
 
 async function imageEvidence(page, root) {
@@ -148,6 +174,8 @@ async function workspaceEvidence(root, viewport) {
       currentLabel: rectangle(current),
       story: rectangle(section.querySelector('[data-product-story]')),
       caption: rectangle(caption),
+      resellerFrame: rectangle(artwork?.querySelector('[data-reseller-viewport]')),
+      webStoryFrame: rectangle(section.querySelector('[data-web-story] [data-web-viewport]')),
       transport: rectangle(section.querySelector('[data-product-transport]')),
       clippedCaptionText: caption ? [...caption.querySelectorAll('strong, p')].flatMap(element => {
         const range = document.createRange();
@@ -189,9 +217,15 @@ async function workspaceEvidence(root, viewport) {
     assert.ok(evidence.speechBubble && evidence.speechBubble.x >= evidence.director.x && evidence.speechBubble.right <= evidence.director.right + 1, 'The speech bubble stays within the character column.');
   }
   assert.ok(evidence.story.y - evidence.content.y >= 0 && evidence.story.y - evidence.content.y <= 16, 'Context starts within 16px of the content top instead of being vertically centered.');
-  assert.ok(evidence.transport && evidence.transport.height <= 56, 'Playback controls remain in a compact footer of at most 56px.');
+  assert.ok(evidence.transport && evidence.transport.height <= 56, 'Playback controls occupy at most 56px above the stage.');
+  assert.ok(evidence.transport.bottom <= evidence.workspace.y, 'Playback is reachable above the artwork in the first viewport.');
   assert.deepEqual(evidence.clippedCaptionText, [], 'The shortened bottom caption preserves all of its text.');
   if (evidence.caption) assert.ok(evidence.caption.height <= (viewport.width >= 1000 ? 52 : 80), 'The actual bottom title/description caption is compact.');
+  if (evidence.webStoryFrame) {
+    const { width, height } = evidence.webStoryFrame;
+    assert.ok(width > evidence.artwork.width * (viewport.width >= 1000 ? .5 : .85) && Math.abs(width / height - 1.5) < .02,
+      'The web story shows the full 3:2 artwork at a readable size.');
+  }
   if (viewport.width >= 1000) {
     assert.ok(evidence.navigation.right <= evidence.content.x + 1, 'Desktop navigation sits entirely left of the content.');
     assert.ok(evidence.content.width >= evidence.navigation.width * 2, 'The content has at least twice the navigation width.');
@@ -218,7 +252,14 @@ async function workspaceEvidence(root, viewport) {
     assert.equal(evidence.typography.title, 22, 'Mobile context headings are enlarged to 22px.');
     assert.equal(evidence.typography.body, 13, 'Mobile context descriptions grow to 13px.');
     if (evidence.artwork) {
-      assert.ok(Math.abs(evidence.artwork.height - (evidence.artworkChapter === '0' ? 220 : 288)) <= 1, 'Mobile artwork keeps 220px for web and 288px for other scenes.');
+      if (evidence.resellerFrame) {
+        const { width, height } = evidence.resellerFrame;
+        assert.ok(width >= .94 * evidence.artwork.width && Math.abs(width / height - 1.5) < .01,
+          'The mobile comedy fills the available width with a complete 3:2 frame.');
+        assert.ok(evidence.artwork.height - height <= 125, 'The caption and filmstrip leave most of the stage to the picture.');
+      } else if (!evidence.webStoryFrame) {
+        assert.ok(Math.abs(evidence.artwork.height - (evidence.artworkChapter === '0' ? 220 : 288)) <= 1, 'Mobile illustrations keep their established height.');
+      }
       assert.equal(evidence.typography.captionTitle, 12, 'Mobile bottom caption titles are compact at 12px.');
       assert.equal(evidence.typography.captionBody, 11, 'Mobile bottom caption descriptions are compact at 11px.');
     }
@@ -227,7 +268,7 @@ async function workspaceEvidence(root, viewport) {
   assert.equal(await execution.count(), 1, 'The semantic execution-process link remains available.');
   assert.equal(await execution.getAttribute('href'), '#company-introduction-execution');
   const executionBounds = await execution.boundingBox();
-  assert.ok(executionBounds.width >= 43.5 && executionBounds.height >= 43.5, 'The compact footer preserves the execution link touch target.');
+  assert.ok(executionBounds.width >= 43.5 && executionBounds.height >= 43.5, 'The transport preserves the execution link touch target.');
   return evidence;
 }
 
@@ -268,7 +309,8 @@ async function layoutEvidence(root, viewport, maximumHeight = viewport.width >= 
   assert.deepEqual(layout.clippedGraphicLabels, [], 'SVG labels fit inside the visible artboard.');
   assert.equal(await root.locator('[data-product-character]').count(), 0, 'No separate floating character covers the content.');
   assert.ok(await root.locator('img[src*="ddunddun-"]').evaluateAll(images => images.every(image => image.closest('[data-blog-character]'))), 'Blog characters stay inside the article layout.');
-  assert.equal(await root.locator('[data-device-character]').count(), await root.getAttribute('data-chapter') === '0' ? 2 : 0, 'Mascots stay within the two web-app device screens.');
+  const screenView = await root.locator('[data-web-view="screen"]').count() === 1;
+  assert.equal(await root.locator('[data-device-character]').count(), screenView ? 2 : 0, 'Mascots stay within the two web-app device screens.');
   assert.equal(await root.locator('[data-automation-director]').count(), await root.getAttribute('data-chapter') === '1' ? 1 : 0, 'The command character appears only beside work automation.');
   assert.equal(await root.getByRole('button', { name: '현재 장면 반복', exact: true }).count(), 0, 'The repeat control has been removed.');
   assert.equal(await root.getByRole('link', { name: '콘텐츠 제품 보기', exact: true }).count(), 0, 'The content catalogue CTA has been removed.');
@@ -306,8 +348,95 @@ async function playbackState(root) {
   }));
 }
 
-async function verifyPlayback(page, root) {
-  await selectScene(page, root, webScenes[1]);
+async function selectWebCut(root, scene, viewport, index, key) {
+  const story = root.locator(`[data-web-story="${scene.id}"][data-web-view="story"]`);
+  const control = story.locator(`[data-web-shot="${index}"]`);
+  await activate(control, viewport, key);
+  const frame = story.locator(`img[data-web-frame="${index}"]`);
+  await frame.waitFor();
+  assert.deepEqual(await story.locator('[data-web-shot]').evaluateAll(buttons => buttons.map(button => [Number(button.dataset.webShot), button.getAttribute('aria-pressed')])),
+    webCutTimes.map((_, cut) => [cut, String(cut === index)]), 'The active thumbnail matches the displayed cut.');
+  if (key) assert.equal(await control.evaluate(button => button === document.activeElement), true, 'Selecting a cut keeps keyboard focus.');
+  assert.equal(await root.getAttribute('data-running'), 'false');
+  const state = await playbackState(root);
+  assert.ok(Math.abs(Number(state.progress) * webDuration - webCutTimes[index]) < 1, 'Selecting a cut sets the shared playhead to its exact start.');
+  return frame;
+}
+
+async function verifyStoryArtwork(root, scene, viewport) {
+  const story = root.locator(`[data-web-story="${scene.id}"]`);
+  const photo = story.locator('[data-web-viewport]');
+  const cuts = [];
+  for (const [index] of webCutTimes.entries()) {
+    const key = viewport.width >= 1000 && index % 2 === 0 ? 'Enter' : undefined;
+    const frame = await selectWebCut(root, scene, viewport, index, key);
+    const crop = await frame.evaluate(async element => {
+      await element.decode();
+      const viewport = element.closest('[data-web-viewport]');
+      return {
+        source: new URL(element.currentSrc).pathname, alt: element.alt, native: [element.naturalWidth, element.naturalHeight],
+        width: viewport.clientWidth, height: viewport.clientHeight,
+        rasterWidth: element.offsetWidth, rasterHeight: element.offsetHeight, left: element.offsetLeft, top: element.offsetTop,
+      };
+    });
+    assert.equal(crop.source, `/images/corp/products/web-stories/${scene.asset}.webp`);
+    assert.deepEqual(crop.native, [1536, 1024]);
+    assert.ok(crop.width > 0 && crop.height > 0 && Math.abs(crop.rasterWidth - 2 * crop.width) < 3 && Math.abs(crop.rasterHeight - 2 * crop.height) < 3,
+      `The decoded 2×2 illustration fills the story viewport: ${JSON.stringify(crop)}`);
+    assert.ok(Math.abs(crop.left + index % 2 * crop.width) < 2 && Math.abs(crop.top + Math.floor(index / 2) * crop.height) < 2, `Cut ${index + 1} shows its own cell.`);
+    assert.ok(crop.alt.length > 8 && /[가-힣]/.test(crop.alt), 'Each picture has a Korean text alternative.');
+    const dialogue = (await story.locator('[data-web-dialogue]').innerText()).trim();
+    assert.match(dialogue, /[가-힣]/, 'Every cut has a visible Korean caption.');
+    const fingerprint = createHash('sha256').update(await photo.screenshot()).digest('hex');
+    cuts.push({ index, crop, dialogue, fingerprint });
+  }
+  assert.equal(new Set(cuts.map(cut => cut.fingerprint)).size, 4, 'The browser shows four different pictures.');
+  assert.equal(new Set(cuts.map(cut => cut.dialogue)).size, 4, 'The four pictures have distinct captions.');
+  return cuts;
+}
+
+async function movingVideo(page, scene, after = 0) {
+  const handle = await page.waitForFunction(({ id, after }) => {
+    const element = document.querySelector(`video[data-web-video="${id}"]`);
+    if (!element || element.paused || element.readyState < 2 || !element.videoWidth || element.currentTime <= after || getComputedStyle(element).opacity !== '1') return false;
+    return { source: new URL(element.currentSrc).pathname, seconds: element.currentTime, duration: element.duration, size: [element.videoWidth, element.videoHeight] };
+  }, { id: scene.id, after });
+  try { return await handle.jsonValue(); } finally { await handle.dispose(); }
+}
+
+async function verifyStoryPlayback(page, root, scene, viewport) {
+  await selectWebCut(root, scene, viewport, 0);
+  const story = root.locator(`[data-web-story="${scene.id}"]`);
+  const control = story.locator('[data-web-playback]');
+  await activate(control, viewport);
+  await waitAttribute(page, 'data-running', true);
+  const first = await movingVideo(page, scene);
+  const advanced = await movingVideo(page, scene, first.seconds + .2);
+  assert.equal(first.source, `/videos/corp/web-${scene.asset}.mp4`);
+  assert.deepEqual(first.size, [768, 512]);
+  assert.ok(Math.abs(first.duration - webDuration / 1000) < .12 && first.seconds < 3, 'The correct full episode starts in its first cut.');
+  await activate(control, viewport);
+  await waitAttribute(page, 'data-running', false);
+  await page.waitForFunction(() => {
+    const video = document.querySelector('video[data-web-video]');
+    return video && video.paused && !video.seeking;
+  });
+  const video = story.locator('video[data-web-video]');
+  const pausedTime = await video.evaluate(element => element.currentTime);
+  const paused = await playbackState(root);
+  await page.waitForTimeout(350);
+  assert.equal(await video.evaluate(element => element.currentTime), pausedTime, 'Pause freezes the decoded film.');
+  assert.deepEqual(await playbackState(root), paused, 'The story control pauses the shared timeline as well.');
+  await activate(control, viewport);
+  const resumed = await movingVideo(page, scene, pausedTime + .2);
+  await activate(control, viewport);
+  await waitAttribute(page, 'data-running', false);
+  return { first, advanced: advanced.seconds, paused: pausedTime, resumed: resumed.seconds };
+}
+
+async function verifyPlayback(page, root, viewport) {
+  const scene = webScenes[1];
+  await selectScene(page, root, scene, viewport);
   const stopped = await playbackState(root);
   await page.waitForTimeout(350);
   assert.deepEqual(await playbackState(root), stopped, 'Manual selection while paused remains still.');
@@ -316,12 +445,25 @@ async function verifyPlayback(page, root) {
   await waitAttribute(page, 'data-running', true);
   await page.waitForFunction(selector => Number(document.querySelector(selector)?.style.getPropertyValue('--scene-progress')) > 0.03, rootSelector);
   assert.equal(await root.getAttribute('data-step-id'), 'mobile-web', 'Resume plays the manually selected scene.');
-  assert.ok(await root.locator('[data-product-motion-artwork]').evaluate(artwork => artwork.getAnimations({ subtree: true }).some(animation => animation.playState === 'running')), 'Artwork motion runs during playback.');
-  await pauseShowcase(page, root);
+  const advancing = await movingVideo(page, scene);
+  const secondCut = root.locator('[data-web-frame="1"]');
+  await secondCut.waitFor();
+  const next = await movingVideo(page, scene, Math.max(3, advancing.seconds));
+  assert.ok(next.seconds < 6, 'Shared playback advances the second cut and its video together.');
+  const beforeInspect = await playbackState(root);
+  await openWebView(root, scene, 'screen', viewport, viewport.width >= 1000 ? 'Enter' : undefined);
+  await waitAttribute(page, 'data-running', false);
   const paused = await playbackState(root);
+  assert.equal(paused.step, beforeInspect.step);
+  assert.equal(paused.cycle, beforeInspect.cycle);
+  assert.ok(Number(paused.progress) >= Number(beforeInspect.progress), 'Inspecting the product screen does not rewind the story.');
   await page.waitForTimeout(350);
-  assert.deepEqual(await playbackState(root), paused, 'Pause freezes the timeline without resetting the selected scene.');
-  assert.equal(await root.locator('[data-product-motion-artwork]').evaluate(artwork => artwork.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Pause freezes artwork animations.');
+  assert.deepEqual(await playbackState(root), paused, 'Product screen viewing freezes the same timeline.');
+  assert.equal(await root.locator('[data-product-motion-artwork]').evaluate(artwork => artwork.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Product screen inspection stays still.');
+  await imageEvidence(page, root);
+  await openWebView(root, scene, 'story', viewport, viewport.width >= 1000 ? 'Space' : undefined);
+  assert.deepEqual(await playbackState(root), paused, 'Returning to the story preserves the paused cut and playhead.');
+  await secondCut.waitFor();
   await root.getByRole('button', { name: '다음 장면', exact: true }).click();
   await waitAttribute(page, 'data-step-id', 'global-web');
   await root.getByRole('button', { name: '이전 장면', exact: true }).click();
@@ -400,10 +542,18 @@ async function verifyReducedMotion(page, viewport) {
   await waitAttribute(page, 'data-running', false);
   assert.equal(await root.getByRole('button', { name: '쇼릴 일시정지', exact: true }).count(), 0);
   for (const scene of webScenes) {
-    await selectScene(page, root, scene);
+    await selectScene(page, root, scene, viewport);
+    assert.equal(await root.locator('[data-web-video], [data-web-playback]').count(), 0, 'Reduced motion leaves the hand-selected pictures available without videos.');
+    const frame = await selectWebCut(root, scene, viewport, 2, viewport.width >= 1000 ? 'Space' : undefined);
+    const selectedAlt = await frame.getAttribute('alt');
+    await layoutEvidence(root, viewport);
+    assert.equal(await root.evaluate(section => section.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Reduced motion disables animation in the story.');
+    await openWebView(root, scene, 'screen', viewport, viewport.width >= 1000 ? 'Enter' : undefined);
     await imageEvidence(page, root);
     await layoutEvidence(root, viewport);
     assert.equal(await root.evaluate(section => section.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Reduced motion disables every showcase animation.');
+    await openWebView(root, scene, 'story', viewport, viewport.width >= 1000 ? 'Enter' : undefined);
+    assert.equal(await frame.getAttribute('alt'), selectedAlt, 'Reduced motion retains the selected still when returning from the product screen.');
   }
   const staticState = await playbackState(root);
   await page.waitForTimeout(500);
@@ -415,7 +565,8 @@ const results = [];
 const browser = await chromium.launch({ executablePath, headless: true });
 try {
   for (const viewport of viewports) {
-    const context = await browser.newContext({ viewport, reducedMotion: 'no-preference' });
+    const mobile = viewport.width < 600;
+    const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, reducedMotion: 'no-preference' });
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
     const errors = [];
@@ -426,24 +577,35 @@ try {
     const result = { viewport, scenes: [] };
     try {
       const root = await openShowcase(page);
+      assert.equal(await root.locator('[data-web-story="pc-web"]').getAttribute('data-web-view'), 'story', 'A direct visit opens the PC story.');
       await pauseShowcase(page, root);
       await root.locator('#product-film-chapter-0').click();
       for (const scene of webScenes) {
-        await selectScene(page, root, scene);
+        await selectScene(page, root, scene, viewport);
+        const cuts = await verifyStoryArtwork(root, scene, viewport);
+        const storyLayout = await layoutEvidence(root, viewport);
+        const storyViolations = await accessibilityViolations(page);
+        assert.deepEqual(storyViolations, [], `${scene.label} story has no WCAG A/AA violations.`);
+        await captureShowcase(page, root, viewport, `story-${scene.mode}-${viewport.width}.png`);
+        const movie = await verifyStoryPlayback(page, root, scene, viewport);
+        const paused = await playbackState(root);
+        await openWebView(root, scene, 'screen', viewport, mobile ? undefined : 'Enter');
+        assert.deepEqual(await playbackState(root), paused, 'Screen selection retains the shared playhead.');
         const images = await imageEvidence(page, root);
         const layout = await layoutEvidence(root, viewport);
         if (scene.mode === 'global') {
+          assert.equal(await root.locator('[data-web-mode="global"] [data-global-map]').count(), 1, 'The global product screen includes the city map.');
           const text = await root.locator('[data-web-mode="global"]').textContent();
-          for (const city of ['서울', '도쿄', '런던', '뉴욕']) assert.match(text, new RegExp(city, 'i'), `Global connection shows ${city}.`);
+          for (const label of ['서울', '도쿄', '런던', '뉴욕', '한국어', 'English', '日本語']) assert.match(text, new RegExp(label, 'i'), `Global connection shows ${label}.`);
         }
         const violations = await accessibilityViolations(page);
         assert.deepEqual(violations, [], `${scene.label} has no WCAG A/AA violations.`);
         await captureShowcase(page, root, viewport, `${scene.mode}-${viewport.width}.png`);
-        result.scenes.push({ scene: scene.id, images, layout, violations });
+        result.scenes.push({ scene: scene.id, cuts, storyLayout, storyViolations, movie, images, layout, violations });
       }
       assert.notDeepEqual(result.scenes[0].images.desktop.bounds, result.scenes[1].images.desktop.bounds, 'PC and mobile scenes have different device compositions.');
       assert.equal(await root.locator('[aria-label^="전체 311초"]').count(), 1, 'The 21-scene journey includes the 15-second TikTok preview.');
-      await verifyPlayback(page, root);
+      await verifyPlayback(page, root, viewport);
       result.chapterMenus = await verifyChapterMenus(page, root, viewport);
       result.contentReading = await verifyContentReading(page, root, viewport);
       await verifyKeyboard(page, root);
@@ -451,7 +613,7 @@ try {
       assert.deepEqual(errors, [], 'No runtime or hydration errors.');
       results.push({ ...result, playback: 'pass', keyboard: 'pass', reducedMotion: 'pass', errors });
       await writeFile(path.join(output, 'results.json'), JSON.stringify(results, null, 2));
-      console.log(`PASS product global showcase ${viewport.width}px: embedded characters, compact caption/footer, integrated header, 20% shorter desktop, unified navigation, distinct images, pause/resume, keyboard, reduced motion, 44px controls, overflow, axe`);
+      console.log(`PASS product global showcase ${viewport.width}px: three four-cut stories and native films, product screens, shared playback, keyboard, reduced motion, 44px controls, overflow, axe`);
     } catch (error) {
       const state = await page.locator(rootSelector).evaluate(section => ({ attributes: Object.fromEntries([...section.attributes].map(attribute => [attribute.name, attribute.value])), height: section.getBoundingClientRect().height })).catch(() => null);
       await writeFile(path.join(output, `failure-${viewport.width}.json`), JSON.stringify({ error: String(error), state, result, errors }, null, 2));

@@ -1,18 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowRight, ArrowUpRight, ChevronLeft, ChevronRight, Pause, Play, Repeat2 } from 'lucide-react';
-import styled, { keyframes } from 'styled-components';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { ArrowDown, ArrowUpRight, ChevronLeft, ChevronRight, Clapperboard, List, Pause, Play } from 'lucide-react';
+import styled from 'styled-components';
 import ProductContentStudio from './ProductContentStudio';
 import ProductServiceExplorer from './ProductServiceExplorer';
-import { SHOWREEL_STEPS, SHOWREEL_STARTS, SHOWREEL_TOTAL_MS, resolveShowreelSelection, type ShowreelSelection, type ShowreelStep } from './ProductShowreelSequence';
-
-const CHAPTERS = [
-  { label: '웹·앱 개발', english: '그뚠웹과 그뚠앱, 하나로 이어지는 업무.', word: 'Global.', title: ['그뚠웹에서 넓게,', '그뚠앱으로 가볍게.'], description: '큰 화면에서 정리하고, 손안에서 이어가세요.\n그뚠이와 함께하는 한글 웹·앱 업무 공간입니다.', tags: ['PC 대시보드', '모바일 워크스페이스', '다국어 연결'], steps: ['PC에서 계획', '모바일에서 실행', '세계로 연결'], href: '#web-app', cta: '웹·앱 제품 보기' },
-  { label: '업무자동화', english: 'CONNECTED AUTOMATION', word: 'Automate.', title: ['서류부터 프로그램까지,', '업무가 이어지도록.'], description: '18종 서류 작성부터 발행·이체·메시지·결제 연동까지.\n브라우저와 에이전트의 반복 작업도 자동화합니다.', tags: ['18종 서류', '세금계산서 발행', '급여이체', '카카오톡 발송', 'PG 결제 연결', '브라우저·에이전트'], steps: ['자료·작업 입력', '검토·승인', '실행·결과 확인'], href: '#automation', cta: '자동화 제품 보기' },
-  { label: '생성형 콘텐츠', english: 'ONE STORY. EVERY CHANNEL.', word: 'Create.', title: ['브랜드의 이야기를,', '채널에 맞는 콘텐츠로.'], description: 'YouTube 영상, TikTok 숏폼, 블로그 글, Instagram 웹툰.\n채널을 선택해 완성된 콘텐츠를 직접 살펴보세요.', tags: ['영상·숏폼', '브랜드 블로그', '인스타 웹툰'], steps: ['이야기 기획', '콘텐츠 제작', '채널별 완성'], href: '#media', cta: null },
-  { label: '크리에디터', english: 'CREATE. CURATE. CONNECT.', word: 'Sell.', title: ['콘텐츠를 상품으로,', '추천을 판매로.'], description: '생성형 콘텐츠 판매와 광고형 리셀러를 한곳에서.\n네이버스토어·쿠팡파트너스·알리·테무로 연결합니다.', tags: ['생성형 콘텐츠 판매', '광고형 리셀러', '상품·제휴 링크'], steps: ['콘텐츠·상품 선택', '판매·광고 연결', '전달·반응 확인'], href: '#partner', cta: '크리에디터 제품 보기' },
-] as const;
+import { RESELLER_EPISODES } from './productResellerEpisodes';
+import { WEB_STORIES } from './productWebStories';
+import { SHOWREEL_CHAPTERS as CHAPTERS, SHOWREEL_STEPS, SHOWREEL_STARTS, SHOWREEL_TOTAL_MS, resolveShowreelSelection, type ShowreelSelection, type ShowreelStep } from './ProductShowreelSequence';
 
 const motionQuery = '(prefers-reduced-motion: reduce)';
 function subscribeMotion(listener: () => void) {
@@ -23,27 +18,50 @@ function subscribeMotion(listener: () => void) {
 const getMotion = () => window.matchMedia(motionQuery).matches;
 const getServerMotion = () => false;
 const timecode = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+const NEXT_SCENE_PRELOAD_MS = 3000;
 type PlaybackFrame = { index: number; step: ShowreelStep; elapsedMs: number; cycle: number; tourCycle: number };
 const INITIAL_FRAME: PlaybackFrame = { index: 0, step: SHOWREEL_STEPS[0], elapsedMs: 0, cycle: 0, tourCycle: 0 };
-const CHAPTER_RANGES = CHAPTERS.map((_, chapter) => {
-  const start = SHOWREEL_STEPS.findIndex(step => step.chapter === chapter);
-  return { start: SHOWREEL_STARTS[start], duration: SHOWREEL_STEPS.filter(step => step.chapter === chapter).reduce((sum, step) => sum + step.durationMs, 0) };
-});
+const FIRST_AD_HREF = `/corp/company/product-introduction?ad=${RESELLER_EPISODES[0].id}#reseller-film`;
+const CHAPTER_RANGES = new Map(CHAPTERS.map(({ id }) => {
+  const start = SHOWREEL_STEPS.findIndex(step => step.chapterId === id);
+  const duration = SHOWREEL_STEPS.filter(step => step.chapterId === id).reduce((sum, step) => sum + step.durationMs, 0);
+  return [id, { start: SHOWREEL_STARTS[start], duration }];
+}));
 
 function updateProgress(root: HTMLElement | null, frame: PlaybackFrame) {
   if (!root) return;
   const elapsed = SHOWREEL_STARTS[frame.index] + frame.elapsedMs;
-  const range = CHAPTER_RANGES[frame.step.chapter];
+  const range = CHAPTER_RANGES.get(frame.step.chapterId)!;
   root.style.setProperty('--scene-progress', String(frame.elapsedMs / frame.step.durationMs));
   root.style.setProperty('--chapter-progress', String((elapsed - range.start) / range.duration));
   root.style.setProperty('--tour-progress', String(elapsed / SHOWREEL_TOTAL_MS));
 }
 
-export default function ProductMotionShowcase() {
+// Keep the selected platform and its film together in the page's own scroll area.
+function revealAd() {
+  const figure = document.querySelector('#reseller-film figure');
+  const main = figure?.closest('main');
+  if (!figure || !main) return;
+  const bounds = main.getBoundingClientRect();
+  const film = figure.getBoundingClientRect();
+  const picker = main.querySelector('[data-commerce-option]')?.parentElement?.getBoundingClientRect();
+  const available = Math.min(innerHeight, bounds.bottom) - Math.max(0, bounds.top);
+  const groupTop = Math.min(film.top, picker?.top ?? film.top);
+  const groupBottom = Math.max(film.bottom, picker?.bottom ?? film.bottom);
+  const fits = groupBottom - groupTop + 24 <= available;
+  const [top, bottom] = fits ? [groupTop, groupBottom] : [film.top, film.bottom];
+  if (top >= bounds.top + 8 && bottom <= Math.min(innerHeight, bounds.bottom) - 8) return;
+  main.scrollBy({ top: top - Math.max(0, bounds.top) - Math.max(12, (available - (bottom - top)) / 2), behavior: 'instant' });
+}
+
+export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink: MouseEventHandler<HTMLAnchorElement> }) {
   const rootRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<PlaybackFrame>(INITIAL_FRAME);
-  const keyboardChapterRef = useRef<number | null>(null);
+  const pendingFilmScroll = useRef<'ad' | 'youtube' | null>(null);
+  const lastLocation = useRef('');
+  const chapterFocusRef = useRef<number | null>(null);
+  const preloadedImages = useRef(new Set<string>());
   const [frame, setFrame] = useState<PlaybackFrame>(INITIAL_FRAME);
   const [playing, setPlaying] = useState(true);
   const [visible, setVisible] = useState(false);
@@ -51,21 +69,27 @@ export default function ProductMotionShowcase() {
   const [staticScene, setStaticScene] = useState(false);
   const reducedMotion = useSyncExternalStore(subscribeMotion, getMotion, getServerMotion);
   const running = playing && visible && pageVisible && !reducedMotion;
-  const chapter = frame.step.chapter;
-  const current = CHAPTERS[chapter]!;
+  const chapter = CHAPTERS.findIndex(item => item.id === frame.step.chapterId);
+  const current = CHAPTERS[chapter];
+  const episode = frame.step.platform === undefined ? undefined : RESELLER_EPISODES[frame.step.platform];
+  const webStory = current.id === 'web-app' ? WEB_STORIES[frame.step.variant ?? 0] : undefined;
+  const title = webStory ? [webStory.label, webStory.feature] : episode ? [episode.label, `${episode.item} 편`] : current.title;
+  const categoryHref = `#${current.id}`;
   const nextStep = SHOWREEL_STEPS[(frame.index + 1) % SHOWREEL_STEPS.length];
+  const preloadNext = running && frame.elapsedMs >= frame.step.durationMs - NEXT_SCENE_PRELOAD_MS;
   const second = Math.floor((SHOWREEL_STARTS[frame.index] + frame.elapsedMs) / 1000);
 
   useEffect(() => {
-    if (keyboardChapterRef.current !== null) {
-      document.getElementById(`product-film-chapter-${keyboardChapterRef.current}`)?.focus();
-      keyboardChapterRef.current = null;
+    if (chapterFocusRef.current !== null) {
+      document.getElementById(`product-film-chapter-${chapterFocusRef.current}`)?.focus({ preventScroll: true });
+      chapterFocusRef.current = null;
     }
   }, [chapter]);
 
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
+    updateProgress(rootRef.current, timelineRef.current);
     const observer = new IntersectionObserver(entries => {
       const entry = entries.filter(item => item.target === stage).at(-1);
       if (entry) setVisible(entry.isIntersecting);
@@ -109,114 +133,298 @@ export default function ProductMotionShowcase() {
     return () => cancelAnimationFrame(request);
   }, [running]);
 
-  const seek = (selection: ShowreelSelection | number, resume = playing) => {
+  useEffect(() => {
+    if (!preloadNext || !nextStep.images) return;
+    const requested = preloadedImages.current;
+    for (const source of nextStep.images) {
+      if (frame.step.images?.includes(source) || requested.has(source)) continue;
+      requested.add(source);
+      const image = new window.Image();
+      image.fetchPriority = 'low';
+      image.onerror = () => requested.delete(source);
+      image.src = source;
+    }
+  }, [frame.step.images, nextStep, preloadNext]);
+
+  const moveTo = useCallback((selection: ShowreelSelection | number, resume: boolean, elapsedMs = 0) => {
     const resolved = typeof selection === 'number'
       ? { index: (selection + SHOWREEL_STEPS.length) % SHOWREEL_STEPS.length, step: SHOWREEL_STEPS[(selection + SHOWREEL_STEPS.length) % SHOWREEL_STEPS.length] }
       : resolveShowreelSelection(selection);
-    const next = { ...resolved, elapsedMs: 0, cycle: timelineRef.current.cycle + 1, tourCycle: timelineRef.current.tourCycle };
+    const next = { ...resolved, elapsedMs, cycle: timelineRef.current.cycle + 1, tourCycle: timelineRef.current.tourCycle };
     timelineRef.current = next;
     setFrame(next);
     updateProgress(rootRef.current, next);
-    setStaticScene(!resume || reducedMotion);
-    setPlaying(resume);
+    const animate = resume && !getMotion();
+    setStaticScene(!animate);
+    setPlaying(animate);
+  }, []);
+
+  const playAd = useCallback((platform: number) => {
+    pendingFilmScroll.current = 'ad';
+    moveTo({ chapterId: 'partner', variant: 1, platform }, true);
+  }, [moveTo]);
+
+  useEffect(() => {
+    const restoreLocation = (force: boolean) => {
+      const url = new URL(window.location.href);
+      if (!force && lastLocation.current === url.href) return;
+      const previous = lastLocation.current && new URL(lastLocation.current);
+      lastLocation.current = url.href;
+      const platform = RESELLER_EPISODES.findIndex(episode => episode.id === url.searchParams.get('ad'));
+      if (platform >= 0 && (!url.hash || url.hash === '#reseller-film')) {
+        playAd(platform);
+      } else if (url.searchParams.get('channel') === 'youtube' && (!url.hash || url.hash === '#product-business-panorama')) {
+        pendingFilmScroll.current = 'youtube';
+        moveTo({ chapterId: 'media', channel: 'youtube' }, true);
+      } else if (previous && (previous.searchParams.has('ad') || previous.searchParams.get('channel') === 'youtube') && (!url.hash || url.hash === '#product-business-panorama')) {
+        moveTo(window.history.state?.productShowreelStep ?? 0, true);
+        rootRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+      }
+    };
+    // Wait for hydration and the corporate shell's scroll restoration on a direct visit.
+    const onHashChange = () => restoreLocation(false);
+    const onPopState = () => restoreLocation(true);
+    const request = requestAnimationFrame(onHashChange);
+    window.addEventListener('popstate', onPopState);
+    window.addEventListener('hashchange', onHashChange);
+    return () => {
+      cancelAnimationFrame(request);
+      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('hashchange', onHashChange);
+    };
+  }, [moveTo, playAd]);
+
+  useEffect(() => {
+    const film = pendingFilmScroll.current;
+    if (!film) return;
+    const request = requestAnimationFrame(() => {
+      pendingFilmScroll.current = null;
+      if (film === 'ad') revealAd();
+      else rootRef.current?.querySelector('[data-content-channel="youtube"] [role="tabpanel"]')
+        ?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    });
+    return () => cancelAnimationFrame(request);
+  }, [frame.cycle]);
+
+  const selectAd = (platform: number) => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('ad')) {
+      window.history.replaceState({ ...window.history.state, productShowreelStep: timelineRef.current.index }, '', url);
+    }
+    if (url.searchParams.get('channel') === 'youtube') url.searchParams.delete('channel');
+    url.searchParams.set('ad', RESELLER_EPISODES[platform].id);
+    url.hash = 'reseller-film';
+    if (url.href !== window.location.href) window.history.pushState(null, '', url);
+    lastLocation.current = url.href;
+    playAd(platform);
+  };
+
+  const seek = (selection: ShowreelSelection | number, resume = playing) => {
+    const url = new URL(window.location.href);
+    const nextChannel = typeof selection === 'number' ? SHOWREEL_STEPS[selection]?.channel
+      : selection.chapterId === 'media' ? selection.channel ?? 'youtube' : undefined;
+    if (url.searchParams.has('ad') || (url.searchParams.get('channel') === 'youtube' && nextChannel !== 'youtube')) {
+      url.searchParams.delete('ad');
+      if (url.searchParams.get('channel') === 'youtube') url.searchParams.delete('channel');
+      url.hash = 'product-business-panorama';
+      window.history.pushState({ productShowreelStep: selection }, '', url);
+      lastLocation.current = url.href;
+    }
+    moveTo(selection, resume);
   };
 
   const togglePlayback = () => {
-    if (!playing && staticScene) seek(frame.step, true);
+    if (!playing && staticScene) moveTo(frame.step, true, webStory ? timelineRef.current.elapsedMs : 0);
     else setPlaying(value => !value);
   };
   const pauseForContent = () => setPlaying(false);
-  const controlContentPlayback = (next: boolean) => {
-    if (next && staticScene) seek(frame.step, true);
-    else setPlaying(next);
+  const inspectWebScreen = () => {
+    setPlaying(false);
+    setStaticScene(true);
   };
-  const followProductLink = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    if (window.location.hash === current.href) {
-      event.preventDefault();
-      document.getElementById('product-catalog')?.scrollIntoView({ block: 'start', behavior: 'instant' });
-    }
+  const selectFilmShot = (elapsedMs: number) => {
+    const next = { ...timelineRef.current, elapsedMs };
+    timelineRef.current = next;
+    setPlaying(false);
+    setStaticScene(false);
+    setFrame(next);
+    updateProgress(rootRef.current, next);
+  };
+  const controlContentPlayback = (next: boolean) => {
+    // A viewer can explicitly play a film with reduced motion while the tour stays still.
+    if (next && staticScene && !reducedMotion) {
+      moveTo(frame.step, true, frame.step.channel === 'youtube' ? timelineRef.current.elapsedMs : 0);
+    } else setPlaying(next);
   };
   const navigateChapters = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!(event.target as HTMLElement).closest('button[id^="product-film-chapter-"]')) return;
-    const index = ['ArrowRight', 'ArrowDown'].includes(event.key) ? (chapter + 1) % CHAPTERS.length
-      : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? (chapter + CHAPTERS.length - 1) % CHAPTERS.length
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-chapter-index]');
+    if (!button) return;
+    const focusedChapter = Number(button.dataset.chapterIndex);
+    const index = ['ArrowRight', 'ArrowDown'].includes(event.key) ? (focusedChapter + 1) % CHAPTERS.length
+      : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? (focusedChapter + CHAPTERS.length - 1) % CHAPTERS.length
         : event.key === 'Home' ? 0 : event.key === 'End' ? CHAPTERS.length - 1 : null;
     if (index === null) return;
     event.preventDefault();
-    keyboardChapterRef.current = index === chapter ? null : index;
-    seek({ chapter: index }, false);
+    chapterFocusRef.current = index === chapter ? null : index;
+    seek({ chapterId: CHAPTERS[index].id }, false);
     document.getElementById(`product-film-chapter-${index}`)?.focus();
   };
 
   const introduction = <Story data-product-story>
-    <div><SceneMeta>{current.english}</SceneMeta><h3>{current.title[0]} <em>{current.title[1]}</em></h3><p>{current.description}</p></div>
-    {current.cta && <SceneLink href={current.href} onClick={followProductLink}>{current.cta}<ArrowUpRight size={15} aria-hidden="true" /></SceneLink>}
+    <div>
+      <h3>{title[0]} <em>{title[1]}</em></h3>
+      <p>{webStory?.premise ?? episode?.teaser ?? current.description}</p>
+    </div>
+    {current.cta && <SceneLink href={categoryHref} onClick={onCatalogLink}>{current.cta}<ArrowUpRight size={15} aria-hidden="true" /></SceneLink>}
   </Story>;
   const renderNavigation = (controls: ReactNode) => <ChapterNav role="group" aria-label="제품 쇼릴 챕터 선택" onKeyDown={navigateChapters}>
-    <NavLabel>EXPLORE PRODUCTS<span>04</span></NavLabel>
-    {CHAPTERS.map((item, index) => <ChapterGroup key={item.english} data-active={chapter === index}>
-      <ChapterButton id={`product-film-chapter-${index}`} type="button" aria-pressed={chapter === index} onClick={() => seek({ chapter: index })} data-active={chapter === index} data-complete={index < chapter}>
-        <span className="chapter-line" aria-hidden="true"><i /></span><span className="chapter-number">0{index + 1}</span><span className="chapter-copy"><strong>{item.label}</strong><small>{item.word.replace('.', '').toUpperCase()}</small></span><span className="chapter-action" aria-hidden="true">{chapter === index ? <span className="equalizer"><i /><i /><i /></span> : <ArrowUpRight size={15} />}</span>
+    <ChapterGrid>
+      {CHAPTERS.map((item, index) => <ChapterButton
+        key={item.id}
+        id={`product-film-chapter-${index}`}
+        data-chapter-index={index}
+        type="button"
+        aria-pressed={chapter === index}
+        onClick={event => {
+          if (chapter !== index && document.activeElement === event.currentTarget) chapterFocusRef.current = index;
+          seek({ chapterId: item.id });
+        }}
+        data-active={chapter === index}
+        data-complete={index < chapter}
+      >
+        <strong>{item.label}</strong>
+        <span className="chapter-line" aria-hidden="true"><i /></span>
+        <ChevronRight size={16} aria-hidden="true" />
       </ChapterButton>
-      {chapter === index && <ChapterDetails>{controls}</ChapterDetails>}
-    </ChapterGroup>)}
+      )}
+    </ChapterGrid>
+    <ChapterDetails>{controls}</ChapterDetails>
   </ChapterNav>;
 
   return (
-    <Showcase ref={rootRef} id="product-business-panorama" aria-labelledby="product-film-title" data-chapter={chapter} data-step={frame.index} data-step-id={frame.step.id} data-running={running} data-reduced-motion={reducedMotion} data-playback-mode="tour" data-cycle={frame.cycle} data-tour-cycle={frame.tourCycle}>
+    <Showcase ref={rootRef} id="product-business-panorama" aria-labelledby="product-film-title" data-chapter={chapter} data-chapter-id={current.id} data-showreel-product-id={frame.step.productId} data-step={frame.index} data-step-id={frame.step.id} data-running={running} data-reduced-motion={reducedMotion} data-playback-mode="tour" data-cycle={frame.cycle} data-tour-cycle={frame.tourCycle}>
       <Inner>
         <Cinema aria-label="프로피그 제품 모션 쇼릴">
-          <FilmTop data-product-header><h2 id="product-film-title"><i aria-hidden="true" /> PRODUCT SHOWCASE</h2>
-          <SequenceStatus aria-live={running ? 'off' : 'polite'}>
-            <div><span>NOW {String(frame.index + 1).padStart(2, '0')}</span><strong data-current-step-label>{frame.step.label}</strong><small>{timecode(frame.elapsedMs / 1000)} / {timecode(frame.step.durationMs / 1000)}</small></div>
-            <div><span>{frame.index === SHOWREEL_STEPS.length - 1 ? 'BACK TO START' : 'NEXT'}</span><b data-next-step-label>{nextStep.label}</b><ArrowRight size={14} aria-hidden="true" /></div>
-            <i className="scene-progress" aria-hidden="true"><i /></i>
-          </SequenceStatus>
+          <FilmTop data-product-header>
+            <FilmSummary>
+              <h2 id="product-film-title">프로피그 제품 쇼릴</h2>
+              <SequenceStatus aria-live={running ? 'off' : 'polite'}>
+                <div>
+                  <span>NOW</span><strong data-current-step-label>{frame.step.label}</strong>
+                  <small>{timecode(frame.elapsedMs / 1000)} / {timecode(frame.step.durationMs / 1000)}</small>
+                  <i className="scene-progress" aria-hidden="true"><i /></i>
+                </div>
+                <div><span>다음</span><b data-next-step-label>{nextStep.label}</b></div>
+              </SequenceStatus>
+              <SummaryLinks>
+                <ReelLink href={FIRST_AD_HREF} aria-label="그뚠이 광고 4편 보기" onClick={event => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault();
+                  selectAd(0);
+                }}><Clapperboard size={16} aria-hidden="true" />광고 4편 보기</ReelLink>
+                <CatalogJump href="#product-catalog" onClick={onCatalogLink}><List size={17} aria-hidden="true" />제품 목록</CatalogJump>
+              </SummaryLinks>
+            </FilmSummary>
+            <Transport data-product-transport>
+              <Navigation role="group" aria-label="쇼릴 재생 제어">
+                <button type="button" aria-label="이전 장면" onClick={() => seek(frame.index - 1)}><ChevronLeft size={18} aria-hidden="true" /></button>
+                {!reducedMotion && <Control type="button" onClick={togglePlayback} aria-label={playing ? '쇼릴 일시정지' : '쇼릴 재생'}>
+                  {playing ? <Pause size={15} fill="currentColor" aria-hidden="true" /> : <Play size={15} fill="currentColor" aria-hidden="true" />}
+                  <span>{playing ? '일시정지' : '재생'}</span>
+                </Control>}
+                <button type="button" aria-label="다음 장면" onClick={() => seek(frame.index + 1)}><ChevronRight size={18} aria-hidden="true" /></button>
+              </Navigation>
+              <Playback>
+                <span aria-label={`장면 ${frame.index + 1} / ${SHOWREEL_STEPS.length}`}>{frame.index + 1} / {SHOWREEL_STEPS.length}</span>
+                <Time aria-label={`전체 ${SHOWREEL_TOTAL_MS / 1000}초 중 ${second}초`}><span>{timecode(second)}</span><span>/ {timecode(SHOWREEL_TOTAL_MS / 1000)}</span></Time>
+                {reducedMotion && <StaticLabel>동작 줄이기</StaticLabel>}
+              </Playback>
+              <ExecutionLink href="#company-introduction-execution" aria-label="실행 과정 살펴보기"><span>실행 과정</span><ArrowDown size={15} aria-hidden="true" /></ExecutionLink>
+            </Transport>
+            <TourProgress role="progressbar" aria-label="전체 상세 장면 진행률" aria-valuemin={0} aria-valuemax={SHOWREEL_TOTAL_MS / 1000} aria-valuenow={second} aria-valuetext={`${SHOWREEL_STEPS.length}개 중 ${frame.index + 1}번째 장면, ${frame.step.label}`}><i /></TourProgress>
           </FilmTop>
-          <Stage ref={stageRef} data-running={running} data-reduced-motion={reducedMotion || staticScene} onFocusCapture={event => {
-            const target = event.target as HTMLElement;
-            if (target.closest('[data-product-story] a') || !target.closest('[data-product-interactive]')) { setPlaying(false); setStaticScene(true); }
-          }}>
-            <Scene>
-                {chapter === 2
-                  ? <ProductContentStudio introduction={introduction} renderNavigation={renderNavigation} playing={playing && visible && pageVisible} reducedMotion={reducedMotion} selectedChannel={frame.step.channel ?? 0} onChannelChange={channel => seek({ chapter: 2, channel })} automaticTour sceneElapsedMs={frame.elapsedMs} onSelect={pauseForContent} onPlaybackChange={controlContentPlayback} />
-                  : <ProductServiceExplorer introduction={introduction} renderNavigation={renderNavigation} chapter={chapter} playing={running} reducedMotion={reducedMotion || staticScene} cycle={frame.cycle} sceneElapsedMs={frame.elapsedMs} selection={{ variant: frame.step.variant ?? 0, platform: frame.step.platform }} onSelectionChange={selection => seek({ chapter, ...selection })} onInteract={pauseForContent} />}
-            </Scene>
+          <Stage
+            ref={stageRef}
+            data-running={running}
+            data-reduced-motion={reducedMotion || staticScene}
+            onFocusCapture={event => {
+              const target = event.target as HTMLElement;
+              const chapterHasKeyboardFocus = event.relatedTarget && target.matches('button[data-chapter-index]:focus-visible');
+              if (chapterHasKeyboardFocus || target.closest('[data-product-story] a') || !target.closest('[data-product-interactive]')) {
+                setPlaying(false);
+                setStaticScene(true);
+              }
+            }}
+          >
+            {current.id === 'media' ? (
+              <ProductContentStudio
+                introduction={introduction}
+                renderNavigation={renderNavigation}
+                playing={playing && visible && pageVisible}
+                reducedMotion={reducedMotion}
+                selectedChannel={frame.step.channel}
+                onChannelChange={channel => seek({ chapterId: current.id, channel })}
+                automaticTour
+                sceneElapsedMs={frame.elapsedMs}
+                onSelect={pauseForContent}
+                onSeek={selectFilmShot}
+                onPlaybackChange={controlContentPlayback}
+              />
+            ) : (
+              <ProductServiceExplorer
+                introduction={introduction}
+                renderNavigation={renderNavigation}
+                chapter={chapter}
+                playing={running}
+                reducedMotion={reducedMotion || staticScene}
+                cycle={frame.cycle}
+                sceneElapsedMs={frame.elapsedMs}
+                selection={{ variant: frame.step.variant ?? 0, platform: frame.step.platform }}
+                onSelectShot={selectFilmShot}
+                onToggleFilmPlayback={reducedMotion ? undefined : togglePlayback}
+                onInspectWebScreen={inspectWebScreen}
+                onSelectionChange={selection => {
+                  if (current.id === 'partner' && selection.variant === 1) selectAd(selection.platform ?? 0);
+                  else seek({ chapterId: current.id, ...selection });
+                }}
+                onInteract={pauseForContent}
+              />
+            )}
           </Stage>
-          <Transport data-product-transport>
-            <Playback>
-              {reducedMotion ? <StaticLabel>동작 줄이기 · 직접 탐색</StaticLabel> : <Control type="button" onClick={togglePlayback} aria-label={playing ? '쇼릴 일시정지' : '쇼릴 재생'}>{playing ? <Pause size={16} fill="currentColor" aria-hidden="true" /> : <Play size={16} fill="currentColor" aria-hidden="true" />}<span>{playing ? '일시정지' : '재생'}</span></Control>}
-              <Time aria-label={`전체 ${SHOWREEL_TOTAL_MS / 1000}초 중 ${second}초`}><span>{timecode(second)}</span><span>/ {timecode(SHOWREEL_TOTAL_MS / 1000)}</span></Time>
-            </Playback>
-            <TransportNote><Repeat2 size={13} aria-hidden="true" />{reducedMotion ? '상세 장면을 선택해 살펴보세요' : '21개 상세 장면이 차례로 이어집니다'}</TransportNote>
-            <Navigation><button type="button" aria-label="이전 장면" onClick={() => seek(frame.index - 1)}><ChevronLeft size={18} aria-hidden="true" /></button><span>{String(frame.index + 1).padStart(2, '0')}<b>/ {SHOWREEL_STEPS.length}</b></span><button type="button" aria-label="다음 장면" onClick={() => seek(frame.index + 1)}><ChevronRight size={18} aria-hidden="true" /></button></Navigation>
-            <ExecutionLink href="#company-introduction-execution" aria-label="실행 과정 살펴보기"><span>실행 과정</span><ArrowDown size={15} aria-hidden="true" /></ExecutionLink>
-          </Transport>
-          <TourProgress role="progressbar" aria-label="전체 상세 장면 진행률" aria-valuemin={0} aria-valuemax={SHOWREEL_TOTAL_MS / 1000} aria-valuenow={second} aria-valuetext={`${SHOWREEL_STEPS.length}개 중 ${frame.index + 1}번째 장면, ${frame.step.label}`}><i /></TourProgress>
         </Cinema>
       </Inner>
     </Showcase>
   );
 }
 
-const arrive = keyframes`
-  from { opacity: .35; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-`;
-
-const equalize = keyframes`0%, 100% { transform: scaleY(.4); } 50% { transform: scaleY(1); }`;
 const SequenceStatus = styled.div`
-  display: flex; flex: 1; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; min-height: 58px; padding-left: 20px; border-left: 1px solid #29405e;
-  > div { display: flex; align-items: center; gap: 13px; min-width: 0; }
-  span { font-size: 9px; font-weight: 700; color: #93c5fd; white-space: nowrap; }
-  strong { font-size: 16px; color: #f3f7ff; word-break: keep-all; }
-  small { font-size: 10px; color: #a9bed7; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  b { font-size: 12px; color: #c2d5ed; font-weight: 500; word-break: keep-all; }
-  svg { color: #93c5fd; flex-shrink: 0; }
-  .scene-progress { position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: #1c3451; }
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+
+  > div { position: relative; display: flex; align-items: center; gap: 9px; min-width: 0; }
+  span { font-size: 10px; font-weight: 700; color: #8fb5dd; white-space: nowrap; }
+  strong, b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  strong { font-size: 16px; color: #f3f7ff; }
+  small { font-size: 11px; color: #adbed4; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  b { font-size: 13px; color: #c2d5ed; font-weight: 550; }
+  .scene-progress { position: absolute; inset: auto 0 -5px; height: 2px; background: #243e57; }
   .scene-progress > i { display: block; height: 100%; background: #5eead4; transform: scaleX(var(--scene-progress, 0)); transform-origin: left; }
-  @container (max-width: 620px) { flex-basis: 100%; flex-wrap: wrap; gap: 6px; min-height: 42px; padding: 0 0 8px; border-left: 0; > div { gap: 8px; } strong { font-size: 13px; } small { font-size: 9px; } b { font-size: 10px; } > div:last-of-type { margin-left: auto; } }
+
+  @container product-showreel (max-width: 680px) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 9px;
+    padding-bottom: 6px;
+    > div { gap: 6px; }
+    > div:last-of-type { justify-content: flex-end; }
+    strong { font-size: 13px; }
+    b { font-size: 12px; }
+    small { display: none; }
+  }
 `;
 const TourProgress = styled.div`
   height: 3px; background: #203b5c; overflow: hidden;
@@ -245,10 +453,61 @@ const Cinema = styled.div`
   @container (max-width: 600px) { border-radius: 12px; }
 `;
 const FilmTop = styled.div`
-  position: relative; min-height: 60px; display: flex; align-items: center; gap: 20px; padding: 0 20px; border-bottom: 1px solid #29405e; background: #0c1c33;
-  > h2 { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; margin: 0; font-size: 11px; font-weight: 750; color: #b9d9ff; }
-  > h2 > i { width: 6px; height: 6px; background: #5eead4; border-radius: 50%; box-shadow: 0 0 12px #5eead450; }
-  @container (max-width: 620px) { flex-wrap: wrap; gap: 4px; padding: 10px 14px 0; > h2 { font-size: 10px; min-height: 22px; } }
+  background: #0c1c33;
+`;
+const FilmSummary = styled.div`
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  min-height: 64px;
+  padding: 6px 18px;
+
+  h2 {
+    margin: 0;
+    color: #e0edff;
+    font-size: 14px;
+    font-weight: 750;
+    word-break: keep-all;
+  }
+
+  @container product-showreel (max-width: 680px) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 12px;
+    padding: 5px 10px 0;
+    h2 { font-size: 13px; }
+  }
+`;
+const CatalogJump = styled.a`
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-inline: 14px;
+  border-radius: 8px;
+  background: #9de6d6;
+  color: #092620;
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+  white-space: nowrap;
+
+  &:hover { background: #c6f5e9; }
+  &:focus-visible { outline-color: #092620; }
+  @container product-showreel (max-width: 680px) { gap: 5px; padding-inline: 10px; font-size: 12px; }
+`;
+const SummaryLinks = styled.div`
+  display: flex; align-items: center; gap: 8px;
+  @container product-showreel (max-width: 680px) { gap: 4px; }
+`;
+const ReelLink = styled.a`
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding-inline: 10px; border: 1px solid #746141; border-radius: 8px;
+  color: #ffe2aa; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap;
+  &:hover { background: #363022; }
+  @container product-showreel (max-width: 680px) { padding-inline: 6px; font-size: 12px; }
+  @container product-showreel (max-width: 340px) { svg { display: none; } }
 `;
 const Stage = styled.div`
   position: relative;
@@ -256,20 +515,13 @@ const Stage = styled.div`
   &[data-reduced-motion='true'] * { animation: none !important; }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 `;
-const Scene = styled.div`
-  min-width: 0; animation: ${arrive} 500ms ease both;
-`;
 const Story = styled.div`
   min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 0 0 14px; color: #f3f7ff;
   > div { min-width: 0; }
-  h3 { font-size: 28px; font-weight: 700; line-height: 1.4; margin: 6px 0 0; word-break: keep-all; text-wrap: balance; }
+  h3 { font-size: 28px; font-weight: 750; line-height: 1.32; margin: 0; word-break: keep-all; text-wrap: balance; }
   h3 em { font-style: normal; color: #93c5fd; }
   p { margin: 10px 0 0; font-size: 15px; line-height: 1.7; color: #bdc9da; word-break: keep-all; }
   @container (max-width: 620px) { flex-wrap: wrap; gap: 0; padding-bottom: 8px; h3 { font-size: 22px; margin-top: 0; } p { margin-top: 8px; font-size: 13px; } }
-`;
-const SceneMeta = styled.div`
-  color: #9fbad5; font-size: 10px; font-weight: 650; letter-spacing: .1em;
-  @container (max-width: 620px) { display: none; }
 `;
 const SceneLink = styled.a`
   min-height: 44px; display: inline-flex; align-items: center; gap: 8px; color: #dbeafe; font-size: 11px; font-weight: 650; text-decoration: none; white-space: nowrap; flex-shrink: 0;
@@ -277,74 +529,143 @@ const SceneLink = styled.a`
   &:hover svg { transform: translate(3px, -3px); }
 `;
 const Transport = styled.div`
-  min-height: 54px; padding: 4px 12px; border-top: 1px solid #29405e; background: #081426; display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  @container (max-width: 620px) { padding: 4px 6px; gap: 5px; }
+  min-height: 52px;
+  padding: 3px 18px;
+  border-top: 1px solid #273f59;
+  background: #0a192e;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  @container product-showreel (max-width: 680px) { padding-inline: 8px; gap: 8px; }
+  @container product-showreel (max-width: 340px) { padding-inline: 6px; gap: 5px; }
 `;
-const Playback = styled.div`display: flex; align-items: center; gap: 14px; @container (max-width: 620px) { gap: 8px; }`;
-const Control = styled.button`
-  display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 1px solid #4775a4; border-radius: 8px; background: #173b62; color: #e2efff; padding: 0 14px; font-size: 11px !important; transition: background 160ms, transform 160ms;
-  svg { width: 13px; height: 13px; }
-  &:hover { background: #245586; transform: translateY(-2px); } &:active { transform: translateY(0) scale(.97); }
-  @container (max-width: 620px) { padding: 0 10px; font-size: 10px !important; }
+const Playback = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #dbeafe;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  @container product-showreel (max-width: 680px) { gap: 8px; font-size: 10px; }
+  @container product-showreel (max-width: 340px) { gap: 5px; }
 `;
-const StaticLabel = styled.span`font-size: 10px; color: #a8cfff;`;
+const Control = styled.button``;
+const StaticLabel = styled.span`
+  color: #a8cfff;
+  @container product-showreel (max-width: 340px) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+`;
 const Time = styled.span`
-  display: inline-flex; gap: 7px; font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 10px; color: #adbed4; > span:first-child { color: #f3f7ff; }
-  @container (max-width: 380px) { gap: 4px; font-size: 9px; }
-  @container (max-width: 620px) { > span:last-child { display: none; } }
-  @container (max-width: 340px) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  display: inline-flex;
+  gap: 5px;
+  font-family: ui-monospace, monospace;
+  color: #adbed4;
+  > span:first-child { color: #f3f7ff; }
+  @container product-showreel (max-width: 340px) { > span:last-child { display: none; } }
 `;
-const TransportNote = styled.span`display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: #adbed4; @container (max-width: 1100px) { display: none; }`;
 const Navigation = styled.div`
-  display: flex; align-items: center; gap: 9px;
-  button { width: 44px; height: 44px; display: grid; place-items: center; background: #10243d; border: 1px solid #344b68; border-radius: 8px; color: #dbeafe; transition: background 160ms, transform 160ms; }
-  button:hover { background: #1e4166; transform: translateY(-2px); } button:active { transform: scale(.94); }
-  > span { display: inline-flex; gap: 6px; font-size: 10px; font-variant-numeric: tabular-nums; }
-  b { color: #adbed4; font-weight: 400; }
-  @container (max-width: 620px) { gap: 4px; > span { display: none; } }
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  > button {
+    min-width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid #3a5677;
+    border-radius: 8px;
+    background: #10243d;
+    color: #dbeafe;
+    transition: background 160ms;
+  }
+  > button:hover { background: #1e4166; }
+  > ${Control} { padding-inline: 11px; font-size: 12px; font-weight: 700; background: #173b62; border-color: #5079a1; }
+  @container product-showreel (max-width: 680px) { gap: 3px; > ${Control} { padding-inline: 8px; font-size: 11px; } }
 `;
 const ChapterNav = styled.div`
-  display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;
-  @container product-showreel (max-width: 760px) { gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  display: grid;
+  gap: 14px;
+  @container product-showreel (max-width: 760px) { gap: 7px; }
 `;
-const NavLabel = styled.div`
-  display: flex; justify-content: space-between; padding: 0 5px 6px; color: #8daac8; font-size: 9px; letter-spacing: .07em;
-  span { color: #5eead4; }
-  @container product-showreel (max-width: 760px) { display: none; }
-`;
-const ChapterGroup = styled.div`
-  min-width: 0;
-  @container product-showreel (max-width: 760px) { display: contents; }
+const ChapterGrid = styled.div`
+  display: grid;
+  gap: 6px;
+  @container product-showreel (max-width: 760px) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
 `;
 const ChapterDetails = styled.div`
-  min-width: 0; padding: 10px 0 4px;
-  @container product-showreel (max-width: 760px) { grid-column: 1 / -1; order: 1; padding: 3px 0 0; }
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid #29405e;
+  @container product-showreel (max-width: 760px) { padding-top: 7px; }
 `;
 const ChapterButton = styled.button`
-  position: relative; overflow: hidden; width: 100%; min-width: 0; min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #304b6b; border-radius: 7px; background: #0b1b32; color: #bdc9da; text-align: left;
-  transition: transform 200ms cubic-bezier(.2,.7,.2,1), background 200ms, border-color 200ms, box-shadow 200ms;
-  .chapter-line { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: #233d5b; overflow: hidden; }
-  .chapter-line i { display: block; height: 100%; background: #60a5fa; transform: scaleX(0); transform-origin: left; }
-  &[data-active='true'] { color: #f3f7ff; background: #153352; border-color: #60a5fa; box-shadow: 0 7px 24px #02060e50, inset 0 1px 0 #ffffff12; .chapter-line i { transform: scaleX(var(--chapter-progress)); } }
-  &[data-complete='true'] .chapter-line i { transform: scaleX(1); }
-  .chapter-number { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 30px; border-radius: 7px; background: #18304d; color: #a8cfff; font-size: 11px; font-variant-numeric: tabular-nums; }
-  &[data-active='true'] .chapter-number { background: #60a5fa; color: #07101f; font-weight: 800; }
-  .chapter-copy { display: grid; gap: 4px; }
-  strong { font-size: 12px; font-weight: 750; word-break: keep-all; }
-  small { font-size: 9px; color: #adbed4; }
-  .chapter-action { margin-left: auto; display: flex; align-items: center; color: #93c5fd; }
-  .chapter-action > svg { transition: transform 180ms; }
-  &:hover { border-color: #93c5fd; background: #153352; .chapter-action > svg { transform: translate(2px, -2px); } }
-  &:active { transform: translateY(0) scale(.985); }
-  .equalizer { display: inline-flex; align-items: center; gap: 3px; height: 19px; }
-  .equalizer i { width: 3px; height: 16px; background: #93c5fd; border-radius: 2px; animation: ${equalize} 1.2s ease-in-out infinite; }
-  .equalizer i:nth-child(2) { animation-delay: -.4s; } .equalizer i:nth-child(3) { animation-delay: -.8s; }
-  [data-running='false'] & .equalizer i { animation-play-state: paused; }
-  @container product-showreel (max-width: 960px) { gap: 8px; strong { font-size: 11px; } .chapter-action { display: none; } }
-  @container product-showreel (max-width: 760px) { min-height: 44px; padding: 6px 8px; strong { font-size: 12px; } small { display: none; } }
-  @media (prefers-reduced-motion: reduce) { transform: none !important; .equalizer i { animation: none; } }
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #304b6b;
+  border-radius: 8px;
+  background: #0b1b32;
+  color: #bdc9da;
+  text-align: left;
+  transition: background 160ms, border-color 160ms;
+
+  .chapter-line { position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: #233d5b; }
+  .chapter-line i { display: block; height: 100%; background: #9de6d6; transform: scaleX(0); transform-origin: left; }
+  &[data-active='true'] {
+    color: #f3f7ff;
+    background: #183654;
+    border-color: #86bcef;
+    .chapter-line i { transform: scaleX(var(--chapter-progress)); }
+  }
+  &[data-complete='true'] .chapter-line i { transform: scaleX(1); background: #6895bd; }
+  strong { font-size: 13px; font-weight: 750; line-height: 1.3; word-break: keep-all; }
+  svg { flex-shrink: 0; color: #93c5fd; }
+  &:hover { border-color: #93c5fd; background: #153352; }
+
+  @container product-showreel (max-width: 760px) {
+    min-height: 44px;
+    justify-content: center;
+    padding: 4px;
+    text-align: center;
+    strong { font-size: 11px; }
+    svg { display: none; }
+  }
 `;
 const ExecutionLink = styled.a`
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; min-width: 44px; color: #a8cfff; font-size: 11px; text-decoration: none; white-space: nowrap;
-  @container (max-width: 620px) { border: 1px solid #344b68; border-radius: 8px; > span { display: none; } }
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  min-width: 44px;
+  margin-left: auto;
+  padding-inline: 9px;
+  border: 1px solid #344b68;
+  border-radius: 8px;
+  color: #b9d9ff;
+  font-size: 11px;
+  text-decoration: none;
+  white-space: nowrap;
+
+  &:hover { background: #17314c; }
+  @container product-showreel (max-width: 680px) { padding-inline: 0; > span { display: none; } }
 `;
