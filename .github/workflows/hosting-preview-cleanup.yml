@@ -1,0 +1,46 @@
+name: Firebase Hosting preview cleanup
+
+on: delete
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    name: Delete preview for a deleted branch
+    if: >-
+      github.repository == 'playzzin/propig' &&
+      github.event.ref_type == 'branch' &&
+      startsWith(github.event.ref, 'codex/')
+    # Use the same queue as the CI preview job for this branch.
+    concurrency:
+      group: firebase-hosting-preview-${{ github.event.ref }}
+      queue: max
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: preview
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Delete the associated Hosting preview channel
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || 'propig-63524' }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          CLOUDSDK_CONFIG: ${{ runner.temp }}/preview-cleanup-gcloud
+        run: |
+          : "${FIREBASE_SERVICE_ACCOUNT:?Missing Firebase preview service account}"
+          umask 077
+          credentials="$(mktemp "$RUNNER_TEMP/preview-cleanup-credentials.XXXXXX")"
+          trap 'rm -f -- "$credentials"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$credentials"
+          unset FIREBASE_SERVICE_ACCOUNT
+          export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE="$credentials"
+          node .github/scripts/hosting-preview.mjs cleanup
