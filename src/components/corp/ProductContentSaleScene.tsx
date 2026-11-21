@@ -1,18 +1,24 @@
 'use client';
 
 import styled, { keyframes } from 'styled-components';
+import { ProductShowreelCharacter } from './ProductShowreelCharacter';
 import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const POSES = [
-  { id: 'create', image: 'work', message: '아이디어? 내가 만들어볼게!' },
-  { id: 'present', image: 'point', message: '영상·그림·웹툰, 한 팩으로!' },
-  { id: 'deliver', image: 'success', message: '주문 확인! 파일 보냈어!' },
+  { id: 'create', image: 'work', action: 'tablet', message: '아이디어? 내가 만들어볼게!' },
+  { id: 'present', image: 'point', action: 'point', message: '영상·그림·웹툰, 한 팩으로!' },
+  { id: 'deliver', image: 'success', action: 'approval', message: '주문 확인! 파일 보냈어!' },
 ] as const;
 
 // A single 12-second timeline follows the existing three commerce stages.
 const pose = keyframes`
-  0%, 29% { opacity: 1; transform: translateY(0); }
-  32%, 100% { opacity: 0; transform: translateY(-4px); }
+  0%, 29.5%, 100% { opacity: 1; transform: none; }
+  33.3333% { opacity: 0; transform: translateX(-4px); }
+  96.1667% { opacity: 0; transform: translateX(4px); }
+`;
+const dialogue = keyframes`
+  0% { opacity: 1; }
+  33.3333%, 100% { opacity: 0; }
 `;
 const collect = keyframes`
   0%, 4% { opacity: 0; transform: translate(-45px, 20px) rotate(-12deg) scale(.8); }
@@ -30,8 +36,9 @@ const confirmation = keyframes`
 `;
 
 const Studio = styled.g`
-  .creator-pose { opacity: 0; animation: ${pose} 12s linear infinite; }
-  .creator-pose[data-content-pose="create"] { opacity: 1; }
+  .creator-pose { opacity: 0; animation: ${pose} 12s ease-in-out infinite; }
+  .creator-line { opacity: 0; animation: ${dialogue} 12s steps(1, end) infinite; }
+  [data-content-pose="create"], .creator-line:first-of-type { opacity: 1; }
   .creator-card { transform-box: fill-box; transform-origin: center; opacity: 0; animation: ${collect} 12s cubic-bezier(.22, 1, .36, 1) infinite; }
   .creator-package { transform-box: fill-box; transform-origin: center; animation: ${packageReady} 12s ease infinite both; }
   .creator-confirmation { transform-box: fill-box; transform-origin: center; animation: ${confirmation} 12s ease infinite both; }
@@ -50,12 +57,16 @@ export function ProductContentSaleScene({ id }: { id: string }) {
         <path d="M269 329h237" stroke="#cbd6c6" />
         <ellipse cx="387" cy="343" rx="72" ry="7" fill="#344c41" opacity=".12" />
         {POSES.map((item, index) => (
-          <g key={item.id} className="creator-pose" data-content-pose={item.id} style={{ animationDelay: `${index * 4}s` }}>
-            <image data-content-character={item.id} href={SHOWREEL_MEDIA.mascots[item.image]} x="290" y="172" width="195" height="179" preserveAspectRatio="xMidYMax meet" />
-            <path d="M290 133h195a9 9 0 0 1 9 9v18a9 9 0 0 1-9 9h-82l-12 10-2-10h-99a9 9 0 0 1-9-9v-18a9 9 0 0 1 9-9Z" fill="#fff" stroke="#cad7cd" />
-            <text data-content-speech x="387" y="156" textAnchor="middle" fill="#172e4a" fontSize="15">{item.message}</text>
+          <g key={item.id} className="creator-pose" data-content-pose={item.id} style={{ animationDelay: `${(index - POSES.length) * 4}s` }}>
+            <ProductShowreelCharacter action={item.action} duration={4} data-content-character={item.id} href={SHOWREEL_MEDIA.mascots[item.image]} x="290" y="172" width="195" height="179" preserveAspectRatio="xMidYMax meet" />
           </g>
         ))}
+        <g>
+          <path d="M290 133h195a9 9 0 0 1 9 9v18a9 9 0 0 1-9 9h-82l-12 10-2-10h-99a9 9 0 0 1-9-9v-18a9 9 0 0 1 9-9Z" fill="#fff" stroke="#cad7cd" />
+          {POSES.map((item, index) => (
+            <text key={item.id} className="creator-line" data-content-speech x="387" y="156" textAnchor="middle" fill="#172e4a" fontSize="15" style={{ animationDelay: `${(index - POSES.length) * 4}s` }}>{item.message}</text>
+          ))}
+        </g>
         {['영상', '이미지', '웹툰'].map((label, index) => (
           <g key={label} transform={`translate(${index === 1 ? 444 : 278} ${205 + index * 39})`}>
             <g className="creator-card motion-only" data-content-flying-card={label} style={{ animationDelay: `${index * .5}s` }}>

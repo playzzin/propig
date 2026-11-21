@@ -70,6 +70,24 @@ async function verifyTimeline(page, showcase, artwork) {
     packets.push(await artwork.locator('.signal-packet').first().evaluate(element => getComputedStyle(element).strokeDashoffset));
   }
   assert.ok(new Set(packets).size > 1, 'Signal packets move along the commerce connection.');
+  if (creator) {
+    const transitions = await artwork.locator('[data-content-creator]').evaluate(scene => {
+      const poses = [...scene.querySelectorAll('[data-content-pose]')];
+      const lines = [...scene.querySelectorAll('[data-content-speech]')];
+      const animations = [...poses, ...lines].flatMap(element => element.getAnimations());
+      const opacity = element => Number(getComputedStyle(element).opacity);
+      return [3750, 3900, 4000, 7750, 7900, 8000, 11750, 11900, 12000].map(time => {
+        for (const animation of animations) animation.currentTime = time;
+        return {
+          time,
+          poseOpacity: poses.reduce((total, element) => total + opacity(element), 0),
+          visibleLines: lines.filter(element => opacity(element) > .95).length,
+        };
+      });
+    });
+    assert.ok(transitions.every(frame => frame.poseOpacity > .95 && frame.visibleLines === 1),
+      `The character crossfade shows uninterrupted artwork and one caption: ${JSON.stringify(transitions)}`);
+  }
   const before = await artwork.evaluate(element => element.getAnimations({ subtree: true }).map(animation => animation.currentTime));
   assert.ok(before.length > 0, 'The scene includes active motion timelines.');
   await page.waitForTimeout(250);

@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from 'react';
 import { SignalPath, SignalPing } from './ProductMotionEffects';
+import { ProductShowreelCharacter } from './ProductShowreelCharacter';
 import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const C = {
@@ -25,7 +26,7 @@ function DesktopWorkmate() {
       <text x="720" y="179" fontSize="10" letterSpacing="1.4" fill="#507161">그뚠웹 · 업무 도우미</text>
       <text x="720" y="204" fontSize="19" fontWeight="700" fill="#234c3d">그뚠이와 함께.</text>
       <ellipse cx="816" cy="384" rx="64" ry="7" fill="#749981" opacity=".18" />
-      <image data-mascot-pose="work" href={SHOWREEL_MEDIA.mascots.work} x="721" y="211" width="190" height="178" preserveAspectRatio="xMidYMid meet" />
+      <ProductShowreelCharacter action="tablet" data-mascot-pose="work" href={SHOWREEL_MEDIA.mascots.work} x="721" y="211" width="190" height="178" preserveAspectRatio="xMidYMid meet" />
       <rect x="735" y="391" width="162" height="20" rx="10" fill="#f4faf4" />
       <circle cx="750" cy="401" r="3" fill="#43826a" />
       <text x="760" y="405" fontSize="10" fill="#355e4b">오늘의 업무도 차근차근</text>
@@ -43,7 +44,7 @@ function MobileWorkmate() {
       <text x="42" y="306" fontSize="25" fontWeight="700" fill="#244d3b">가볍게.</text>
       <text x="43" y="333" fontSize="11" fill="#527761">그뚠이와 함께하는 하루</text>
       <ellipse cx="253" cy="391" rx="60" ry="6" fill="#6b9479" opacity=".2" />
-      <image data-mascot-pose="success" href={SHOWREEL_MEDIA.mascots.success} x="162" y="223" width="174" height="174" preserveAspectRatio="xMidYMid meet" />
+      <ProductShowreelCharacter action="approval" data-mascot-pose="success" href={SHOWREEL_MEDIA.mascots.success} x="162" y="223" width="174" height="174" preserveAspectRatio="xMidYMid meet" />
       <rect x="42" y="367" width="112" height="26" rx="13" fill="#2c5b45" />
       <text x="58" y="384" fontSize="10" fill="#f3faf1">오늘의 일정 보기 →</text>
     </g>

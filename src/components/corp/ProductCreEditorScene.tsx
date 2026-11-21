@@ -3,6 +3,7 @@
 import { useId, type ReactNode } from 'react';
 import { ReactionBurst, SignalPath, SignalPing } from './ProductMotionEffects';
 import { ProductContentSaleScene } from './ProductContentSaleScene';
+import { ProductShowreelCharacter } from './ProductShowreelCharacter';
 import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const C = {
@@ -239,7 +240,7 @@ function AdvertisingSale({ id, platform }: { id: string; platform: number }) {
         <g clipPath={`url(#${id}-creative)`}>
           <rect x="263" y="126" width="239" height="231" fill="#e8eee2" />
           <circle cx="382" cy="242" r="95" fill={selected.accent} opacity=".18" />
-          <image data-commerce-character={selected.id} className="video-pan" href={SHOWREEL_MEDIA.commerce[selected.character]} x="267" y="146" width="231" height="211" preserveAspectRatio="xMidYMax meet" />
+          <ProductShowreelCharacter action={selected.character} data-commerce-character={selected.id} href={SHOWREEL_MEDIA.commerce[selected.character]} x="267" y="146" width="231" height="211" preserveAspectRatio="xMidYMax meet" />
           <rect x="274" y="136" width="132" height="22" rx="11" fill={C.ink} />
           <text x="340" y="151" textAnchor="middle" fill={C.text} fontSize="12">그뚠이의 사용 장면</text>
         </g>
