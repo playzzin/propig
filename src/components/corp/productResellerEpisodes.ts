@@ -6,8 +6,10 @@ type Episode = {
   id: string;
   label: string;
   item: string;
+  teaser: string;
   description: string;
   image: string;
+  video: string;
   focus: string;
   jolt: readonly [number, number, number];
   sound: string;
@@ -19,6 +21,8 @@ const directory = '/images/corp/products/commerce';
 export const RESELLER_EPISODES = [
   {
     id: 'naver', label: '네이버스토어', item: '원목 의자',
+    teaser: '그뚠이가 조심스레 앉자 의자 다리가 슬쩍 휩니다.',
+    video: '/videos/corp/reseller-chair.mp4',
     description: '그뚠이의 의자 사용 후기를 스토어 상품 링크로 연결하는 브랜드 시연입니다.',
     image: `${directory}/reel-chair.webp`, focus: '53% 69%', jolt: [0, 2, -.35], sound: '우지끈!',
     shots: [
@@ -30,6 +34,8 @@ export const RESELLER_EPISODES = [
   },
   {
     id: 'coupang', label: '쿠팡파트너스', item: '버튼 셔츠',
+    teaser: '마지막 단추 하나를 잠그려고 그뚠이가 숨을 꾹 참습니다.',
+    video: '/videos/corp/reseller-shirt.mp4',
     description: '단추가 튀는 셔츠 광고에서 제휴 상품 링크로 이어지는 브랜드 시연입니다.',
     image: `${directory}/reel-shirt.webp`, focus: '56% 49%', jolt: [-1.4, .25, .45], sound: '찌이익!',
     shots: [
@@ -41,6 +47,8 @@ export const RESELLER_EPISODES = [
   },
   {
     id: 'aliexpress', label: '알리익스프레스', item: 'TV',
+    teaser: '전원 버튼을 두 번 눌러도 조용합니다. 그뚠이가 TV 옆을 톡 두드립니다.',
+    video: '/videos/corp/reseller-television.mp4',
     description: '리모컨 소동을 짧은 광고로 만들어 글로벌 상품 링크에 연결하는 브랜드 시연입니다.',
     image: `${directory}/reel-television.webp`, focus: '68% 40%', jolt: [1.6, -.5, -.75], sound: '펑!',
     shots: [
@@ -52,6 +60,8 @@ export const RESELLER_EPISODES = [
   },
   {
     id: 'temu', label: '테무', item: '로봇청소기',
+    teaser: '촬영을 마친 그뚠이의 뒤꿈치로 청소기가 다가옵니다.',
+    video: '/videos/corp/reseller-vacuum.mp4',
     description: '청소기와 뒤엉킨 마지막 편에서 상품 링크로 이어지는 브랜드 시연입니다.',
     image: `${directory}/reel-vacuum.webp`, focus: '53% 76%', jolt: [.35, 2.2, .55], sound: '와작!',
     shots: [

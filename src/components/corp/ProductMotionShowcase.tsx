@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEventHandler, type ReactNode } from 'react';
-import { ArrowDown, ArrowUpRight, ChevronLeft, ChevronRight, List, Pause, Play } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { ArrowDown, ArrowUpRight, ChevronLeft, ChevronRight, Clapperboard, List, Pause, Play } from 'lucide-react';
 import styled from 'styled-components';
 import ProductContentStudio from './ProductContentStudio';
 import ProductServiceExplorer from './ProductServiceExplorer';
+import { RESELLER_EPISODES } from './productResellerEpisodes';
 import { SHOWREEL_CHAPTERS as CHAPTERS, SHOWREEL_STEPS, SHOWREEL_STARTS, SHOWREEL_TOTAL_MS, resolveShowreelSelection, type ShowreelSelection, type ShowreelStep } from './ProductShowreelSequence';
 
 const motionQuery = '(prefers-reduced-motion: reduce)';
@@ -19,6 +20,7 @@ const timecode = (seconds: number) => `${String(Math.floor(seconds / 60)).padSta
 const NEXT_SCENE_PRELOAD_MS = 3000;
 type PlaybackFrame = { index: number; step: ShowreelStep; elapsedMs: number; cycle: number; tourCycle: number };
 const INITIAL_FRAME: PlaybackFrame = { index: 0, step: SHOWREEL_STEPS[0], elapsedMs: 0, cycle: 0, tourCycle: 0 };
+const FIRST_AD_HREF = `/corp/company/product-introduction?ad=${RESELLER_EPISODES[0].id}#reseller-film`;
 const CHAPTER_RANGES = new Map(CHAPTERS.map(({ id }) => {
   const start = SHOWREEL_STEPS.findIndex(step => step.chapterId === id);
   const duration = SHOWREEL_STEPS.filter(step => step.chapterId === id).reduce((sum, step) => sum + step.durationMs, 0);
@@ -34,10 +36,29 @@ function updateProgress(root: HTMLElement | null, frame: PlaybackFrame) {
   root.style.setProperty('--tour-progress', String(elapsed / SHOWREEL_TOTAL_MS));
 }
 
+// Keep the selected platform and its film together in the page's own scroll area.
+function revealAd() {
+  const figure = document.querySelector('#reseller-film figure');
+  const main = figure?.closest('main');
+  if (!figure || !main) return;
+  const bounds = main.getBoundingClientRect();
+  const film = figure.getBoundingClientRect();
+  const picker = main.querySelector('[data-commerce-option]')?.parentElement?.getBoundingClientRect();
+  const available = Math.min(innerHeight, bounds.bottom) - Math.max(0, bounds.top);
+  const groupTop = Math.min(film.top, picker?.top ?? film.top);
+  const groupBottom = Math.max(film.bottom, picker?.bottom ?? film.bottom);
+  const fits = groupBottom - groupTop + 24 <= available;
+  const [top, bottom] = fits ? [groupTop, groupBottom] : [film.top, film.bottom];
+  if (top >= bounds.top + 8 && bottom <= Math.min(innerHeight, bounds.bottom) - 8) return;
+  main.scrollBy({ top: top - Math.max(0, bounds.top) - Math.max(12, (available - (bottom - top)) / 2), behavior: 'instant' });
+}
+
 export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink: MouseEventHandler<HTMLAnchorElement> }) {
   const rootRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<PlaybackFrame>(INITIAL_FRAME);
+  const pendingAdScroll = useRef(false);
+  const lastLocation = useRef('');
   const chapterFocusRef = useRef<number | null>(null);
   const preloadedImages = useRef(new Set<string>());
   const [frame, setFrame] = useState<PlaybackFrame>(INITIAL_FRAME);
@@ -49,6 +70,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   const running = playing && visible && pageVisible && !reducedMotion;
   const chapter = CHAPTERS.findIndex(item => item.id === frame.step.chapterId);
   const current = CHAPTERS[chapter];
+  const episode = frame.step.platform === undefined ? undefined : RESELLER_EPISODES[frame.step.platform];
   const categoryHref = `#${current.id}`;
   const nextStep = SHOWREEL_STEPS[(frame.index + 1) % SHOWREEL_STEPS.length];
   const preloadNext = running && frame.elapsedMs >= frame.step.durationMs - NEXT_SCENE_PRELOAD_MS;
@@ -64,6 +86,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
+    updateProgress(rootRef.current, timelineRef.current);
     const observer = new IntersectionObserver(entries => {
       const entry = entries.filter(item => item.target === stage).at(-1);
       if (entry) setVisible(entry.isIntersecting);
@@ -120,7 +143,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
     }
   }, [frame.step.images, nextStep, preloadNext]);
 
-  const seek = (selection: ShowreelSelection | number, resume = playing) => {
+  const moveTo = useCallback((selection: ShowreelSelection | number, resume: boolean) => {
     const resolved = typeof selection === 'number'
       ? { index: (selection + SHOWREEL_STEPS.length) % SHOWREEL_STEPS.length, step: SHOWREEL_STEPS[(selection + SHOWREEL_STEPS.length) % SHOWREEL_STEPS.length] }
       : resolveShowreelSelection(selection);
@@ -128,12 +151,77 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
     timelineRef.current = next;
     setFrame(next);
     updateProgress(rootRef.current, next);
-    setStaticScene(!resume || reducedMotion);
-    setPlaying(resume);
+    const animate = resume && !getMotion();
+    setStaticScene(!animate);
+    setPlaying(animate);
+  }, []);
+
+  const playAd = useCallback((platform: number) => {
+    pendingAdScroll.current = true;
+    moveTo({ chapterId: 'partner', variant: 1, platform }, true);
+  }, [moveTo]);
+
+  useEffect(() => {
+    const restoreLocation = (force: boolean) => {
+      const url = new URL(window.location.href);
+      if (!force && lastLocation.current === url.href) return;
+      const previous = lastLocation.current && new URL(lastLocation.current);
+      lastLocation.current = url.href;
+      const platform = RESELLER_EPISODES.findIndex(episode => episode.id === url.searchParams.get('ad'));
+      if (platform >= 0 && (!url.hash || url.hash === '#reseller-film')) {
+        playAd(platform);
+      } else if (previous && previous.searchParams.has('ad') && (!url.hash || url.hash === '#product-business-panorama')) {
+        moveTo(window.history.state?.productShowreelStep ?? 0, true);
+        rootRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+      }
+    };
+    // Wait for hydration and the corporate shell's scroll restoration on a direct visit.
+    const onHashChange = () => restoreLocation(false);
+    const onPopState = () => restoreLocation(true);
+    const request = requestAnimationFrame(onHashChange);
+    window.addEventListener('popstate', onPopState);
+    window.addEventListener('hashchange', onHashChange);
+    return () => {
+      cancelAnimationFrame(request);
+      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('hashchange', onHashChange);
+    };
+  }, [moveTo, playAd]);
+
+  useEffect(() => {
+    if (!pendingAdScroll.current) return;
+    const request = requestAnimationFrame(() => {
+      pendingAdScroll.current = false;
+      revealAd();
+    });
+    return () => cancelAnimationFrame(request);
+  }, [frame.cycle]);
+
+  const selectAd = (platform: number) => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('ad')) {
+      window.history.replaceState({ ...window.history.state, productShowreelStep: timelineRef.current.index }, '', url);
+    }
+    url.searchParams.set('ad', RESELLER_EPISODES[platform].id);
+    url.hash = 'reseller-film';
+    if (url.href !== window.location.href) window.history.pushState(null, '', url);
+    lastLocation.current = url.href;
+    playAd(platform);
+  };
+
+  const seek = (selection: ShowreelSelection | number, resume = playing) => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('ad')) {
+      url.searchParams.delete('ad');
+      url.hash = 'product-business-panorama';
+      window.history.pushState({ productShowreelStep: selection }, '', url);
+      lastLocation.current = url.href;
+    }
+    moveTo(selection, resume);
   };
 
   const togglePlayback = () => {
-    if (!playing && staticScene) seek(frame.step, true);
+    if (!playing && staticScene) moveTo(frame.step, true);
     else setPlaying(value => !value);
   };
   const pauseForContent = () => setPlaying(false);
@@ -146,7 +234,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
     updateProgress(rootRef.current, next);
   };
   const controlContentPlayback = (next: boolean) => {
-    if (next && staticScene) seek(frame.step, true);
+    if (next && staticScene) moveTo(frame.step, true);
     else setPlaying(next);
   };
   const navigateChapters = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -164,7 +252,10 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   };
 
   const introduction = <Story data-product-story>
-    <div><h3>{current.title[0]} <em>{current.title[1]}</em></h3><p>{current.description}</p></div>
+    <div>
+      <h3>{episode ? episode.label : current.title[0]} <em>{episode ? `${episode.item} 편` : current.title[1]}</em></h3>
+      <p>{episode?.teaser ?? current.description}</p>
+    </div>
     {current.cta && <SceneLink href={categoryHref} onClick={onCatalogLink}>{current.cta}<ArrowUpRight size={15} aria-hidden="true" /></SceneLink>}
   </Story>;
   const renderNavigation = (controls: ReactNode) => <ChapterNav role="group" aria-label="제품 쇼릴 챕터 선택" onKeyDown={navigateChapters}>
@@ -206,7 +297,14 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
                 </div>
                 <div><span>다음</span><b data-next-step-label>{nextStep.label}</b></div>
               </SequenceStatus>
-              <CatalogJump href="#product-catalog" onClick={onCatalogLink}><List size={17} aria-hidden="true" />제품 목록</CatalogJump>
+              <SummaryLinks>
+                <ReelLink href={FIRST_AD_HREF} aria-label="그뚠이 광고 4편 보기" onClick={event => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault();
+                  selectAd(0);
+                }}><Clapperboard size={16} aria-hidden="true" />광고 4편 보기</ReelLink>
+                <CatalogJump href="#product-catalog" onClick={onCatalogLink}><List size={17} aria-hidden="true" />제품 목록</CatalogJump>
+              </SummaryLinks>
             </FilmSummary>
             <Transport data-product-transport>
               <Navigation role="group" aria-label="쇼릴 재생 제어">
@@ -263,7 +361,11 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
                 sceneElapsedMs={frame.elapsedMs}
                 selection={{ variant: frame.step.variant ?? 0, platform: frame.step.platform }}
                 onSelectShot={selectResellerShot}
-                onSelectionChange={selection => seek({ chapterId: current.id, ...selection })}
+                onToggleResellerPlayback={reducedMotion ? undefined : togglePlayback}
+                onSelectionChange={selection => {
+                  if (current.id === 'partner' && selection.variant === 1) selectAd(selection.platform ?? 0);
+                  else seek({ chapterId: current.id, ...selection });
+                }}
                 onInteract={pauseForContent}
               />
             )}
@@ -373,6 +475,18 @@ const CatalogJump = styled.a`
   &:hover { background: #c6f5e9; }
   &:focus-visible { outline-color: #092620; }
   @container product-showreel (max-width: 680px) { gap: 5px; padding-inline: 10px; font-size: 12px; }
+`;
+const SummaryLinks = styled.div`
+  display: flex; align-items: center; gap: 8px;
+  @container product-showreel (max-width: 680px) { gap: 4px; }
+`;
+const ReelLink = styled.a`
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding-inline: 10px; border: 1px solid #746141; border-radius: 8px;
+  color: #ffe2aa; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap;
+  &:hover { background: #363022; }
+  @container product-showreel (max-width: 680px) { padding-inline: 6px; font-size: 12px; }
+  @container product-showreel (max-width: 340px) { svg { display: none; } }
 `;
 const Stage = styled.div`
   position: relative;

@@ -270,7 +270,7 @@ try {
         assert.equal(await scene.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), platform.id);
         const caption = await explorer.locator('[data-product-caption]').innerText();
         assert.ok(caption.includes(platform.name) && caption.includes(platform.product) && caption.includes('시연'), 'The accessible caption identifies the selected demonstration and product.');
-        assert.equal(await artwork.locator('a, input, form, button:not([data-reseller-shot])').count(), 0, 'The artwork only contains cut selection controls.');
+        assert.equal(await artwork.locator('a, input, form, button:not([data-reseller-shot], [data-reseller-playback])').count(), 0, 'The film contains only playback and cut selection controls.');
         const initial = await readCut(scene, 0);
         const image = await verifyAtlas(initial.frame, platform);
         const thumbnails = await scene.locator('[data-reseller-shot]').evaluateAll(buttons => buttons.map(button => {

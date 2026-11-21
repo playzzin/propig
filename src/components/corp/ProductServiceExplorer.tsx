@@ -248,6 +248,7 @@ type ProductServiceExplorerProps = {
   cycle: number;
   sceneElapsedMs: number;
   onSelectShot: (milliseconds: number) => void;
+  onToggleResellerPlayback?: () => void;
   onInteract: () => void;
   selection?: { variant: number; platform?: number };
   onSelectionChange?: (selection: { variant: number; platform?: number }) => void;
@@ -255,7 +256,7 @@ type ProductServiceExplorerProps = {
   renderNavigation?: (controls: ReactNode) => ReactNode;
 };
 
-export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, sceneElapsedMs, onSelectShot, onInteract, selection, onSelectionChange, introduction, renderNavigation }: ProductServiceExplorerProps) {
+export default function ProductServiceExplorer({ chapter, playing, reducedMotion, cycle, sceneElapsedMs, onSelectShot, onToggleResellerPlayback, onInteract, selection, onSelectionChange, introduction, renderNavigation }: ProductServiceExplorerProps) {
   const [selections, setSelections] = useState<Record<number, number>>({});
   const [selectedPlatform, setCommercePlatform] = useState(0);
   const [selectedAutomationCategory, setAutomationCategory] = useState<AutomationCategory>('documents');
@@ -315,10 +316,11 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
         ))}
       </Options>
       {advertising && <PlatformPicker role="group" aria-label="광고형 리셀러 플랫폼 선택">
-        {RESELLER_EPISODES.map(({ id, label }, index) => <button
+        {RESELLER_EPISODES.map(({ id, label, item }, index) => <button
           key={id}
           type="button"
           data-commerce-option={id}
+          title={`${label} · ${item} 광고 재생`}
           aria-pressed={commercePlatform === index}
           aria-describedby={commercePlatform === index ? descriptionId : undefined}
           onClick={() => selectVariant(1, index)}
@@ -337,7 +339,7 @@ export default function ProductServiceExplorer({ chapter, playing, reducedMotion
         <ProductAutomationDirector elapsedMs={sceneElapsedMs} variant={variant} cycle={cycle} playing={playing} reducedMotion={reducedMotion} />
         <ProductMotionArtwork key={`${chapter}-${variant}-${cycle}`} chapter={chapter} variant={variant} playing={playing} reducedMotion={reducedMotion} />
       </AutomationStage> : advertising ? (
-        <ProductResellerFilm episode={platform} elapsedMs={sceneElapsedMs} playing={playing} reducedMotion={reducedMotion} onSelectShot={onSelectShot} />
+        <ProductResellerFilm key={cycle} episode={platform} elapsedMs={sceneElapsedMs} playing={playing} reducedMotion={reducedMotion} onSelectShot={onSelectShot} onTogglePlayback={onToggleResellerPlayback} />
       ) : <ProductMotionArtwork key={`${chapter}-${variant}-${cycle}`} chapter={chapter} variant={variant} playing={playing} reducedMotion={reducedMotion} />}
       <Caption data-product-caption id={descriptionId} aria-live={playing ? 'off' : 'polite'} aria-atomic="true">
         <span aria-hidden="true">{String(variant + 1).padStart(2, '0')}</span>

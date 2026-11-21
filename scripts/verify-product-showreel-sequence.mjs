@@ -8,6 +8,14 @@ import axe from 'axe-core';
 const base = process.env.BASE_URL || 'http://localhost:3002';
 const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'sequence') : '.tmp-product-motion-v7');
 const productPath = '/corp/company/product-introduction';
+const resellerLinkName = '그뚠이 광고 4편 보기';
+const resellerAds = [
+  { id: 'naver', image: 'chair', dialogue: '자, 앉아 보겠습니다.' },
+  { id: 'coupang', image: 'shirt', dialogue: '다음 방송은 좀 차려입고.' },
+  { id: 'aliexpress', image: 'television', dialogue: '이번 단추는 전원입니다.' },
+  { id: 'temu', image: 'vacuum', dialogue: '뒷정리는 얘가 맡습니다.' },
+];
+const resellerEntryPath = id => `${productPath}?ad=${id}#reseller-film`;
 // This independent expectation describes the requested public journey, rather
 // than importing the implementation's sequence and testing it against itself.
 const steps = [
@@ -148,7 +156,11 @@ async function verifyPublicAnchors(page, mobile) {
   await waitForProductAnchor(page, 'product-business-panorama');
 
   const automationUrl = new URL(`${productPath}#automation`, base).href;
-  await page.goto(automationUrl, { waitUntil: 'domcontentloaded' });
+  // Load the direct category URL as a document. The preceding fragment-only
+  // navigation can still be committing Next's history state in development.
+  await page.goto('about:blank');
+  const automation = await page.goto(automationUrl, { waitUntil: 'domcontentloaded' });
+  assert.equal(automation?.status(), 200);
   const currentTab = page.locator('#product-category-tab-automation[aria-selected="true"]:visible');
   await currentTab.waitFor();
   await waitForProductAnchor(page, 'product-catalog');
@@ -160,6 +172,163 @@ async function verifyPublicAnchors(page, mobile) {
   await waitForProductAnchor(page, 'product-catalog');
 
   return ['product-business-panorama', 'company-introduction-execution', 'automation'];
+}
+
+async function firstViewport(page, selectors) {
+  const snapshot = await page.waitForFunction(selectors => {
+    const bounds = [];
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      const main = element?.closest('main#content-area');
+      if (!main || !element.checkVisibility()) return false;
+      const box = element.getBoundingClientRect();
+      const area = main.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0 || box.left < Math.max(0, area.left) - 2 || box.top < Math.max(0, area.top) - 2
+        || box.right > Math.min(innerWidth, area.right) + 2 || box.bottom > Math.min(innerHeight, area.bottom) + 2) return false;
+      bounds.push({ top: Math.round(box.top), bottom: Math.round(box.bottom), width: Math.round(box.width) });
+    }
+    return bounds;
+  }, selectors, { timeout: 10_000 });
+  try { return await snapshot.jsonValue(); } finally { await snapshot.dispose(); }
+}
+
+async function firstResellerFrame(page, ad, reducedMotion = false) {
+  const player = page.locator(`#product-business-panorama[data-step-id="${ad.id}"]:visible`);
+  const film = player.locator(`#reseller-film [data-commerce-platform="${ad.id}"]`);
+  const figure = `#reseller-film [data-commerce-platform="${ad.id}"]`;
+  await film.waitFor();
+  // Observe the untouched viewport. The test must not scroll the film or caption into view.
+  const [image, dialogue] = await firstViewport(page, [`${figure} [data-reseller-viewport]`, `${figure} [data-reseller-dialogue]`]);
+  assert.equal(await player.locator('#reseller-film [data-reseller-shot="0"]').getAttribute('aria-pressed'), 'true');
+  assert.equal((await film.locator('[data-reseller-dialogue]').innerText()).trim(), ad.dialogue);
+  if (reducedMotion) {
+    const frame = film.locator('img[data-reseller-frame="0"]');
+    assert.equal(await frame.evaluate(async image => {
+      await image.decode();
+      return new URL(image.currentSrc).pathname;
+    }), `/images/corp/products/commerce/reel-${ad.image}.webp`);
+    assert.equal(await film.locator('video:visible').count(), 0);
+    assert.equal(await player.getAttribute('data-running'), 'false');
+    return { image, dialogue };
+  }
+  const video = film.locator(`video[data-reseller-video="${ad.id}"]`);
+  await video.waitFor();
+  const playing = await page.waitForFunction(id => {
+    const video = document.querySelector(`video[data-reseller-video="${id}"]`);
+    if (!video || video.paused || video.readyState < 2 || !video.videoWidth || getComputedStyle(video).opacity !== '1') return false;
+    return { source: new URL(video.currentSrc).pathname, elapsed: video.currentTime, duration: video.duration };
+  }, ad.id);
+  const { source, elapsed, duration } = await playing.jsonValue();
+  await playing.dispose();
+  assert.equal(source, `/videos/corp/reseller-${ad.image}.mp4`);
+  assert.ok(elapsed < 3 && Math.abs(duration - 12) < .5, 'The ad starts with its first shot and decodes as a full episode.');
+  const progressing = await page.waitForFunction(({ id, elapsed }) => {
+    const video = document.querySelector(`video[data-reseller-video="${id}"]`);
+    return video && !video.paused && getComputedStyle(video).opacity === '1' && video.currentTime > elapsed + 0.2 && video.currentTime;
+  }, { id: ad.id, elapsed });
+  const advancedTo = await progressing.jsonValue();
+  await progressing.dispose();
+  return { image, dialogue, elapsed, advancedTo };
+}
+
+async function verifyResellerEntry(browser, viewport, mobile) {
+  const options = { viewport, isMobile: mobile, hasTouch: mobile };
+  const cold = {};
+  for (const ad of resellerAds) {
+    const page = await browser.newPage(options);
+    const errors = captureErrors(page);
+    try {
+      const response = await page.goto(new URL(resellerEntryPath(ad.id), base).href, { waitUntil: 'domcontentloaded' });
+      assert.equal(response?.status(), 200);
+      const opened = await firstResellerFrame(page, ad);
+      const reload = await page.reload({ waitUntil: 'domcontentloaded' });
+      assert.equal(reload?.status(), 200);
+      const reloaded = await firstResellerFrame(page, ad);
+      cold[ad.id] = { opened, reloaded };
+      await page.screenshot({ path: path.join(output, `reseller-${ad.id}-${viewport.width}.png`) });
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      await page.screenshot({ path: path.join(output, `reseller-${ad.id}-failure-${viewport.width}.png`) }).catch(() => {});
+      throw error;
+    } finally { await page.close(); }
+  }
+
+  const page = await browser.newPage(options);
+  const errors = captureErrors(page);
+  try {
+    const firstAd = resellerAds[0];
+    const defaultUrl = new URL(`${productPath}#product-business-panorama`, base).href;
+    const firstAdPath = resellerEntryPath(firstAd.id);
+    const entryUrl = new URL(firstAdPath, base).href;
+    const original = await page.goto(defaultUrl, { waitUntil: 'domcontentloaded' });
+    assert.equal(original?.status(), 200);
+    const showcase = page.locator('#product-business-panorama:visible');
+    await attribute(showcase, 'data-step-id', 'pc-web');
+    assert.equal(await showcase.locator('#reseller-film').count(), 0);
+    const entryLink = showcase.getByRole('link', { name: resellerLinkName, exact: true });
+    assert.equal(await entryLink.getAttribute('href'), firstAdPath);
+    await firstViewport(page, [`#product-business-panorama a[href="${firstAdPath}"]`]);
+    await page.waitForFunction(() => window.history.state?.__NA === true);
+    const documentTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+    if (mobile) await entryLink.tap(); else await entryLink.click();
+    await page.waitForURL(entryUrl);
+    const linked = await firstResellerFrame(page, firstAd);
+    assert.equal(await page.evaluate(() => performance.timeOrigin), documentTimeOrigin, 'The link starts the ad in the existing document.');
+    await page.goBack();
+    await page.waitForURL(defaultUrl);
+    await attribute(showcase, 'data-step-id', 'pc-web');
+    assert.equal(await showcase.locator('#reseller-film').count(), 0);
+    await firstViewport(page, [`#product-business-panorama a[href="${firstAdPath}"]`]);
+    if (mobile) await entryLink.tap(); else await entryLink.click();
+    await firstResellerFrame(page, firstAd);
+
+    const platforms = [];
+    for (const ad of [...resellerAds.slice(1), firstAd]) {
+      await playback(showcase, false);
+      await showcase.getByRole('button', { name: '쇼릴 재생', exact: true }).waitFor();
+      await page.waitForFunction(() => document.querySelector('#reseller-film video')?.paused === true);
+      const platform = showcase.locator(`[data-commerce-option="${ad.id}"]`);
+      if (mobile) await platform.tap();
+      else if (ad.id === 'coupang') {
+        await platform.focus();
+        await page.keyboard.press('Enter');
+        assert.equal(await platform.evaluate(element => document.activeElement === element), true);
+      } else await platform.click();
+      await page.waitForURL(new URL(resellerEntryPath(ad.id), base).href);
+      platforms.push({ id: ad.id, ...await firstResellerFrame(page, ad) });
+      assert.equal(await page.evaluate(() => performance.timeOrigin), documentTimeOrigin, 'Platform controls use the existing document.');
+    }
+    const historyLength = await page.evaluate(() => history.length);
+    await page.waitForFunction(() => {
+      const video = document.querySelector('video[data-reseller-video="naver"]');
+      return video && !video.paused && video.currentTime >= 10;
+    }, undefined, { timeout: 14_000 });
+    await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-step-id') === 'coupang', undefined, { timeout: 15_000 });
+    await firstResellerFrame(page, resellerAds[1]);
+    assert.equal(page.url(), entryUrl, 'Automatic playback keeps the manually selected share URL.');
+    assert.equal(await page.evaluate(() => history.length), historyLength);
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await attribute(showcase, 'data-reduced-motion', true);
+    await firstResellerFrame(page, firstAd, true);
+    const cut = showcase.locator('[data-reseller-shot="2"]');
+    if (mobile) await cut.tap();
+    else {
+      await cut.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await cut.evaluate(element => document.activeElement === element), true);
+    }
+    await showcase.locator('img[data-reseller-frame="2"]').waitFor();
+    assert.equal(await cut.getAttribute('aria-pressed'), 'true');
+    assert.equal(await showcase.getAttribute('data-running'), 'false');
+    assert.equal(await showcase.locator('#reseller-film').evaluate(element => element.getAnimations({ subtree: true }).length), 0);
+    assert.deepEqual(errors, []);
+    return { cold, linked, platforms, automaticNext: 'coupang', reducedMotionCut: mobile ? 'touch' : 'keyboard', backRestores: 'pc-web' };
+  } catch (error) {
+    await page.screenshot({ path: path.join(output, `reseller-entry-failure-${viewport.width}.png`) }).catch(() => {});
+    throw error;
+  } finally { await page.close(); }
 }
 
 try {
@@ -332,6 +501,7 @@ try {
       await anchorPage.emulateMedia({ reducedMotion: 'reduce' });
       result.publicAnchors = await verifyPublicAnchors(anchorPage, mobile);
       assert.deepEqual(anchorErrors, []);
+      result.resellerEntry = await verifyResellerEntry(browser, viewport, mobile);
       result.errors = errors;
       results.push(result);
       console.log(`PASS ordered 21-scene journey ${viewport.width}x${viewport.height}`);
