@@ -137,6 +137,14 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
     else setPlaying(value => !value);
   };
   const pauseForContent = () => setPlaying(false);
+  const selectResellerShot = (elapsedMs: number) => {
+    const next = { ...frame, elapsedMs };
+    timelineRef.current = next;
+    setPlaying(false);
+    setStaticScene(false);
+    setFrame(next);
+    updateProgress(rootRef.current, next);
+  };
   const controlContentPlayback = (next: boolean) => {
     if (next && staticScene) seek(frame.step, true);
     else setPlaying(next);
@@ -254,6 +262,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
                 cycle={frame.cycle}
                 sceneElapsedMs={frame.elapsedMs}
                 selection={{ variant: frame.step.variant ?? 0, platform: frame.step.platform }}
+                onSelectShot={selectResellerShot}
                 onSelectionChange={selection => seek({ chapterId: current.id, ...selection })}
                 onInteract={pauseForContent}
               />

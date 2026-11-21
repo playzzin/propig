@@ -148,6 +148,7 @@ async function workspaceEvidence(root, viewport) {
       currentLabel: rectangle(current),
       story: rectangle(section.querySelector('[data-product-story]')),
       caption: rectangle(caption),
+      resellerFrame: rectangle(artwork?.querySelector('[data-reseller-viewport]')),
       transport: rectangle(section.querySelector('[data-product-transport]')),
       clippedCaptionText: caption ? [...caption.querySelectorAll('strong, p')].flatMap(element => {
         const range = document.createRange();
@@ -219,7 +220,14 @@ async function workspaceEvidence(root, viewport) {
     assert.equal(evidence.typography.title, 22, 'Mobile context headings are enlarged to 22px.');
     assert.equal(evidence.typography.body, 13, 'Mobile context descriptions grow to 13px.');
     if (evidence.artwork) {
-      assert.ok(Math.abs(evidence.artwork.height - (evidence.artworkChapter === '0' ? 220 : 288)) <= 1, 'Mobile artwork keeps 220px for web and 288px for other scenes.');
+      if (evidence.resellerFrame) {
+        const { width, height } = evidence.resellerFrame;
+        assert.ok(width >= .94 * evidence.artwork.width && Math.abs(width / height - 1.5) < .01,
+          'The mobile comedy fills the available width with a complete 3:2 frame.');
+        assert.ok(evidence.artwork.height - height <= 125, 'The caption and filmstrip leave most of the stage to the picture.');
+      } else {
+        assert.ok(Math.abs(evidence.artwork.height - (evidence.artworkChapter === '0' ? 220 : 288)) <= 1, 'Mobile illustrations keep their established height.');
+      }
       assert.equal(evidence.typography.captionTitle, 12, 'Mobile bottom caption titles are compact at 12px.');
       assert.equal(evidence.typography.captionBody, 11, 'Mobile bottom caption descriptions are compact at 11px.');
     }

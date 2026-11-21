@@ -15,12 +15,6 @@ export const SHOWREEL_MEDIA = {
     phone: `${products}/automation/geudduni-phone.webp`,
     voice: `${products}/automation/geudduni-voice.webp`,
   },
-  commerce: {
-    lamp: `${products}/commerce/geudduni-lamp.webp`,
-    headphones: `${products}/commerce/geudduni-headphones.webp`,
-    camera: `${products}/commerce/geudduni-camera.webp`,
-    clock: `${products}/commerce/geudduni-clock.webp`,
-  },
   webtoon: '/images/corp/founder-story/episode-1.webp',
   productFilmPoster: '/videos/corp/product-story-youtube.jpg',
 } as const;

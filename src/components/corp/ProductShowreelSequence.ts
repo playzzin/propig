@@ -1,4 +1,5 @@
 import type { ProductCategoryId, ProductId } from './productCatalogData';
+import { RESELLER_EPISODES, RESELLER_EPISODE_MS } from './productResellerEpisodes';
 import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const WEB_IMAGES = [
@@ -66,10 +67,10 @@ export const SHOWREEL_STEPS: readonly ShowreelStep[] = [
   { id: 'blog', label: '블로그 콘텐츠', chapterId: 'media', productId: 'media-brand-campaign', channel: 'blog', images: [SHOWREEL_MEDIA.mascots.work, SHOWREEL_MEDIA.automation.pc], durationMs: 24_000 },
   { id: 'instagram', label: 'Instagram 웹툰', chapterId: 'media', productId: 'media-brand-campaign', channel: 'instagram', images: [SHOWREEL_MEDIA.webtoon], durationMs: 48_000 },
   { id: 'content-sales', label: '생성형 콘텐츠 판매', chapterId: 'partner', productId: 'partner-onboarding', variant: 0, images: CONTENT_SALE_IMAGES, durationMs: 12_000 },
-  { id: 'naver', label: '네이버스토어', chapterId: 'partner', productId: 'partner-portal', variant: 1, platform: 0, images: [SHOWREEL_MEDIA.commerce.lamp], durationMs: 12_000 },
-  { id: 'coupang', label: '쿠팡파트너스', chapterId: 'partner', productId: 'partner-portal', variant: 1, platform: 1, images: [SHOWREEL_MEDIA.commerce.headphones], durationMs: 12_000 },
-  { id: 'aliexpress', label: '알리익스프레스', chapterId: 'partner', productId: 'partner-portal', variant: 1, platform: 2, images: [SHOWREEL_MEDIA.commerce.camera], durationMs: 12_000 },
-  { id: 'temu', label: '테무', chapterId: 'partner', productId: 'partner-portal', variant: 1, platform: 3, images: [SHOWREEL_MEDIA.commerce.clock], durationMs: 12_000 },
+  ...RESELLER_EPISODES.map<ShowreelStep>(({ id, label, image }, platform) => ({
+    id, label, chapterId: 'partner', productId: 'partner-portal',
+    variant: 1, platform, images: [image], durationMs: RESELLER_EPISODE_MS,
+  })),
 ];
 
 export const SHOWREEL_TOTAL_MS = SHOWREEL_STEPS.reduce((sum, step) => sum + step.durationMs, 0);
