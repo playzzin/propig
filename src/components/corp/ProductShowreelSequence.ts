@@ -1,6 +1,6 @@
 import type { ProductCategoryId, ProductId } from './productCatalogData';
 import { RESELLER_EPISODES, RESELLER_EPISODE_MS } from './productResellerEpisodes';
-import { SHOWREEL_MEDIA } from './productShowreelMedia';
+import { SHOWREEL_MEDIA, YOUTUBE_SHORT } from './productShowreelMedia';
 import { WEB_STORIES, WEB_STORY_MS } from './productWebStories';
 
 const AUTOMATION_IMAGES = Object.values(SHOWREEL_MEDIA.automation);
@@ -58,7 +58,7 @@ export const SHOWREEL_STEPS: readonly ShowreelStep[] = [
   { id: 'pg-payment', label: 'PG 결제 연결', chapterId: 'automation', productId: 'automation-data-sync', variant: 7, images: AUTOMATION_IMAGES, durationMs: 12_000 },
   { id: 'browser-agent', label: '브라우저 자동화', chapterId: 'automation', productId: 'automation-ai-workflow', variant: 8, images: AUTOMATION_IMAGES, durationMs: 12_000 },
   { id: 'task-agent', label: '에이전트 봇', chapterId: 'automation', productId: 'automation-ai-workflow', variant: 9, images: AUTOMATION_IMAGES, durationMs: 12_000 },
-  { id: 'youtube', label: 'YouTube 영상', chapterId: 'media', productId: 'media-product-film', channel: 'youtube', durationMs: 20_000 },
+  { id: 'youtube', label: 'YouTube 영상', chapterId: 'media', productId: 'media-product-film', channel: 'youtube', images: [YOUTUBE_SHORT.poster], durationMs: YOUTUBE_SHORT.durationMs },
   { id: 'tiktok', label: 'TikTok 영상', chapterId: 'media', productId: 'media-short-form', channel: 'tiktok', durationMs: 15_000 },
   { id: 'blog', label: '블로그 콘텐츠', chapterId: 'media', productId: 'media-brand-campaign', channel: 'blog', images: [SHOWREEL_MEDIA.mascots.work, SHOWREEL_MEDIA.automation.pc], durationMs: 24_000 },
   { id: 'instagram', label: 'Instagram 웹툰', chapterId: 'media', productId: 'media-brand-campaign', channel: 'instagram', images: [SHOWREEL_MEDIA.webtoon], durationMs: 48_000 },

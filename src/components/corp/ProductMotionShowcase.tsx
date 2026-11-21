@@ -58,7 +58,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   const rootRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<PlaybackFrame>(INITIAL_FRAME);
-  const pendingAdScroll = useRef(false);
+  const pendingFilmScroll = useRef<'ad' | 'youtube' | null>(null);
   const lastLocation = useRef('');
   const chapterFocusRef = useRef<number | null>(null);
   const preloadedImages = useRef(new Set<string>());
@@ -160,7 +160,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   }, []);
 
   const playAd = useCallback((platform: number) => {
-    pendingAdScroll.current = true;
+    pendingFilmScroll.current = 'ad';
     moveTo({ chapterId: 'partner', variant: 1, platform }, true);
   }, [moveTo]);
 
@@ -173,7 +173,10 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
       const platform = RESELLER_EPISODES.findIndex(episode => episode.id === url.searchParams.get('ad'));
       if (platform >= 0 && (!url.hash || url.hash === '#reseller-film')) {
         playAd(platform);
-      } else if (previous && previous.searchParams.has('ad') && (!url.hash || url.hash === '#product-business-panorama')) {
+      } else if (url.searchParams.get('channel') === 'youtube' && (!url.hash || url.hash === '#product-business-panorama')) {
+        pendingFilmScroll.current = 'youtube';
+        moveTo({ chapterId: 'media', channel: 'youtube' }, true);
+      } else if (previous && (previous.searchParams.has('ad') || previous.searchParams.get('channel') === 'youtube') && (!url.hash || url.hash === '#product-business-panorama')) {
         moveTo(window.history.state?.productShowreelStep ?? 0, true);
         rootRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
       }
@@ -192,10 +195,13 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
   }, [moveTo, playAd]);
 
   useEffect(() => {
-    if (!pendingAdScroll.current) return;
+    const film = pendingFilmScroll.current;
+    if (!film) return;
     const request = requestAnimationFrame(() => {
-      pendingAdScroll.current = false;
-      revealAd();
+      pendingFilmScroll.current = null;
+      if (film === 'ad') revealAd();
+      else rootRef.current?.querySelector('[data-content-channel="youtube"] [role="tabpanel"]')
+        ?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
     });
     return () => cancelAnimationFrame(request);
   }, [frame.cycle]);
@@ -205,6 +211,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
     if (!url.searchParams.has('ad')) {
       window.history.replaceState({ ...window.history.state, productShowreelStep: timelineRef.current.index }, '', url);
     }
+    if (url.searchParams.get('channel') === 'youtube') url.searchParams.delete('channel');
     url.searchParams.set('ad', RESELLER_EPISODES[platform].id);
     url.hash = 'reseller-film';
     if (url.href !== window.location.href) window.history.pushState(null, '', url);
@@ -214,8 +221,11 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
 
   const seek = (selection: ShowreelSelection | number, resume = playing) => {
     const url = new URL(window.location.href);
-    if (url.searchParams.has('ad')) {
+    const nextChannel = typeof selection === 'number' ? SHOWREEL_STEPS[selection]?.channel
+      : selection.chapterId === 'media' ? selection.channel ?? 'youtube' : undefined;
+    if (url.searchParams.has('ad') || (url.searchParams.get('channel') === 'youtube' && nextChannel !== 'youtube')) {
       url.searchParams.delete('ad');
+      if (url.searchParams.get('channel') === 'youtube') url.searchParams.delete('channel');
       url.hash = 'product-business-panorama';
       window.history.pushState({ productShowreelStep: selection }, '', url);
       lastLocation.current = url.href;
@@ -241,8 +251,10 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
     updateProgress(rootRef.current, next);
   };
   const controlContentPlayback = (next: boolean) => {
-    if (next && staticScene) moveTo(frame.step, true);
-    else setPlaying(next);
+    // A viewer can explicitly play a film with reduced motion while the tour stays still.
+    if (next && staticScene && !reducedMotion) {
+      moveTo(frame.step, true, frame.step.channel === 'youtube' ? timelineRef.current.elapsedMs : 0);
+    } else setPlaying(next);
   };
   const navigateChapters = (event: KeyboardEvent<HTMLDivElement>) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-chapter-index]');
@@ -355,6 +367,7 @@ export default function ProductMotionShowcase({ onCatalogLink }: { onCatalogLink
                 automaticTour
                 sceneElapsedMs={frame.elapsedMs}
                 onSelect={pauseForContent}
+                onSeek={selectFilmShot}
                 onPlaybackChange={controlContentPlayback}
               />
             ) : (
