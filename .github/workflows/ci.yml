@@ -30,7 +30,7 @@ env:
 
 jobs:
   web:
-    name: Web app
+    name: Web build
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -78,7 +78,7 @@ jobs:
             functions/package-lock.json
 
       - name: Test Firebase Hosting preview tools
-        run: node --test .github/scripts/hosting-preview.test.mjs scripts/verify-pr-preview.test.mjs
+        run: node --test .github/scripts/hosting-preview.test.mjs .github/scripts/require-preview-qa.test.mjs scripts/verify-pr-preview.test.mjs
 
       - name: Install dependencies
         run: |
@@ -113,6 +113,7 @@ jobs:
           path: ${{ runner.temp }}/propig-hosting.tgz
           if-no-files-found: error
           retention-days: 3
+          overwrite: true
 
   functions:
     name: Firebase Functions
@@ -158,6 +159,8 @@ jobs:
     environment:
       name: preview
       url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      published: ${{ steps.deploy.outcome == 'success' }}
     env:
       FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || 'propig-63524' }}
     steps:
@@ -232,6 +235,7 @@ jobs:
           path: ${{ runner.temp }}/preview-url.txt
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
 
       # The public channel ID is readable via the Actions API even when a QA PC
       # cannot reach the artifact ZIP's storage host. Keep preview-url.txt for manual review.
@@ -248,3 +252,96 @@ jobs:
       - name: Remove temporary credentials
         if: always()
         run: rm -f "$RUNNER_TEMP/firebase-service-account.json"
+
+  preview-qa:
+    name: Cloud preview QA
+    needs: preview
+    if: needs.preview.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            ops/hermes
+            scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ops/hermes/toolchain-package-lock.json
+      - name: Read this run's published Firebase URL
+        uses: actions/download-artifact@v4
+        with:
+          name: preview-link-${{ github.sha }}
+          path: ${{ runner.temp }}/published-preview
+      - name: Install the preview checker and Chromium
+        run: npm run qa:setup
+      - name: Check the published site at 390px and 1440px
+        run: |
+          IFS= read -r PREVIEW_URL < "$RUNNER_TEMP/published-preview/preview-url.txt"
+          export PREVIEW_URL
+          npm run qa:preview -- --deployed
+      - name: Save browser report, logs and screenshots
+        id: evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-qa-${{ github.sha }}
+          path: output/preview-qa/deployed/
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+      - name: Link evidence in the run summary
+        if: ${{ !cancelled() && steps.evidence.outputs.artifact-url != '' }}
+        env:
+          EVIDENCE_URL: ${{ steps.evidence.outputs.artifact-url }}
+        run: |
+          printf 'Commit `%s` · [Browser report, logs and screenshots](%s)\n' "$GITHUB_SHA" "$EVIDENCE_URL" >> "$GITHUB_STEP_SUMMARY"
+
+  web-result:
+    # Branch protection already requires the GitHub Actions check named Web app.
+    name: Web app
+    needs: [web, functions, preview, preview-qa]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CHECK_SOURCE_PUSH: ${{ github.repository == 'playzzin/propig' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) }}
+    steps:
+      - name: Require successful builds and the requested branch preview checks
+        env:
+          WEB_RESULT: ${{ needs.web.result }}
+          FUNCTIONS_RESULT: ${{ needs.functions.result }}
+          PREVIEW_RESULT: ${{ needs.preview.result }}
+          QA_RESULT: ${{ needs.preview-qa.result }}
+          EXPECT_PREVIEW: ${{ github.repository == 'playzzin/propig' && github.event_name == 'push' && github.ref != 'refs/heads/main' }}
+        run: |
+          if [[ "$WEB_RESULT" != success || "$FUNCTIONS_RESULT" != success ]]; then
+            echo "::error::Web build: $WEB_RESULT. Firebase Functions: $FUNCTIONS_RESULT."
+            exit 1
+          fi
+          if [[ "$EXPECT_PREVIEW" == true && ( "$PREVIEW_RESULT" != success || "$QA_RESULT" != success ) ]]; then
+            echo "::error::Firebase preview: $PREVIEW_RESULT. Cloud preview QA: $QA_RESULT."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        if: env.CHECK_SOURCE_PUSH == 'true'
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Require the successful preview QA from the exact branch push
+        if: env.CHECK_SOURCE_PUSH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QA_HEAD_REPO: ${{ github.event_name == 'workflow_dispatch' && github.repository || github.event.pull_request.head.repo.full_name }}
+          QA_HEAD_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.event.pull_request.head.ref }}
+          QA_HEAD_SHA: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.pull_request.head.sha }}
+        run: node .github/scripts/require-preview-qa.mjs
