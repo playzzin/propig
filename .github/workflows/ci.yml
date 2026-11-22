@@ -77,8 +77,8 @@ jobs:
             package-lock.json
             functions/package-lock.json
 
-      - name: Test Firebase Hosting preview cleanup
-        run: node --test .github/scripts/hosting-preview.test.mjs
+      - name: Test Firebase Hosting preview tools
+        run: node --test .github/scripts/hosting-preview.test.mjs scripts/verify-pr-preview.test.mjs
 
       - name: Install dependencies
         run: |
@@ -203,6 +203,7 @@ jobs:
         env:
           PREVIEW_CHANNEL: ${{ steps.preview-ref.outputs.channel }}
         run: |
+          printf '%s\n' "$GITHUB_SHA" > .next-static-export/propig-preview-commit.txt
           firebase hosting:channel:deploy "$PREVIEW_CHANNEL" \
             --project "$FIREBASE_PROJECT_ID" \
             --expires 7d --non-interactive --json > "$RUNNER_TEMP/preview-result.json"

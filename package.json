@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev -p 3002",
     "dev:webpack": "next dev --webpack -p 3002",
+    "qa:setup": "node scripts/setup-preview-qa.mjs",
+    "qa:preview": "node scripts/verify-pr-preview.mjs",
     "build": "node scripts/build-site-app-previews.mjs && node scripts/build-static-export.mjs",
     "build:next": "next build",
     "start": "next start -p 3002",

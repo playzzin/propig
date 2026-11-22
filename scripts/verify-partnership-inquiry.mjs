@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { access, mkdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
-import { chromium } from 'playwright-core';
+
+const require = createRequire(process.env.PROPIG_TEST_RUNTIME
+  ? path.resolve(process.env.PROPIG_TEST_RUNTIME, 'package.json')
+  : import.meta.url);
+const { chromium } = require('playwright-core');
 
 const baseUrl = process.env.PARTNERSHIP_URL || process.env.BASE_URL || 'http://127.0.0.1:3002';
 const partnershipPath = '/corp/partnership/business';
@@ -26,6 +31,7 @@ const creEditorNames = {
 const executableCandidates = [
   process.env.CHROME_PATH,
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+  chromium.executablePath(),
   '/home/hermes/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome',
   '/usr/bin/google-chrome',
   '/usr/bin/google-chrome-stable',
