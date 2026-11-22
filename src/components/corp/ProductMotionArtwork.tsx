@@ -12,7 +12,6 @@ type ProductMotionArtworkProps = {
   playing: boolean;
   reducedMotion: boolean;
   variant?: number;
-  platform?: number;
 };
 
 const assemble = keyframes`
@@ -130,7 +129,7 @@ const Artwork = styled.div<{ $playing: boolean; $reducedMotion: boolean; $wide: 
 
 const SCENES = [GlobalWebScene, DocumentAutomationScene, GlobalWebScene] as const;
 
-function ProductMotionArtwork({ chapter, playing, reducedMotion, variant = 0, platform = 0 }: ProductMotionArtworkProps) {
+function ProductMotionArtwork({ chapter, playing, reducedMotion, variant = 0 }: ProductMotionArtworkProps) {
   const Scene = chapter === 1 && variant >= 4 ? ProductAutomationFlowScene : SCENES[chapter] ?? GlobalWebScene;
   const wide = chapter === 0;
   const bottom = wide ? 420 : 500;
@@ -141,7 +140,7 @@ function ProductMotionArtwork({ chapter, playing, reducedMotion, variant = 0, pl
           <path d={`M26 55V20h35M699 20h35v35M26 ${bottom - 35}v35h35M699 ${bottom}h35v-35`} />
           {[130, 230, 330, 430, 530, 630].map(x => <path key={x} d={`M${x} 17v6M${x} ${bottom - 3}v6`} />)}
         </g>
-        {chapter === 3 ? <ProductCreEditorScene variant={variant} platform={platform} /> : <Scene variant={variant} />}
+        {chapter === 3 ? <ProductCreEditorScene /> : <Scene variant={variant} />}
       </svg>
     </Artwork>
   );

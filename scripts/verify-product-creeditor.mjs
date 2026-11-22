@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
@@ -7,11 +8,13 @@ import axe from 'axe-core';
 const base = process.env.BASE_URL || 'http://localhost:3002';
 const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'creeditor') : '.tmp-product-motion-v6');
 const platforms = [
-  { id: 'naver', name: '네이버스토어', product: '데스크 조명', character: 'lamp' },
-  { id: 'coupang', name: '쿠팡파트너스', product: '무선 헤드폰', character: 'headphones' },
-  { id: 'aliexpress', name: '알리익스프레스', product: '미니 카메라', character: 'camera' },
-  { id: 'temu', name: '테무', product: '테이블 클록', character: 'clock' },
+  { id: 'naver', name: '네이버스토어', product: '의자', reel: 'chair' },
+  { id: 'coupang', name: '쿠팡파트너스', product: '셔츠', reel: 'shirt' },
+  { id: 'aliexpress', name: '알리익스프레스', product: 'TV', reel: 'television' },
+  { id: 'temu', name: '테무', product: '로봇청소기', reel: 'vacuum' },
 ];
+const cutOffsets = [0, 3000, 6000, 8000];
+const sceneDuration = 12_000;
 const candidates = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].filter(Boolean);
 let executablePath;
 for (const candidate of candidates) {
@@ -70,6 +73,24 @@ async function verifyTimeline(page, showcase, artwork) {
     packets.push(await artwork.locator('.signal-packet').first().evaluate(element => getComputedStyle(element).strokeDashoffset));
   }
   assert.ok(new Set(packets).size > 1, 'Signal packets move along the commerce connection.');
+  if (creator) {
+    const transitions = await artwork.locator('[data-content-creator]').evaluate(scene => {
+      const poses = [...scene.querySelectorAll('[data-content-pose]')];
+      const lines = [...scene.querySelectorAll('[data-content-speech]')];
+      const animations = [...poses, ...lines].flatMap(element => element.getAnimations());
+      const opacity = element => Number(getComputedStyle(element).opacity);
+      return [3750, 3900, 4000, 7750, 7900, 8000, 11750, 11900, 12000].map(time => {
+        for (const animation of animations) animation.currentTime = time;
+        return {
+          time,
+          poseOpacity: poses.reduce((total, element) => total + opacity(element), 0),
+          visibleLines: lines.filter(element => opacity(element) > .95).length,
+        };
+      });
+    });
+    assert.ok(transitions.every(frame => frame.poseOpacity > .95 && frame.visibleLines === 1),
+      `The character crossfade shows uninterrupted artwork and one caption: ${JSON.stringify(transitions)}`);
+  }
   const before = await artwork.evaluate(element => element.getAnimations({ subtree: true }).map(animation => animation.currentTime));
   assert.ok(before.length > 0, 'The scene includes active motion timelines.');
   await page.waitForTimeout(250);
@@ -78,9 +99,111 @@ async function verifyTimeline(page, showcase, artwork) {
   return { steps, packets, poses, pause: 'pass' };
 }
 
+const atlasPath = ({ reel }) => `/images/corp/products/commerce/reel-${reel}.webp`;
+
+async function readCut(scene, index) {
+  const frame = scene.locator(`img[data-reseller-frame="${index}"]`);
+  await frame.waitFor();
+  assert.equal(await scene.locator('img[data-reseller-frame]:visible').count(), 1, 'Exactly one cut image is visible.');
+  const buttons = scene.locator('[data-reseller-shot]');
+  assert.deepEqual(await buttons.evaluateAll(elements => elements.map(element => [element.dataset.resellerShot, element.getAttribute('aria-pressed')])),
+    cutOffsets.map((_, cut) => [String(cut), String(cut === index)]), 'The filmstrip shows the active cut.');
+  const alt = (await frame.getAttribute('alt'))?.trim() ?? '';
+  assert.ok(alt.length > 8 && /[가-힣]/.test(alt), 'The cut includes a descriptive Korean text alternative.');
+  const dialogue = (await scene.locator('[data-reseller-dialogue]:visible').innerText()).trim();
+  assert.match(dialogue, /[가-힣]/, 'The selected cut shows a Korean dialogue line.');
+  return { frame, alt, dialogue };
+}
+
+async function verifyAtlas(frame, platform) {
+  const image = await frame.evaluate(async element => {
+    await element.decode();
+    const { naturalWidth: width, naturalHeight: height } = element;
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    const context = canvas.getContext('2d');
+    const cells = [];
+    const colors = [];
+    for (const row of [0, 1]) {
+      for (const column of [0, 1]) {
+        context.drawImage(element, column * width / 2, row * height / 2, width / 2, height / 2, 0, 0, 8, 8);
+        const pixels = context.getImageData(0, 0, 8, 8).data;
+        cells.push(pixels.join(','));
+        colors.push(new Set(Array.from({ length: 64 }, (_, pixel) => pixels.slice(pixel * 4, pixel * 4 + 3).join(','))).size);
+      }
+    }
+    return { src: new URL(element.currentSrc).pathname, width, height, distinctCells: new Set(cells).size, colors };
+  });
+  assert.equal(image.src, atlasPath(platform));
+  assert.ok(image.width >= 768 && image.height >= 512 && image.width % 2 === 0 && image.height % 2 === 0, 'Each atlas decodes as four equally sized cells.');
+  assert.equal(image.distinctCells, 4, 'Each atlas contains four different cuts.');
+  assert.ok(image.colors.every(colorCount => colorCount >= 24), 'Every cell contains a populated illustration.');
+  return image;
+}
+
+const readPlayhead = showcase => showcase.evaluate((element, duration) =>
+  Number(element.style.getPropertyValue('--scene-progress')) * duration, sceneDuration);
+
+async function selectCut(page, showcase, scene, index, keyboard) {
+  const button = scene.locator(`[data-reseller-shot="${index}"]`);
+  if (keyboard) {
+    await button.focus();
+    await page.keyboard.press(index % 2 ? 'Space' : 'Enter');
+  } else {
+    await button.tap();
+  }
+  const cut = await readCut(scene, index);
+  assert.equal(await showcase.getAttribute('data-running'), 'false', 'Selecting a cut pauses the showreel.');
+  assert.ok(Math.abs(await readPlayhead(showcase) - cutOffsets[index]) < 1, 'Cut selection moves the shared playhead to the exact boundary.');
+  if (keyboard) assert.equal(await button.evaluate(element => element === document.activeElement), true, 'Selecting a cut preserves keyboard focus.');
+  return cut;
+}
+
+async function verifyAdvertisingPlayback(page, showcase, artwork, scene) {
+  await playback(showcase, true);
+  await artwork.scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-running') === 'true');
+  const cuts = [];
+  for (const index of [1, 2, 3]) {
+    const timestamp = await page.waitForFunction(({ index, duration }) => {
+      const root = document.querySelector('#product-business-panorama');
+      const frame = root?.querySelector(`img[data-reseller-frame="${index}"]`);
+      return frame && Number(root.style.getPropertyValue('--scene-progress')) * duration;
+    }, { index, duration: sceneDuration });
+    const elapsed = await timestamp.jsonValue();
+    await timestamp.dispose();
+    assert.ok(elapsed >= cutOffsets[index] && elapsed < cutOffsets[index] + 1000, `Playback presents cut ${index + 1} near ${cutOffsets[index]}ms (${elapsed}ms observed).`);
+    cuts.push({ index, elapsed });
+    if (index === 1) await playback(showcase, false);
+    const { frame } = await readCut(scene, index);
+    if (index === 1) {
+      assert.equal(await showcase.getAttribute('data-running'), 'false');
+      const paused = await readPlayhead(showcase);
+      const camera = frame.locator('..');
+      const transform = await camera.evaluate(element => getComputedStyle(element).transform);
+      await page.waitForTimeout(300);
+      assert.equal(await readPlayhead(showcase), paused, 'Pausing freezes the shared playhead.');
+      assert.equal(await camera.evaluate(element => getComputedStyle(element).transform), transform, 'Pausing freezes the camera on the current cut.');
+      await readCut(scene, index);
+      await playback(showcase, true);
+      await artwork.scrollIntoViewIfNeeded();
+      await page.waitForFunction(previous => {
+        const picture = document.querySelector('[data-reseller-viewport] img[data-reseller-frame="1"]');
+        return picture && getComputedStyle(picture.parentElement).transform !== previous;
+      }, transform, { timeout: 2000 });
+    }
+  }
+  await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-step-id') === 'coupang', undefined, { timeout: 6500 });
+  await readCut(scene, 0);
+  assert.equal(await scene.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), 'coupang', 'The next platform begins with its first cut.');
+  return { cuts, nextPlatform: 'coupang', pause: 'pass' };
+}
+
 try {
   for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }, { width: 320, height: 844 }]) {
-    const context = await browser.newContext({ viewport, reducedMotion: 'no-preference' });
+    const mobile = viewport.width < 600;
+    const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, reducedMotion: 'no-preference' });
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -145,22 +268,43 @@ try {
         const focus = await button.evaluate(element => ({ style: getComputedStyle(element).outlineStyle, width: parseFloat(getComputedStyle(element).outlineWidth), height: element.getBoundingClientRect().height }));
         assert.ok(focus.style !== 'none' && focus.width >= 2 && focus.height >= 44, 'Platform controls have visible focus and a usable touch target.');
         assert.equal(await scene.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), platform.id);
-        assert.ok((await scene.textContent()).includes(platform.product), 'Platform selection switches the original product illustration and name.');
-        const character = scene.locator(`[data-commerce-character="${platform.id}"]`);
-        assert.equal(await scene.locator('[data-commerce-character]').count(), 1, 'Only the selected product-use scene is shown.');
-        const source = `/images/corp/products/commerce/geudduni-${platform.character}.png`;
-        assert.equal(await character.getAttribute('href'), source);
-        assert.equal(await scene.locator('[data-commerce-character-preview]').getAttribute('href'), source, 'The product link preview follows the same character scene.');
-        const image = await page.evaluate(async src => { const image = new Image(); image.src = src; await image.decode(); return { width: image.naturalWidth, height: image.naturalHeight }; }, source);
-        assert.ok(image.width >= 1000 && image.height >= 1000, 'Every product-use character image decodes successfully.');
-        const caption = await explorer.locator('[aria-live="polite"]').innerText();
-        assert.ok(caption.includes(platform.name) && caption.includes('시연'), 'The accessible caption describes the selected platform as a demonstration.');
-        assert.equal(await artwork.locator('a, button, input, form').count(), 0, 'The commerce artwork contains no real purchase or affiliate submission action.');
-        const motion = await verifyTimeline(page, showcase, artwork);
+        const caption = await explorer.locator('[data-product-caption]').innerText();
+        assert.ok(caption.includes(platform.name) && caption.includes(platform.product) && caption.includes('시연'), 'The accessible caption identifies the selected demonstration and product.');
+        assert.equal(await artwork.locator('a, input, form, button:not([data-reseller-shot], [data-reseller-playback])').count(), 0, 'The film contains only playback and cut selection controls.');
+        const initial = await readCut(scene, 0);
+        const image = await verifyAtlas(initial.frame, platform);
+        const thumbnails = await scene.locator('[data-reseller-shot]').evaluateAll(buttons => buttons.map(button => {
+          const thumbnail = button.querySelector('.thumbnail');
+          const image = thumbnail?.querySelector('img, image');
+          return image?.getAttribute('src') ?? image?.getAttribute('href') ?? (thumbnail && getComputedStyle(thumbnail).backgroundImage);
+        }));
+        assert.ok(thumbnails.every(source => source?.includes(image.src)), 'The filmstrip thumbnails show the same episode artwork.');
+        const renderedCuts = [];
+        for (const [index] of cutOffsets.entries()) {
+          const { frame, alt, dialogue } = await selectCut(page, showcase, scene, index, !mobile || index % 2 === 0);
+          const crop = await frame.evaluate(async element => {
+            await element.decode();
+            const viewport = element.closest('[data-reseller-viewport]');
+            const width = viewport.clientWidth;
+            const height = viewport.clientHeight;
+            return { src: new URL(element.currentSrc).pathname, width, height, rasterWidth: element.offsetWidth, rasterHeight: element.offsetHeight,
+              left: element.offsetLeft, top: element.offsetTop };
+          });
+          assert.equal(crop.src, image.src, 'All four cuts use the same decoded atlas.');
+          assert.ok(crop.width > 0 && crop.height > 0 && Math.abs(crop.rasterWidth - 2 * crop.width) < 3 && Math.abs(crop.rasterHeight - 2 * crop.height) < 3,
+            `The film viewport clips a correctly sized 2×2 atlas: ${JSON.stringify(crop)}`);
+          assert.ok(Math.abs(crop.left + (index % 2) * crop.width) < 2 && Math.abs(crop.top + Math.floor(index / 2) * crop.height) < 2,
+            `Cut ${index + 1} shows the matching cell: ${JSON.stringify(crop)}`);
+          const pixels = await scene.locator('[data-reseller-viewport]').screenshot();
+          renderedCuts.push({ index, alt, dialogue, fingerprint: createHash('sha256').update(pixels).digest('hex') });
+        }
+        assert.equal(new Set(renderedCuts.map(cut => cut.alt)).size, 4, 'Each cut describes a different moment.');
+        assert.equal(new Set(renderedCuts.map(cut => cut.dialogue)).size, 4, 'Each cut displays its own dialogue.');
+        assert.equal(new Set(renderedCuts.map(cut => cut.fingerprint)).size, 4, 'The browser actually shows four visually distinct cuts.');
         await explorer.screenshot({ path: path.join(output, `creeditor-${viewport.width}-${platform.id}.png`) });
         await noOverflow(page, explorer);
         result.accessibility.push({ platform: platform.id, violations: await accessibility(page) });
-        result.platforms.push({ ...platform, motion, caption, focus, image });
+        result.platforms.push({ ...platform, caption, focus, image, renderedCuts });
       }
 
       await content.click();
@@ -170,12 +314,21 @@ try {
       assert.equal(await explorer.locator('[data-commerce-option="temu"]').getAttribute('aria-pressed'), 'true', 'Switching modes preserves the selected advertising platform.');
       await playback(showcase, true);
       await artwork.scrollIntoViewIfNeeded();
+      await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-running') === 'true');
+      await selectCut(page, showcase, scene, 3, !mobile);
+      await playback(showcase, true);
+      await artwork.scrollIntoViewIfNeeded();
       assert.equal(await showcase.getByRole('button', { name: '현재 장면 반복', exact: true }).count(), 0);
-      const cycle = Number(await showcase.getAttribute('data-cycle'));
-      await page.waitForFunction(previous => Number(document.querySelector('#product-business-panorama')?.getAttribute('data-cycle')) > previous, cycle, { timeout: 15_000 });
+      await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-step-id') === 'pc-web', undefined, { timeout: 6500 });
       assert.equal(await showcase.getAttribute('data-chapter'), '0');
       assert.equal(await showcase.getAttribute('data-step-id'), 'pc-web', 'The final selling scene returns to the start of the tour.');
       result.modeMemoryAndTourWrap = 'pass';
+
+      await chapter.click();
+      await advertising.click();
+      await explorer.locator('[data-commerce-option="naver"]').click();
+      await selectCut(page, showcase, scene, 0, !mobile);
+      result.advertisingPlayback = await verifyAdvertisingPlayback(page, showcase, artwork, scene);
 
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-reduced-motion') === 'true');
@@ -185,14 +338,22 @@ try {
         await mode.click();
         assert.equal(await artwork.evaluate(element => element.getAnimations({ subtree: true }).length), 0, 'Reduced-motion commerce scenes are static.');
         assert.ok(await artwork.locator('.motion-only, .motion-secondary').evaluateAll(items => items.every(element => getComputedStyle(element).display === 'none')));
-        assert.ok((await scene.textContent()).includes('브랜드 시연'));
         if (await scene.locator('[data-content-creator]').count()) {
+          assert.ok((await scene.textContent()).includes('브랜드 시연'));
           assert.deepEqual(await scene.locator('[data-content-pose]').evaluateAll(items => items.filter(element => Number(getComputedStyle(element).opacity) > .95).map(element => element.dataset.contentPose)), ['create'], 'Reduced motion retains one clear character and speech bubble.');
           await explorer.screenshot({ path: path.join(output, `creeditor-${viewport.width}-content-reduced.png`) });
+        } else {
+          assert.ok((await explorer.locator('[data-product-caption]').innerText()).includes('브랜드 시연'));
         }
       }
       await explorer.locator('[data-commerce-option="naver"]').click();
       assert.equal(await scene.locator('[data-commerce-platform]').getAttribute('data-commerce-platform'), 'naver', 'Platform navigation remains usable with reduced motion.');
+      const still = await selectCut(page, showcase, scene, 2, !mobile);
+      await page.waitForTimeout(300);
+      assert.equal((await readCut(scene, 2)).dialogue, still.dialogue, 'The selected cut and dialogue stay in view with reduced motion.');
+      assert.equal(await readPlayhead(showcase), cutOffsets[2]);
+      assert.equal(await artwork.evaluate(element => element.getAnimations({ subtree: true }).length), 0, 'Cut selection does not start decorative motion.');
+      assert.equal(await still.frame.evaluate(element => getComputedStyle(element.parentElement).transform), 'none', 'Reduced motion suppresses zoom and panning.');
       await explorer.screenshot({ path: path.join(output, `creeditor-${viewport.width}-reduced.png`) });
       await noOverflow(page, explorer);
       result.reducedMotion = 'pass';
