@@ -212,7 +212,8 @@ async function assertNativePaused(page, video) {
 async function verifyPortraitStage(player, media) {
   assert.equal(await player.locator('[data-portrait-stage]').count(), 1, 'The selected player has one shared portrait stage.');
   assert.equal(await player.locator('[data-portrait-controls]').count(), 1, 'The portrait player exposes the common transport.');
-  const layout = await media.evaluate(element => {
+  const layout = await media.evaluate(async element => {
+    await document.fonts.ready;
     const device = element.closest('[data-portrait-device]');
     const stage = device?.closest('[data-portrait-stage]');
     if (!stage) return null;
@@ -222,15 +223,33 @@ async function verifyPortraitStage(player, media) {
     const surround = getComputedStyle(device);
     const contains = (outer, inner) => outer.left <= inner.left + 1 && outer.right >= inner.right - 1
       && outer.top <= inner.top + 1 && outer.bottom >= inner.bottom - 1;
+    const textLines = (text, clearsDevice) => {
+      if (!text || !stage.contains(text) || getComputedStyle(text).visibility !== 'visible') return [];
+      // A text line can escape its element's layout box.
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      return Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0).map(rect => ({
+        left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+        fitsStage: contains(surface, rect), clearsDevice: clearsDevice(rect),
+      }));
+    };
+    const native = element instanceof HTMLVideoElement;
+    const sideText = native ? {
+      title: textLines(stage.querySelector('h4'), rect => rect.right <= shell.left + 1),
+      description: textLines(document.getElementById(element.getAttribute('aria-describedby') ?? ''), rect => rect.left >= shell.right - 1),
+    } : null;
     return {
       width: picture.width, height: picture.height, fitsDevice: contains(shell, picture), fitsStage: contains(surface, picture),
-      objectFit: element instanceof HTMLVideoElement ? getComputedStyle(element).objectFit : null,
+      objectFit: native ? getComputedStyle(element).objectFit : null, sideText,
       theme: { stage: getComputedStyle(stage).backgroundColor, bezel: surround.borderColor, radius: surround.borderRadius },
     };
   });
   assert.ok(layout?.fitsDevice && layout.fitsStage, 'The portrait device shows the whole media surface.');
   assert.ok(Math.abs(layout.width / layout.height - 9 / 16) < .025, `The shared device keeps the 9:16 picture: ${JSON.stringify(layout)}`);
   if (layout.objectFit !== null) assert.equal(layout.objectFit, 'contain', 'The native Short shows the full frame.');
+  for (const [side, lines] of Object.entries(layout.sideText ?? {})) {
+    assert.ok(lines.every(line => line.fitsStage && line.clearsDevice), `Every ${side} line clears the phone and stays inside the portrait stage: ${JSON.stringify(lines)}`);
+  }
   return layout;
 }
 
