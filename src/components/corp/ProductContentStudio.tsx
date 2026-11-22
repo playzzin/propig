@@ -4,12 +4,13 @@ import Image from 'next/image';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ArrowUpRight, BookOpen, ChevronLeft, ChevronRight, Film, Heart, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, RotateCcw, Send, Volume2, VolumeX } from 'lucide-react';
 import styled, { css, keyframes } from 'styled-components';
+import ProductPortraitStage, { VideoControls } from './ProductPortraitStage';
 import ProductShowcaseWorkspace from './ProductShowcaseWorkspace';
 import ProductYouTubeShort from './ProductYouTubeShort';
 import type { ContentChannelId } from './ProductShowreelSequence';
 import { BlogPlatformLogos, ContentBrandMark, ContentChannelMotion } from './ProductContentBrands';
 import { useShowcaseYouTubePlayer } from './useShowcaseYouTubePlayer';
-import { SHOWREEL_MEDIA, YOUTUBE_SHORT } from './productShowreelMedia';
+import { DUCK_DIRECTOR_SHORT, SHOWREEL_MEDIA, YOUTUBE_SHORT } from './productShowreelMedia';
 
 type ProductContentStudioProps = {
   playing: boolean;
@@ -31,6 +32,7 @@ const CHANNELS = [
   { id: 'blog', label: '블로그', format: '브랜드 아티클', ratio: 'ARTICLE' },
   { id: 'instagram', label: 'Instagram', format: '스토리 웹툰', ratio: 'WEBTOON' },
 ] as const;
+const YOUTUBE_FILMS = [YOUTUBE_SHORT, DUCK_DIRECTOR_SHORT];
 
 const COMIC_CAPTIONS = [
   '문은 열렸다. 다시 시작하는 이야기.',
@@ -85,23 +87,20 @@ function StudioVideo({ vertical, playing, reducedMotion, onSelect, onPlaybackCha
     play();
   }
 
+  const player = <>
+    <YouTubeHost ref={hostRef} data-youtube-host />
+    {status === 'loading' && shouldPlay ? <MediaNotice role="status"><LoaderCircle size={19} aria-hidden="true" /><span>영상 준비 중</span></MediaNotice> : null}
+    {status === 'error' ? <MediaNotice role="status"><Film size={24} aria-hidden="true" /><span>영상을 불러오지 못했습니다.</span><button type="button" onClick={toggleVideo}><RotateCcw size={15} aria-hidden="true" />다시 불러오기</button><a href={sourceUrl} target="_blank" rel="noopener noreferrer">YouTube에서 보기 <ArrowUpRight size={14} aria-hidden="true" /></a></MediaNotice> : null}
+    {blocked && status !== 'error' ? <MediaNotice><button type="button" onClick={toggleVideo}><Play size={17} aria-hidden="true" />영상 재생</button></MediaNotice> : null}
+  </>;
   return (
     <VideoProduct data-video-format={vertical ? 'portrait' : 'landscape'} data-video-id={videoId} data-player-state={videoPlaying ? 'playing' : 'paused'} data-player-status={status} data-player-time={position} data-player-duration={duration} data-player-muted={muted}>
-      <VideoCanvas $vertical={vertical}>
-        {vertical ? <VerticalNote aria-hidden="true"><span>SHORT.<br />STORY.<br />IMPACT.</span><small>한 장면의 가능성</small></VerticalNote> : null}
-        <VideoDevice $vertical={vertical}>
-          <YouTubeHost ref={hostRef} data-youtube-host />
-          {status === 'loading' && shouldPlay ? <MediaNotice role="status"><LoaderCircle size={19} aria-hidden="true" /><span>영상 준비 중</span></MediaNotice> : null}
-          {status === 'error' ? <MediaNotice role="status"><Film size={24} aria-hidden="true" /><span>영상을 불러오지 못했습니다.</span><button type="button" onClick={toggleVideo}><RotateCcw size={15} aria-hidden="true" />다시 불러오기</button><a href={sourceUrl} target="_blank" rel="noopener noreferrer">YouTube에서 보기 <ArrowUpRight size={14} aria-hidden="true" /></a></MediaNotice> : null}
-          {blocked && status !== 'error' ? <MediaNotice><button type="button" onClick={toggleVideo}><Play size={17} aria-hidden="true" />영상 재생</button></MediaNotice> : null}
-        </VideoDevice>
-        {vertical ? <VerticalMarkers aria-hidden="true"><i /><span>09<br /><b>16</b></span><small>VERTICAL<br />STORY</small></VerticalMarkers> : null}
-      </VideoCanvas>
-      <VideoDetails>
+      {vertical ? <ProductPortraitStage>{player}</ProductPortraitStage> : <LandscapeCanvas>{player}</LandscapeCanvas>}
+      <VideoDetails className="source-details">
         <div data-video-brand={vertical ? 'tiktok' : 'youtube'}><ContentBrandMark channel={vertical ? 'tiktok' : 'youtube'} /><div><strong>{name} <span>{vertical ? '틱톡' : '유튜브'}</span></strong><small>{title} · simply pig</small></div></div>
         <a href={sourceUrl} target="_blank" rel="noopener noreferrer" aria-label={`${name} 원본 영상 보기`}>원본 보기 <ArrowUpRight size={14} aria-hidden="true" /></a>
       </VideoDetails>
-      <VideoControls>
+      <VideoControls data-portrait-controls={vertical || undefined}>
         <button type="button" onClick={toggleVideo} aria-label={`${name} 영상 ${videoPlaying ? '일시정지' : '재생'}`}>
           {videoPlaying ? <Pause size={16} fill="currentColor" aria-hidden="true" /> : <Play size={16} fill="currentColor" aria-hidden="true" />}
         </button>
@@ -132,8 +131,8 @@ function YouTubeProgram({ playing, reducedMotion, onSelect, onPlaybackChange, sc
   onSeek: ProductContentStudioProps['onSeek'];
   onRestart: () => void;
 }) {
-  const [edition, setEdition] = useState('duck-director');
-  const native = edition === 'duck-director';
+  const [edition, setEdition] = useState<string>(YOUTUBE_SHORT.id);
+  const film = YOUTUBE_FILMS.find(option => option.id === edition);
   return <>
     <ProgramBar>
       <ContentChannelMotion channel="youtube" playing={playing} reducedMotion={reducedMotion} />
@@ -141,13 +140,13 @@ function YouTubeProgram({ playing, reducedMotion, onSelect, onPlaybackChange, sc
         setEdition(event.currentTarget.value);
         onRestart();
       }}>
-        <option value="duck-director">{YOUTUBE_SHORT.title}</option>
+        {YOUTUBE_FILMS.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
         <option value="original">그뚠목욕</option>
       </select>
     </ProgramBar>
-    <ContentViewport $playing={playing && !reducedMotion} data-content-preview="youtube" data-native-short={native || undefined}>
-      {native
-        ? <ProductYouTubeShort playing={playing} reducedMotion={reducedMotion} sceneElapsedMs={sceneElapsedMs} onPlaybackChange={onPlaybackChange} onSeek={onSeek} />
+    <ContentViewport $playing={playing && !reducedMotion} data-content-preview="youtube" data-native-short={film ? true : undefined}>
+      {film
+        ? <ProductYouTubeShort key={film.id} film={film} playing={playing} reducedMotion={reducedMotion} sceneElapsedMs={sceneElapsedMs} onPlaybackChange={onPlaybackChange} onSeek={onSeek} />
         : <StudioVideo vertical={false} playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} onPlaybackChange={onPlaybackChange} />}
     </ContentViewport>
   </>;
@@ -273,7 +272,7 @@ export default function ProductContentStudio({ playing, reducedMotion, onSelect,
       <ProductWindow role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${current.id}`}>
         {current.id === 'youtube' ? (
           <YouTubeProgram playing={playing} reducedMotion={reducedMotion} onSelect={onSelect} onPlaybackChange={onPlaybackChange}
-            sceneElapsedMs={sceneElapsedMs} onSeek={onSeek} onRestart={() => onChannelChange?.('youtube')} />
+            sceneElapsedMs={sceneElapsedMs} onSeek={onSeek} onRestart={() => onChannelChange ? onChannelChange('youtube') : onSeek(0)} />
         ) : <>
           <WindowBar>
             <span aria-hidden="true"><i /><i /><i /></span>
@@ -344,6 +343,9 @@ const ContentViewport = styled.div<{ $playing: boolean }>`
   ${({ $playing }) => $playing && css`animation: ${switchIn} 450ms ease both;`}
   @container (max-width: 420px) { height: 360px; }
   &[data-native-short] { height: clamp(430px, 60svh, 590px); }
+  /* A 200px-wide vertical embed needs 356px of picture above its source and playback controls. */
+  &&[data-content-preview='tiktok'] { min-height: 487px; }
+  @container (min-width: 570px) { &&[data-content-preview='tiktok'] { min-height: 436px; } }
   @container product-showreel (min-width: 761px) {
     &&[data-native-short] { min-height: clamp(450px, 53svh, 530px); }
   }
@@ -355,28 +357,20 @@ const StudioFooter = styled.div`
   i { width: 4px; height: 4px; background: #93c5fd; border-radius: 50%; } b { font-weight: 400; opacity: .65; }
   @container (max-width: 420px) { > span:last-child { font-size: 0; } > span:last-child::after { content: '시연 콘텐츠'; font-size: 9px; } b { display: none; } }
 `;
-const VideoProduct = styled.div`height: 100%; display: flex; flex-direction: column; background: #f5f4ed;`;
-const VideoCanvas = styled.div<{ $vertical: boolean }>`
-  flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #071322;
-  ${({ $vertical }) => $vertical && css`background: #d6e2ef; padding: 10px;`}
+const VideoProduct = styled.div`
+  height: 100%; display: flex; flex-direction: column; background: #f5f4ed;
+  @container (min-width: 570px) {
+    &[data-video-format='portrait'] {
+      display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+      > [data-portrait-stage] { grid-column: 1 / -1; }
+      > .source-details { padding-block: 0; }
+    }
+  }
 `;
-const VideoDevice = styled.div<{ $vertical: boolean }>`
-  width: 100%; height: 100%; min-height: 200px; position: relative; overflow: hidden; background: #071322;
-  ${({ $vertical }) => $vertical && css`width: 210px; min-height: 210px; flex-shrink: 0; border: 5px solid #102b22; border-radius: 18px; box-shadow: 0 8px 18px #19362630; z-index: 1;`}
+const LandscapeCanvas = styled.div`
+  flex: 1; min-height: 200px; position: relative; overflow: hidden; background: #071322;
 `;
 const YouTubeHost = styled.div`position: absolute; inset: 0; > iframe { display: block; width: 100%; height: 100%; border: 0; }`;
-const VerticalNote = styled.div`
-  position: absolute; left: 23px; top: 38px; color: #315578; > span { font-family: Georgia, serif; font-size: 26px; line-height: 1.13; } > small { display: block; margin-top: 14px; font-size: 9px; }
-  @container (max-width: 520px) { left: 16px; top: 30px; > span { font-size: 18px; } > small { font-size: 8px; max-width: 45px; line-height: 1.7; } }
-  @container (max-width: 350px) { display: none; }
-`;
-const VerticalMarkers = styled.div`
-  position: absolute; right: 28px; bottom: 35px; display: grid; gap: 15px; color: #3f603c;
-  i { width: 21px; height: 21px; border-top: 1px solid currentColor; border-right: 1px solid currentColor; justify-self: end; }
-  > span { font-size: 34px; line-height: 1.1; font-family: Georgia, serif; text-align: right; } b { font-weight: 400; color: #4b603f; } small { font-size: 8px; line-height: 1.7; }
-  @container (max-width: 420px) { right: 15px; > span { font-size: 24px; } small { font-size: 7px; } }
-  @container (max-width: 350px) { display: none; }
-`;
 const MediaNotice = styled.div`
   position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #102b22a8; color: #f3f7ff; padding: 18px; text-align: center;
   > span { font-size: 11px; line-height: 1.6; } > svg.lucide-loader-circle { animation: ${spin} 1s linear infinite; }
@@ -393,14 +387,6 @@ const VideoDetails = styled.div`
   > svg { color: #4d7144; border: 1px solid #b7c5ab; border-radius: 50%; padding: 2px; width: 20px; height: 20px; flex-shrink: 0; }
   > a { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; min-height: 44px; padding: 0 3px; font-size: 10px; color: #315832; text-decoration: underline; }
   @container (max-width: 420px) { padding: 10px 11px 0; gap: 8px; strong { font-size: 12px; } }
-`;
-const VideoControls = styled.div`
-  display: flex; align-items: center; gap: 9px; padding: 0 12px 1px; flex-shrink: 0;
-  button { display: grid; place-items: center; min-height: 44px; min-width: 44px; border: 0; background: transparent; color: #173b2e; }
-  input { min-width: 0; width: 100%; height: 44px; accent-color: #46713b; cursor: pointer; margin: 0; }
-  > span { flex-shrink: 0; font-size: 9px; font-variant-numeric: tabular-nums; } small { color: #58674f; font-size: 8px; }
-  .video-silent { font-size: 8px; color: #58674f; margin-left: 7px; }
-  @container (max-width: 420px) { gap: 6px; padding: 0 7px 1px; .video-silent { display: none; } }
 `;
 const BlogWindow = styled.div`height: 100%; display: flex; flex-direction: column; background: #fcfbf4;`;
 const BlogMasthead = styled.div`
