@@ -74,8 +74,6 @@ function browserCheck(file, env, log) {
   const fd = openSync(log, 'w');
   try {
     execFileSync(process.execPath, [path.join(root, 'scripts', file)], { cwd: root, env, stdio: ['ignore', fd, fd] });
-  } catch {
-    throw new Error('브라우저 검사 실패. 상세 기록: ' + log);
   } finally {
     closeSync(fd);
   }
@@ -111,10 +109,19 @@ async function main(args) {
     await verifyRevision(pr, readPull(number), origin);
     for (const [name, file] of [['공개 홈 4종', 'verify-public-shell-integrity.mjs'], ['제품별 상담 연결', 'verify-partnership-inquiry.mjs']]) {
       console.log(name + ' 검사 중 (1440px, 390px)');
-      browserCheck(file, env, path.join(evidence, file + '.log'));
-      report.checks.push(file);
+      const check = { name, log: file + '.log', status: 'passed' };
+      try {
+        browserCheck(file, env, path.join(evidence, check.log));
+      } catch {
+        check.status = 'failed';
+        console.error(name + ' 검사 실패 · ' + path.join(evidence, check.log));
+      }
+      report.checks.push(check);
     }
     await verifyRevision(pr, readPull(number), origin);
+    if (report.checks.some(check => check.status === 'failed')) {
+      throw new Error('실패한 검사와 화면 기록을 확인하세요. ' + evidence);
+    }
     report.status = 'passed';
   } catch (error) {
     report.status = 'failed';
