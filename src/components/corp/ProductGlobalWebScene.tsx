@@ -1,5 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import { SignalPath, SignalPing } from './ProductMotionEffects';
+import { ProductShowreelCharacter } from './ProductShowreelCharacter';
+import { SHOWREEL_MEDIA } from './productShowreelMedia';
 
 const C = {
   paper: '#f3f7ff',
@@ -24,7 +26,7 @@ function DesktopWorkmate() {
       <text x="720" y="179" fontSize="10" letterSpacing="1.4" fill="#507161">그뚠웹 · 업무 도우미</text>
       <text x="720" y="204" fontSize="19" fontWeight="700" fill="#234c3d">그뚠이와 함께.</text>
       <ellipse cx="816" cy="384" rx="64" ry="7" fill="#749981" opacity=".18" />
-      <image data-mascot-pose="work" href="/images/corp/products/global/ddunddun-work.png" x="721" y="211" width="190" height="178" preserveAspectRatio="xMidYMid meet" />
+      <ProductShowreelCharacter action="tablet" data-mascot-pose="work" href={SHOWREEL_MEDIA.mascots.work} x="721" y="211" width="190" height="178" preserveAspectRatio="xMidYMid meet" />
       <rect x="735" y="391" width="162" height="20" rx="10" fill="#f4faf4" />
       <circle cx="750" cy="401" r="3" fill="#43826a" />
       <text x="760" y="405" fontSize="10" fill="#355e4b">오늘의 업무도 차근차근</text>
@@ -42,7 +44,7 @@ function MobileWorkmate() {
       <text x="42" y="306" fontSize="25" fontWeight="700" fill="#244d3b">가볍게.</text>
       <text x="43" y="333" fontSize="11" fill="#527761">그뚠이와 함께하는 하루</text>
       <ellipse cx="253" cy="391" rx="60" ry="6" fill="#6b9479" opacity=".2" />
-      <image data-mascot-pose="success" href="/images/corp/products/global/ddunddun-success.png" x="162" y="223" width="174" height="174" preserveAspectRatio="xMidYMid meet" />
+      <ProductShowreelCharacter action="approval" data-mascot-pose="success" href={SHOWREEL_MEDIA.mascots.success} x="162" y="223" width="174" height="174" preserveAspectRatio="xMidYMid meet" />
       <rect x="42" y="367" width="112" height="26" rx="13" fill="#2c5b45" />
       <text x="58" y="384" fontSize="10" fill="#f3faf1">오늘의 일정 보기 →</text>
     </g>
@@ -62,7 +64,7 @@ function Desktop({ x, y, width, active = false }: { x: number; y: number; width:
       </g>
       <rect x={width * .25} y="-19" width={width * .5} height="12" rx="4" fill="#18304c" />
       <path d={`M${width * .25 + 8} -13h${width * .3}`} stroke={C.muted} strokeWidth="1.4" opacity=".5" />
-      <image data-screen-kind="desktop" href="/images/corp/products/global/desktop-workspace.svg" width={width} height={height} clipPath={`url(#${clip})`} preserveAspectRatio="xMidYMid meet" />
+      <image data-screen-kind="desktop" href={SHOWREEL_MEDIA.screens.desktop} width={width} height={height} clipPath={`url(#${clip})`} preserveAspectRatio="xMidYMid meet" />
       <g clipPath={`url(#${clip})`}><svg width={width} height={height} viewBox="0 0 960 600" aria-hidden="true"><DesktopWorkmate /></svg></g>
       <path d={`M-8 ${height + 9}h${width + 16}l17 11H-25Z`} fill="#294560" stroke="#527393" />
       <path d={`M${width * .36} ${height + 10}h${width * .28}l-5 4H${width * .36 + 5}Z`} fill={C.muted} opacity=".65" />
@@ -77,7 +79,7 @@ function Phone({ x, y, width, active = false }: { x: number; y: number; width: n
     <g transform={`translate(${x} ${y})`} data-device="mobile">
       <defs><clipPath id={clip}><rect width={width} height={height} rx={width * .13} /></clipPath></defs>
       <rect x="-6" y="-6" width={width + 12} height={height + 12} rx={width * .17} fill={C.deep} stroke={active ? C.mint : C.line} strokeWidth={active ? 2 : 1.3} />
-      <image data-screen-kind="mobile" href="/images/corp/products/global/mobile-workspace.svg" width={width} height={height} clipPath={`url(#${clip})`} preserveAspectRatio="xMidYMid meet" />
+      <image data-screen-kind="mobile" href={SHOWREEL_MEDIA.screens.mobile} width={width} height={height} clipPath={`url(#${clip})`} preserveAspectRatio="xMidYMid meet" />
       <g clipPath={`url(#${clip})`}><svg width={width} height={height} viewBox="0 0 360 720" aria-hidden="true"><MobileWorkmate /></svg></g>
       <rect x={width * .35} y="4" width={width * .3} height="5" rx="2.5" fill={C.deep} />
       <path d={`M${width * .35} ${height - 6}h${width * .3}`} stroke={C.navy} strokeWidth="2.5" strokeLinecap="round" />

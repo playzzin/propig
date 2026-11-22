@@ -6,6 +6,13 @@ import axe from 'axe-core';
 
 const base = process.env.BASE_URL || 'http://localhost:3002';
 const output = path.resolve(process.env.OUTPUT_DIR ? path.join(process.env.OUTPUT_DIR, 'content') : '.tmp-product-motion-v4');
+const productPath = '/corp/company/product-introduction';
+const defaultFilm = { id: 'five-second-shift', title: '출근 5초 만에 방전' };
+const duckFilm = { id: 'duck-director', title: '오리 감독의 첫 촬영' };
+const filmAsset = (film, extension) => `/videos/corp/youtube-${film.id}.${extension}`;
+const originalVideoId = 'k56Wglp9hI4';
+const tiktokVideoId = 'eiivhfQJFOA';
+const viewports = [{ width: 1440, height: 1100 }, { width: 390, height: 844 }];
 const candidates = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].filter(Boolean);
 let executablePath;
 for (const candidate of candidates) {
@@ -45,6 +52,32 @@ async function ensurePlayback(showcase, playing) {
   if (await button.count()) await button.click();
 }
 
+const activate = (locator, mobile) => mobile ? locator.tap() : locator.click();
+
+function expectNoExternalRequests(requests) {
+  assert.deepEqual(requests, [], 'The native default does not request the YouTube iframe API or embeds.');
+}
+
+function externalRequests(page) {
+  const requests = [];
+  page.on('request', request => {
+    const { hostname, pathname } = new URL(request.url());
+    if ((hostname === 'www.youtube.com' && pathname === '/iframe_api')
+      || (hostname === 'www.youtube-nocookie.com' && pathname.startsWith('/embed/'))) requests.push(request.url());
+  });
+  return requests;
+}
+
+function nativeRequests(page) {
+  const requests = [];
+  const sources = new Set([filmAsset(defaultFilm, 'mp4'), filmAsset(duckFilm, 'mp4')]);
+  page.on('request', request => {
+    const { pathname } = new URL(request.url());
+    if (sources.has(pathname)) requests.push(pathname);
+  });
+  return requests;
+}
+
 async function selectChapter(page, showcase, chapter) {
   // Streaming can briefly retain a hidden server tree during a reload.
   await page.waitForFunction(() => {
@@ -60,15 +93,20 @@ async function selectChapter(page, showcase, chapter) {
   await page.waitForTimeout(900);
 }
 
-async function currentVideo(studio, waitForDuration = true) {
-  const video = studio.locator('[data-video-id]');
-  assert.equal(await video.count(), 1, 'Only the selected channel mounts its media player.');
+async function currentExternalVideo(studio, id) {
+  const video = studio.locator(`[data-video-id="${id}"]`);
   await video.locator('iframe[data-youtube-player]').waitFor();
-  await studio.page().waitForFunction(requireDuration => {
-    const player = document.querySelector('[data-video-id]');
-    return requireDuration ? Number(player?.getAttribute('data-player-duration')) > 0 : player?.getAttribute('data-player-status') === 'ready';
-  }, waitForDuration, { timeout: 20000 });
+  assert.equal(await studio.locator('[data-video-id]').count(), 1, 'Only the selected channel mounts a media player.');
   return video;
+}
+
+async function externalOutcome(page, id) {
+  const settled = await page.waitForFunction(id => {
+    const player = document.querySelector(`[data-video-id="${id}"]`);
+    if (player?.dataset.playerStatus === 'error') return 'unavailable';
+    return player?.dataset.playerStatus === 'ready' && 'ready';
+  }, id, { timeout: 25000 });
+  try { return await settled.jsonValue(); } finally { await settled.dispose(); }
 }
 
 async function mediaSnapshot(video) {
@@ -110,14 +148,410 @@ async function assertVideoPaused(page, video) {
   assert.ok(Math.abs(after.currentTime - before.currentTime) < .08, 'Paused video keeps its playhead.');
 }
 
-try {
-  for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }]) {
-    const context = await browser.newContext({ viewport, reducedMotion: 'no-preference' });
+const nativePlayer = (studio, film = defaultFilm) => studio.locator(`[data-video-id="${film.id}"]`);
+const nativeVideo = (studio, film = defaultFilm) => nativePlayer(studio, film).locator('video[data-grok-video]');
+const filmPicker = studio => studio.getByRole('combobox', { name: 'YouTube 영상 선택', exact: true });
+
+async function selectFilm(picker, id, key, mobile) {
+  if (mobile) {
+    await picker.tap();
+    // The mobile browser owns the native options popup. Select its option by value.
+    await picker.selectOption(id);
+  } else {
+    await picker.focus();
+    await picker.press(key);
+    assert.equal(await picker.evaluate(element => document.activeElement === element), true, 'Choosing an edition preserves keyboard focus.');
+  }
+  assert.equal(await picker.inputValue(), id);
+}
+
+async function nativeSnapshot(video) {
+  return video.evaluate(element => {
+    const { width, height } = element.getBoundingClientRect();
+    const track = element.querySelector('track[kind="captions"][srclang="ko"]');
+    return {
+      source: element.currentSrc && new URL(element.currentSrc).pathname,
+      poster: element.poster && new URL(element.poster).pathname,
+      caption: track?.src && new URL(track.src).pathname,
+      currentTime: element.currentTime, duration: element.duration, paused: element.paused, muted: element.muted,
+      videoWidth: element.videoWidth, videoHeight: element.videoHeight, width, height, inline: element.playsInline,
+    };
+  });
+}
+
+async function assertNativeAdvances(page, video, film = defaultFilm) {
+  await page.waitForFunction(() => {
+    const media = document.querySelector('video[data-grok-video]');
+    return media && !media.paused && media.readyState >= 2 && media.videoWidth > 0 && media.currentTime > 0;
+  });
+  const before = await nativeSnapshot(video);
+  await page.waitForFunction(start => {
+    const media = document.querySelector('video[data-grok-video]');
+    return media && !media.paused && media.currentTime > start + .25;
+  }, before.currentTime, { timeout: 8000 });
+  const after = await nativeSnapshot(video);
+  assert.equal(after.source, filmAsset(film, 'mp4'), 'The decoded media comes from the selected local MP4.');
+  assert.ok(Math.abs(after.duration - 20) < .12 && Math.abs(after.videoWidth / after.videoHeight - 9 / 16) < .005,
+    `The MP4 decodes as a 20-second vertical Short: ${JSON.stringify(after)}`);
+  assert.equal(after.paused, false);
+  return after;
+}
+
+async function assertNativePaused(page, video) {
+  await page.waitForFunction(() => {
+    const media = document.querySelector('video[data-grok-video]');
+    return media && media.paused && !media.seeking;
+  });
+  const before = await nativeSnapshot(video);
+  await page.waitForTimeout(350);
+  const after = await nativeSnapshot(video);
+  assert.equal(after.paused, true);
+  assert.ok(Math.abs(after.currentTime - before.currentTime) < .05, 'Pausing freezes the native Short at the selected position.');
+}
+
+async function verifyPortraitStage(player, media) {
+  assert.equal(await player.locator('[data-portrait-stage]').count(), 1, 'The selected player has one shared portrait stage.');
+  assert.equal(await player.locator('[data-portrait-controls]').count(), 1, 'The portrait player exposes the common transport.');
+  const layout = await media.evaluate(async element => {
+    await document.fonts.ready;
+    const device = element.closest('[data-portrait-device]');
+    const stage = device?.closest('[data-portrait-stage]');
+    if (!stage) return null;
+    const picture = element.getBoundingClientRect();
+    const shell = device.getBoundingClientRect();
+    const surface = stage.getBoundingClientRect();
+    const surround = getComputedStyle(device);
+    const contains = (outer, inner) => outer.left <= inner.left + 1 && outer.right >= inner.right - 1
+      && outer.top <= inner.top + 1 && outer.bottom >= inner.bottom - 1;
+    const textLines = (text, clearsDevice) => {
+      if (!text || !stage.contains(text) || getComputedStyle(text).visibility !== 'visible') return [];
+      // A text line can escape its element's layout box.
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      return Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0).map(rect => ({
+        left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+        fitsStage: contains(surface, rect), clearsDevice: clearsDevice(rect),
+      }));
+    };
+    const native = element instanceof HTMLVideoElement;
+    const sideText = native ? {
+      title: textLines(stage.querySelector('h4'), rect => rect.right <= shell.left + 1),
+      description: textLines(document.getElementById(element.getAttribute('aria-describedby') ?? ''), rect => rect.left >= shell.right - 1),
+    } : null;
+    return {
+      width: picture.width, height: picture.height, fitsDevice: contains(shell, picture), fitsStage: contains(surface, picture),
+      objectFit: native ? getComputedStyle(element).objectFit : null, sideText,
+      theme: { stage: getComputedStyle(stage).backgroundColor, bezel: surround.borderColor, radius: surround.borderRadius },
+    };
+  });
+  assert.ok(layout?.fitsDevice && layout.fitsStage, 'The portrait device shows the whole media surface.');
+  assert.ok(Math.abs(layout.width / layout.height - 9 / 16) < .025, `The shared device keeps the 9:16 picture: ${JSON.stringify(layout)}`);
+  if (layout.objectFit !== null) assert.equal(layout.objectFit, 'contain', 'The native Short shows the full frame.');
+  for (const [side, lines] of Object.entries(layout.sideText ?? {})) {
+    assert.ok(lines.every(line => line.fitsStage && line.clearsDevice), `Every ${side} line clears the phone and stays inside the portrait stage: ${JSON.stringify(lines)}`);
+  }
+  return layout;
+}
+
+async function verifyNativeAssets(page, video, film = defaultFilm) {
+  const state = await nativeSnapshot(video);
+  assert.equal(await video.getAttribute('aria-label'), film.title);
+  assert.equal(state.poster, filmAsset(film, 'webp'));
+  assert.equal(state.caption, filmAsset(film, 'vtt'));
+  assert.equal(state.inline, true, 'The Short plays inline on phones.');
+  assert.ok(state.width > 0 && state.height > 0 && Math.abs(state.width / state.height - 9 / 16) < .025,
+    `The player keeps the 9:16 presentation: ${JSON.stringify(state)}`);
+  const posterRatio = await page.evaluate(async url => {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    return image.naturalWidth / image.naturalHeight;
+  }, state.poster);
+  assert.ok(Math.abs(posterRatio - 9 / 16) < .005, 'The vertical poster loads.');
+  const subtitles = await page.request.get(new URL(state.caption, base).href);
+  assert.ok(subtitles.ok(), 'The Korean captions are available from the same host.');
+  assert.match(await subtitles.text(), /^\s*WEBVTT\b/);
+}
+
+async function readKoreanCues(page) {
+  const result = await page.waitForFunction(() => {
+    const track = document.querySelector('video[data-grok-video] track[srclang="ko"]')?.track;
+    const cues = Array.from(track?.cues ?? []);
+    return track?.mode === 'showing' && cues.some(cue => /[가-힣]/.test(cue.text))
+      && cues.map(cue => ({ text: cue.text, start: cue.startTime, end: cue.endTime }));
+  });
+  try { return await result.jsonValue(); } finally { await result.dispose(); }
+}
+
+async function verifyNativeChannel(page, showcase, studio, mobile, requests) {
+  const media = nativeVideo(studio);
+  const selector = filmPicker(studio);
+  await media.waitFor();
+  assert.equal(await selector.inputValue(), defaultFilm.id);
+  assert.deepEqual(await selector.locator('option').evaluateAll(options => options.map(option => option.value)), [defaultFilm.id, duckFilm.id, 'original']);
+  assert.equal((await selector.locator('option:checked').textContent()).trim(), defaultFilm.title);
+  assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0);
+  await ensurePlayback(showcase, true);
+  await media.scrollIntoViewIfNeeded();
+  const started = await assertNativeAdvances(page, media);
+  assert.equal(started.muted, true);
+  await verifyNativeAssets(page, media);
+  const portrait = await verifyPortraitStage(nativePlayer(studio), media);
+  await ensurePlayback(showcase, false);
+  await assertNativePaused(page, media);
+  const captions = studio.getByRole('button', { name: '한국어 자막', exact: true });
+  const cues = await readKoreanCues(page);
+  const typing = cues.find(cue => cue.start < 8 && /키보드|타자|타이핑|두드|입력/.test(cue.text));
+  const tired = cues.find(cue => typing && cue.start >= typing.end - .05 && /방전|지쳤|지쳐|피곤|탈진|하품|꾸벅|엎드|힘이 빠|눈을 감/.test(cue.text));
+  assert.ok(typing && tired, `The Korean cues describe eager typing before the tired punchline: ${JSON.stringify(cues)}`);
+  for (const [pressed, mode] of [['false', 'hidden'], ['true', 'showing']]) {
+    await activate(captions, mobile);
+    await page.waitForFunction(mode => document.querySelector('video[data-grok-video] track[srclang="ko"]')?.track.mode === mode, mode);
+    assert.equal(await captions.getAttribute('aria-pressed'), pressed);
+  }
+  await activate(studio.getByRole('button', { name: 'YouTube 소리 켜기', exact: true }), mobile);
+  assert.equal((await nativeSnapshot(media)).muted, false);
+  await activate(studio.getByRole('button', { name: 'YouTube 소리 끄기', exact: true }), mobile);
+  assert.equal((await nativeSnapshot(media)).muted, true);
+  assert.equal(await studio.locator('[data-content-brand-strip]').evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Global pause also freezes channel motion.');
+
+  await activate(studio.getByRole('button', { name: 'YouTube 영상 재생', exact: true }), mobile);
+  await assertNativeAdvances(page, media);
+  await activate(studio.getByRole('button', { name: 'YouTube 영상 일시정지', exact: true }), mobile);
+  await assertNativePaused(page, media);
+  const slider = studio.getByRole('slider', { name: 'YouTube 영상 재생 위치', exact: true });
+  if (mobile) {
+    const bounds = await slider.boundingBox();
+    await slider.tap({ position: { x: Math.round(bounds.width / 2), y: Math.round(bounds.height / 2) } });
+  } else {
+    await slider.focus();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+  }
+  const sought = await page.waitForFunction(mobile => {
+    const video = document.querySelector('video[data-grok-video]');
+    if (!video || !video.paused || video.seeking) return false;
+    const time = video.currentTime;
+    return (mobile ? time > 7 && time < 13 : time > .02 && time < .3) && time;
+  }, mobile, { timeout: 6000 });
+  const seekTime = await sought.jsonValue();
+  await sought.dispose();
+  await activate(studio.getByRole('button', { name: 'YouTube 영상 재생', exact: true }), mobile);
+  const resumed = await assertNativeAdvances(page, media);
+  assert.ok(resumed.currentTime > seekTime, 'Playing after seeking continues from the selected position.');
+  expectNoExternalRequests(requests);
+  return { channel: 'YouTube', clip: defaultFilm.id, playback: 'native', started, resumed, portrait, captions: { typing, tired }, seek: { input: mobile ? 'touch' : 'keyboard', time: seekTime } };
+}
+
+async function verifyDuckFilm(page, showcase, studio, mobile, requests) {
+  await ensurePlayback(showcase, false);
+  const previous = nativeVideo(studio);
+  await assertNativePaused(page, previous);
+  const previousTime = (await nativeSnapshot(previous)).currentTime;
+  assert.ok(previousTime > .25);
+  assert.ok(requests.includes(filmAsset(defaultFilm, 'mp4')), 'Opening YouTube plays the default film.');
+  assert.ok(!requests.includes(filmAsset(duckFilm, 'mp4')), 'The previous film stays unloaded while the default plays.');
+
+  const selector = filmPicker(studio);
+  await selectFilm(selector, duckFilm.id, 'ArrowDown', mobile);
+  const video = nativeVideo(studio, duckFilm);
+  await video.waitFor();
+  assert.equal(await previous.count(), 0, 'The previous edition unmounts when switching films.');
+  assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0);
+  assert.equal((await selector.locator('option:checked').textContent()).trim(), duckFilm.title);
+  await assertNativePaused(page, video);
+  const initial = await nativeSnapshot(video);
+  assert.equal(initial.currentTime, 0, 'The other film has a fresh playhead.');
+  assert.equal(initial.source, '', 'The selected poster stays paused until the user presses play.');
+  assert.ok(!requests.includes(filmAsset(duckFilm, 'mp4')), 'Selecting a film while paused does not fetch its MP4.');
+  await verifyNativeAssets(page, video, duckFilm);
+  const portrait = await verifyPortraitStage(nativePlayer(studio, duckFilm), video);
+  await activate(studio.getByRole('button', { name: 'YouTube 영상 재생', exact: true }), mobile);
+  await video.scrollIntoViewIfNeeded();
+  const started = await assertNativeAdvances(page, video, duckFilm);
+  assert.ok(requests.includes(filmAsset(duckFilm, 'mp4')));
+  assert.ok((await readKoreanCues(page)).some(cue => cue.text.includes('오리')), 'The previous film retains its Korean captions.');
+  await ensurePlayback(showcase, false);
+  await assertNativePaused(page, video);
+  return { clip: duckFilm.id, previousTime, startTime: initial.currentTime, started, portrait, firstDownload: 'on play' };
+}
+
+async function assertExternalError(video, source) {
+  await video.getByText('영상을 불러오지 못했습니다.', { exact: true }).waitFor();
+  await video.getByRole('button', { name: '다시 불러오기', exact: true }).waitFor();
+  assert.equal(await video.getByRole('link', { name: 'YouTube에서 보기', exact: true }).getAttribute('href'), source);
+}
+
+async function verifyExternalChannel(page, showcase, studio, { channel, id }, mobile) {
+  await ensurePlayback(showcase, false);
+  const video = await currentExternalVideo(studio, id);
+  const media = await mediaSnapshot(video);
+  const portrait = channel === 'TikTok' ? await verifyPortraitStage(video, video.locator('iframe[data-youtube-player]')) : null;
+  const source = `https://youtube.com/shorts/${id}`;
+  const brand = channel.toLowerCase();
+  assert.equal(media.id, id);
+  assert.ok(media.width >= 200 && media.height >= 200, `${channel} meets YouTube minimum player dimensions.`);
+  assert.equal(await studio.locator(`[data-video-window-brand="${brand}"]`).innerText(), channel);
+  assert.ok((await video.locator(`[data-video-brand="${brand}"]`).innerText()).includes(channel), 'Video details name the selected channel.');
+  assert.equal(await video.locator(`[data-video-brand="${brand}"] [data-channel-logo="${brand}"] svg`).count(), 1);
+  assert.equal(media.muted, true);
+  assert.equal(media.loop, true);
+  assert.equal(media.inline, true);
+  assert.ok(media.src.startsWith(`https://www.youtube-nocookie.com/embed/${id}?`), 'The selected channel embeds the requested Short.');
+  assert.equal(await studio.getByRole('link', { name: `${channel} 원본 영상 보기`, exact: true }).getAttribute('href'), source);
+  if (await externalOutcome(page, id) === 'unavailable') {
+    await assertExternalError(video, source);
+    return { channel, id, media: await mediaSnapshot(video), portrait, playback: 'external unavailable', retryAndOriginalLink: 'visible' };
+  }
+
+  await ensurePlayback(showcase, true);
+  await studio.scrollIntoViewIfNeeded();
+  const blocked = video.getByRole('button', { name: '영상 재생', exact: true });
+  if (await blocked.isVisible()) await activate(blocked, mobile);
+  const playing = await assertVideoAdvances(page, video);
+  assert.ok(playing.duration >= 14 && playing.duration <= 17, 'The linked Shorts expose their real duration.');
+  await ensurePlayback(showcase, false);
+  await assertVideoPaused(page, video);
+  await activate(studio.getByRole('button', { name: `${channel} 소리 켜기`, exact: true }), mobile);
+  assert.equal((await mediaSnapshot(video)).muted, false);
+  await activate(studio.getByRole('button', { name: `${channel} 소리 끄기`, exact: true }), mobile);
+  assert.equal((await mediaSnapshot(video)).muted, true);
+  assert.equal(await studio.locator('[data-content-brand-strip]').evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0);
+  await ensurePlayback(showcase, true);
+  await studio.scrollIntoViewIfNeeded();
+  await assertVideoAdvances(page, video);
+  await activate(studio.getByRole('button', { name: `${channel} 영상 일시정지`, exact: true }), mobile);
+  await assertVideoPaused(page, video);
+  const slider = studio.getByRole('slider', { name: `${channel} 영상 재생 위치`, exact: true });
+  await slider.focus();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(id => Number(document.querySelector(`[data-video-id="${id}"]`)?.getAttribute('data-player-time')) < .6, id, { timeout: 5000 });
+  assert.ok((await mediaSnapshot(video)).currentTime < .6, 'The external player reaches the keyboard seek position.');
+  await activate(studio.getByRole('button', { name: `${channel} 영상 재생`, exact: true }), mobile);
+  await assertVideoAdvances(page, video);
+  return { channel, id, media: playing, portrait, playback: 'external', overallPause: 'pass', playerControls: 'pass', keyboardSeek: 'pass' };
+}
+
+async function verifyReducedNative(browser, viewport, mobile) {
+  const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, reducedMotion: 'reduce' });
+  try {
     const page = await context.newPage();
     const errors = recordErrors(page);
+    const embeds = externalRequests(page);
+    const clips = nativeRequests(page);
+    const entry = new URL(`${productPath}?channel=youtube#product-business-panorama`, base);
+    const response = await page.goto(entry.href, { waitUntil: 'domcontentloaded' });
+    assert.equal(response?.status(), 200);
+    const showcase = page.locator('#product-business-panorama');
+    await page.waitForFunction(() => {
+      const roots = document.querySelectorAll('#product-business-panorama');
+      return roots.length === 1 && roots[0].dataset.reducedMotion === 'true' && roots[0].dataset.stepId === 'youtube';
+    });
+    const studio = showcase.locator('[data-content-studio]');
+    const video = nativeVideo(studio);
+    await video.waitFor();
+    await video.scrollIntoViewIfNeeded();
+    await assertNativePaused(page, video);
+    await verifyNativeAssets(page, video);
+    assert.equal((await nativeSnapshot(video)).source, '', 'Reduced-motion entry leaves only the poster before play.');
+    assert.deepEqual(clips, [], 'Reduced-motion entry does not download either MP4.');
+    assert.equal(await showcase.getAttribute('data-running'), 'false');
+    await activate(studio.getByRole('button', { name: 'YouTube 영상 재생', exact: true }), mobile);
+    const media = await assertNativeAdvances(page, video);
+    assert.ok(clips.length > 0 && clips.every(source => source === filmAsset(defaultFilm, 'mp4')), 'User activation requests only the selected clip.');
+    assert.equal(await showcase.getAttribute('data-running'), 'false', 'Manual play respects the stopped reduced-motion tour.');
+    await activate(studio.getByRole('button', { name: 'YouTube 영상 일시정지', exact: true }), mobile);
+    await assertNativePaused(page, video);
+    expectNoExternalRequests(embeds);
+    assert.deepEqual(errors, []);
+    await assertNoOverflow(page);
+    return { directEntry: 'pass', firstDownload: 'on play', videoRequests: clips.length, media };
+  } finally { await context.close(); }
+}
+
+async function verifyMediaRecovery(browser, viewport) {
+  const mobile = viewport.width === 390;
+  const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, reducedMotion: 'no-preference' });
+  try {
+    await context.addInitScript(() => {
+      const nativeFrame = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = callback => nativeFrame(timestamp => callback(timestamp - 40));
+    });
+    const page = await context.newPage();
+    const errors = recordErrors(page);
+    let blockVideo = true;
+    let nativeRequests = 0;
+    let blockApi = true;
+    let apiRequests = 0;
+    await page.route(`**${filmAsset(defaultFilm, 'mp4')}`, route => {
+      nativeRequests++;
+      return blockVideo ? route.abort('failed') : route.continue();
+    });
+    if (!mobile) await page.route('https://www.youtube.com/iframe_api', route => {
+      apiRequests++;
+      return blockApi ? route.abort('failed') : route.continue();
+    });
+    const response = await page.goto(new URL(productPath, base).href, { waitUntil: 'domcontentloaded' });
+    assert.equal(response?.status(), 200);
+    const showcase = page.locator('#product-business-panorama');
+    await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-running') === 'true');
+    await showcase.locator('h3').waitFor();
+    await page.waitForTimeout(1000);
+    assert.equal(await showcase.getAttribute('data-chapter'), '0', 'An early animation timestamp keeps the tour on its first valid chapter.');
+    await selectChapter(page, showcase, 2);
+    const studio = showcase.locator('[data-content-studio]');
+    const failedNative = studio.locator(`[data-video-id="${defaultFilm.id}"][data-player-status="error"]`);
+    await failedNative.getByText('영상을 불러오지 못했습니다.', { exact: true }).waitFor();
+    const failedRequests = nativeRequests;
+    assert.ok(failedRequests > 0);
+    assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0, 'The local failure stays in the native player.');
+    assert.equal(apiRequests, 0);
+    blockVideo = false;
+    await activate(failedNative.getByRole('button', { name: '다시 불러오기', exact: true }), mobile);
+    const video = nativeVideo(studio);
+    await video.scrollIntoViewIfNeeded();
+    const recovered = await assertNativeAdvances(page, video);
+    assert.ok(nativeRequests > failedRequests, 'Native retry requests and decodes the MP4 again.');
+
+    let externalRetry;
+    if (!mobile) {
+      await ensurePlayback(showcase, false);
+      await studio.getByRole('combobox', { name: 'YouTube 영상 선택', exact: true }).selectOption('original');
+      const original = await currentExternalVideo(studio, originalVideoId);
+      const source = `https://youtube.com/shorts/${originalVideoId}`;
+      await assertExternalError(original, source);
+      blockApi = false;
+      await original.getByRole('button', { name: '다시 불러오기', exact: true }).click();
+      await ensurePlayback(showcase, false);
+      const status = await externalOutcome(page, originalVideoId);
+      assert.ok(apiRequests >= 2, 'Retry requests the original iframe API again.');
+      if (status === 'unavailable') {
+        await assertExternalError(original, source);
+        externalRetry = 'external unavailable; retry and original link remain visible';
+      } else {
+        await ensurePlayback(showcase, true);
+        await studio.scrollIntoViewIfNeeded();
+        await assertVideoAdvances(page, original);
+        externalRetry = 'external playback recovered';
+      }
+    }
+    assert.deepEqual(errors, []);
+    return { viewport, earlyFrameTimestamp: 'pass', nativeRequests, recovered, externalRetry, errors };
+  } finally { await context.close(); }
+}
+
+try {
+  for (const viewport of viewports) {
+    const mobile = viewport.width === 390;
+    const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, reducedMotion: 'no-preference' });
+    const page = await context.newPage();
+    const errors = recordErrors(page);
+    const embedRequests = externalRequests(page);
+    const clips = nativeRequests(page);
     const facts = { viewport, channels: [], services: [], accessibility: [] };
     try {
-      const response = await page.goto(new URL('/corp/company/product-introduction', base).href, { waitUntil: 'domcontentloaded' });
+      const response = await page.goto(new URL(productPath, base).href, { waitUntil: 'domcontentloaded' });
       assert.equal(response.status(), 200);
       const showcase = page.locator('#product-business-panorama');
       // The SSR controls are visible before React attaches their handlers.
@@ -128,6 +562,7 @@ try {
       await showcase.locator('h2').waitFor();
       assert.equal(await showcase.locator('[id^="product-film-chapter-"]').count(), 4);
       assert.ok(!(await showcase.innerText()).includes('기획 에이전트'));
+      assert.deepEqual(clips, [], 'The initial product scene does not download either YouTube film.');
       await selectChapter(page, showcase, 2);
       const studio = showcase.locator('[data-content-studio]');
       await studio.waitFor();
@@ -137,51 +572,41 @@ try {
       assert.equal(await showcase.getByRole('link', { name: '콘텐츠 제품 보기', exact: true }).count(), 0);
       assert.equal(await tabs.evaluateAll(items => items.filter(item => item.tabIndex === 0).length), 1, 'Channel tabs use roving tabIndex.');
 
-      for (const channel of ['YouTube', 'TikTok']) {
-        await studio.getByRole('tab', { name: channel, exact: true }).click();
-        assert.equal(await studio.locator('[data-content-brand-strip]').getAttribute('data-active-channel'), channel.toLowerCase());
-        assert.equal(await studio.locator('[data-channel-stop][data-active="true"]').getAttribute('data-channel-stop'), channel.toLowerCase());
-        await studio.scrollIntoViewIfNeeded();
-        await ensurePlayback(showcase, true);
-        await studio.scrollIntoViewIfNeeded();
-        const video = await currentVideo(studio);
-        const media = await assertVideoAdvances(page, video);
-        assert.ok(media.duration >= 14 && media.duration <= 17, 'The linked Shorts expose their actual duration.');
-        assert.ok(media.width >= 200 && media.height >= 200, `${channel} meets YouTube minimum player dimensions.`);
-        assert.equal(media.id, channel === 'YouTube' ? 'k56Wglp9hI4' : 'eiivhfQJFOA');
-        const brand = channel.toLowerCase();
-        assert.equal(await studio.locator(`[data-video-window-brand="${brand}"]`).innerText(), channel);
-        assert.ok((await video.locator(`[data-video-brand="${brand}"]`).innerText()).includes(channel), 'The video details name the selected channel.');
-        assert.equal(await video.locator(`[data-video-brand="${brand}"] [data-channel-logo="${brand}"] svg`).count(), 1, 'The video details show the selected channel logo.');
-        assert.equal(media.muted, true);
-        assert.equal(media.loop, true);
-        assert.equal(media.inline, true);
-        assert.ok(media.src.startsWith(`https://www.youtube-nocookie.com/embed/${media.id}?`), 'The selected channel embeds the exact requested Short.');
-        assert.equal(await studio.getByRole('link', { name: `${channel} 원본 영상 보기`, exact: true }).getAttribute('href'), `https://youtube.com/shorts/${media.id}`);
-        await ensurePlayback(showcase, false);
-        await assertVideoPaused(page, video);
-        await studio.getByRole('button', { name: `${channel} 소리 켜기`, exact: true }).click();
-        assert.equal((await mediaSnapshot(video)).muted, false);
-        await studio.getByRole('button', { name: `${channel} 소리 끄기`, exact: true }).click();
-        assert.equal((await mediaSnapshot(video)).muted, true);
-        assert.equal(await studio.locator('[data-content-brand-strip]').evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Brand motion pauses with the preview.');
-        await ensurePlayback(showcase, true);
-        await studio.scrollIntoViewIfNeeded();
-        await assertVideoAdvances(page, video);
-        await studio.getByRole('button', { name: `${channel} 영상 일시정지`, exact: true }).click();
-        await assertVideoPaused(page, video);
-        const slider = studio.getByRole('slider', { name: `${channel} 영상 재생 위치`, exact: true });
-        await slider.focus();
-        await page.keyboard.press('Home');
-        await page.keyboard.press('ArrowRight');
-        await page.waitForFunction(() => Number(document.querySelector('[data-video-id]')?.getAttribute('data-player-time')) < .6, null, { timeout: 5000 });
-        assert.ok((await mediaSnapshot(video)).currentTime < .6, 'Keyboard seeking waits for the external player to reach the requested point.');
-        await studio.getByRole('button', { name: `${channel} 영상 재생`, exact: true }).click();
-        await assertVideoAdvances(page, video);
-        await page.screenshot({ path: path.join(output, `content-${viewport.width}-${channel.toLowerCase()}.png`) });
-        facts.accessibility.push({ channel, violations: await inspectAccessibility(page, '#product-business-panorama') });
-        facts.channels.push({ channel, media, overallPause: 'pass', playerControls: 'pass', keyboardSeek: 'pass' });
-      }
+      await activate(studio.getByRole('tab', { name: 'YouTube', exact: true }), mobile);
+      assert.equal(await studio.locator('[data-content-brand-strip]').getAttribute('data-active-channel'), 'youtube');
+      assert.equal(await studio.locator('[data-channel-stop][data-active="true"]').getAttribute('data-channel-stop'), 'youtube');
+      assert.equal(await studio.locator('[data-video-window-brand="youtube"]').innerText(), 'YouTube');
+      facts.channels.push(await verifyNativeChannel(page, showcase, studio, mobile, embedRequests));
+      await page.screenshot({ path: path.join(output, `content-${viewport.width}-youtube.png`) });
+      facts.accessibility.push({ channel: 'YouTube', clip: defaultFilm.id, violations: await inspectAccessibility(page, '#product-business-panorama') });
+      await assertNoOverflow(page);
+      facts.duckYouTube = await verifyDuckFilm(page, showcase, studio, mobile, clips);
+      assert.deepEqual(facts.duckYouTube.portrait.theme, facts.channels[0].portrait.theme, 'Both native editions use the same portrait theme.');
+      expectNoExternalRequests(embedRequests);
+      await page.screenshot({ path: path.join(output, `content-${viewport.width}-youtube-duck.png`) });
+      facts.accessibility.push({ channel: 'YouTube', clip: duckFilm.id, violations: await inspectAccessibility(page, '#product-business-panorama') });
+      await assertNoOverflow(page);
+
+      const selector = filmPicker(studio);
+      await selectFilm(selector, 'original', 'End', mobile);
+      assert.equal(await studio.locator('video[data-grok-video]').count(), 0, 'Selecting the original unmounts the native player.');
+      await studio.scrollIntoViewIfNeeded();
+      facts.originalYouTube = await verifyExternalChannel(page, showcase, studio, { channel: 'YouTube', id: originalVideoId }, mobile);
+      await page.screenshot({ path: path.join(output, `content-${viewport.width}-youtube-original.png`) });
+      facts.accessibility.push({ channel: 'YouTube', clip: 'original', violations: await inspectAccessibility(page, '#product-business-panorama') });
+      await selectFilm(selector, defaultFilm.id, 'Home', mobile);
+      await nativeVideo(studio).waitFor();
+      assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0, 'Returning to the native Short removes the embed.');
+
+      await activate(studio.getByRole('tab', { name: 'TikTok', exact: true }), mobile);
+      assert.equal(await studio.locator('[data-content-brand-strip]').getAttribute('data-active-channel'), 'tiktok');
+      assert.equal(await studio.locator('[data-channel-stop][data-active="true"]').getAttribute('data-channel-stop'), 'tiktok');
+      await studio.scrollIntoViewIfNeeded();
+      const tiktokPlayback = await verifyExternalChannel(page, showcase, studio, { channel: 'TikTok', id: tiktokVideoId }, mobile);
+      assert.deepEqual(tiktokPlayback.portrait.theme, facts.channels[0].portrait.theme, 'YouTube and TikTok use the same portrait stage and device treatment.');
+      facts.channels.push(tiktokPlayback);
+      await page.screenshot({ path: path.join(output, `content-${viewport.width}-tiktok.png`) });
+      facts.accessibility.push({ channel: 'TikTok', violations: await inspectAccessibility(page, '#product-business-panorama') });
 
       await studio.getByRole('tab', { name: '블로그', exact: true }).click();
       assert.equal(await studio.locator('[data-content-brand-strip]').getAttribute('data-active-channel'), 'blog');
@@ -197,7 +622,7 @@ try {
       })));
       assert.ok(blogImages.every(image => image.width > 0 && image.height > 0 && image.alt.includes('그뚠이')), 'Blog character assets load with descriptive text alternatives.');
       await page.screenshot({ path: path.join(output, `content-${viewport.width}-blog-cover.png`) });
-      assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0, 'Leaving a video channel unmounts the active player.');
+      assert.equal(await studio.locator('iframe[data-youtube-player], video[data-grok-video]').count(), 0, 'Leaving a video channel unmounts the active player.');
       await article.focus();
       const pageScroll = await page.locator('#content-area').evaluate(element => element.scrollTop);
       await page.keyboard.press('PageDown');
@@ -265,6 +690,11 @@ try {
       facts.keyboard = 'pass';
 
       await studio.getByRole('tab', { name: 'TikTok', exact: true }).click();
+      await ensurePlayback(showcase, false);
+      const tiktok = await currentExternalVideo(studio, tiktokVideoId);
+      if (await externalOutcome(page, tiktokVideoId) === 'unavailable') {
+        await assertExternalError(tiktok, `https://youtube.com/shorts/${tiktokVideoId}`);
+      }
       await ensurePlayback(showcase, true);
       await studio.scrollIntoViewIfNeeded();
       const cycle = Number(await showcase.getAttribute('data-cycle'));
@@ -272,14 +702,16 @@ try {
       assert.equal(await showcase.getAttribute('data-chapter'), '2');
       assert.equal(await studio.getByRole('tab', { name: '블로그', exact: true }).getAttribute('aria-selected'), 'true', 'TikTok continues into the next content channel.');
       assert.equal(await studio.locator('iframe[data-youtube-player]').count(), 0, 'The finished video unmounts on the blog channel.');
-      await studio.getByRole('tab', { name: 'TikTok', exact: true }).click();
-      await studio.scrollIntoViewIfNeeded();
-      await assertVideoAdvances(page, await currentVideo(studio));
       facts.channelTransition = 'pass';
 
+      await activate(studio.getByRole('tab', { name: 'YouTube', exact: true }), mobile);
+      const resumedNative = nativeVideo(studio);
+      await ensurePlayback(showcase, true);
+      await resumedNative.scrollIntoViewIfNeeded();
+      await assertNativeAdvances(page, resumedNative);
       await page.locator('#product-catalog').scrollIntoViewIfNeeded();
       await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-running') === 'false');
-      await assertVideoPaused(page, await currentVideo(studio));
+      await assertNativePaused(page, resumedNative);
       facts.offscreenPause = 'pass';
 
       for (const [chapter, labels] of [[0, ['그뚠웹', '그뚠앱', '글로벌 연결']], [1, ['자동 순환', '급여·거래', '계약·발주', '보고·증명']], [3, ['생성형 콘텐츠 판매', '광고형 리셀러']]]) {
@@ -341,22 +773,7 @@ try {
       facts.chapterKeyboard = 'pass';
       facts.sameHashCatalogLink = 'pass';
 
-      await page.emulateMedia({ reducedMotion: 'reduce' });
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-reduced-motion') === 'true');
-      await selectChapter(page, showcase, 2);
-      assert.equal(await showcase.getAttribute('data-running'), 'false');
-      const reducedStudio = showcase.locator('[data-content-studio]');
-      await reducedStudio.getByRole('tab', { name: 'YouTube', exact: true }).click();
-      await reducedStudio.scrollIntoViewIfNeeded();
-      // A deliberately unplayed iframe may defer metadata until the user's first play.
-      const reducedVideo = await currentVideo(reducedStudio, false);
-      await assertVideoPaused(page, reducedVideo);
-      await reducedStudio.getByRole('button', { name: 'YouTube 영상 재생', exact: true }).click();
-      await assertVideoAdvances(page, reducedVideo);
-      await reducedStudio.getByRole('button', { name: 'YouTube 영상 일시정지', exact: true }).click();
-      await assertVideoPaused(page, reducedVideo);
-      facts.reducedMotion = 'pass';
+      facts.reducedMotion = await verifyReducedNative(browser, viewport, mobile);
       await assertNoOverflow(page);
       assert.deepEqual(facts.accessibility.flatMap(item => item.violations), [], 'No showcase accessibility violations across channels and services.');
       assert.deepEqual(errors, [], 'No runtime or hydration errors.');
@@ -368,38 +785,6 @@ try {
       throw error;
     } finally { await context.close(); }
   }
-  const resilienceContext = await browser.newContext({ viewport: { width: 1440, height: 1100 }, reducedMotion: 'no-preference' });
-  await resilienceContext.addInitScript(() => {
-    const nativeFrame = window.requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = callback => nativeFrame(timestamp => callback(timestamp - 40));
-  });
-  const resiliencePage = await resilienceContext.newPage();
-  const resilienceErrors = recordErrors(resiliencePage);
-  let failVideo = true;
-  let videoRequests = 0;
-  await resiliencePage.route('https://www.youtube.com/iframe_api', route => {
-    videoRequests++;
-    return failVideo ? route.abort('failed') : route.continue();
-  });
-  await resiliencePage.goto(new URL('/corp/company/product-introduction', base).href, { waitUntil: 'domcontentloaded' });
-  const resilienceShowcase = resiliencePage.locator('#product-business-panorama');
-  await resiliencePage.waitForFunction(() => {
-    const showcases = document.querySelectorAll('#product-business-panorama');
-    return showcases.length === 1 && showcases[0].getAttribute('data-running') === 'true';
-  });
-  await resilienceShowcase.locator('h3').waitFor();
-  await resiliencePage.waitForTimeout(1000);
-  assert.equal(await resilienceShowcase.getAttribute('data-chapter'), '0', 'An early requestAnimationFrame timestamp cannot select a negative chapter.');
-  await selectChapter(resiliencePage, resilienceShowcase, 2);
-  await resilienceShowcase.getByText('영상을 불러오지 못했습니다.', { exact: true }).waitFor();
-  assert.equal(await resilienceShowcase.getByRole('link', { name: 'YouTube에서 보기', exact: true }).getAttribute('href'), 'https://youtube.com/shorts/k56Wglp9hI4');
-  failVideo = false;
-  await resilienceShowcase.getByRole('button', { name: '다시 불러오기', exact: true }).click();
-  await resilienceShowcase.locator('[data-content-studio]').scrollIntoViewIfNeeded();
-  await assertVideoAdvances(resiliencePage, await currentVideo(resilienceShowcase.locator('[data-content-studio]')));
-  assert.ok(videoRequests >= 2, 'Retry requests the failed asset again.');
-  assert.deepEqual(resilienceErrors, []);
-  results.push({ earlyFrameTimestamp: 'pass', mediaErrorRecovery: 'pass', errors: resilienceErrors });
-  await resilienceContext.close();
+  for (const viewport of viewports) results.push(await verifyMediaRecovery(browser, viewport));
   await writeFile(path.join(output, 'content-studio-results.json'), JSON.stringify(results, null, 2));
 } finally { await browser.close(); }

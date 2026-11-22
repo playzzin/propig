@@ -4,6 +4,7 @@ import { ArrowRight, Check, Clipboard, Clock3, FileLock2, Mail, MessageSquareTex
 import { useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 import type { PartnershipChapterId } from './PartnershipHubExperience';
+import { findProductById } from './productCatalogData';
 
 const SUPPORT_EMAIL = 'support@propig.com';
 
@@ -12,33 +13,6 @@ const CHAPTER_LABELS: Record<PartnershipChapterId, string> = {
   advertising: '광고 제휴',
   investment: '투자 제휴',
   sponsorship: '후원 제휴',
-};
-
-const PRODUCT_CONTEXTS: Record<string, string> = {
-  'web-product-starter': '웹제품 스타터',
-  'web-operations-dashboard': '운영 대시보드',
-  'web-customer-portal': '고객 포털',
-  'web-ai-assistant': 'AI 업무 도우미',
-  'cy-field-report': 'CY 모바일 현장일보 웹앱',
-  'cy-workforce-database': 'CY 인력·자격·배치 통합DB',
-  'cy-dashboard-starter': 'CY 운영 대시보드 스타터',
-  'cy-integrated-suite': 'CY 통합 운영 ERP',
-  'automation-document': '문서 처리 자동화',
-  'automation-approval': '승인·알림 자동화',
-  'automation-data-sync': '데이터 연결 자동화',
-  'automation-ai-workflow': 'AI 워크플로',
-  'cy-payroll-settlement': 'CY 근무·급여·수당 정산',
-  'cy-tax-invoice': 'CY 세금계산서·미수금 관리',
-  'cy-monthly-closing': 'CY 증빙 누락·월마감 자동화',
-  'cy-progress-board': 'CY 공정·이슈·사진 자동화 보드',
-  'media-product-film': '제품 소개 영상',
-  'media-short-form': '숏폼 콘텐츠 패키지',
-  'media-education': '교육·온보딩 영상',
-  'media-brand-campaign': '브랜드 캠페인 영상',
-  'partner-onboarding': '파트너 온보딩 키트',
-  'partner-portal': '파트너 포털',
-  'partner-co-selling': '공동 영업 운영',
-  'partner-performance': '파트너 성과 대시보드',
 };
 
 interface InquiryFields {
@@ -84,14 +58,14 @@ export function PartnershipInquiryComposer({ initialChapter }: { initialChapter:
 
   useEffect(() => {
     const requestedProduct = new URLSearchParams(window.location.search).get('product') ?? '';
-    if (requestedProduct && PRODUCT_CONTEXTS[requestedProduct]) setProductId(requestedProduct);
+    if (requestedProduct) setProductId(requestedProduct);
   }, []);
 
   useEffect(() => {
     setType(initialChapter);
   }, [initialChapter]);
 
-  const productName = productId ? PRODUCT_CONTEXTS[productId] ?? '' : '';
+  const productName = findProductById(productId)?.name ?? '';
   const body = useMemo(() => buildInquiryBody(type, fields, productName), [fields, productName, type]);
   const subject = `[PRO PIG 제휴] ${productName || CHAPTER_LABELS[type]} 문의`;
   const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;

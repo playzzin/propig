@@ -91,11 +91,12 @@ try {
       await page.waitForFunction(() => document.querySelector('#product-business-panorama')?.getAttribute('data-running') === 'true');
       await showcase.locator('#product-film-chapter-1').click();
       const explorer = showcase.locator('[data-service-explorer="1"]');
+      const automationCategories = explorer.getByRole('group', { name: '자동화 분야 선택' });
       const artwork = explorer.locator('[data-product-motion-artwork]');
       await explorer.scrollIntoViewIfNeeded();
       await playback(showcase, false);
       assert.ok(!(await showcase.innerText()).includes('가능성을 설계하고,'), 'The removed introductory copy no longer occupies the showcase.');
-      assert.equal((await showcase.locator('#product-film-title').innerText()).trim(), 'PRODUCT SHOWCASE');
+      assert.equal((await showcase.locator('#product-film-title').innerText()).trim(), '프로피그 제품 쇼릴');
       const story = await showcase.locator('h3').evaluate(element => element.parentElement.getBoundingClientRect().toJSON());
       const preview = await showcase.locator('[data-product-canvas]').boundingBox();
       const navigation = await showcase.locator('[data-product-navigation]').boundingBox();
@@ -126,7 +127,7 @@ try {
       result.workActions = { actions: workActions, phases: workPhases };
 
       for (const category of categories) {
-        const button = explorer.getByRole('button', { name: category.name, exact: true });
+        const button = automationCategories.getByRole('button', { name: category.name, exact: true });
         await button.focus();
         await page.keyboard.press('Space');
         assert.equal(await explorer.getAttribute('data-automation-category'), category.id);
@@ -139,14 +140,14 @@ try {
         await explorer.locator(`[data-service-option="${category.variants.at(-1)}"]`).click();
       }
       for (const category of categories) {
-        await explorer.getByRole('button', { name: category.name, exact: true }).click();
+        await automationCategories.getByRole('button', { name: category.name, exact: true }).click();
         assert.equal(await explorer.getAttribute('data-service-variant'), String(category.variants.at(-1)), 'Returning to a category restores its last selected option.');
       }
       result.categoryKeyboardAndMemory = 'pass';
 
       for (const flow of flows) {
         const category = categories.find(item => item.id === flow.category);
-        await explorer.getByRole('button', { name: category.name, exact: true }).click();
+        await automationCategories.getByRole('button', { name: category.name, exact: true }).click();
         const button = explorer.getByRole('button', { name: flow.name, exact: true });
         await button.click();
         assert.equal(await explorer.getAttribute('data-service-variant'), String(flow.variant));
@@ -257,7 +258,7 @@ try {
         assert.ok(await desk.locator('[data-digital-window], [data-bot-reply], [data-bot-summary]').evaluateAll(elements => elements.every(element => Number(getComputedStyle(element).opacity) === 1)), 'Reduced motion preserves completed windows and readable bot answers.');
         assert.ok(await artwork.locator('.motion-only, .motion-secondary').evaluateAll(items => items.every(element => getComputedStyle(element).display === 'none')));
       }
-      await explorer.getByRole('button', { name: '업무자동화', exact: true }).click();
+      await automationCategories.getByRole('button', { name: '업무자동화', exact: true }).click();
       await explorer.locator('[data-service-option="0"]').click();
       assert.equal(await artwork.locator('[data-document-title]').count(), 18);
       const readable = await artwork.locator('[data-document-batch]').evaluateAll(items => items.filter(element => getComputedStyle(element).display !== 'none' && Number(getComputedStyle(element).opacity) > .95).length);
