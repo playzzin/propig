@@ -3,7 +3,7 @@
 ## 클라우드 주 개발
 
 - 주 개발·검토·통합은 Codex Cloud에서 수행한다. GitHub `playzzin/propig`가 코드 정본이고, 개발 통합 브랜치는 `develop`, 운영 브랜치는 `main`이다.
-- 5600X는 요청·미리보기 검수·실제 업무 확인, 9950X는 무거운 로컬 작업·Windows/기기 연동·보조 개발을 맡는다. 접속한 PC와 채팅의 실제 실행 환경을 혼동하지 않는다.
+- 5600X는 필요할 때 실제 Windows 환경과 업무 흐름을 확인하고, 9950X는 로컬 개발과 Windows/기기 연동을 맡는다. 게시한 미리보기의 자동 검수는 GitHub Actions가 수행한다.
 - 작업 시작 시 `docs/cloud-development.md`를 읽고 실제 checkout과 원격 ref를 확인한다. 클라우드 작업은 최신 `develop`에서 `codex/cloud-<task>` 브랜치로 분리한다. 9950X 보조 수정은 `codex/9950x-<task>`, 5600X 수정은 명시 요청 시 `codex/5600x-<task>`를 사용한다.
 - 코드 수정 요청의 허용 범위에서 관련 검증·작업 브랜치 commit/push·`develop` 대상 PR까지 진행한다. 로컬 전용/게시 금지 지시는 우선한다. `main` 병합·운영 배포는 별도 요청으로 처리한다.
 - 전체 빌드·릴리스 검증·미리보기 배포는 GitHub Actions가 담당한다. 클라우드에서는 필요한 빠른 검증과 개발 서버를 실행한다. 두 PC에 self-hosted runner를 설치하지 않는다.
