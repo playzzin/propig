@@ -203,7 +203,8 @@ jobs:
         env:
           PREVIEW_CHANNEL: ${{ steps.preview-ref.outputs.channel }}
         run: |
-          printf '%s\n' "$GITHUB_SHA" > .next-static-export/propig-preview-commit.txt
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/preview-commit.txt"
+          cp "$RUNNER_TEMP/preview-commit.txt" .next-static-export/propig-preview-commit.txt
           firebase hosting:channel:deploy "$PREVIEW_CHANNEL" \
             --project "$FIREBASE_PROJECT_ID" \
             --expires 7d --non-interactive --json > "$RUNNER_TEMP/preview-result.json"
@@ -213,6 +214,11 @@ jobs:
           const results = Object.values(data.result || {});
           const url = results.find(value => typeof value?.url === 'string')?.url;
           if (data.status !== 'success' || !url) throw new Error('Firebase did not return a preview URL');
+          const prefix = process.env.FIREBASE_PROJECT_ID + '--' + process.env.PREVIEW_CHANNEL + '-';
+          const host = new URL(url).hostname;
+          const suffix = host.slice(prefix.length, -'.web.app'.length);
+          if (host !== prefix + suffix + '.web.app' || !/^[a-z0-9]+$/.test(suffix)) throw new Error('Unexpected Firebase channel URL');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'channel_suffix=' + suffix + '\n');
           fs.writeFileSync(`${process.env.RUNNER_TEMP}/preview-url.txt`, `${url}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `url=${url}\n`);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Preview: ${url}\n\nVerified commit: \`${process.env.GITHUB_SHA}\`\n\nExpires in 7 days. Hosting only; backend services use the existing Firebase project.\n`);
@@ -226,6 +232,18 @@ jobs:
           path: ${{ runner.temp }}/preview-url.txt
           if-no-files-found: error
           retention-days: 7
+
+      # The public channel ID is readable via the Actions API even when a QA PC
+      # cannot reach the artifact ZIP's storage host. Keep preview-url.txt for manual review.
+      - name: Record the public channel and commit for QA
+        if: steps.preview-ref.outputs.channel != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-channel-${{ steps.preview-ref.outputs.channel }}-${{ steps.deploy.outputs.channel_suffix }}
+          path: ${{ runner.temp }}/preview-commit.txt
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
 
       - name: Remove temporary credentials
         if: always()

@@ -6,13 +6,20 @@ const pr = { branch: 'codex/cloud-ci-92d59c2', sha: '92d59c2f775df12bce6f066b565
 const host = 'propig-63524--branch-37bba18047288d01-abc123.web.app';
 const origin = 'https://' + host;
 
-test('accepts the Actions artifact for the selected branch only', () => {
-  assert.equal(previewOrigin(origin + '/\n', pr.branch), origin);
-  for (const value of ['https://propig-63524.web.app', 'http://' + host, origin + '.example.org',
-    'https://user@' + host, origin + '/some/path', origin + '?next=x']) {
-    assert.throws(() => previewOrigin(value, pr.branch));
+test('selects the latest unexpired channel for this branch in the verified Actions run', () => {
+  const prefix = 'preview-channel-branch-37bba18047288d01-';
+  const artifacts = [
+    { id: 4, name: prefix + 'expired', expired: true },
+    { id: 1, name: prefix + 'old' },
+    { id: 2, name: prefix + 'abc123' },
+    { id: 3, name: 'preview-link-' + pr.sha },
+  ];
+  assert.equal(previewOrigin(artifacts, pr.branch), origin);
+  assert.throws(() => previewOrigin(artifacts, 'codex/a-different-branch'));
+  for (const suffix of ['', 'abc.web.app', 'abc@other', 'abc/path', 'abc?next=x']) {
+    assert.throws(() => previewOrigin([{ id: 5, name: prefix + suffix }], pr.branch));
   }
-  assert.throws(() => previewOrigin(origin, 'codex/a-different-branch'));
+  assert.throws(() => previewOrigin([artifacts[0]], pr.branch));
 });
 
 test('checks the deployed commit without using cached or redirected responses', async () => {

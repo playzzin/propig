@@ -1,8 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { closeSync, existsSync, openSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { previewChannelId } from '../.github/scripts/hosting-preview.mjs';
@@ -31,17 +30,19 @@ function readPull(number) {
   return pr;
 }
 
-export function previewOrigin(text, branch) {
-  const url = new URL(text.trim());
-  const host = new RegExp('^propig-63524--' + previewChannelId(branch) + '-[a-z0-9]+\\.web\\.app$');
-  if (url.protocol !== 'https:' || !host.test(url.hostname) || url.port || url.username || url.password ||
-      url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('Actions 링크가 해당 브랜치의 ProPig 미리보기 주소와 일치하지 않습니다.');
+export function previewOrigin(artifacts, branch) {
+  const channel = previewChannelId(branch);
+  const prefix = 'preview-channel-' + channel + '-';
+  const record = artifacts.filter(item => !item.expired && item.name.startsWith(prefix))
+    .sort((a, b) => b.id - a.id)[0];
+  const suffix = record?.name.slice(prefix.length);
+  if (!suffix || !/^[a-z0-9]+$/.test(suffix)) {
+    throw new Error('해당 브랜치의 유효한 공개 채널 기록이 없습니다. 최신 미리보기 배포를 확인하세요.');
   }
-  return url.origin;
+  return 'https://propig-63524--' + channel + '-' + suffix + '.web.app';
 }
 
-async function findPreview(pr) {
+function findPreview(pr) {
   const [run] = JSON.parse(gh(['run', 'list', '--repo', repository, '--workflow', 'ci.yml',
     '--event', 'push', '--branch', pr.branch, '--commit', pr.sha, '--limit', '1',
     '--json', 'databaseId,status,conclusion,url']));
@@ -49,13 +50,9 @@ async function findPreview(pr) {
     throw new Error('현재 PR 커밋의 브랜치 push CI가 성공한 뒤 다시 실행하세요. ' +
       (run?.url || 'https://github.com/' + repository + '/actions/workflows/ci.yml'));
   }
-  const dir = await mkdtemp(path.join(tmpdir(), 'propig-preview-link-'));
-  try {
-    gh(['run', 'download', String(run.databaseId), '--repo', repository, '--name', 'preview-link-' + pr.sha, '--dir', dir]);
-    return { origin: previewOrigin(await readFile(path.join(dir, 'preview-url.txt'), 'utf8'), pr.branch), ci: run.url };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  const artifacts = JSON.parse(gh(['api', 'repos/' + repository + '/actions/runs/' + run.databaseId +
+    '/artifacts?per_page=100', '--jq', '.artifacts | map({id, name, expired})']));
+  return { origin: previewOrigin(artifacts, pr.branch), ci: run.url };
 }
 
 export async function verifyRevision(expected, current, origin, request = fetch) {
@@ -88,7 +85,7 @@ async function main(args) {
     throw new Error('이 작업 폴더에서 npm run qa:setup을 먼저 실행하세요.');
   }
   const pr = readPull(number);
-  const { origin, ci } = await findPreview(pr);
+  const { origin, ci } = findPreview(pr);
   const parent = path.join(root, 'output', 'preview-qa', 'pr-' + number);
   await mkdir(parent, { recursive: true });
   const evidence = await mkdtemp(path.join(parent, pr.sha.slice(0, 12) + '-'));
