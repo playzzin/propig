@@ -11,6 +11,8 @@ const require = createRequire(path.join(process.env.FAVICON_TEST_RUNTIME || root
 const { build } = require('esbuild');
 const { chromium } = require('playwright-core');
 const svg = await readFile(path.join(root, 'public/propig-favicon.svg'));
+const ico = await readFile(path.join(root, 'src/app/favicon.ico'));
+const defaultIconPath = '/favicon.ico';
 const bundle = await build({
     stdin: { contents: `
         import React, { StrictMode } from 'react';
@@ -49,7 +51,10 @@ const server = createServer((req, res) => {
         res.end('<html><head><link id="static" rel="icon" href="/static.svg"><link rel="shortcut icon" href="/static.ico"><link id="touch" rel="apple-touch-icon" href="/touch.png"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
     } else if (url.pathname === '/fixture.js') {
         res.setHeader('Content-Type', 'text/javascript'); res.end(bundle.outputFiles[0].contents);
-    } else if (url.pathname === '/bad.svg' || (failDefault && url.pathname === '/propig-favicon.svg')) {
+    } else if (url.pathname === defaultIconPath) {
+        res.setHeader('Content-Type', 'image/x-icon');
+        res.end(failDefault ? 'not an image' : ico);
+    } else if (url.pathname === '/bad.svg') {
         res.setHeader('Content-Type', 'image/svg+xml'); res.end('not an image');
     } else {
         res.setHeader('Content-Type', 'image/svg+xml');
@@ -82,7 +87,7 @@ try {
     await render('corp', settings);
     await expectIcon('/corp.svg', 'mode change');
     await render('shop', { envFavicons: { shop: '/slow.svg' } });
-    await expectIcon('/propig-favicon.svg', 'pending image never retains previous mode');
+    await expectIcon(defaultIconPath, 'pending image never retains previous mode');
     await render('corp', settings);
     await expectIcon('/corp.svg', 'rapid switch wins');
     await page.waitForTimeout(450);
@@ -104,17 +109,25 @@ try {
     await render('corp', { envFavicons: { corp: 'blob:http://127.0.0.1/missing' }, faviconUrl: '/global.svg' });
     await expectIcon('/global.svg', 'revoked/missing blob falls back');
     await render('corp', { envFavicons: { corp: 'javascript:alert(1)' }, faviconUrl: '/bad.svg' });
-    await expectIcon('/propig-favicon.svg', 'unsafe URL and invalid global use bundled default');
+    await expectIcon(defaultIconPath, 'unsafe URL and invalid global use bundled default');
     await render('corp', { envFavicons: { corp: '/timeout.svg' }, faviconUrl: '/global.svg' });
     await expectIcon('/global.svg', 'image timeout falls back');
     await render('corp', {});
-    await expectIcon('/propig-favicon.svg', 'deleted settings reset to default');
+    await expectIcon(defaultIconPath, 'deleted settings reset to default');
+    const iconDecodes = await page.locator('link[data-dynamic-favicon]').evaluate(async (link) => {
+        const image = new Image();
+        image.src = link.href;
+        await image.decode();
+        return image.naturalWidth > 0 && image.naturalWidth === image.naturalHeight;
+    });
+    assert.equal(iconDecodes, true);
+    console.log(`PASS ${++passed}: bundled ICO decodes as a square image`);
     await page.evaluate(() => {
         const next = document.createElement('link'); next.id = 'next'; next.rel = 'icon'; next.href = '/next.svg'; document.head.append(next);
         document.getElementById('static').rel = 'shortcut icon';
         document.querySelector('link[data-dynamic-favicon]').remove();
     });
-    await expectIcon('/propig-favicon.svg', 'late Next metadata and removal reconciled');
+    await expectIcon(defaultIconPath, 'late Next metadata and removal reconciled');
     assert.equal(await page.locator('#touch').getAttribute('rel'), 'apple-touch-icon');
     await render('corp', {}, false);
     assert.equal(await page.locator('link[data-dynamic-favicon]').count(), 0);
