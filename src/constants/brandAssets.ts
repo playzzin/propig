@@ -1,7 +1,7 @@
 export const DEFAULT_BRAND_NAME = 'ProPig';
 export const DEFAULT_BRAND_LOGO = '/propig-favicon.svg';
-export const DEFAULT_BRAND_FAVICON = '/propig-favicon.svg';
 export const DEFAULT_BRAND_ICO = '/favicon.ico';
+export const DEFAULT_BRAND_FAVICON = DEFAULT_BRAND_ICO;
 export const DEFAULT_BRAND_ICON_192 = '/icons/icon-192.webp';
 export const DEFAULT_BRAND_ICON_512 = '/icons/icon-512.webp';
 export const BRAND_ASSET_VERSION = 'propig-v3';
