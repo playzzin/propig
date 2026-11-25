@@ -4,7 +4,7 @@ export const DEFAULT_BRAND_ICO = '/favicon.ico';
 export const DEFAULT_BRAND_FAVICON = DEFAULT_BRAND_ICO;
 export const DEFAULT_BRAND_ICON_192 = '/icons/icon-192.webp';
 export const DEFAULT_BRAND_ICON_512 = '/icons/icon-512.webp';
-export const BRAND_ASSET_VERSION = 'propig-v3';
+export const BRAND_ASSET_VERSION = 'propig-v4';
 
 const BUILT_IN_BRAND_ASSETS = new Set([
   DEFAULT_BRAND_LOGO,
