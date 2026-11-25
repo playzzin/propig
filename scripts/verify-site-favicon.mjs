@@ -12,7 +12,28 @@ const { build } = require('esbuild');
 const { chromium } = require('playwright-core');
 const svg = await readFile(path.join(root, 'public/propig-favicon.svg'));
 const ico = await readFile(path.join(root, 'src/app/favicon.ico'));
+const iconPng = await readFile(path.join(root, 'public/icons/justpig-favicon-144.png'));
 const defaultIconPath = '/favicon.ico';
+const defaultIconDimensions = [144, 144];
+const icoHeaderSize = 6;
+const icoDirectoryEntrySize = 16;
+assert.equal(ico.readUInt16LE(2), 1, 'bundled asset must be an ICO');
+const frameCount = ico.readUInt16LE(4);
+const iconDimensions = Array.from({ length: frameCount }, (_, index) => {
+    const offset = icoHeaderSize + index * icoDirectoryEntrySize;
+    return [ico[offset], ico[offset + 1]];
+});
+assert.deepEqual(iconDimensions[0], defaultIconDimensions, 'ICO readers should find the 144×144 image first');
+for (const size of [16, 32, 48, 64, 72]) {
+    assert.ok(iconDimensions.some(([width, height]) => width === size && height === size), `ICO is missing the ${size}×${size} frame`);
+}
+const firstFrameLength = ico.readUInt32LE(icoHeaderSize + 8);
+const firstFrameOffset = ico.readUInt32LE(icoHeaderSize + 12);
+assert.ok(
+    ico.subarray(firstFrameOffset, firstFrameOffset + firstFrameLength).equals(iconPng),
+    'standalone PNG should match the first ICO frame',
+);
+
 const bundle = await build({
     stdin: { contents: `
         import React, { StrictMode } from 'react';
@@ -94,7 +115,7 @@ try {
     await expectIcon('/corp.svg', 'late old image cannot overwrite current mode');
     await render('corp', { envFavicons: { corp: '/updated.svg' }, brandAssetsVersion: 42 });
     await expectIcon('/updated.svg', 'settings replacement');
-    assert.match(await page.locator('link[data-dynamic-favicon]').getAttribute('href'), /favicon_v=propig-v3-42/);
+    assert.match(await page.locator('link[data-dynamic-favicon]').getAttribute('href'), /favicon_v=propig-v4-42/);
     const signed = 'https://signed.invalid/icon.svg?X-Signature=a%2Fb+z&x=1&x=2#keep';
     await render('corp', { envFavicons: { corp: signed }, brandAssetsVersion: 43 });
     await expectIcon('signed.invalid', 'external signed URL decodes');
@@ -114,14 +135,14 @@ try {
     await expectIcon('/global.svg', 'image timeout falls back');
     await render('corp', {});
     await expectIcon(defaultIconPath, 'deleted settings reset to default');
-    const iconDecodes = await page.locator('link[data-dynamic-favicon]').evaluate(async (link) => {
+    const decodedDimensions = await page.locator('link[data-dynamic-favicon]').evaluate(async (link) => {
         const image = new Image();
         image.src = link.href;
         await image.decode();
-        return image.naturalWidth > 0 && image.naturalWidth === image.naturalHeight;
+        return [image.naturalWidth, image.naturalHeight];
     });
-    assert.equal(iconDecodes, true);
-    console.log(`PASS ${++passed}: bundled ICO decodes as a square image`);
+    assert.deepEqual(decodedDimensions, defaultIconDimensions);
+    console.log(`PASS ${++passed}: bundled ICO decodes at 144×144`);
     await page.evaluate(() => {
         const next = document.createElement('link'); next.id = 'next'; next.rel = 'icon'; next.href = '/next.svg'; document.head.append(next);
         document.getElementById('static').rel = 'shortcut icon';
