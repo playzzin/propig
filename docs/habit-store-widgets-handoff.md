@@ -12,7 +12,7 @@
 1. GitHub Actions의 **Habit store packages**가 Windows MSIX와 Android AAB 및 디버그 APK를 만든다. CI의 기본 Windows 패키지 ID는 개발용이고, Android AAB는 서명하기 전 상태다.
 2. Microsoft Partner Center에서 실제 앱 ID와 Publisher를 확인하고 `HABIT_WINDOWS_PACKAGE_NAME`, `HABIT_WINDOWS_PUBLISHER`에 지정한다. 해당 ID로 만든 MSIX를 비공개 대상 제출에 사용한다.
 3. Google Play의 기존 앱 ID와 업로드 키 보유 여부를 확인한다. `HABIT_ANDROID_KEYSTORE`, `HABIT_ANDROID_STORE_PASSWORD`, `HABIT_ANDROID_KEY_ALIAS`, `HABIT_ANDROID_KEY_PASSWORD`를 승인된 서명 환경에서만 주입한다. 기존 Play 버전이 있으면 더 큰 `HABIT_ANDROID_VERSION_CODE`로 AAB를 빌드하고 내부 테스트에 제출한다. 설치 APK의 Play 앱 서명 인증서가 Firebase OAuth에 등록돼 있어야 한다.
-4. Windows 실제 로그인 검증은 기존 계정에 대해 Hosting 연결 페이지와 `asia-northeast3`의 두 로그인 함수가 배포된 뒤 수행한다. 함수 실행 계정에는 Firebase 커스텀 토큰 서명 권한이 필요하다. 웹도 위젯과 동시 편집을 하기 전에 새 저장 코드가 반영돼야 한다.
+4. `main`의 **Firebase Deploy**는 `asia-northeast3`의 Windows 로그인 함수 두 개를 배포하고, 비인증 코드 발급과 잘못된 코드 교환이 거부되는지 확인한 뒤 Hosting을 게시한다. 이 검사는 실제 계정 로그인과 별개다. `redeemHabitDesktopLogin` 실행 계정에는 커스텀 토큰 서명에 필요한 `iam.serviceAccounts.signBlob` 권한이 필요하다. 배포 후 기존 계정으로 앱의 브라우저 연결을 승인하고 웹과 위젯의 동시 편집을 확인한다.
 5. 각 스토어에서 설치한 뒤 같은 사용자 기록을 확인한다. 서로 다른 항목을 웹과 두 위젯에서 각각 체크해 웹에 합쳐지는지, 체크 해제와 로그아웃이 반영되는지 확인한다.
 
 ## 검증
