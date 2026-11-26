@@ -276,11 +276,12 @@ internal sealed class FirebaseHabits
                 if (code is not { Length: 43 } || code.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('_' or '-')) ||
                     receivedState != state) continue;
 
-                var message = Encoding.UTF8.GetBytes("ProPig Windows 앱에서 연결을 이어갑니다. 이 탭을 닫아도 됩니다.");
+                using var page = typeof(FirebaseHabits).Assembly.GetManifestResourceStream("ProPig.Habits.ConnectComplete.html")
+                    ?? throw new InvalidOperationException("The Windows connection page is missing.");
                 var header = Encoding.ASCII.GetBytes(
-                    $"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {message.Length}\r\nConnection: close\r\n\r\n");
+                    $"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: {page.Length}\r\nConnection: close\r\n\r\n");
                 await stream.WriteAsync(header, connection.Token);
-                await stream.WriteAsync(message, connection.Token);
+                await page.CopyToAsync(stream, connection.Token);
                 return code;
             }
             catch (Exception error) when (error is IOException || (error is OperationCanceledException && !cancel.IsCancellationRequested))
