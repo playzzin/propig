@@ -1,0 +1,84 @@
+name: Habit store packages
+
+on:
+  pull_request:
+    paths:
+      - 'android/habit-store/**'
+      - 'apps/habit-windows/**'
+      - 'android/app/google-services.json'
+      - 'android/gradle/**'
+      - '.github/workflows/habit-store-build.yml'
+  push:
+    branches: ['codex/**', develop]
+    paths:
+      - 'android/habit-store/**'
+      - 'apps/habit-windows/**'
+      - 'android/app/google-services.json'
+      - 'android/gradle/**'
+      - '.github/workflows/habit-store-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Build Windows MSIX
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Package Windows desktop app and widget
+        shell: pwsh
+        env:
+          HABIT_WINDOWS_PACKAGE_NAME: ${{ vars.HABIT_WINDOWS_PACKAGE_NAME }}
+          HABIT_WINDOWS_PUBLISHER: ${{ vars.HABIT_WINDOWS_PUBLISHER }}
+        run: |
+          $settings = @{}
+          if ([bool]$env:HABIT_WINDOWS_PACKAGE_NAME -ne [bool]$env:HABIT_WINDOWS_PUBLISHER) {
+            throw 'Set both Partner Center package identity values.'
+          }
+          if ($env:HABIT_WINDOWS_PACKAGE_NAME) {
+            $settings.PackageName = $env:HABIT_WINDOWS_PACKAGE_NAME
+            $settings.Publisher = $env:HABIT_WINDOWS_PUBLISHER
+          }
+          ./apps/habit-windows/package.ps1 @settings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: propig-windows-msix
+          path: apps/habit-windows/out/ProPig-Habits-x64.msix
+          if-no-files-found: error
+
+  android:
+    name: Build Android App Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install matching Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          cmdline-tools-version: '16111833'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Build Android app and home screen widget
+        env:
+          HABIT_ANDROID_VERSION_CODE: ${{ vars.HABIT_ANDROID_VERSION_CODE }}
+        run: |
+          cp android/app/google-services.json android/habit-store/google-services.json
+          bash android/gradlew -p android/habit-store --no-daemon bundleRelease assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: propig-android-packages
+          path: |
+            android/habit-store/build/outputs/bundle/release/*.aab
+            android/habit-store/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

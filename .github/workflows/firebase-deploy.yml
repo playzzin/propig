@@ -103,9 +103,43 @@ jobs:
           printf "%s" "$FIREBASE_SERVICE_ACCOUNT" > "$credentials"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$credentials" >> "$GITHUB_ENV"
 
-      - name: Deploy Firebase
+      - name: Deploy Windows habit login functions
+        run: |
+          firebase deploy \
+            --project "$FIREBASE_PROJECT_ID" \
+            --only functions:createHabitDesktopLogin,functions:redeemHabitDesktopLogin \
+            --non-interactive
+
+      - name: Verify Windows habit login functions
+        run: |
+          origin="https://asia-northeast3-${FIREBASE_PROJECT_ID}.cloudfunctions.net"
+          response="$RUNNER_TEMP/habit-login-response.json"
+
+          check_callable() {
+            local function_name="$1" expected_http="$2" expected_status="$3" http_status
+            http_status=$(curl --silent --show-error --max-time 30 --retry 2 \
+              --header 'Content-Type: application/json' --data '{"data":{}}' \
+              --output "$response" --write-out '%{http_code}' "$origin/$function_name")
+            if [[ "$http_status" != "$expected_http" ]] || \
+              ! jq -e --arg expected "$expected_status" '.error.status == $expected' "$response" > /dev/null; then
+              echo "::error::$function_name returned HTTP $http_status, expected HTTP $expected_http and $expected_status"
+              return 1
+            fi
+          }
+
+          check_callable createHabitDesktopLogin 401 UNAUTHENTICATED
+          check_callable redeemHabitDesktopLogin 403 PERMISSION_DENIED
+
+      - name: Deploy Firebase Hosting
         run: |
           firebase deploy \
             --project "$FIREBASE_PROJECT_ID" \
             --only hosting \
             --non-interactive
+
+      - name: Verify Windows habit login page
+        run: |
+          page="$RUNNER_TEMP/habit-login-page.html"
+          curl --fail --silent --show-error --location --max-time 30 --retry 2 \
+            --output "$page" "https://${FIREBASE_PROJECT_ID}.web.app/habit-tracker/connect"
+          grep -Fq 'Windows 습관 위젯 연결' "$page"
