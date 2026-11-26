@@ -40,7 +40,14 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { onSnapshot, waitForPendingWrites } from 'firebase/firestore';
+import {
+  createHabitWorkspaceRef,
+  deleteHabitRecord,
+  deleteHabitWorkspaceEntries,
+  saveHabitRecordPatch,
+  saveHabitWorkspaceFields,
+} from '@/app/habit-tracker/_lib/habitWorkspaceStore';
 import {
   Area,
   AreaChart,
@@ -575,25 +582,11 @@ function removeUndefinedFields<T extends object>(record: T): T {
   return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as T;
 }
 
-function sanitizeWorkspaceForFirestore(workspace: HabitWorkspace): HabitWorkspace {
-  const normalized = normalizeWorkspace(workspace);
-  const records = Object.entries(normalized.records).reduce<HabitWorkspace['records']>((acc, [dateKey, dailyRecords]) => {
-    const nextDailyRecords = Object.entries(dailyRecords).reduce<Record<string, HabitRecord>>((recordAcc, [habitId, record]) => {
-      recordAcc[habitId] = removeUndefinedFields(record);
-      return recordAcc;
-    }, {});
-
-    if (Object.keys(nextDailyRecords).length > 0) {
-      acc[dateKey] = nextDailyRecords;
-    }
-
-    return acc;
-  }, {});
-
-  const categories = normalized.categories.map((category) => removeUndefinedFields(category));
-  const habits = normalized.habits.map((habit) => removeUndefinedFields(habit));
-
-  return { ...normalized, categories, habits, records };
+function sanitizeWorkspaceMetadata(workspace: HabitWorkspace) {
+  return {
+    categories: workspace.categories.map((category) => removeUndefinedFields(category)),
+    habits: workspace.habits.map((habit) => removeUndefinedFields(habit)),
+  };
 }
 
 function applyRecordPatch(workspace: HabitWorkspace, dateKey: string, habitId: string, patch: Partial<HabitRecord>): HabitWorkspace {
@@ -614,24 +607,6 @@ function applyRecordPatch(workspace: HabitWorkspace, dateKey: string, habitId: s
         [habitId]: nextRecord,
       },
     },
-  };
-}
-
-function removeRecordFromWorkspace(workspace: HabitWorkspace, dateKey: string, habitId: string): HabitWorkspace {
-  const dailyRecords = workspace.records[dateKey] ?? {};
-  const nextDailyRecords = { ...dailyRecords };
-  const nextRecords = { ...workspace.records };
-  delete nextDailyRecords[habitId];
-
-  if (Object.keys(nextDailyRecords).length > 0) {
-    nextRecords[dateKey] = nextDailyRecords;
-  } else {
-    delete nextRecords[dateKey];
-  }
-
-  return {
-    ...workspace,
-    records: nextRecords,
   };
 }
 
@@ -668,10 +643,6 @@ function ensureHabitCategory(
   };
 
   return { categories: [...categories, category], categoryId: category.id };
-}
-
-function createWorkspaceDocRef(uid: string) {
-  return doc(db, 'users', uid, 'habitTracker', 'workspace');
 }
 
 async function openMutationNotice(options: {
@@ -5586,7 +5557,19 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     loginWithGoogle,
     isConfigured,
   } = useAuth();
-  const [workspace, setWorkspace] = useState<HabitWorkspace>(() => createInitialWorkspace());
+  const [savedWorkspace, setWorkspace] = useState<HabitWorkspace>(() => createInitialWorkspace());
+  const [recordDrafts, setRecordDrafts] = useState<Record<string, {
+    dateKey: string;
+    habitId: string;
+    patch: Partial<HabitRecord>;
+  }>>({});
+  const workspace = useMemo(() => {
+    const habitIds = new Set(savedWorkspace.habits.map((habit) => habit.id));
+    return Object.values(recordDrafts).reduce((data, draft) => {
+      if (!habitIds.has(draft.habitId)) return data;
+      return applyRecordPatch(data, draft.dateKey, draft.habitId, draft.patch);
+    }, savedWorkspace);
+  }, [recordDrafts, savedWorkspace]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const dailyComposerRef = useRef<HTMLDetailsElement>(null);
@@ -5597,7 +5580,8 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     mountedRef.current = true;
     return () => { mountedRef.current = false; readyRef.current = false; };
   }, []);
-  const [isSaving, setIsSaving] = useState(false);
+  const [pendingWrites, setPendingWrites] = useState(0);
+  const isSaving = pendingWrites > 0;
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
   const { dailyRecordLayout, setDailyRecordLayout } = useDailyRecordLayout('simple');
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('weekly');
@@ -5636,7 +5620,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
         if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
 
         return onSnapshot(
-          createWorkspaceDocRef(currentUser.uid),
+          createHabitWorkspaceRef(currentUser.uid),
           (snapshot) => {
             if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
             readyRef.current = true;
@@ -5697,45 +5681,46 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     }
   }, [editingHabitId, habitDraft.categoryId, habitDraft.suggestedCategoryName, orderedCategories, selectedCategoryId]);
 
-  const persistWorkspace = useCallback(
-    async (nextWorkspace: HabitWorkspace, message = '변경사항이 데이터베이스에 저장되었습니다.', toastId = 'habit-workspace-save') => {
+  const runWorkspaceWrite = useCallback(
+    async (write: (uid: string) => Promise<void>, message: string, toastId: string) => {
       if (!currentUser) {
         toast.error('로그인 후 습관 데이터를 저장할 수 있습니다.');
         return false;
       }
 
       if (!hasLoaded || !readyRef.current || !mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
-
-      const safeWorkspace = sanitizeWorkspaceForFirestore(nextWorkspace);
-      setWorkspace(safeWorkspace);
-      setIsSaving(true);
-
+      setPendingWrites((count) => count + 1);
       try {
-        await ensureFirestorePersistence();
-        if (!readyRef.current || !mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
-        await setDoc(
-          createWorkspaceDocRef(currentUser.uid),
-          {
-            ...safeWorkspace,
-            version: 1,
-            userId: currentUser.uid,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true },
-        );
+        await write(currentUser.uid);
         if (!mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
         toast.success(message, { id: toastId });
         return true;
       } catch (error) {
-        console.error('Failed to save habit tracker workspace:', error);
-        toast.error('데이터베이스 저장에 실패했습니다.', { id: toastId });
+        if (mountedRef.current && auth.currentUser?.uid === currentUser.uid) {
+          console.error('Failed to save habit tracker workspace:', error);
+          toast.error('데이터베이스 저장에 실패했습니다.', { id: toastId });
+        }
         return false;
       } finally {
-        setIsSaving(false);
+        if (mountedRef.current) setPendingWrites((count) => count - 1);
       }
     },
     [currentUser, hasLoaded],
   );
+
+  const persistWorkspace = useCallback((
+    nextWorkspace: HabitWorkspace,
+    fields: (keyof HabitWorkspace)[],
+    message: string,
+    toastId: string,
+  ) => {
+    const sanitized = { ...nextWorkspace, ...sanitizeWorkspaceMetadata(nextWorkspace) };
+    return runWorkspaceWrite(
+      (uid) => saveHabitWorkspaceFields(uid, Object.fromEntries(fields.map((field) => [field, sanitized[field]]))),
+      message,
+      toastId,
+    );
+  }, [runWorkspaceWrite]);
 
   const habitCountByCategory = useMemo(() => {
     const counts = orderedCategories.reduce<Record<string, number>>((acc, category) => {
@@ -6115,25 +6100,62 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
 
   const patchRecordForDate = useCallback(
     (dateKey: string, habitId: string, patch: Partial<HabitRecord>) => {
-      setWorkspace((prev) => applyRecordPatch(prev, dateKey, habitId, patch));
+      const key = JSON.stringify([dateKey, habitId]);
+      setRecordDrafts((prev) => ({
+        ...prev,
+        [key]: { dateKey, habitId, patch: { ...prev[key]?.patch, ...patch } },
+      }));
     },
     [],
   );
 
   const saveRecordForDate = useCallback(
-    (dateKey: string, habitId: string, patch: Partial<HabitRecord>) => {
-      const nextWorkspace = applyRecordPatch(workspace, dateKey, habitId, patch);
-      void persistWorkspace(nextWorkspace, '기록이 저장되었습니다.', 'habit-record-save');
+    async (dateKey: string, habitId: string, patch: Partial<HabitRecord>) => {
+      const key = JSON.stringify([dateKey, habitId]);
+      const draft = recordDrafts[key];
+      const changes = { ...draft?.patch, ...patch };
+      if (Object.keys(changes).length === 0) return true;
+      if (!savedWorkspace.habits.some((habit) => habit.id === habitId)) return false;
+
+      const saved = await runWorkspaceWrite(
+        (uid) => saveHabitRecordPatch(uid, dateKey, habitId, changes),
+        '기록이 저장되었습니다.',
+        'habit-record-save',
+      );
+      if (draft && saved) {
+        setRecordDrafts((prev) => {
+          if (prev[key] !== draft) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
+      return saved;
     },
-    [persistWorkspace, workspace],
+    [recordDrafts, runWorkspaceWrite, savedWorkspace.habits],
   );
+
   const deleteRecordForDate = useCallback(
-    (dateKey: string, habitId: string) => {
-      const nextWorkspace = removeRecordFromWorkspace(workspace, dateKey, habitId);
-      void persistWorkspace(nextWorkspace, '기록이 삭제되었습니다.', 'habit-record-delete');
+    async (dateKey: string, habitId: string) => {
+      const key = JSON.stringify([dateKey, habitId]);
+      const draft = recordDrafts[key];
+      const deleted = await runWorkspaceWrite(
+        (uid) => deleteHabitRecord(uid, dateKey, habitId),
+        '기록이 삭제되었습니다.',
+        'habit-record-delete',
+      );
+      if (deleted && draft) {
+        setRecordDrafts((prev) => {
+          if (prev[key] !== draft) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
     },
-    [persistWorkspace, workspace],
+    [recordDrafts, runWorkspaceWrite],
   );
+
   const handleExportSelectedHabitCsv = useCallback(() => {
     if (!selectedStatsHabit) return;
 
@@ -6164,27 +6186,39 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
 
   const saveRecord = useCallback(
     (habitId: string, patch: Partial<HabitRecord>) => {
-      saveRecordForDate(selectedDate, habitId, patch);
+      void saveRecordForDate(selectedDate, habitId, patch);
     },
     [saveRecordForDate, selectedDate],
   );
 
-  const handleRecordInputBlur = useCallback((event: React.FocusEvent<HTMLInputElement>) => {
-    const recordControl = event.currentTarget.closest('[data-record-control]');
+  const handleRecordControlBlur = useCallback((event: React.FocusEvent<HTMLDivElement>, habitId: string) => {
     const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
 
-    if (recordControl && nextTarget instanceof Node && recordControl.contains(nextTarget)) {
-      return;
-    }
-
-    void persistWorkspace(workspace, '기록이 저장되었습니다.', 'habit-record-save');
-  }, [persistWorkspace, workspace]);
+    void saveRecordForDate(selectedDate, habitId, {});
+  }, [saveRecordForDate, selectedDate]);
 
   const handleRecordInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       event.currentTarget.blur();
     }
   }, []);
+
+  const handleWorkspaceSync = useCallback(async () => {
+    const drafts = Object.values(recordDrafts).filter(({ habitId }) =>
+      savedWorkspace.habits.some((habit) => habit.id === habitId),
+    );
+    const results = await Promise.all(drafts.map(({ dateKey, habitId }) =>
+      saveRecordForDate(dateKey, habitId, {}),
+    ));
+    if (results.every(Boolean)) {
+      await runWorkspaceWrite(
+        () => waitForPendingWrites(db),
+        '습관 기록을 동기화했습니다.',
+        'habit-manual-save',
+      );
+    }
+  }, [recordDrafts, runWorkspaceWrite, saveRecordForDate, savedWorkspace.habits]);
 
   const resetCategoryDraft = useCallback(() => {
     setEditingCategoryId(null);
@@ -6231,7 +6265,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
           category.id === editingCategoryId ? { ...category, name, color: categoryDraft.color, order } : category,
         ),
       };
-      const saved = await persistWorkspace(nextWorkspace, '카테고리가 수정되었습니다.', 'habit-category-save');
+      const saved = await persistWorkspace(nextWorkspace, ['categories'], '카테고리가 수정되었습니다.', 'habit-category-save');
       if (saved) resetCategoryDraft();
       return;
     }
@@ -6246,7 +6280,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       ...workspace,
       categories: [...workspace.categories, nextCategory],
     };
-    const saved = await persistWorkspace(nextWorkspace, '카테고리가 추가되었습니다.', 'habit-category-save');
+    const saved = await persistWorkspace(nextWorkspace, ['categories'], '카테고리가 추가되었습니다.', 'habit-category-save');
 
     if (saved) {
       setSelectedCategoryId(nextCategory.id);
@@ -6277,7 +6311,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       })),
     };
 
-    const saved = await persistWorkspace(nextWorkspace, '카테고리 순서가 변경되었습니다.', 'habit-category-order-save');
+    const saved = await persistWorkspace(nextWorkspace, ['categories'], '카테고리 순서가 변경되었습니다.', 'habit-category-order-save');
     if (!saved) return;
 
     if (editingCategoryId) {
@@ -6305,28 +6339,24 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       });
       if (!confirmed) return;
 
-      const nextWorkspace = {
-        ...workspace,
-        categories: workspace.categories.filter((category) => category.id !== categoryId),
-        habits: workspace.habits.filter((habit) => !habitIds.has(habit.id)),
-        records: Object.fromEntries(
-          Object.entries(workspace.records).map(([dateKey, dailyRecords]) => [
-            dateKey,
-            Object.fromEntries(Object.entries(dailyRecords).filter(([habitId]) => !habitIds.has(habitId))),
-          ]),
-        ),
-      };
-      const saved = await persistWorkspace(nextWorkspace, '카테고리가 삭제되었습니다.', 'habit-category-save');
+      const saved = await runWorkspaceWrite(
+        (uid) => deleteHabitWorkspaceEntries(uid, { categoryId }),
+        '카테고리가 삭제되었습니다.',
+        'habit-category-save',
+      );
 
       if (saved) {
+        setRecordDrafts((prev) => Object.fromEntries(
+          Object.entries(prev).filter(([, draft]) => !habitIds.has(draft.habitId)),
+        ));
         if (editingCategoryId === categoryId) resetCategoryDraft();
         if (habitDraft.categoryId === categoryId) {
-          setHabitDraft((prev) => ({ ...prev, categoryId: sortCategoriesByOrder(nextWorkspace.categories)[0]?.id ?? '' }));
+          setHabitDraft((prev) => ({ ...prev, categoryId: '' }));
         }
         setSelectedCategoryId('all');
       }
     },
-    [editingCategoryId, habitDraft.categoryId, persistWorkspace, resetCategoryDraft, workspace],
+    [editingCategoryId, habitDraft.categoryId, resetCategoryDraft, runWorkspaceWrite, workspace],
   );
 
   const handleHabitModeChange = useCallback((mode: RecordMode) => {
@@ -6497,7 +6527,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
         categories: nextCategories,
         habits: workspace.habits.map((habit) => (habit.id === editingHabitId ? nextHabit : habit)),
       };
-      const saved = await persistWorkspace(nextWorkspace, '항목이 수정되었습니다.', 'habit-item-save');
+      const saved = await persistWorkspace(nextWorkspace, ['categories', 'habits'], '항목이 수정되었습니다.', 'habit-item-save');
       if (saved) {
         setEditingHabitId(null);
         setShowAdvancedHabitSettings(false);
@@ -6511,7 +6541,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       categories: nextCategories,
       habits: [...workspace.habits, nextHabit],
     };
-    const saved = await persistWorkspace(nextWorkspace, '항목이 추가되었습니다.', 'habit-item-save');
+    const saved = await persistWorkspace(nextWorkspace, ['categories', 'habits'], '항목이 추가되었습니다.', 'habit-item-save');
     if (saved) {
       if (dailyComposerRef.current) {
         dailyComposerRef.current.open = false;
@@ -6550,7 +6580,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       )),
     };
 
-    const saved = await persistWorkspace(nextWorkspace, '항목 순서가 변경되었습니다.', 'habit-item-order-save');
+    const saved = await persistWorkspace(nextWorkspace, ['habits'], '항목 순서가 변경되었습니다.', 'habit-item-order-save');
     if (!saved || !editingHabitId) return;
 
     const editingHabit = nextWorkspace.habits.find((habit) => habit.id === editingHabitId);
@@ -6574,20 +6604,18 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     });
     if (!confirmed) return;
 
-    const nextWorkspace = {
-      ...workspace,
-      habits: workspace.habits.filter((habit) => habit.id !== habitId),
-      records: Object.fromEntries(
-        Object.entries(workspace.records).map(([dateKey, dailyRecords]) => {
-          const remainingRecords = { ...dailyRecords };
-          delete remainingRecords[habitId];
-          return [dateKey, remainingRecords];
-        }),
-      ),
-    };
-    const saved = await persistWorkspace(nextWorkspace, '항목이 삭제되었습니다.', 'habit-item-save');
-    if (saved && editingHabitId === habitId) resetHabitDraft();
-  }, [editingHabitId, persistWorkspace, resetHabitDraft, workspace]);
+    const saved = await runWorkspaceWrite(
+      (uid) => deleteHabitWorkspaceEntries(uid, { habitId }),
+      '항목이 삭제되었습니다.',
+      'habit-item-save',
+    );
+    if (saved) {
+      setRecordDrafts((prev) => Object.fromEntries(
+        Object.entries(prev).filter(([, draft]) => draft.habitId !== habitId),
+      ));
+      if (editingHabitId === habitId) resetHabitDraft();
+    }
+  }, [editingHabitId, runWorkspaceWrite, resetHabitDraft, workspace]);
 
   const shiftDate = useCallback(
     (amount: number) => {
@@ -6669,9 +6697,10 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       ...workspace,
       records: {},
     };
-    const saved = await persistWorkspace(nextWorkspace, '날짜별 기록이 모두 초기화되었습니다.', 'habit-reset-records');
+    const saved = await persistWorkspace(nextWorkspace, ['records'], '날짜별 기록이 모두 초기화되었습니다.', 'habit-reset-records');
 
     if (saved) {
+      setRecordDrafts({});
       setSelectedStatsMetricId('');
       setItemStatsChartMode('progress');
     }
@@ -6724,9 +6753,10 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     if (!result.isConfirmed) return;
 
     const nextWorkspace = createInitialWorkspace();
-    const saved = await persistWorkspace(nextWorkspace, '습관 트래커 데이터가 모두 초기화되었습니다.', 'habit-reset-all');
+    const saved = await persistWorkspace(nextWorkspace, ['categories', 'habits', 'records'], '습관 트래커 데이터가 모두 초기화되었습니다.', 'habit-reset-all');
 
     if (saved) {
+      setRecordDrafts({});
       setSelectedCategoryId('all');
       setManageSection('habits');
       setEditingCategoryId(null);
@@ -8365,7 +8395,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                   value={record.distance ?? ''}
                   disabled={recordInputDisabled}
                   onChange={(event) => patchRecord(habit.id, { distance: readNumber(event.target.value) })}
-                  onBlur={handleRecordInputBlur}
                   onKeyDown={handleRecordInputKeyDown}
                   placeholder={`${habit.target}`}
                 />
@@ -8380,7 +8409,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                   value={record.minutes ?? ''}
                   disabled={recordInputDisabled}
                   onChange={(event) => patchRecord(habit.id, { minutes: readNumber(event.target.value) })}
-                  onBlur={handleRecordInputBlur}
                   onKeyDown={handleRecordInputKeyDown}
                   placeholder={`${habit.secondaryTarget ?? 60}`}
                 />
@@ -8408,7 +8436,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                   value={record.load ?? ''}
                   disabled={recordInputDisabled}
                   onChange={(event) => patchRecord(habit.id, { load: readNumber(event.target.value) })}
-                  onBlur={handleRecordInputBlur}
                   onKeyDown={handleRecordInputKeyDown}
                   placeholder={`${habit.target}`}
                 />
@@ -8423,7 +8450,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                   value={record.reps ?? ''}
                   disabled={recordInputDisabled}
                   onChange={(event) => patchRecord(habit.id, { reps: readNumber(event.target.value) })}
-                  onBlur={handleRecordInputBlur}
                   onKeyDown={handleRecordInputKeyDown}
                   placeholder={`${habit.secondaryTarget ?? 3}`}
                 />
@@ -8438,7 +8464,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                   value={record.setCount ?? ''}
                   disabled={recordInputDisabled}
                   onChange={(event) => patchRecord(habit.id, { setCount: readNumber(event.target.value) })}
-                  onBlur={handleRecordInputBlur}
                   onKeyDown={handleRecordInputKeyDown}
                   placeholder={`${habit.tertiaryTarget ?? 5}`}
                 />
@@ -8462,7 +8487,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               value={record.value ?? ''}
               disabled={recordInputDisabled}
               onChange={(event) => patchRecord(habit.id, { value: readNumber(event.target.value) })}
-              onBlur={handleRecordInputBlur}
               onKeyDown={handleRecordInputKeyDown}
               placeholder={`${habit.target}`}
             />
@@ -8507,7 +8531,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                     );
                     patchRecord(habit.id, { sets: nextSets });
                   }}
-                  onBlur={handleRecordInputBlur}
                   onKeyDown={handleRecordInputKeyDown}
                 />
                 <NumberInput
@@ -8521,7 +8544,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                     );
                     patchRecord(habit.id, { sets: nextSets });
                   }}
-                  onBlur={handleRecordInputBlur}
                   onKeyDown={handleRecordInputKeyDown}
                 />
                 <IconOnlyButton
@@ -8563,7 +8585,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               value={record.minutes ?? ''}
               disabled={recordInputDisabled}
               onChange={(event) => patchRecord(habit.id, { minutes: readNumber(event.target.value) })}
-              onBlur={handleRecordInputBlur}
               onKeyDown={handleRecordInputKeyDown}
               placeholder={`${habit.target}`}
             />
@@ -8709,7 +8730,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               $tone="ghost"
               aria-label="동기화"
               title="지금 동기화"
-              onClick={() => void persistWorkspace(workspace, '현재 습관 기록이 저장되었습니다.', 'habit-manual-save')}
+              onClick={() => void handleWorkspaceSync()}
               disabled={!currentUser || !hasLoaded || isSaving}
             >
               <Save size={16} />
@@ -9386,7 +9407,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                               </div>
                               {renderHabitOrderControls(habit)}
                             </HabitCardHead>
-                            <ControlArea data-record-control>{renderRecordControl(habit)}</ControlArea>
+                            <ControlArea data-record-control onBlur={(event) => handleRecordControlBlur(event, habit.id)}>{renderRecordControl(habit)}</ControlArea>
                           </HabitCard>
                         );
                       })}
