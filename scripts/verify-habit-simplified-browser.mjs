@@ -21,49 +21,24 @@ const stubs = {
   'firebase/firestore': `
     export const doc=(_db,...parts)=>({path:parts.join('/')});
     export const serverTimestamp=()=>({fixtureTimestamp:true});
-    export const waitForPendingWrites=async()=>{};
-    export class FieldPath {
-      constructor(...segments){this.segments=segments;}
-    }
-    const deleted=Symbol('deleted field');
-    export const deleteField=()=>deleted;
-    const read=()=>structuredClone(window.__fixture.workspace);
     export const onSnapshot=(ref,next,error)=>{
       const fixture=window.__fixture;
       fixture.reads.push(ref.path);
       let cancelled=false;
-      const notify=()=>{
+      queueMicrotask(()=>{
         if(cancelled)return;
         if(fixture.scenario==='read-failure')return error(new Error('Isolated read failure'));
-        next({exists:()=>fixture.workspace!==null,data:read});
-      };
-      fixture.notify=notify;
-      queueMicrotask(notify);
+        next({exists:()=>fixture.workspace!==null,data:()=>structuredClone(fixture.workspace)});
+      });
       return()=>{cancelled=true};
     };
-    const write=(ref,value)=>{
+    export const setDoc=async(ref,value,options)=>{
       const fixture=window.__fixture;
       if(fixture.scenario!=='ready'||fixture.auth.currentUser?.uid!=='fixture-habit-user')throw new Error('Fixture rejected unauthorized write');
       if(ref.path!=='users/fixture-habit-user/habitTracker/workspace')throw new Error('Unexpected workspace path');
       fixture.workspace=structuredClone(value);
-      fixture.writes.push({path:ref.path,value:structuredClone(value)});
+      fixture.writes.push({path:ref.path,value:structuredClone(value),options});
       sessionStorage.setItem('habit-fixture-workspace',JSON.stringify(value));
-      fixture.notify();
-    };
-    export const runTransaction=async(_db,edit)=>edit({
-      get:async()=>({exists:()=>window.__fixture.workspace!==null,data:read}),
-      set:(ref,value)=>write(ref,{...read(),...value}),
-    });
-    export const updateDoc=async(ref,...updates)=>{
-      const next=read();
-      for(let i=0;i<updates.length;i+=2){
-        const field=updates[i], value=updates[i+1];
-        const segments=field instanceof FieldPath ? field.segments : [field];
-        const target=segments.slice(0,-1).reduce((parent,key)=>parent[key]??={},next);
-        if(value===deleted) delete target[segments.at(-1)];
-        else target[segments.at(-1)]=value;
-      }
-      write(ref,next);
     };
   `,
 };
