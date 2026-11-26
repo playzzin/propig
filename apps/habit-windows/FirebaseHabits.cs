@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -202,8 +203,9 @@ internal sealed class FirebaseHabits
     private void Store(JsonElement data, bool fromRefresh)
     {
         string Required(string field) => data.GetProperty(field).GetString() ?? throw new InvalidDataException(field);
-        var next = new Session(Required(fromRefresh ? "user_id" : "localId"), Required(fromRefresh ? "refresh_token" : "refreshToken"));
         var nextId = Required(fromRefresh ? "id_token" : "idToken");
+        var uid = fromRefresh ? Required("user_id") : FirebaseUserId(nextId);
+        var next = new Session(uid, Required(fromRefresh ? "refresh_token" : "refreshToken"));
         var seconds = int.Parse(Required(fromRefresh ? "expires_in" : "expiresIn"), CultureInfo.InvariantCulture);
         Directory.CreateDirectory(AppDirectory);
         var plain = JsonSerializer.SerializeToUtf8Bytes(next);
@@ -219,6 +221,17 @@ internal sealed class FirebaseHabits
         session = next;
         idToken = nextId;
         expires = DateTimeOffset.UtcNow.AddSeconds(seconds);
+    }
+
+    private static string FirebaseUserId(string idToken)
+    {
+        // The custom-token exchange returns the user's UID in the ID token's subject claim.
+        if (idToken.Split('.') is not [_, var encodedPayload, _])
+            throw new InvalidDataException("Invalid Firebase ID token.");
+
+        using var payload = JsonDocument.Parse(Base64Url.DecodeFromChars(encodedPayload));
+        var uid = payload.RootElement.GetProperty("sub").GetString();
+        return !string.IsNullOrEmpty(uid) ? uid : throw new InvalidDataException("Firebase UID is unavailable.");
     }
 
     private static async Task<JsonElement> Post(string url, object body, CancellationToken cancel)
