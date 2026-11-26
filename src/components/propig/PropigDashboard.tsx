@@ -47,7 +47,7 @@ import {
   Target,
   Trash2,
 } from 'lucide-react';
-import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { onSnapshot } from 'firebase/firestore';
 import styled, { keyframes } from 'styled-components';
 import { toast } from 'sonner';
 import {
@@ -55,7 +55,8 @@ import {
   type PropigWidgetId,
 } from '@/constants/propigStore';
 import { useAuth } from '@/contexts/AuthContext';
-import { auth, db, ensureFirestorePersistence } from '@/firebase/config';
+import { auth, ensureFirestorePersistence } from '@/firebase/config';
+import { createHabitWorkspaceRef, saveHabitRecordPatch, saveHabitWorkspaceFields } from '@/components/habits/habitWorkspaceStore';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 import { useStickyNotes } from '@/hooks/useStickyNotes';
 import {
@@ -585,17 +586,6 @@ function normalizeHabitWorkspace(value: unknown): HabitWorkspace {
   };
 }
 
-function createHabitWorkspaceRef(uid: string) {
-  return doc(db, 'users', uid, 'habitTracker', 'workspace');
-}
-
-async function saveHabitWorkspace(uid: string, workspace: HabitWorkspace): Promise<void> {
-  const payload = removeUndefined(workspace) as Record<string, unknown>;
-  await ensureFirestorePersistence();
-  if (auth.currentUser?.uid !== uid) throw new Error('계정이 변경되어 저장을 중단했습니다.');
-  await setDoc(createHabitWorkspaceRef(uid), { ...payload, updatedAt: serverTimestamp() }, { merge: true });
-}
-
 function isHabitRecordDone(record?: HabitRecord): boolean {
   if (!record) return false;
   if (record.checked) return true;
@@ -1010,9 +1000,10 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
         goalDirection: 'increase',
         options: [],
       };
-      const nextWorkspace = { ...workspace, categories, habits: [...workspace.habits, habit] };
-      setWorkspace(nextWorkspace);
-      await saveHabitWorkspace(uid, nextWorkspace);
+      await saveHabitWorkspaceFields(uid, {
+        categories: removeUndefined(categories),
+        habits: removeUndefined([...workspace.habits, habit]),
+      });
     },
     [uid, workspace, ownerUid, state],
   );
@@ -1020,34 +1011,22 @@ function useHabitWidget(uid: string | undefined, selectedDateKey: string) {
   const saveHabitRecord = useCallback(
     async (habitId: string, patch: Partial<HabitRecord>) => {
       if (!uid || ownerUid !== uid || state !== 'ready' || auth.currentUser?.uid !== uid) return;
-      const currentDay = workspace.records[selectedDateKey] ?? {};
-      const currentRecord = currentDay[habitId] ?? {};
-      const nextRecord: HabitRecord = {
-        ...currentRecord,
-        ...patch,
-        updatedAt: new Date().toISOString(),
-      };
-      const nextWorkspace: HabitWorkspace = {
-        ...workspace,
-        records: {
-          ...workspace.records,
-          [selectedDateKey]: {
-            ...currentDay,
-            [habitId]: removeUndefined(nextRecord) as HabitRecord,
-          },
-        },
-      };
-      setWorkspace(nextWorkspace);
-      await saveHabitWorkspace(uid, nextWorkspace);
+      await saveHabitRecordPatch(uid, selectedDateKey, habitId, patch);
     },
-    [selectedDateKey, uid, workspace, ownerUid, state],
+    [selectedDateKey, uid, ownerUid, state],
   );
 
   const toggleHabit = useCallback(
     async (habit: HabitItem) => {
       if (!uid || habit.mode !== 'check') return;
       const currentRecord = selectedRecords[habit.id] ?? {};
-      await saveHabitRecord(habit.id, { checked: !currentRecord.checked });
+      try {
+        await saveHabitRecord(habit.id, { checked: !currentRecord.checked });
+      } catch (error) {
+        if (auth.currentUser?.uid === uid) {
+          toast.error(error instanceof Error ? error.message : '습관 기록을 저장하지 못했습니다.');
+        }
+      }
     },
     [saveHabitRecord, selectedRecords, uid],
   );
@@ -1945,6 +1924,10 @@ function PropigDashboardSession() {
           </WidgetHeader>
 
           <WidgetRouteBar aria-label="습관 트래커 보기 선택">
+            <WidgetRoutePill href="/habit-tracker/today">
+              <CalendarDays size={14} />
+              오늘 체크
+            </WidgetRoutePill>
             <WidgetRoutePill href="/habit-tracker">
               <Target size={14} />
               기록
