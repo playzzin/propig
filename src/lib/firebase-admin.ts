@@ -3,8 +3,10 @@ import { existsSync, readFileSync } from "fs";
 import { getFirestore } from "firebase-admin/firestore";
 import { homedir } from "os";
 import { join } from "path";
+import { localFirebase } from "../firebase/browserDefaults";
 
 export type FirebaseAdminCredentialMode =
+  | "emulator"
   | "service_account_env"
   | "service_account_split_env"
   | "service_account_path"
@@ -169,7 +171,28 @@ const resolveStorageBucket = (): string | undefined => {
   );
 };
 
-if (!admin.apps.length) {
+if (localFirebase) {
+  const { projectId, host, authPort, firestorePort, storagePort } = localFirebase;
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
+      process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.FIREBASE_PRIVATE_KEY) {
+    throw new Error("ProPig local emulators must run without explicit Firebase Admin credentials.");
+  }
+  if (process.env.FIREBASE_PROJECT_ID !== projectId ||
+      process.env.GCLOUD_PROJECT !== projectId ||
+      process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID !== "pppp" ||
+      process.env.FIREBASE_AUTH_EMULATOR_HOST !== `${host}:${authPort}` ||
+      process.env.FIRESTORE_EMULATOR_HOST !== `${host}:${firestorePort}` ||
+      process.env.FIREBASE_STORAGE_EMULATOR_HOST !== `${host}:${storagePort}` ||
+      (process.env.STORAGE_EMULATOR_HOST && process.env.STORAGE_EMULATOR_HOST !== `http://${host}:${storagePort}`)) {
+    throw new Error("ProPig local Firebase Admin requires the demo project and local emulator endpoints.");
+  }
+  if (!admin.apps.length) {
+    admin.initializeApp({ projectId, storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET });
+  } else if (admin.app().options.projectId !== projectId) {
+    throw new Error("A Firebase Admin app for a different project is already initialized.");
+  }
+  adminCredentialMode = "emulator";
+} else if (!admin.apps.length) {
   try {
     const envServiceAccount = loadServiceAccountFromEnv();
     const splitEnvServiceAccount = envServiceAccount ? null : loadServiceAccountFromSplitEnv();
@@ -279,7 +302,8 @@ export const getFirebaseAdminStatus = (): FirebaseAdminStatus => {
   const initialized = admin.apps.length > 0;
   const canPersistToFirestore =
     initialized &&
-    (adminCredentialMode === "service_account_env" ||
+    (adminCredentialMode === "emulator" ||
+      adminCredentialMode === "service_account_env" ||
       adminCredentialMode === "service_account_split_env" ||
       adminCredentialMode === "service_account_path" ||
       (adminCredentialMode === "application_default" && hasCurrentApplicationDefaultCredentials()));
@@ -385,7 +409,10 @@ export async function probeFirebaseAdminRuntime(): Promise<FirebaseAdminRuntimeP
           ? error.message
           : "Firebase Storage Admin access failed.",
     })),
-    bucket
+    localFirebase ? Promise.resolve({
+      ok: false,
+      message: "Local emulators do not use Storage signing credentials.",
+    }) : bucket
       .file("__readiness__/signing-probe.txt")
       .getSignedUrl({
         action: "read",

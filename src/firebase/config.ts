@@ -1,14 +1,15 @@
-import './browserDefaults';
+import { localFirebase } from './browserDefaults';
 import { initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
   browserSessionPersistence,
+  connectAuthEmulator,
   getAuth,
   GoogleAuthProvider,
   indexedDBLocalPersistence,
   initializeAuth,
 } from 'firebase/auth';
-import { enableMultiTabIndexedDbPersistence, getFirestore } from 'firebase/firestore';
+import { connectFirestoreEmulator, enableMultiTabIndexedDbPersistence, getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -36,6 +37,9 @@ const initializeBrowserAuth = () => {
 };
 
 export const auth = typeof window === 'undefined' ? getAuth(app) : initializeBrowserAuth();
+if (localFirebase) {
+  connectAuthEmulator(auth, `http://${localFirebase.host}:${localFirebase.authPort}`);
+}
 export const EXPECTED_FIRESTORE_DATABASE_ID = 'pppp';
 const configuredDatabaseId = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID?.trim();
 
@@ -51,6 +55,9 @@ if (shouldDebugFirebase) {
   console.info(`[Firebase] Firestore DB ID: ${dbId}`);
 }
 export const db = getFirestore(app, dbId);
+if (localFirebase) {
+  connectFirestoreEmulator(db, localFirebase.host, localFirebase.firestorePort);
+}
 export const googleProvider = new GoogleAuthProvider();
 
 let persistenceBootstrap: Promise<void> | null = null;
