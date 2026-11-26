@@ -1,4 +1,5 @@
 import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
+import { localFirebase } from './browserDefaults';
 import app from './config';
 
 export const functions = getFunctions(app);
@@ -10,7 +11,10 @@ const shouldUseFunctionsEmulator =
   (process.env.NEXT_PUBLIC_USE_FUNCTIONS_EMULATOR ?? '').toLowerCase() === 'true' &&
   typeof window !== 'undefined';
 
-if (shouldUseFunctionsEmulator) {
+if (localFirebase) {
+  connectFunctionsEmulator(functions, localFirebase.host, localFirebase.functionsPort);
+  connectFunctionsEmulator(asiaNortheastFunctions, localFirebase.host, localFirebase.functionsPort);
+} else if (shouldUseFunctionsEmulator) {
   const host = process.env.NEXT_PUBLIC_FUNCTIONS_EMULATOR_HOST || 'localhost';
   const portRaw = process.env.NEXT_PUBLIC_FUNCTIONS_EMULATOR_PORT || '5001';
   const port = Number(portRaw);
