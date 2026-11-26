@@ -12,7 +12,7 @@ using System.Text.Json;
 
 namespace ProPig.Habits;
 
-internal sealed record Habit(string Id, string Name, int Order, bool Checked);
+internal sealed record Habit(string Id, string Name, string Category, uint Color, int Position, bool Checked);
 internal sealed record Session(string Uid, string RefreshToken);
 
 internal sealed class FirebaseHabits
@@ -101,32 +101,49 @@ internal sealed class FirebaseHabits
         response.EnsureSuccessStatusCode();
         using var data = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var fields = data.RootElement.GetProperty("fields");
-        if (!fields.TryGetProperty("habits", out var habits) ||
-            !habits.GetProperty("arrayValue").TryGetProperty("values", out var values))
-            return Array.Empty<Habit>();
+        return ReadHabits(fields, date);
+    }
 
-        var entries = new List<Habit>();
-        foreach (var item in values.EnumerateArray())
+    internal static IReadOnlyList<Habit> ReadHabits(JsonElement fields, string date)
+    {
+        const uint defaultColor = 0x42D392;
+        var categories = OrderedEntries(fields, "categories")
+            .Where(entry => !string.IsNullOrWhiteSpace(StringField(entry, "id")) &&
+                !string.IsNullOrWhiteSpace(StringField(entry, "name")))
+            .Select((entry, index) =>
+            {
+                var color = StringField(entry, "color");
+                var rgb = color is { Length: 7 } && color[0] == '#' &&
+                    uint.TryParse(color.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed)
+                    ? parsed : defaultColor;
+                return (Id: StringField(entry, "id"), Label: $"{index + 1}. {StringField(entry, "name")}", Color: rgb, Index: index);
+            })
+            .ToLookup(category => category.Id);
+        var groups = OrderedEntries(fields, "habits")
+            .Where(entry => !string.IsNullOrWhiteSpace(StringField(entry, "id")) &&
+                !string.IsNullOrWhiteSpace(StringField(entry, "name")) && !string.IsNullOrEmpty(StringField(entry, "mode")))
+            .GroupBy(entry => StringField(entry, "categoryId"))
+            .OrderBy(group => categories.Contains(group.Key) ? categories[group.Key].First().Index : int.MaxValue);
+        TryMapField(fields, "records", out var records);
+        TryMapField(records, date, out var day);
+
+        var habits = new List<Habit>();
+        foreach (var group in groups)
         {
-            if (!item.TryGetProperty("mapValue", out var map) || !map.TryGetProperty("fields", out var entry) ||
-                !entry.TryGetProperty("id", out var rawId) || !rawId.TryGetProperty("stringValue", out var idValue) ||
-                !entry.TryGetProperty("name", out var rawName) || !rawName.TryGetProperty("stringValue", out var nameValue) ||
-                !entry.TryGetProperty("mode", out var mode) || !mode.TryGetProperty("stringValue", out var kind) ||
-                kind.GetString() != "check") continue;
-            var id = idValue.GetString();
-            var name = nameValue.GetString();
-            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name)) continue;
-
-            var checkedValue = TryMapField(fields, "records", out var records) &&
-                TryMapField(records, date, out var day) && TryMapField(day, id, out var record) &&
-                record.TryGetProperty("checked", out var field) && field.TryGetProperty("booleanValue", out var value) &&
-                value.ValueKind == JsonValueKind.True;
-            var order = entry.TryGetProperty("order", out var rawOrder) &&
-                rawOrder.TryGetProperty("integerValue", out var integer) &&
-                int.TryParse(integer.ToString(), CultureInfo.InvariantCulture, out var sort) ? sort : 0;
-            entries.Add(new Habit(id, name, order, checkedValue));
+            var category = categories[group.Key].FirstOrDefault();
+            var position = 0;
+            foreach (var entry in group)
+            {
+                position++;
+                if (StringField(entry, "mode") != "check") continue;
+                var id = StringField(entry, "id")!;
+                var isChecked = TryMapField(day, id, out var record) && record.TryGetProperty("checked", out var field) &&
+                    field.TryGetProperty("booleanValue", out var value) && value.ValueKind == JsonValueKind.True;
+                habits.Add(new Habit(id, StringField(entry, "name")!, category.Label ?? "카테고리 없음",
+                    category.Label == null ? defaultColor : category.Color, position, isChecked));
+            }
         }
-        return entries.OrderBy(entry => entry.Order).ToArray();
+        return habits;
     }
 
     internal async Task SaveCheckAsync(string expectedUid, string date, Habit item, bool value)
@@ -165,8 +182,35 @@ internal sealed class FirebaseHabits
     private static bool TryMapField(JsonElement fields, string key, out JsonElement result)
     {
         result = default;
-        return fields.TryGetProperty(key, out var entry) &&
+        return fields.ValueKind == JsonValueKind.Object && fields.TryGetProperty(key, out var entry) &&
             entry.TryGetProperty("mapValue", out var map) && map.TryGetProperty("fields", out result);
+    }
+
+    private static string? StringField(JsonElement fields, string key) =>
+        fields.TryGetProperty(key, out var entry) && entry.TryGetProperty("stringValue", out var value)
+            ? value.GetString() : null;
+
+    private static IEnumerable<JsonElement> OrderedEntries(JsonElement fields, string key)
+    {
+        if (!fields.TryGetProperty(key, out var array) || !array.TryGetProperty("arrayValue", out var items) ||
+            !items.TryGetProperty("values", out var values)) return Array.Empty<JsonElement>();
+
+        return values.EnumerateArray()
+            .Select((item, index) => (Item: item, Index: index))
+            .Where(item => item.Item.TryGetProperty("mapValue", out var map) && map.TryGetProperty("fields", out _))
+            .Select(item => (Fields: item.Item.GetProperty("mapValue").GetProperty("fields"), item.Index))
+            .OrderBy(item => ReadOrder(item.Fields, item.Index + 1))
+            .Select(item => item.Fields);
+    }
+
+    private static double ReadOrder(JsonElement fields, int fallback)
+    {
+        if (!fields.TryGetProperty("order", out var field)) return fallback;
+        if ((field.TryGetProperty("integerValue", out var value) || field.TryGetProperty("doubleValue", out value) ||
+            field.TryGetProperty("stringValue", out value)) &&
+            double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var order) && double.IsFinite(order))
+            return Math.Max(1, Math.Round(order, MidpointRounding.AwayFromZero));
+        return fallback;
     }
 
     private static string Field(string segment) => "`" + segment.Replace("\\", "\\\\").Replace("`", "\\`") + "`";

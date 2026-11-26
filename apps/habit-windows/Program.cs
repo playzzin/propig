@@ -4,7 +4,9 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Shell;
 using System.Windows.Threading;
 
 namespace ProPig.Habits;
@@ -23,13 +25,15 @@ internal sealed class HabitApp
     private static readonly Brush Foreground = new SolidColorBrush(Color.FromRgb(242, 247, 244));
     private static readonly Brush Muted = new SolidColorBrush(Color.FromRgb(172, 196, 188));
     private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(121, 240, 178));
-    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(23, 46, 49));
+    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(21, 42, 45));
+    private static readonly Brush FrameLine = new SolidColorBrush(Color.FromRgb(45, 73, 75));
     private readonly FirebaseHabits firebase = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly Window main = NewWindow("ProPig 습관", 520, 680);
     private readonly string preferences = Path.Combine(FirebaseHabits.AppDirectory, "widget.json");
     private Window? widget;
+    private ScrollViewer? widgetScroll;
     private Choices choices = new();
     private IReadOnlyList<Habit> habits = Array.Empty<Habit>();
     private string date = FirebaseHabits.Today;
@@ -80,6 +84,7 @@ internal sealed class HabitApp
     private async Task Run(Func<Task> operation, string failureMessage, bool paintBefore = true)
     {
         if (busy) return;
+        var previous = (habits, date, status, loaded);
         busy = true;
         if (paintBefore) Paint();
         try
@@ -94,7 +99,8 @@ internal sealed class HabitApp
         finally
         {
             busy = false;
-            Paint();
+            if (paintBefore || previous.date != date || previous.status != status ||
+                previous.loaded != loaded || !previous.habits.SequenceEqual(habits)) Paint();
         }
     }
 
@@ -124,10 +130,20 @@ internal sealed class HabitApp
             return;
         }
 
-        widget = NewWindow("ProPig 오늘 습관 위젯", 348, 472);
+        widget = NewWindow("ProPig 오늘 습관 위젯", 348, 570);
         widget.MinWidth = 260;
         widget.MinHeight = 250;
         widget.Topmost = choices.Topmost;
+        widget.WindowStyle = WindowStyle.None;
+        WindowChrome.SetWindowChrome(widget, new WindowChrome
+        {
+            CaptionHeight = 40, ResizeBorderThickness = new Thickness(6),
+            GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(12),
+            UseAeroCaptionButtons = false
+        });
+        widgetScroll = NewScrollViewer();
+        widgetScroll.Resources.Add(typeof(ScrollBar), Application.Current.FindResource("HabitWidgetScrollBar"));
+        widget.Content = WidgetFrame(widget, widgetScroll);
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         if (choices.Left is double left && choices.Top is double top &&
@@ -146,6 +162,7 @@ internal sealed class HabitApp
         widget.Closed += (_, _) =>
         {
             widget = null;
+            widgetScroll = null;
             if (!main.IsVisible) main.Close();
         };
         widget.Show();
@@ -177,31 +194,26 @@ internal sealed class HabitApp
 
     private void PaintWindow(Window window, bool compact)
     {
-        var oldOffset = (window.Content as ScrollViewer)?.VerticalOffset ?? 0;
-        var stack = new StackPanel { Margin = new Thickness(compact ? 14 : 22) };
-        var scroller = new ScrollViewer
-        {
-            Content = stack,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-        };
-        window.Content = scroller;
+        var scroller = compact ? widgetScroll! : (window.Content as ScrollViewer ?? NewScrollViewer());
+        var oldOffset = scroller.VerticalOffset;
+        var stack = new StackPanel { Margin = compact ? new Thickness(14, 10, 14, 12) : new Thickness(22) };
+        scroller.Content = stack;
+        if (!compact && window.Content != scroller) window.Content = scroller;
+        var uid = firebase.Uid;
+        var selected = uid == null ? new HashSet<string>(StringComparer.Ordinal) : Chosen(uid);
+        var rows = compact ? habits.Where(habit => selected.Contains(habit.Id)).Take(5).ToArray() : habits;
+        stack.Children.Add(DailyHeading(compact, loaded ? rows.Count(row => row.Checked) : null, rows.Count));
         var dateLabel = Text(DateTime.Now.ToString("M월 d일 ddd", CultureInfo.GetCultureInfo("ko-KR")), 12, Muted);
-        dateLabel.Margin = new Thickness(0, 0, 0, 2);
-        stack.Children.Add(dateLabel);
-        var title = Text("오늘 습관", compact ? 25 : 29);
-        title.FontWeight = FontWeights.SemiBold;
-        title.Margin = new Thickness(0, 0, 0, 4);
-        stack.Children.Add(title);
+        dateLabel.Margin = new Thickness(0, 0, 10, 0);
         var statusLabel = Text(busy ? "연결·저장 중" : status, 12, status == "동기화됨" ? Mint : Muted);
-        statusLabel.Margin = new Thickness(0, 0, 0, 12);
-        stack.Children.Add(statusLabel);
+        statusLabel.Margin = new Thickness(0);
+        stack.Children.Add(new WrapPanel { Margin = new Thickness(0, 0, 0, 10), Children = { dateLabel, statusLabel } });
 
         var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
         if (compact)
         {
             actions.Children.Add(Button("앱 열기", () => { main.Show(); main.Activate(); return Task.CompletedTask; }));
-            var pin = Check("항상 위", choices.Topmost, option: true);
+            var pin = Option("항상 위", choices.Topmost);
             pin.Margin = new Thickness(0, 0, 6, 6);
             pin.Click += (_, _) =>
             {
@@ -212,7 +224,6 @@ internal sealed class HabitApp
             actions.Children.Add(pin);
         }
 
-        var uid = firebase.Uid;
         if (uid == null)
         {
             if (compact) stack.Children.Add(actions);
@@ -235,19 +246,24 @@ internal sealed class HabitApp
         }
         actions.Children.Add(Button("새로고침", async () => await Run(Read, "기록을 불러오지 못했습니다.")));
 
-        var selected = Chosen(uid);
-        var rows = compact ? habits.Where(habit => selected.Contains(habit.Id)).Take(5).ToArray() : habits;
-        stack.Children.Add(ProgressCard(rows.Count(row => row.Checked), rows.Count));
-        stack.Children.Add(actions);
-        if (loaded && rows.Count == 0) stack.Children.Add(Text("앱에서 위젯에 표시할 체크형 습관을 선택하세요.", 13, Muted));
+        if (!compact) stack.Children.Add(actions);
+        if (loaded && rows.Count == 0) stack.Children.Add(Text(compact
+            ? "앱에서 위젯에 표시할 체크형 습관을 선택하세요."
+            : "웹에서 체크형 습관을 추가하면 여기에 표시됩니다.", 13, Muted));
         if (!compact && loaded && rows.Count > 0) stack.Children.Add(Text("위젯에는 다섯 개까지 표시할 수 있습니다.", 12, Muted));
 
         foreach (var row in rows)
         {
-            var check = Check(row.Name, row.Checked);
-            check.IsEnabled = loaded && !busy && date == FirebaseHabits.Today;
+            var check = new CheckBox
+            {
+                IsChecked = row.Checked, IsEnabled = loaded && !busy && date == FirebaseHabits.Today,
+                Style = (Style)Application.Current.FindResource("HabitRecord"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            AutomationProperties.SetName(check, $"{row.Name} · {row.Category}");
             check.Click += async (_, _) =>
             {
+                if (busy) { check.IsChecked = row.Checked; return; }
                 if (date != FirebaseHabits.Today) { await Run(Read, "오늘 기록을 불러오지 못했습니다."); return; }
                 var desired = check.IsChecked == true;
                 var previous = habits;
@@ -259,10 +275,10 @@ internal sealed class HabitApp
                     await Read();
                 }, "습관을 저장하지 못했습니다. 다시 체크해 주세요.");
             };
-            stack.Children.Add(check);
+            stack.Children.Add(HabitCard(row, check, compact));
             if (compact) continue;
 
-            var pick = Check("위젯에 표시", selected.Contains(row.Id), option: true);
+            var pick = Option("위젯에 표시", selected.Contains(row.Id));
             pick.Margin = new Thickness(8, -2, 0, 8);
             AutomationProperties.SetName(pick, row.Name + " · 위젯에 표시");
             pick.IsEnabled = !busy;
@@ -277,21 +293,117 @@ internal sealed class HabitApp
             };
             stack.Children.Add(pick);
         }
+        if (compact) stack.Children.Add(actions);
         scroller.ScrollToVerticalOffset(oldOffset);
     }
 
-    private static Border ProgressCard(int completed, int total)
+    private static Border WidgetFrame(Window window, ScrollViewer content)
     {
-        var count = Text($"{completed} / {total} 완료", 16, Mint);
-        count.FontWeight = FontWeights.SemiBold;
-        count.Margin = new Thickness(0, 0, 0, 8);
-        var bar = new ProgressBar { Maximum = Math.Max(total, 1), Value = completed };
-        AutomationProperties.SetName(bar, "오늘 습관 진행률");
+        var caption = new DockPanel { Height = 40 };
+        var close = new Button
+        {
+            Content = "×", Style = (Style)Application.Current.FindResource("HabitWidgetClose"),
+            VerticalAlignment = VerticalAlignment.Center, ToolTip = "위젯 닫기"
+        };
+        AutomationProperties.SetName(close, "위젯 닫기");
+        WindowChrome.SetIsHitTestVisibleInChrome(close, true);
+        close.Click += (_, _) => window.Close();
+        DockPanel.SetDock(close, Dock.Right);
+        caption.Children.Add(close);
+
+        var brand = Text("ProPig", 12, Mint);
+        brand.FontWeight = FontWeights.SemiBold;
+        brand.VerticalAlignment = VerticalAlignment.Center;
+        caption.Children.Add(brand);
+
+        var captionFrame = new Border
+        {
+            BorderBrush = FrameLine, BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(14, 0, 8, 0), Child = caption
+        };
+        DockPanel.SetDock(captionFrame, Dock.Top);
         return new Border
         {
-            Background = Panel, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 11),
-            Margin = new Thickness(0, 0, 0, 10),
-            Child = new StackPanel { Children = { count, bar } }
+            BorderThickness = new Thickness(1), BorderBrush = FrameLine, CornerRadius = new CornerRadius(12),
+            Background = Background, Child = new DockPanel { Children = { captionFrame, content } }
+        };
+    }
+
+    private static ScrollViewer NewScrollViewer() => new()
+    {
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+    };
+
+    private static DockPanel DailyHeading(bool compact, int? completed, int total)
+    {
+        var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+        if (completed is int count)
+        {
+            var badge = new Border
+            {
+                Background = Panel, CornerRadius = new CornerRadius(7), Padding = new Thickness(8, 4, 8, 5),
+                Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock { Text = $"{count}/{total} 완료", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Mint }
+            };
+            DockPanel.SetDock(badge, Dock.Right);
+            heading.Children.Add(badge);
+        }
+        heading.Children.Add(new TextBlock { Text = "오늘의 습관", FontSize = compact ? 23 : 29, FontWeight = FontWeights.Bold });
+        return heading;
+    }
+
+    private static Border HabitCard(Habit habit, CheckBox check, bool compact)
+    {
+        var color = Color.FromRgb((byte)(habit.Color >> 16), (byte)(habit.Color >> 8), (byte)habit.Color);
+        var accent = new SolidColorBrush(color);
+        var banner = new DockPanel { Margin = new Thickness(8, 2, 8, 3) };
+        var position = new TextBlock { Text = $"항목 #{habit.Position}", FontSize = 10, Margin = new Thickness(8, 0, 0, 0) };
+        DockPanel.SetDock(position, Dock.Right);
+        banner.Children.Add(position);
+        banner.Children.Add(new TextBlock
+        {
+            Text = habit.Category, FontSize = 11, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        var progress = new ProgressBar { Height = 3, Value = habit.Checked ? 100 : 0, Foreground = accent };
+        AutomationProperties.SetName(progress, $"{habit.Name} 진행률");
+        var details = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                new TextBlock { Text = habit.Name, FontSize = compact ? 14 : 16, FontWeight = FontWeights.SemiBold,
+                    TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = habit.Name },
+                new TextBlock { Text = $"체크만 하기 · {(habit.Checked ? 100 : 0)}%", FontSize = 11, Foreground = Muted }
+            }
+        };
+        var control = new DockPanel { Margin = compact ? new Thickness(8, 4, 8, 5) : new Thickness(10, 8, 10, 9) };
+        if (compact)
+        {
+            check.Margin = new Thickness(8, 0, 0, 0);
+            DockPanel.SetDock(check, Dock.Right);
+            control.Children.Add(check);
+            control.Children.Add(details);
+        }
+        else
+        {
+            details.Margin = new Thickness(0, 0, 0, 7);
+            DockPanel.SetDock(details, Dock.Top);
+            control.Children.Add(details);
+            control.Children.Add(check);
+        }
+
+        var band = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb((byte)(8 + color.R / 4), (byte)(16 + color.G / 4), (byte)(20 + color.B / 4))),
+            BorderBrush = accent, BorderThickness = new Thickness(3, 0, 0, 0), CornerRadius = new CornerRadius(7, 7, 0, 0),
+            Child = banner
+        };
+        return new Border
+        {
+            Background = Panel, BorderBrush = FrameLine, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
+            Margin = new Thickness(0, 0, 0, 7), Child = new StackPanel { Children = { band, progress, control } }
         };
     }
 
@@ -309,10 +421,10 @@ internal sealed class HabitApp
         Margin = new Thickness(0, 5, 0, 6), TextWrapping = TextWrapping.Wrap
     };
 
-    private static CheckBox Check(string name, bool value, bool option = false) => new()
+    private static CheckBox Option(string name, bool value) => new()
     {
         Content = new TextBlock { Text = name, TextWrapping = TextWrapping.Wrap }, IsChecked = value,
-        Style = (Style)Application.Current.FindResource(option ? "HabitOption" : "HabitRow")
+        Style = (Style)Application.Current.FindResource("HabitOption")
     };
 
     private Button Button(string name, Func<Task> action, bool primary = false)

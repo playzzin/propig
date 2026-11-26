@@ -50,6 +50,56 @@
         <Setter Property="Foreground" Value="{StaticResource HabitInk}" />
     </Style>
 
+    <Style x:Key="HabitWidgetClose" TargetType="Button" BasedOn="{StaticResource HabitButton}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource HabitMuted}" />
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontSize" Value="18" />
+    </Style>
+
+    <Style x:Key="HabitWidgetScrollPage" TargetType="RepeatButton">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Background="Transparent" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HabitWidgetScrollBar" TargetType="ScrollBar">
+        <Setter Property="Width" Value="8" />
+        <Setter Property="Margin" Value="0,4,3,4" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Track x:Name="PART_Track" IsDirectionReversed="True">
+                        <Track.DecreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Style="{StaticResource HabitWidgetScrollPage}" />
+                        </Track.DecreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb Background="#527376">
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType="Thumb">
+                                        <Border Margin="1,0" CornerRadius="3" Background="{TemplateBinding Background}" />
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Track.Thumb>
+                        <Track.IncreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Style="{StaticResource HabitWidgetScrollPage}" />
+                        </Track.IncreaseRepeatButton>
+                    </Track>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="HabitOption" TargetType="CheckBox">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
@@ -101,16 +151,18 @@
         </Setter>
     </Style>
 
-    <Style x:Key="HabitRow" TargetType="CheckBox" BasedOn="{StaticResource HabitOption}">
-        <Setter Property="Background" Value="#152A2D" />
-        <Setter Property="BorderBrush" Value="#2B4649" />
+    <Style x:Key="HabitRecord" TargetType="CheckBox" BasedOn="{StaticResource HabitOption}">
+        <Setter Property="Content" Value="박스 체크" />
+        <Setter Property="Background" Value="#1B3436" />
+        <Setter Property="BorderBrush" Value="{StaticResource HabitLine}" />
         <Setter Property="Foreground" Value="{StaticResource HabitText}" />
-        <Setter Property="FontSize" Value="14" />
-        <Setter Property="MinHeight" Value="40" />
-        <Setter Property="Padding" Value="10,6" />
-        <Setter Property="Margin" Value="0,0,0,5" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Padding" Value="8,4" />
         <Style.Triggers>
             <Trigger Property="IsChecked" Value="True">
+                <Setter Property="Content" Value="완료됨" />
                 <Setter Property="Background" Value="#19382E" />
                 <Setter Property="BorderBrush" Value="#356552" />
             </Trigger>
