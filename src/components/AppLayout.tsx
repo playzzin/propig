@@ -349,10 +349,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   const toggleMobileSidebar = () => setIsMobileSidebarOpen((isOpen) => !isOpen);
   const closeMobileSidebar = () => setIsMobileSidebarOpen(false);
 
-  if (pathname === '/habit-tracker/today') {
-    return <><DynamicFavicon />{children}</>;
-  }
-
   return (
     <div className="app-wrapper" style={{ display: 'flex', width: '100vw', height: '100vh' }}>
       <DynamicFavicon />
