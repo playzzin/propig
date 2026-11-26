@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application' version '8.13.0'
+    id 'com.google.gms.google-services' version '4.4.4'
+}
+
+def signingKeys = ['HABIT_ANDROID_KEYSTORE', 'HABIT_ANDROID_STORE_PASSWORD', 'HABIT_ANDROID_KEY_ALIAS', 'HABIT_ANDROID_KEY_PASSWORD']
+def isSigned = signingKeys.every { System.getenv(it) }
+if (!isSigned && signingKeys.any { System.getenv(it) }) {
+    throw new GradleException('Supply all four Android upload signing settings.')
+}
+
+android {
+    namespace 'com.propig.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.propig.app'
+        minSdk 24
+        targetSdk 36
+        versionCode Integer.parseInt(System.getenv('HABIT_ANDROID_VERSION_CODE') ?: '2')
+        versionName '1.0.0'
+    }
+
+    if (isSigned) {
+        signingConfigs {
+            upload {
+                storeFile file(System.getenv('HABIT_ANDROID_KEYSTORE'))
+                storePassword System.getenv('HABIT_ANDROID_STORE_PASSWORD')
+                keyAlias System.getenv('HABIT_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('HABIT_ANDROID_KEY_PASSWORD')
+            }
+        }
+        buildTypes.release.signingConfig = signingConfigs.upload
+    }
+
+    sourceSets.main.res.srcDir layout.buildDirectory.dir('generated/habit-icons')
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+tasks.register('prepareHabitIcon', Copy) {
+    from '../../public/icons/justpig-favicon-144.png'
+    into layout.buildDirectory.dir('generated/habit-icons/drawable-nodpi')
+    rename { 'habit_icon.png' }
+}
+tasks.named('preBuild') { dependsOn 'prepareHabitIcon' }
+
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:35.2.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+    implementation 'androidx.credentials:credentials:1.3.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.0'
+}
