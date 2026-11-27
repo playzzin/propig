@@ -3443,12 +3443,18 @@ const DailyProgressTrack = styled.div`
 `;
 
 const CelebrationRegion = styled.div`
-  position: absolute;
+  grid-column: 1 / -1;
   z-index: 2;
-  inset: 100% 0 auto;
   display: grid;
   justify-items: center;
   pointer-events: none;
+
+  &:empty {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
 `;
 
 const noticeIn = keyframes`
@@ -3460,7 +3466,6 @@ const CelebrationNotice = styled.div`
   position: relative;
   isolation: isolate;
   max-width: calc(100% - 24px);
-  margin-top: 6px;
   padding: 10px 14px;
   border: 1px solid rgba(127, 231, 171, 0.4);
   border-radius: 12px;

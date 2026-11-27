@@ -246,6 +246,9 @@ try {
     await waitForWrites(page, 5);
     await celebration.waitFor();
     assert.equal(await progress.getAttribute('aria-valuenow'), '100');
+    const noticeBounds = await celebration.boundingBox();
+    const composerBounds = await addSummary.boundingBox();
+    assert.ok(noticeBounds.y + noticeBounds.height <= composerBounds.y, 'completion notice leaves the add button visible');
     const sparkStyle = await celebration.locator('span[aria-hidden="true"]').first()
       .evaluate((element) => ({ display: getComputedStyle(element).display, animation: getComputedStyle(element).animationName }));
     if (reducedMotion === 'reduce') assert.equal(sparkStyle.display, 'none', 'reduce keeps the notice and hides particles');
