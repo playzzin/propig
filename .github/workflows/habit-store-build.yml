@@ -5,6 +5,7 @@ on:
     paths:
       - 'android/habit-store/**'
       - 'apps/habit-windows/**'
+      - 'scripts/rainmeter/**'
       - 'android/app/google-services.json'
       - 'android/gradle/**'
       - '.github/workflows/habit-store-build.yml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'android/habit-store/**'
       - 'apps/habit-windows/**'
+      - 'scripts/rainmeter/**'
       - 'android/app/google-services.json'
       - 'android/gradle/**'
       - '.github/workflows/habit-store-build.yml'
@@ -31,6 +33,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Verify reversible Rainmeter connections
+        shell: pwsh
+        run: ./scripts/rainmeter/Test-ProPigMeasures.ps1 -InstallerOnly
       - name: Package Windows desktop app and widget
         shell: pwsh
         env:
