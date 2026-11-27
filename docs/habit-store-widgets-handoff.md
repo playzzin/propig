@@ -7,6 +7,13 @@
 - 웹 트래커와 대시보드, 두 앱은 `pppp/users/{uid}/habitTracker/workspace`를 사용한다. 기록 쓰기는 날짜·습관·필드 단위다. 웹과 Windows의 기록 기본 보기와 통계 기본 기간은 같은 문서의 `viewPreferences`에 필드별로 저장된다. Firestore 규칙 변경은 필요하지 않다.
 - Windows는 시스템 브라우저의 `/habit-tracker/connect`에서 연결할 계정을 표시하고 사용자 승인을 받는다. Windows 앱은 루프백 콜백으로 받은 일회용 코드와 PKCE 검증값을 교환하고 Firebase 갱신 토큰을 Windows 사용자 범위 DPAPI로 보관한다. 본창의 `/habit-tracker/desktop`에는 같은 계정의 별도 Firebase 세션을 열고 브라우저 메모리에서만 유지한다. 이전 앱 버전에서 연결한 계정은 본창을 처음 사용할 때 연결을 한 번 다시 승인한다. 로그아웃하면 앱과 위젯에서 기록을 지운다.
 
+## Windows ProPig 통합 본창
+
+- 기존 Windows 앱이 `/propig/desktop`에서 홈·상점·습관 트래커·메모장(목록·스티커)·할일 일정표를 연다. 상점의 등록과 메뉴 순서는 웹과 같은 계정 설정을 사용한다. 등록된 버킷리스트와 계산기는 현재 기본 브라우저에서 연다.
+- 바탕화면 메모와 할일 위젯은 각각 `/propig/desktop/memo`, `/propig/desktop/todo`를 열고 동일한 ProPig 계정으로 연결한다. 각 창은 크기·위치·항상 위 설정을 기기에 저장한다. 메모 위젯은 고정·최근 메모, 빠른 작성과 텍스트 편집을 제공한다. 할일 위젯은 오늘 일정과 상시 할 일을 표시하고 새 할 일 추가와 회차별 체크를 제공한다.
+- 메모는 한 메모 문서의 본문만 편집하고, 다른 곳에서 같은 메모를 고친 경우 초안을 유지하고 충돌을 표시한다. 할 일은 개별 문서의 완료 날짜에 원자적으로 반영한다. 저장과 동기화는 기존 API와 Firestore 규칙을 사용한다. 메모 낙서장은 웹 브라우저 장치 저장을 사용한다.
+- 새 Windows 패키지를 사용하려면 통합 본창과 두 위젯 경로를 Hosting에 함께 게시한다. 이전 Windows 패키지는 기존 `/habit-tracker/desktop`을 계속 사용한다. 배포 전 동시 저장 검증은 `FIRESTORE_EMULATOR_HOST=127.0.0.1:8191 node scripts/verify-propig-windows-sync-emulator.mjs`로 실행한다. 테스트 프로젝트는 `demo-propig-desktop`이다.
+
 ## 패키지와 비공개 테스트 조건
 
 Windows 앱을 설치한 뒤 처음 실행하면 현재 사용자의 바탕화면에 ‘ProPig 습관’ 바로가기가 생긴다. 바로가기는 설치된 앱의 ID로 실행하므로 MSIX 버전이 바뀌어도 사용할 수 있다. 지운 바로가기는 앱의 ‘바탕화면 바로가기 만들기’에서 다시 만들 수 있다.

@@ -43,7 +43,12 @@ assert.doesNotMatch(stickyNotes, /withConverter\(stickyNoteConverter\)/);
 assert.doesNotMatch(stickyNotes, /throw new Error\(["']Invalid Note Data["']\)/);
 assert.match(stickyNotes, /parseFirestoreStickyNote[\s\S]*return null;/);
 assert.match(stickyNotes, /StickyNotesLocalStateV1Schema\.safeParse\(JSON\.parse\(rawLocal\)\)/);
-assert.match(stickyNotes, /if \(note\) next\.push\(note\);/);
+assert.match(stickyNotes, /function readStickyNotes\(snapshot: QuerySnapshot\)[\s\S]*?if \(note\) notes\.push\(note\);[\s\S]*?return notes;/);
+assert.equal(
+  [...stickyNotes.matchAll(/readStickyNotes\(snapshot\)/g)].length,
+  2,
+  'Web and desktop memo subscriptions must both skip invalid documents while retaining valid ones.',
+);
 
 assert.match(systemContext, /onSnapshot\([\s\S]*Subscription failed[\s\S]*setLoading\(false\)/);
 assert.match(systemContext, /retry: \(\) => void/);

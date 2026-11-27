@@ -16,7 +16,7 @@ import {
   ShoppingBag,
   X,
 } from 'lucide-react';
-import styled, { keyframes } from 'styled-components';
+import styled, { css, keyframes } from 'styled-components';
 import { toast } from 'sonner';
 import { PROPIG_STORE_APPS, type PropigStoreApp } from '@/constants/propigStore';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,7 +33,12 @@ function getStoreSurfaceLabel(app: Pick<PropigStoreApp, 'widgetId'>): string {
   return app.widgetId ? WIDGET_LABELS[app.widgetId] : '단독 프로그램';
 }
 
-export default function PropigStore() {
+interface PropigStoreProps {
+  onOpenDashboard?: () => void;
+  onOpenApp?: (appId: PropigStoreApp['id']) => void;
+}
+
+export default function PropigStore({ onOpenDashboard, onOpenApp }: PropigStoreProps) {
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
   const appRegistry = usePropigAppRegistry();
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -146,10 +151,17 @@ export default function PropigStore() {
 
         <HeroActions>
           <StoreStatus>{appRegistry.isLoading ? '확인 중' : `${installedCount}개 사용 중`}</StoreStatus>
-          <DashboardLink href="/propig">
-            <LayoutDashboard size={16} />
-            위젯 대시보드
-          </DashboardLink>
+          {onOpenDashboard ? (
+            <DashboardButton type="button" onClick={onOpenDashboard}>
+              <LayoutDashboard size={16} />
+              내 작업공간
+            </DashboardButton>
+          ) : (
+            <DashboardLink href="/propig">
+              <LayoutDashboard size={16} />
+              위젯 대시보드
+            </DashboardLink>
+          )}
           {!currentUser ? (
             <LoginButton type="button" onClick={() => void handleSignIn()} disabled={authLoading || !isConfigured || isSigningIn}>
               {isSigningIn ? <SpinningLoader size={16} /> : <LogIn size={16} />}
@@ -224,7 +236,7 @@ export default function PropigStore() {
       </StoreOrderPanel>
 
       <StoreGrid>
-        {PROPIG_STORE_APPS.map((app) => renderStoreCard(app, appRegistry, handleStoreToggle, handlePreviewApp))}
+        {PROPIG_STORE_APPS.map((app) => renderStoreCard(app, appRegistry, handleStoreToggle, handlePreviewApp, onOpenApp))}
       </StoreGrid>
 
       {previewApp ? (
@@ -346,6 +358,7 @@ function renderStoreCard(
   appRegistry: ReturnType<typeof usePropigAppRegistry>,
   handleStoreToggle: (app: PropigStoreApp) => Promise<void>,
   handlePreviewApp: (app: PropigStoreApp) => void,
+  onOpenApp: PropigStoreProps['onOpenApp'],
 ) {
   const installed = appRegistry.isInstalled(app.id);
   const saving = appRegistry.savingAppId === app.id;
@@ -391,7 +404,12 @@ function renderStoreCard(
             미리보기
           </StorePreviewButton>
         ) : null}
-        {installed && app.path ? (
+        {installed && app.path && onOpenApp ? (
+          <StoreOpenButton type="button" onClick={() => onOpenApp(app.id)}>
+            <ArrowUpRight size={14} />
+            {app.id === 'bucket' || app.id === 'calculator' ? '웹에서 열기' : '열기'}
+          </StoreOpenButton>
+        ) : installed && app.path ? (
           <StoreOpenLink href={app.path}>
             <ArrowUpRight size={14} />
             열기
@@ -509,7 +527,7 @@ const StoreStatus = styled.span`
   padding: 9px 12px;
 `;
 
-const DashboardLink = styled(Link)`
+const dashboardActionStyles = css`
   align-items: center;
   background: var(--surface-soft);
   border: 1px solid var(--border);
@@ -526,6 +544,12 @@ const DashboardLink = styled(Link)`
   &:hover {
     background: var(--surface-hover);
   }
+`;
+
+const DashboardLink = styled(Link)`${dashboardActionStyles}`;
+const DashboardButton = styled.button`
+  ${dashboardActionStyles}
+  cursor: pointer;
 `;
 
 const LoginButton = styled.button`
@@ -857,7 +881,7 @@ const StorePreviewButton = styled.button`
   }
 `;
 
-const StoreOpenLink = styled(Link)`
+const storeOpenStyles = css`
   align-items: center;
   background: var(--surface-soft);
   border: 1px solid var(--border);
@@ -874,6 +898,12 @@ const StoreOpenLink = styled(Link)`
   &:hover {
     background: var(--surface-hover);
   }
+`;
+
+const StoreOpenLink = styled(Link)`${storeOpenStyles}`;
+const StoreOpenButton = styled.button`
+  ${storeOpenStyles}
+  cursor: pointer;
 `;
 
 const ErrorText = styled.p`
