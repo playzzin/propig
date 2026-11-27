@@ -179,16 +179,16 @@ internal sealed class HabitApp
             OpenDesktopWidget(DesktopSurface.MiraBox, "MiraBox");
             var owner = desktopWidgets.GetValueOrDefault(DesktopSurface.MiraBox) ?? main;
             var message = pcWidgets.PressKey(owner, uid, layout, key, device);
-            MessageBox.Show(owner,message,"ProPig · MiraBox");
+            MessageBox.Show(owner,message,"그뚠앱 · MiraBox");
             return;
         }
         if (id.Split('/') is ["dock", var target] && PcWidgetActions.Names.TryGetValue(target,out var label))
         {
             ShowMain();
-            if (MessageBox.Show(main,$"이 PC에서 ‘{label}’ 동작을 열까요?","ProPig · 바로가기", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes && firebase.Uid == uid)
+            if (MessageBox.Show(main,$"이 PC에서 ‘{label}’ 동작을 열까요?","그뚠앱 · 바로가기", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes && firebase.Uid == uid)
             {
                 var result = await pcWidgets.Execute(target, main, uid);
-                if (result != "Windows에 요청했습니다.") MessageBox.Show(main,result,"ProPig · 바로가기");
+                if (result != "Windows에 요청했습니다.") MessageBox.Show(main,result,"그뚠앱 · 바로가기");
             }
             return;
         }
@@ -360,7 +360,7 @@ internal sealed class HabitApp
         try { Process.Start(new ProcessStartInfo(FirebaseHabits.WebOrigin + path) { UseShellExecute = true }); }
         catch (Win32Exception)
         {
-            MessageBox.Show("기본 브라우저를 열지 못했습니다.", "ProPig", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("기본 브라우저를 열지 못했습니다.", "그뚠앱", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -517,8 +517,8 @@ internal sealed class HabitApp
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
             }
             if (showResult) shortcutNotice = created
-                ? "바탕화면에 ‘ProPig 습관’ 바로가기를 만들었습니다."
-                : "바탕화면에 ‘ProPig 습관’ 바로가기가 이미 있습니다.";
+                ? "바탕화면에 ‘그뚠앱’ 바로가기를 만들었습니다."
+                : "바탕화면에 ‘그뚠앱’ 바로가기가 이미 있습니다.";
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or COMException)
         {
