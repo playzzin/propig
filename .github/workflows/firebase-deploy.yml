@@ -107,7 +107,7 @@ jobs:
         run: |
           firebase deploy \
             --project "$FIREBASE_PROJECT_ID" \
-            --only functions:createHabitDesktopLogin,functions:redeemHabitDesktopLogin \
+            --only functions:createHabitDesktopLogin,functions:redeemHabitDesktopLogin,functions:createHabitDesktopWorkspaceSession \
             --non-interactive
 
       - name: Verify Windows habit login functions
@@ -129,6 +129,7 @@ jobs:
 
           check_callable createHabitDesktopLogin 401 UNAUTHENTICATED
           check_callable redeemHabitDesktopLogin 403 PERMISSION_DENIED
+          check_callable createHabitDesktopWorkspaceSession 401 UNAUTHENTICATED
 
       - name: Deploy Firebase Hosting
         run: |
