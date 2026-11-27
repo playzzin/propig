@@ -5,6 +5,17 @@
     <SolidColorBrush x:Key="HabitText" Color="#F2F7F4" />
     <SolidColorBrush x:Key="HabitMuted" Color="#ACC4BC" />
     <SolidColorBrush x:Key="HabitLine" Color="#375659" />
+    <SolidColorBrush x:Key="HabitWidgetSurface" Color="#112326" />
+
+    <Style x:Key="HabitWidgetFrame" TargetType="Border">
+        <Setter Property="BorderBrush" Value="#30484A" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsActive, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                <Setter Property="BorderBrush" Value="#64847B" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
 
     <Style x:Key="HabitButton" TargetType="Button">
         <Setter Property="Background" Value="#1B3436" />
@@ -50,19 +61,47 @@
         <Setter Property="Foreground" Value="{StaticResource HabitInk}" />
     </Style>
 
-    <Style x:Key="HabitWidgetClose" TargetType="Button" BasedOn="{StaticResource HabitButton}">
+    <Style x:Key="HabitWidgetCaptionButton" TargetType="Button" BasedOn="{StaticResource HabitButton}">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource HabitMuted}" />
-        <Setter Property="Width" Value="30" />
-        <Setter Property="Height" Value="28" />
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="30" />
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="Padding" Value="0" />
-        <Setter Property="FontSize" Value="18" />
     </Style>
 
-    <Style x:Key="HabitWidgetScrollPage" TargetType="RepeatButton">
+    <Style x:Key="HabitWidgetClose" TargetType="Button" BasedOn="{StaticResource HabitWidgetCaptionButton}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="CloseFrame" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="7">
+                        <Path x:Name="CloseGlyph" Data="M 1,1 L 9,9 M 9,1 L 1,9"
+                              Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="CloseFrame" Property="Background" Value="#4C2931" />
+                            <Setter TargetName="CloseGlyph" Property="Stroke" Value="#FFE1E7" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="CloseFrame" Property="BorderBrush" Value="{StaticResource HabitMint}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="CloseFrame" Property="Background" Value="#69313D" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HabitScrollPage" TargetType="RepeatButton">
         <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RepeatButton">
@@ -72,29 +111,83 @@
         </Setter>
     </Style>
 
-    <Style x:Key="HabitWidgetScrollBar" TargetType="ScrollBar">
-        <Setter Property="Width" Value="8" />
-        <Setter Property="Margin" Value="0,4,3,4" />
+    <Style x:Key="HabitScrollBar" TargetType="ScrollBar">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Width" Value="10" />
+        <Setter Property="Margin" Value="0,8,6,8" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
-                    <Track x:Name="PART_Track" IsDirectionReversed="True">
-                        <Track.DecreaseRepeatButton>
-                            <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Style="{StaticResource HabitWidgetScrollPage}" />
-                        </Track.DecreaseRepeatButton>
-                        <Track.Thumb>
-                            <Thumb Background="#527376">
-                                <Thumb.Template>
-                                    <ControlTemplate TargetType="Thumb">
-                                        <Border Margin="1,0" CornerRadius="3" Background="{TemplateBinding Background}" />
-                                    </ControlTemplate>
-                                </Thumb.Template>
-                            </Thumb>
-                        </Track.Thumb>
-                        <Track.IncreaseRepeatButton>
-                            <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Style="{StaticResource HabitWidgetScrollPage}" />
-                        </Track.IncreaseRepeatButton>
-                    </Track>
+                    <Grid Background="Transparent">
+                        <Border Background="#1C3337" Margin="2,0" CornerRadius="4" />
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Style="{StaticResource HabitScrollPage}" />
+                            </Track.DecreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Focusable="False">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Grid Background="Transparent">
+                                                <Border x:Name="Grip" Margin="3,0" CornerRadius="4" Background="#678A89" />
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Grip" Property="Margin" Value="1,0" />
+                                                    <Setter TargetName="Grip" Property="Background" Value="#91BAAD" />
+                                                </Trigger>
+                                                <Trigger Property="IsDragging" Value="True">
+                                                    <Setter TargetName="Grip" Property="Margin" Value="1,0" />
+                                                    <Setter TargetName="Grip" Property="Background" Value="{StaticResource HabitMint}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Style="{StaticResource HabitScrollPage}" />
+                            </Track.IncreaseRepeatButton>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HabitScrollViewer" TargetType="ScrollViewer">
+        <Setter Property="CanContentScroll" Value="False" />
+        <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="Focusable" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                        </Grid.ColumnDefinitions>
+                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Focusable="False"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                Content="{TemplateBinding Content}"
+                                                ContentTemplate="{TemplateBinding ContentTemplate}" />
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Orientation="Vertical"
+                                   Minimum="0" Maximum="{TemplateBinding ScrollableHeight}"
+                                   ViewportSize="{TemplateBinding ViewportHeight}" Value="{TemplateBinding VerticalOffset}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                   Style="{StaticResource HabitScrollBar}" />
+                        <Border x:Name="ListFocus" Grid.ColumnSpan="2" BorderBrush="#60847D" BorderThickness="1"
+                                Visibility="Collapsed" IsHitTestVisible="False" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="ListFocus" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
