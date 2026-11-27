@@ -13,14 +13,30 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace ProPig.Habits;
 
+internal enum DesktopSurface
+{
+    Workspace,
+    Memo,
+    Todo
+}
+
+internal enum DesktopTarget
+{
+    Memo,
+    Todo,
+    Habit,
+    Bucket,
+    Calculator
+}
+
 internal sealed class DesktopWorkspace : DockPanel, IDisposable
 {
     private const int ProtocolVersion = 1;
-    private static readonly Uri Entry = new(FirebaseHabits.WebOrigin + "/habit-tracker/desktop");
+    private readonly Uri entry;
     private readonly WebView2 web = new();
     private readonly DispatcherTimer timeout = new() { Interval = TimeSpan.FromSeconds(40) };
     private readonly CancellationTokenSource lifetime = new();
-    private readonly TextBlock status = new() { Text = "습관 트래커를 여는 중", TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock status = new() { Text = "ProPig 화면을 여는 중", TextWrapping = TextWrapping.Wrap };
     private readonly StackPanel notice = new() { Margin = new Thickness(16, 10, 16, 8) };
     private readonly Button recovery = new()
     {
@@ -29,7 +45,8 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         Margin = new Thickness(0, 8, 0, 0)
     };
     private readonly FirebaseHabits firebase;
-    private readonly Action recordsChanged;
+    private readonly Action? recordsChanged;
+    private readonly Action<DesktopTarget>? openTarget;
     private readonly Action retry;
     private readonly Func<Task> reconnect;
     private string? requestId;
@@ -42,10 +59,22 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
 
     internal string AccountUid { get; }
 
-    internal DesktopWorkspace(FirebaseHabits firebase, string uid, Action recordsChanged, Action retry, Func<Task> reconnect)
+    internal DesktopWorkspace(FirebaseHabits firebase, string uid, DesktopSurface surface, Action retry, Func<Task> reconnect,
+        Action? recordsChanged = null, Action<DesktopTarget>? openTarget = null)
     {
+        entry = new Uri(FirebaseHabits.WebOrigin + (surface switch
+        {
+            DesktopSurface.Workspace => "/propig/desktop",
+            DesktopSurface.Memo => "/propig/desktop/memo",
+            DesktopSurface.Todo => "/propig/desktop/todo",
+            _ => throw new ArgumentOutOfRangeException(nameof(surface))
+        }));
         this.firebase = firebase;
-        this.recordsChanged = recordsChanged;
+        if (surface == DesktopSurface.Workspace)
+        {
+            this.recordsChanged = recordsChanged;
+            this.openTarget = openTarget;
+        }
         this.retry = retry;
         this.reconnect = reconnect;
         AccountUid = uid;
@@ -63,7 +92,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         Children.Add(noticeFrame);
         Children.Add(web);
 
-        timeout.Tick += (_, _) => Fail("습관 트래커 연결에 시간이 걸리고 있습니다.");
+        timeout.Tick += (_, _) => Fail("ProPig 화면 연결에 시간이 걸리고 있습니다.");
         Loaded += Start;
     }
 
@@ -91,26 +120,26 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             core.NavigationCompleted += (_, e) =>
             {
                 if (!e.IsSuccess && e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
-                    Fail("습관 트래커 화면을 불러오지 못했습니다.");
+                    Fail("ProPig 화면을 불러오지 못했습니다.");
             };
-            core.ProcessFailed += (_, _) => Fail("습관 트래커 화면 연결이 끊겼습니다.");
+            core.ProcessFailed += (_, _) => Fail("ProPig 화면 연결이 끊겼습니다.");
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += OnWebMessage;
-            web.Source = Entry;
+            web.Source = entry;
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            Fail("습관 트래커를 열려면 Microsoft Edge WebView2 Runtime이 필요합니다.");
+            Fail("ProPig 화면을 열려면 Microsoft Edge WebView2 Runtime이 필요합니다.");
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or COMException)
         {
-            Fail("습관 트래커 화면을 시작하지 못했습니다.");
+            Fail("ProPig 화면을 시작하지 못했습니다.");
         }
     }
 
-    internal static bool IsWorkspacePage(string? value) =>
+    private bool IsWorkspacePage(string? value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri)
-        && (uri.AbsoluteUri == Entry.AbsoluteUri || uri.AbsoluteUri == Entry.AbsoluteUri + "/");
+        && (uri.AbsoluteUri == entry.AbsoluteUri || uri.AbsoluteUri == entry.AbsoluteUri + "/");
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
     {
@@ -137,6 +166,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         if (json.Length > 512) return;
         string? type;
         string? id;
+        string? target = null;
         try
         {
             using var payload = JsonDocument.Parse(json);
@@ -150,6 +180,8 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             type = rawType.GetString();
             id = rawId.GetString();
             if (!Guid.TryParseExact(id, "D", out _)) return;
+            if (type == "workspace-open" && message.TryGetProperty("target", out var rawTarget)
+                && rawTarget.ValueKind == JsonValueKind.String) target = rawTarget.GetString();
         }
         catch (JsonException) { return; }
 
@@ -168,13 +200,30 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
                     notice.Visibility = Visibility.Collapsed;
                     break;
                 case "workspace-sign-in-failed":
-                    Fail("습관 트래커에 연결하지 못했습니다.");
+                    Fail("ProPig 계정에 연결하지 못했습니다.");
                     break;
                 case "workspace-records-changed" when connected:
-                    recordsChanged();
+                    recordsChanged?.Invoke();
+                    break;
+                case "workspace-open" when connected && openTarget != null:
+                    OpenTarget(target);
                     break;
             }
         }
+    }
+
+    private void OpenTarget(string? target)
+    {
+        DesktopTarget? destination = target switch
+        {
+            "memo" => DesktopTarget.Memo,
+            "todo" => DesktopTarget.Todo,
+            "habit" => DesktopTarget.Habit,
+            "bucket" => DesktopTarget.Bucket,
+            "calculator" => DesktopTarget.Calculator,
+            _ => null
+        };
+        if (destination.HasValue) openTarget?.Invoke(destination.Value);
     }
 
     private async Task ConnectRenderer(string id, int document)
@@ -191,11 +240,11 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         }
         catch (HttpRequestException error) when (error.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
         {
-            if (navigation == document) Fail("습관 트래커를 열려면 Windows 앱 연결을 다시 승인해 주세요.", renewConnection: true);
+            if (navigation == document) Fail("ProPig 화면을 열려면 Windows 앱 연결을 다시 승인해 주세요.", renewConnection: true);
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or InvalidOperationException or IOException or JsonException or COMException)
         {
-            if (navigation == document) Fail("습관 트래커에 연결하지 못했습니다.");
+            if (navigation == document) Fail("ProPig 계정에 연결하지 못했습니다.");
         }
     }
 

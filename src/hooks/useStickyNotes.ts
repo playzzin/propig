@@ -10,9 +10,11 @@ import {
     getDocs,
     onSnapshot,
     query,
+    runTransaction,
     serverTimestamp,
     setDoc,
-    writeBatch
+    writeBatch,
+    type QuerySnapshot,
 } from 'firebase/firestore';
 import {
     StickyNote,
@@ -21,7 +23,7 @@ import {
     StickyNoteSchema
 } from '@/types/stickyNote';
 import { SmartMemoFields } from '@/types/stickyNote';
-import { normalizeSmartMemoPatch } from '@/utils/smartMemo';
+import { MAX_MEMO_LENGTH, normalizeSmartMemoPatch } from '@/utils/smartMemo';
 import {
     createId,
     clamp,
@@ -104,6 +106,101 @@ const parseFirestoreStickyNote = (id: string, data: unknown): StickyNote | null 
 
     return { id, ...parsed.data } as StickyNote;
 };
+
+const stickyNotesQuery = (uid: string) => query(collection(db, 'users', uid, 'stickyNotes'));
+
+function readStickyNotes(snapshot: QuerySnapshot): StickyNote[] {
+    const notes: StickyNote[] = [];
+    snapshot.forEach((document) => {
+        const note = parseFirestoreStickyNote(document.id, document.data());
+        if (note) notes.push(note);
+    });
+    return notes;
+}
+
+// Desktop widgets read the same documents without starting a local backup import.
+export function subscribeStickyNotes(
+    uid: string,
+    onNotes: (notes: StickyNote[], fromCache: boolean) => void,
+    onError: () => void,
+) {
+    const account = auth.currentUser;
+    if (account?.uid !== uid) throw new Error('로그인이 필요합니다.');
+    return onSnapshot(stickyNotesQuery(uid), { includeMetadataChanges: true }, (snapshot) => {
+        if (auth.currentUser === account) onNotes(readStickyNotes(snapshot), snapshot.metadata.fromCache);
+    }, () => {
+        if (auth.currentUser === account) onError();
+    });
+}
+
+type StickyNoteViewport = { scrollLeft: number; scrollTop: number; clientWidth?: number; clientHeight?: number };
+type StickyNoteLayout = Pick<StickyNote, 'x' | 'y' | 'w' | 'h' | 'zIndex'>;
+type StickyNoteTextDraft = { id: string; content: string; previousContent?: string; layout?: StickyNoteLayout };
+
+function defaultNoteLayout(notes: StickyNote[], viewport?: StickyNoteViewport): StickyNoteLayout {
+    const compact = typeof viewport?.clientWidth === 'number' && viewport.clientWidth <= 520;
+    const w = compact ? clamp((viewport?.clientWidth ?? 320) - 32, 240, 320) : 280;
+    const h = compact ? 340 : 240;
+    const x = viewport ? viewport.scrollLeft + (compact ? 16 : 80) : 120;
+    const y = viewport ? viewport.scrollTop + (compact ? 16 : 80) : 120;
+    const stagger = (notes.length % 10) * 22;
+    return {
+        x: clamp(x + stagger, 0, CANVAS_WIDTH - w),
+        y: clamp(y + stagger, 0, CANVAS_HEIGHT - h),
+        w, h, zIndex: getMaxZIndex(notes) + 1,
+    };
+}
+
+export function startStickyNoteText(notes: StickyNote[]): StickyNoteTextDraft {
+    return { id: createId(), content: '', layout: defaultNoteLayout(notes) };
+}
+
+export async function saveStickyNoteText(uid: string, { id, content, previousContent, layout }: StickyNoteTextDraft): Promise<void> {
+    const account = auth.currentUser;
+    if (account?.uid !== uid) throw new Error('로그인이 필요합니다.');
+    if (!id || id.includes('/')) throw new Error('메모를 찾을 수 없습니다.');
+    const creation = previousContent === undefined;
+    const maxLength = Math.max(MAX_MEMO_LENGTH, previousContent?.length ?? 0);
+    if ((creation && !content.trim()) || content.length > maxLength) {
+        throw new Error(`메모 내용을 최대 ${maxLength.toLocaleString('ko-KR')}자까지 입력해 주세요.`);
+    }
+
+    function assertAccount() {
+        if (auth.currentUser !== account) throw new Error('로그인 계정이 변경되었습니다.');
+    }
+
+    await ensureFirestorePersistence();
+    assertAccount();
+    const noteRef = doc(db, 'users', uid, 'stickyNotes', id);
+    await runTransaction(db, async (transaction) => {
+        assertAccount();
+        const snapshot = await transaction.get(noteRef);
+        assertAccount();
+        if (creation && !snapshot.exists()) {
+            transaction.set(noteRef, {
+                ...layout,
+                content,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            });
+            return;
+        }
+
+        // The note may be deleted or changed elsewhere while its editor is open.
+        if (!snapshot.exists()) throw new Error('다른 화면에서 이 메모를 삭제했습니다.');
+        const saved = snapshot.data();
+        if (saved.memoType === 'checklist' || saved.isArchived === true) {
+            throw new Error('이 메모는 앱 본창에서 편집해 주세요.');
+        }
+        const savedContent = typeof saved.content === 'string' ? saved.content : '';
+        if (savedContent === content) return; // Retrying a committed write is safe.
+        if (creation || savedContent !== previousContent) {
+            throw new Error('다른 화면에서 메모를 수정했습니다. 작성 중인 내용은 여기에 남아 있습니다.');
+        }
+        transaction.update(noteRef, { content, updatedAt: serverTimestamp() });
+    });
+    assertAccount();
+}
 
 // Shared across view remounts: a delete must follow every already-started write.
 const noteWriteChains = new Map<string, Promise<void>>();
@@ -388,10 +485,7 @@ export function useStickyNotes() {
                 if (didCancel) return;
                 setStorageError(null);
 
-                const col = collection(db, 'users', currentUser.uid, 'stickyNotes');
-                const q = query(col);
-
-                unsubscribeNotes = onSnapshot(q, (snapshot) => {
+                unsubscribeNotes = onSnapshot(stickyNotesQuery(currentUser.uid), (snapshot) => {
                     if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
                     // Auto Import Logic
                     if (snapshot.empty && !didAutoImportRef.current[currentUser.uid]) {
@@ -415,12 +509,8 @@ export function useStickyNotes() {
                         }
                     }
 
-                    const next: StickyNote[] = [];
-                    snapshot.forEach((documentSnapshot) => {
-                        const note = parseFirestoreStickyNote(documentSnapshot.id, documentSnapshot.data());
-                        if (note) next.push(note);
-                    });
-                    setNotes((currentNotes) => mergeSyncedNotes(currentNotes, next));
+                    const notes = readStickyNotes(snapshot);
+                    setNotes((currentNotes) => mergeSyncedNotes(currentNotes, notes));
                 }, (err) => {
                     console.error(err);
                     setStorageError('Firestore Connection Failed');
@@ -494,26 +584,14 @@ export function useStickyNotes() {
     }, [currentUser, flushFirestoreWrites]);
 
     // Actions
-    const createNote = useCallback((viewport?: { scrollLeft: number, scrollTop: number, clientWidth?: number, clientHeight?: number }) => {
+    const createNote = useCallback((viewport?: StickyNoteViewport) => {
         const nextId = createId();
 
         setNotes(prev => {
-            const maxZ = getMaxZIndex(prev);
-            const isCompactViewport = typeof viewport?.clientWidth === 'number' && viewport.clientWidth <= 520;
-            const noteWidth = isCompactViewport
-                ? clamp((viewport?.clientWidth ?? 320) - 32, 240, 320)
-                : 280;
-            const noteHeight = isCompactViewport ? 340 : 240;
-            const baseX = viewport ? viewport.scrollLeft + (isCompactViewport ? 16 : 80) : 120;
-            const baseY = viewport ? viewport.scrollTop + (isCompactViewport ? 16 : 80) : 120;
-            const stagger = (prev.length % 10) * 22;
-
             const next: StickyNote = {
+                ...defaultNoteLayout(prev, viewport),
                 id: nextId,
                 content: '',
-                x: clamp(baseX + stagger, 0, CANVAS_WIDTH - noteWidth),
-                y: clamp(baseY + stagger, 0, CANVAS_HEIGHT - noteHeight),
-                w: noteWidth, h: noteHeight, zIndex: maxZ + 1,
                 color: 'sun', tags: [], isPinned: false, isArchived: false,
                 createdAt: Date.now(), updatedAt: Date.now()
             };

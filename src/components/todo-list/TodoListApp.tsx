@@ -35,8 +35,11 @@ import { ensureFirestorePersistence } from '@/firebase/config';
 import {
   DEFAULT_TODO_CATEGORIES,
   TODO_ANYTIME_COMPLETION_KEY,
+  getTodoOccurrencesForDate as getOccurrencesForDate,
+  shouldTodoTaskOccurOn as shouldOccurOn,
   todoListService,
   type TodoCategoryOption,
+  type TodoOccurrence as Occurrence,
   type TodoRecurrenceMode,
   type TodoTask,
   type TodoTaskDraft,
@@ -45,12 +48,6 @@ import {
 type PlannerView = 'day' | 'week' | 'month' | 'list';
 type StatusFilter = 'all' | 'open' | 'done';
 type CategoryFilter = 'all' | string;
-
-interface Occurrence {
-  task: TodoTask;
-  dateKey: string;
-  completed: boolean;
-}
 
 const RECURRENCE_LABELS: Record<TodoRecurrenceMode, string> = {
   unscheduled: '날짜 없음',
@@ -263,36 +260,6 @@ function getCategoryMeta(categories: TodoCategoryOption[], categoryId: string): 
       updatedAt: '',
     }
   );
-}
-
-function shouldOccurOn(task: TodoTask, dateKey: string): boolean {
-  const recurrence = task.recurrence;
-
-  if (recurrence.mode === 'unscheduled') return false;
-  if (recurrence.mode === 'dates') return recurrence.dates.includes(dateKey);
-  if (dateKey < task.startDate) return false;
-  if (recurrence.mode === 'once') return dateKey === task.startDate;
-  if (recurrence.mode === 'daily') return true;
-
-  const date = parseDateKey(dateKey);
-  if (recurrence.mode === 'weekly') return recurrence.weekdays.includes(date.getDay());
-  return recurrence.monthDays.includes(date.getDate());
-}
-
-function getOccurrencesForDate(tasks: TodoTask[], dateKey: string): Occurrence[] {
-  return tasks
-    .filter((task) => shouldOccurOn(task, dateKey))
-    .map((task) => ({
-      task,
-      dateKey,
-      completed: task.completedDates.includes(dateKey),
-    }))
-    .sort((a, b) => {
-      if (a.completed !== b.completed) return a.completed ? 1 : -1;
-      const timeCompare = (a.task.time || '00:00').localeCompare(b.task.time || '00:00');
-      if (timeCompare !== 0) return timeCompare;
-      return new Date(b.task.createdAt).getTime() - new Date(a.task.createdAt).getTime();
-    });
 }
 
 function getOccurrencesForRange(tasks: TodoTask[], dateKeys: string[]): Occurrence[] {

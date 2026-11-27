@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { AuthProvider } from '@/contexts/AuthContext';
-import { isHabitDesktopRoute } from '@/lib/habitDesktopRoute';
+import { isDesktopWorkspaceRoute } from '@/lib/desktopWorkspaceRoute';
 import { Providers } from './providers';
 
 type RouteProvidersProps = {
@@ -12,6 +12,6 @@ type RouteProvidersProps = {
 
 export function RouteProviders({ children }: RouteProvidersProps) {
   const pathname = usePathname();
-  if (isHabitDesktopRoute(pathname)) return <AuthProvider>{children}</AuthProvider>;
+  if (isDesktopWorkspaceRoute(pathname)) return <AuthProvider>{children}</AuthProvider>;
   return <Providers>{children}</Providers>;
 }

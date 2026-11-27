@@ -23,13 +23,14 @@ globalThis.__stickyMock = {
  ensureFirestorePersistence:()=>persistenceHold?.promise ?? Promise.resolve(),
  collection:(_, ...p)=>p.join('/'),doc:(_, ...p)=>p.join('/'),query:x=>x,
  serverTimestamp:()=>123, onSnapshot:()=>()=>{}, getDocs:async()=>({docs:[]}),writeBatch:()=>({delete(){},commit:async()=>{}}),
+ runTransaction:async()=>{throw new Error('Desktop writer is covered by the Firestore emulator fixture.');},
  setDoc:async(path,data)=>{calls.push(['set',path,data]);if(writeFailure)throw new Error('permission-denied');if(hold){const h=hold;hold=null;await h.promise;}records.set(path,{...records.get(path),...data});},
  deleteDoc:async(path)=>{calls.push(['delete',path]);if(deleteFailure)throw new Error('permission-denied');records.delete(path);}
 };
 await build({entryPoints:[`${root}/src/hooks/useStickyNotes.ts`],outfile:outputFile,bundle:true,platform:'node',format:'cjs',nodePaths:[tools,runtime],plugins:[{name:'mocks',setup(b){
  b.onResolve({filter:/^react$/},()=>({path:`${tools}/react/index.js`,external:true}));
  b.onResolve({filter:/^(firebase\/firestore|@\/contexts\/AuthContext|@\/firebase\/config)$/},a=>({path:a.path,namespace:'mock'}));
- b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'const m=globalThis.__stickyMock; export const {auth,useAuth,db,ensureFirestorePersistence,collection,doc,query,serverTimestamp,onSnapshot,getDocs,writeBatch,setDoc,deleteDoc}=m;',loader:'js'}));
+ b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'const m=globalThis.__stickyMock; export const {auth,useAuth,db,ensureFirestorePersistence,collection,doc,query,runTransaction,serverTimestamp,onSnapshot,getDocs,writeBatch,setDoc,deleteDoc}=m;',loader:'js'}));
  b.onResolve({filter:/^@\//},a=>({path:`${root}/src/${a.path.slice(2)}.ts`}));
 }}]});
 const {useStickyNotes}=require(outputFile);
