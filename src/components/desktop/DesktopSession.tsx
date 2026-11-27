@@ -15,7 +15,7 @@ type WorkspaceMessageType =
   | 'workspace-records-changed'
   | 'workspace-open';
 
-export type DesktopTarget = 'memo' | 'todo' | 'habit' | 'bucket' | 'calculator';
+export type DesktopTarget = 'memo' | 'todo' | 'habit' | 'bucket' | 'calculator' | 'pc-widgets';
 
 type WebViewBridge = {
   postMessage: (message: { type: WorkspaceMessageType; version: 1; requestId: string; target?: DesktopTarget }) => void;
@@ -85,6 +85,7 @@ function WorkspaceStatus({
 interface DesktopSessionActions {
   notifyHabitWrite: () => void;
   openTarget: (target: DesktopTarget) => void;
+  requestId: string;
 }
 
 export function DesktopSession({ children, fullPage = false }: { fullPage?: boolean; children: (actions: DesktopSessionActions) => ReactNode }) {
@@ -199,12 +200,12 @@ export function DesktopSession({ children, fullPage = false }: { fullPage?: bool
     return <WorkspaceStatus title="계정을 연결하지 못했습니다" detail="Windows 앱에서 다시 연결해 주세요." />;
   }
 
-  if (fullPage && canShowWorkspace) return children({ notifyHabitWrite: notifyWorkspaceWrite, openTarget });
+  if (fullPage && canShowWorkspace) return children({ notifyHabitWrite: notifyWorkspaceWrite, openTarget, requestId: connection.requestId });
 
   return (
     <div className={styles.workspace}>
       {canShowWorkspace ? (
-        children({ notifyHabitWrite: notifyWorkspaceWrite, openTarget })
+        children({ notifyHabitWrite: notifyWorkspaceWrite, openTarget, requestId: connection.requestId })
       ) : (
         <WorkspaceStatus title="ProPig 계정을 확인하는 중" detail="Windows 앱에 연결된 계정의 기록을 준비합니다." pending />
       )}

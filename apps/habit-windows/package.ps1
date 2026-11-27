@@ -1,7 +1,7 @@
 param(
     [string]$PackageName = 'ProPig.Habits.Development',
     [string]$Publisher = 'CN=ProPig Development',
-    [string]$Version = '1.1.0.0'
+    [string]$Version = '1.2.0.0'
 )
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot 'HabitWindows.csproj'
@@ -16,9 +16,10 @@ if ($LASTEXITCODE) { exit $LASTEXITCODE }
 $manifest = [xml]@'
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap rescap">
-  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.1.0.0" ProcessorArchitecture="x64"/>
+         IgnorableNamespaces="uap uap3 rescap">
+  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.2.0.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>ProPig 습관</DisplayName>
     <PublisherDisplayName>ProPig</PublisherDisplayName>
@@ -33,6 +34,11 @@ $manifest = [xml]@'
       <uap:VisualElements DisplayName="ProPig 습관" Description="ProPig 습관 트래커와 바탕화면 위젯"
         BackgroundColor="#101821" Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"/>
+      <Extensions>
+        <uap3:Extension Category="windows.protocol">
+          <uap3:Protocol Name="propig-widgets" Parameters="&quot;%1&quot;" />
+        </uap3:Extension>
+      </Extensions>
     </Application>
   </Applications>
   <Capabilities>

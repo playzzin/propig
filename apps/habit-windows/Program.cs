@@ -27,6 +27,7 @@ internal sealed class Choices
     public double? Height { get; set; }
     public bool DesktopShortcutCreated { get; set; }
     public Dictionary<DesktopSurface, DesktopWidgetPlacement> DesktopWidgets { get; set; } = new();
+    public Dictionary<string, PcDeviceLink> PcDevices { get; set; } = new();
 }
 
 internal sealed class DesktopWidgetPlacement
@@ -81,21 +82,28 @@ internal sealed class HabitApp
     private bool configureWidget;
     private Task<bool>? desktopShortcutOperation;
     private string? shortcutNotice;
+    private readonly PcWidgetHub pcWidgets;
+    private string? pendingPanel;
 
     [STAThread]
-    public static void Main()
+    public static void Main(string[] args)
     {
+        var panel = PcWidgetWindows.FromCommandLine(args);
+        using var activation = new PcWidgetWindows.Activation();
+        if (!activation.Primary) { activation.Forward(panel); return; }
         var app = new Application { ShutdownMode = ShutdownMode.OnLastWindowClose };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
             Source = new Uri("pack://application:,,,/HabitTheme.xaml", UriKind.Absolute)
         });
-        var controller = new HabitApp();
+        var controller = new HabitApp { pendingPanel = panel };
+        activation.Listen(app.Dispatcher, controller.ActivatePanel);
         app.Run(controller.main);
     }
 
     private HabitApp()
     {
+        pcWidgets = new PcWidgetHub(firebase, () => choices.PcDevices, SaveChoices, lifetime.Token);
         main.MinWidth = 490;
         main.Width = RestoreDimension(null, main.Width, main.MinWidth, SystemParameters.WorkArea.Width);
         main.Height = RestoreDimension(null, main.Height, main.MinHeight, SystemParameters.WorkArea.Height);
@@ -120,6 +128,7 @@ internal sealed class HabitApp
                 ? Task.CompletedTask : CreateDesktopShortcut(showResult: false);
             await Run(async () => { await firebase.RestoreAsync(); await Read(); }, "연결을 확인하지 못했습니다.");
             refresh.Start();
+            _ = pcWidgets.Refresh();
             await createShortcut;
         };
         main.Closing += (_, eventArgs) =>
@@ -131,6 +140,7 @@ internal sealed class HabitApp
         main.Closed += (_, _) => Stop();
         refresh.Tick += async (_, _) =>
         {
+            _ = pcWidgets.Refresh();
             if (firebase.Uid == null || busy) return;
             await Run(Read, "기록을 새로 불러오지 못했습니다.", paintBefore: false);
         };
@@ -142,6 +152,35 @@ internal sealed class HabitApp
                 await Run(Read, "기록을 새로 불러오지 못했습니다.", paintBefore: false);
         };
         Paint();
+    }
+
+    private async void ActivatePanel(string id)
+    {
+        if (id == "main") { ShowMain(); return; }
+        if (firebase.Uid is not string uid) { pendingPanel = id; ShowMain(); return; }
+        pendingPanel = null;
+        if (id.Split('/') is ["press", var device, var revision, var slot] && PcWidgetWindows.ValidKey(revision,slot,out var layout,out var key))
+        {
+            ShowMain();
+            OpenDesktopWidget(DesktopSurface.MiraBox, "MiraBox");
+            var owner = desktopWidgets.GetValueOrDefault(DesktopSurface.MiraBox) ?? main;
+            var message = pcWidgets.PressKey(owner, uid, layout, key, device);
+            MessageBox.Show(owner,message,"ProPig · MiraBox");
+            return;
+        }
+        if (id.Split('/') is ["dock", var target] && PcWidgetActions.Names.TryGetValue(target,out var label))
+        {
+            ShowMain();
+            if (MessageBox.Show(main,$"이 PC에서 ‘{label}’ 동작을 열까요?","ProPig · 바로가기", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes && firebase.Uid == uid)
+            {
+                var result = await PcWidgetActions.Execute(target);
+                if (result != "Windows에 요청했습니다.") MessageBox.Show(main,result,"ProPig · 바로가기");
+            }
+            return;
+        }
+        var panel = PcWidgetWindows.Panels.FirstOrDefault(p => p.Id == id);
+        if (panel.Id == null) return;
+        OpenDesktopWidget(panel.Surface, panel.Label);
     }
 
     private async Task Run(Func<Task> operation, string failureMessage, bool paintBefore = true)
@@ -361,7 +400,7 @@ internal sealed class HabitApp
         void AttachRenderer()
         {
             renderer?.Dispose();
-            renderer = new DesktopWorkspace(firebase, uid, surface, AttachRenderer, ReconnectWorkspace);
+            renderer = new DesktopWorkspace(firebase, uid, surface, AttachRenderer, ReconnectWorkspace, pcWidgets: pcWidgets);
             body.Content = renderer;
         }
 
@@ -456,6 +495,7 @@ internal sealed class HabitApp
 
     private void PaintMain()
     {
+        if (pendingPanel is string requested && firebase.Uid != null) ActivatePanel(requested);
         var uid = firebase.Uid;
         if (desktopWorkspace != null && desktopWorkspace.AccountUid != uid) CloseWorkspace();
         var nativeScreen = uid == null || configureWidget;
@@ -485,6 +525,9 @@ internal sealed class HabitApp
         {
             AddAction(label, () => { OpenDesktopTarget(target); return Task.CompletedTask; });
         }
+        widgets.Items.Add(new Separator());
+        foreach (var panel in PcWidgetWindows.Panels)
+            AddAction(panel.Label, () => { OpenDesktopWidget(panel.Surface, panel.Label); return Task.CompletedTask; });
         widgets.Items.Add(new Separator());
         AddAction("습관 위젯 설정", () =>
         {
@@ -518,7 +561,7 @@ internal sealed class HabitApp
         desktopWorkspace = new DesktopWorkspace(
             firebase, uid, DesktopSurface.Workspace, () => OpenWorkspace(uid), ReconnectWorkspace,
             recordsChanged: () => { if (widget != null) workspaceRefresh.Start(); },
-            openTarget: OpenDesktopTarget);
+            openTarget: OpenDesktopTarget, openPcPanel: ActivatePanel);
         workspaceBody.Content = desktopWorkspace;
     }
 
