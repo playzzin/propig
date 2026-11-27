@@ -352,7 +352,9 @@ internal sealed class HabitApp
 
     private void OpenDesktopWidget(DesktopSurface surface, string surfaceName)
     {
-        if (firebase.Uid is not string uid || lifetime.IsCancellationRequested) return;
+        var market = surface == DesktopSurface.Market;
+        var uid = firebase.Uid;
+        if (lifetime.IsCancellationRequested || (!market && uid == null)) return;
         if (desktopWidgets.TryGetValue(surface, out var existing))
         {
             if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
@@ -363,11 +365,11 @@ internal sealed class HabitApp
         var placement = choices.DesktopWidgets.GetValueOrDefault(surface) ?? new DesktopWidgetPlacement();
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        const double minWidth = 280;
-        const double minHeight = 320;
+        var minWidth = market ? 350 : 280;
+        var minHeight = market ? 390 : 320;
         var window = new ProPigWindow($"ProPig {surfaceName} 위젯",
-            RestoreDimension(placement.Width, 374, minWidth, area.Width),
-            RestoreDimension(placement.Height, 550, minHeight, area.Height), surfaceName);
+            RestoreDimension(placement.Width, market ? 665 : 374, minWidth, area.Width),
+            RestoreDimension(placement.Height, market ? 650 : 550, minHeight, area.Height), surfaceName);
         window.MinWidth = minWidth;
         window.MinHeight = minHeight;
         window.Topmost = placement.Topmost;
@@ -389,6 +391,16 @@ internal sealed class HabitApp
             Child = new WrapPanel { Margin = new Thickness(11, 7, 6, 1), Children = { open, pin } }
         };
         DockPanel.SetDock(toolbar, Dock.Top);
+        if (market && toolbar.Child is WrapPanel toolbarActions)
+        {
+            var web = Button("웹에서 보기", () =>
+            {
+                OpenWebApp("/propig/market");
+                return Task.CompletedTask;
+            });
+            web.IsEnabled = true;
+            toolbarActions.Children.Add(web);
+        }
         var body = new ContentControl
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -396,12 +408,22 @@ internal sealed class HabitApp
         };
         window.Content = new DockPanel { Children = { toolbar, body } };
 
-        DesktopWorkspace? renderer = null;
+        IDisposable? renderer = null;
         void AttachRenderer()
         {
             renderer?.Dispose();
-            renderer = new DesktopWorkspace(firebase, uid, surface, AttachRenderer, ReconnectWorkspace, pcWidgets: pcWidgets);
-            body.Content = renderer;
+            if (market)
+            {
+                var view = new MarketWidgetView(AttachRenderer);
+                renderer = view;
+                body.Content = view;
+            }
+            else
+            {
+                var view = new DesktopWorkspace(firebase, uid!, surface, AttachRenderer, ReconnectWorkspace, pcWidgets: pcWidgets);
+                renderer = view;
+                body.Content = view;
+            }
         }
 
         window.Closing += (_, _) =>
@@ -433,6 +455,12 @@ internal sealed class HabitApp
     private void CloseDesktopWidgets()
     {
         foreach (var window in desktopWidgets.Values.ToArray()) window.Close();
+    }
+
+    private Task OpenMarketWidget()
+    {
+        OpenDesktopWidget(DesktopSurface.Market, "국내 증시");
+        return Task.CompletedTask;
     }
 
     private static double RestoreDimension(double? saved, double defaultSize, double minimum, double available) =>
@@ -528,6 +556,7 @@ internal sealed class HabitApp
         widgets.Items.Add(new Separator());
         foreach (var panel in PcWidgetWindows.Panels)
             AddAction(panel.Label, () => { OpenDesktopWidget(panel.Surface, panel.Label); return Task.CompletedTask; });
+        AddAction("국내 증시", OpenMarketWidget);
         widgets.Items.Add(new Separator());
         AddAction("습관 위젯 설정", () =>
         {
@@ -652,6 +681,12 @@ internal sealed class HabitApp
         }
         if (!compact && applicationId != null)
             actions.Children.Add(Button("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true)));
+        if (!compact)
+        {
+            var marketButton = Button("국내 증시 위젯 열기", OpenMarketWidget);
+            marketButton.IsEnabled = true;
+            actions.Children.Add(marketButton);
+        }
 
         if (layout != null)
         {

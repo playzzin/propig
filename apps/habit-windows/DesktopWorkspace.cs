@@ -17,7 +17,8 @@ internal enum DesktopSurface
 {
     Workspace,
     Memo,
-    Todo, System, Clock, Calendar, Usage, MiraBox, Dock
+    Todo, System, Clock, Calendar, Usage, MiraBox, Dock,
+    Market
 }
 
 internal enum DesktopTarget
