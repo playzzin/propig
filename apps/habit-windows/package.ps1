@@ -50,13 +50,19 @@ $manifest.Save((Join-Path $staging 'AppxManifest.xml'))
 Add-Type -AssemblyName System.Drawing
 $assets = New-Item -ItemType Directory -Path (Join-Path $staging 'Assets')
 $image = [System.Drawing.Image]::FromFile((Resolve-Path -LiteralPath $icon))
+$logos = @{ 'StoreLogo.png' = 50; 'Square150x150Logo.png' = 150; 'Square44x44Logo.png' = 44 }
+foreach ($size in 16, 24, 30, 32, 36, 48, 60, 64, 72, 96, 256) {
+    $logos["Square44x44Logo.targetsize-${size}_altform-unplated.png"] = $size
+    $logos["Square44x44Logo.targetsize-${size}_altform-lightunplated.png"] = $size
+}
 try {
-    foreach ($entry in @{ 'StoreLogo.png' = 50; 'Square150x150Logo.png' = 150; 'Square44x44Logo.png' = 44 }.GetEnumerator()) {
+    foreach ($entry in $logos.GetEnumerator()) {
         $bitmap = [System.Drawing.Bitmap]::new($entry.Value, $entry.Value)
         try {
             $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
             try {
                 $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
                 $graphics.DrawImage($image, [System.Drawing.Rectangle]::new(0, 0, $entry.Value, $entry.Value))
             } finally {
                 $graphics.Dispose()

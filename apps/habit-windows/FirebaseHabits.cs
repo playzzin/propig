@@ -32,7 +32,7 @@ internal sealed class FirebaseHabits
     private int sessionRevision;
 
     internal string? Uid => session?.Uid;
-    internal static string Today => DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    internal static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
 
     internal async Task ConnectAsync(CancellationToken cancel)
     {
@@ -112,17 +112,18 @@ internal sealed class FirebaseHabits
         return customToken;
     }
 
-    internal async Task<IReadOnlyList<Habit>> LoadAsync(string date)
+    internal async Task<IReadOnlyDictionary<DateOnly, IReadOnlyList<Habit>>> LoadAsync(IEnumerable<DateOnly> dates)
     {
         var token = await TokenAsync();
         using var request = new HttpRequestMessage(HttpMethod.Get, WorkspaceUrl());
         request.Headers.Authorization = new("Bearer", token);
         using var response = await Http.SendAsync(request);
-        if (response.StatusCode == HttpStatusCode.NotFound) return Array.Empty<Habit>();
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return dates.Distinct().ToDictionary(day => day, _ => (IReadOnlyList<Habit>)Array.Empty<Habit>());
         response.EnsureSuccessStatusCode();
         using var data = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var fields = data.RootElement.GetProperty("fields");
-        return ReadHabits(fields, date);
+        return dates.Distinct().ToDictionary(day => day, day => ReadHabits(fields, DateKey(day)));
     }
 
     internal static IReadOnlyList<Habit> ReadHabits(JsonElement fields, string date)
@@ -167,11 +168,12 @@ internal sealed class FirebaseHabits
         return habits;
     }
 
-    internal async Task SaveCheckAsync(string expectedUid, string date, Habit item, bool value)
+    internal async Task SaveCheckAsync(string expectedUid, DateOnly day, Habit item, bool value)
     {
-        if (expectedUid != Uid || date != Today) throw new InvalidOperationException("Account or day changed.");
+        if (expectedUid != Uid || day > Today) throw new InvalidOperationException("Account or day changed.");
         var token = await TokenAsync();
-        if (expectedUid != Uid || date != Today) throw new InvalidOperationException("Account or day changed.");
+        if (expectedUid != Uid || day > Today) throw new InvalidOperationException("Account or day changed.");
+        var date = DateKey(day);
         var path = $"records.{Field(date)}.{Field(item.Id)}";
         var query = $"?currentDocument.exists=true&updateMask.fieldPaths={Uri.EscapeDataString(path + ".checked")}"
             + $"&updateMask.fieldPaths={Uri.EscapeDataString(path + ".updatedAt")}";
@@ -197,6 +199,8 @@ internal sealed class FirebaseHabits
         using var response = await Http.SendAsync(request);
         response.EnsureSuccessStatusCode();
     }
+
+    private static string DateKey(DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static object Map(Dictionary<string, object> fields) => new { mapValue = new { fields } };
 
