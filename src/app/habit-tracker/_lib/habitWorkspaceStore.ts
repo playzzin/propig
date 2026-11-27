@@ -8,6 +8,8 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import type { DocumentData } from 'firebase/firestore';
+import type { StatsPeriod } from '@/components/habits/habitTrackerDateUtils';
+import type { DailyRecordLayout } from '@/components/habits/useDailyRecordLayout';
 
 export function createHabitWorkspaceRef(uid: string) {
   return doc(db, 'users', uid, 'habitTracker', 'workspace');
@@ -52,9 +54,27 @@ export async function deleteHabitRecord(uid: string, dateKey: string, habitId: s
   await updateDoc(ref, new FieldPath('records', dateKey, habitId), deleteField(), 'updatedAt', serverTimestamp());
 }
 
+export interface HabitViewPreferences {
+  dailyRecordLayout: DailyRecordLayout;
+  statsDefaultPeriod: StatsPeriod;
+}
+
+export function readHabitViewPreferences(value: unknown): Partial<HabitViewPreferences> {
+  if (!value || typeof value !== 'object') return {};
+  const { dailyRecordLayout, statsDefaultPeriod } = value as Record<string, unknown>;
+  return {
+    ...((dailyRecordLayout === 'detail' || dailyRecordLayout === 'simple') && { dailyRecordLayout }),
+    ...((statsDefaultPeriod === 'weekly' || statsDefaultPeriod === 'monthly') && { statsDefaultPeriod }),
+  };
+}
+
 type WorkspaceFields = Partial<Record<'categories' | 'habits' | 'records', unknown>>;
 
-async function updateHabitWorkspace(uid: string, edit: (data: DocumentData) => WorkspaceFields) {
+async function updateHabitWorkspace(
+  uid: string,
+  edit: (data: DocumentData) => WorkspaceFields & { viewPreferences?: Partial<HabitViewPreferences> },
+  preferenceField?: FieldPath,
+) {
   const ref = await habitWriteRef(uid);
   await runTransaction(db, async (transaction) => {
     assertHabitAccount(uid);
@@ -69,12 +89,23 @@ async function updateHabitWorkspace(uid: string, edit: (data: DocumentData) => W
       userId: uid,
     };
 
-    transaction.set(ref, fields, { mergeFields: Object.keys(fields) });
+    const mergeFields = Object.keys(fields).filter((field) => field !== 'viewPreferences');
+    transaction.set(ref, fields, { mergeFields: preferenceField ? [...mergeFields, preferenceField] : mergeFields });
   });
 }
 
 export function saveHabitWorkspaceFields(uid: string, fields: WorkspaceFields) {
   return updateHabitWorkspace(uid, () => fields);
+}
+
+export function saveHabitViewPreference<Key extends keyof HabitViewPreferences>(
+  uid: string,
+  key: Key,
+  value: HabitViewPreferences[Key],
+) {
+  const viewPreferences = readHabitViewPreferences({ [key]: value });
+  if (viewPreferences[key] === undefined) throw new Error('올바르지 않은 습관 보기 설정입니다.');
+  return updateHabitWorkspace(uid, () => ({ viewPreferences }), new FieldPath('viewPreferences', key));
 }
 
 export function deleteHabitWorkspaceEntries(uid: string, target: { categoryId: string } | { habitId: string }) {

@@ -90,18 +90,22 @@ const workspace = {
   categories: [{ id: 'routine', name: '루틴' }],
   habits: ['web', 'android.read', 'windows.walk'].map((id) => ({ id, mode: 'check' })),
   records: initialRecords,
+  viewPreferences: { preserved: 'keep' },
   unrelated: 'keep',
 };
 
 try {
   const webDb = createClient(uid);
   const androidDb = createClient(uid);
+  const desktopDb = createClient(uid);
   const ref = firestore.doc(webDb, workspacePath);
   const androidRef = firestore.doc(androidDb, workspacePath);
+  const desktopRef = firestore.doc(desktopDb, workspacePath);
   const auth = { currentUser: { uid } };
   let releasePersistence;
   let persistence = Promise.resolve();
   const web = createWebWriter(webDb, auth, () => persistence);
+  const desktop = createWebWriter(desktopDb, { currentUser: { uid } }, () => Promise.resolve());
 
   await firestore.setDoc(ref, workspace);
   const [webStart, androidStart, windowsStart] = await Promise.all([
@@ -125,6 +129,8 @@ try {
       'updatedAt', firestore.serverTimestamp(),
     ),
     windowsRequest(uid, { checked: true }),
+    web.saveHabitViewPreference(uid, 'statsDefaultPeriod', 'monthly'),
+    desktop.saveHabitViewPreference(uid, 'dailyRecordLayout', 'detail'),
   ]);
   assert.equal(windowsSave.status, 200, await windowsSave.clone().text());
 
@@ -137,20 +143,32 @@ try {
   assert.deepEqual(saved.records[yesterday], initialRecords[yesterday]);
   assert.deepEqual(saved.categories, workspace.categories);
   assert.deepEqual(saved.habits, workspace.habits);
+  assert.deepEqual(saved.viewPreferences, {
+    preserved: 'keep',
+    statsDefaultPeriod: 'monthly',
+    dailyRecordLayout: 'detail',
+  });
+  const desktopSaved = (await firestore.getDocFromServer(desktopRef)).data();
+  assert.deepEqual(desktopSaved.records, saved.records);
+  assert.deepEqual(desktopSaved.viewPreferences, saved.viewPreferences);
   assert.equal(saved.unrelated, workspace.unrelated);
 
   const foreignSave = await windowsRequest(otherUid, { checked: false });
   assert.equal(foreignSave.status, 403, await foreignSave.text());
 
   persistence = new Promise((resolve) => { releasePersistence = resolve; });
-  const pendingWebSave = web.saveHabitRecordPatch(uid, today, 'web', { checked: false });
-  const rejected = assert.rejects(pendingWebSave, /계정/);
+  const rejected = [
+    assert.rejects(web.saveHabitRecordPatch(uid, today, 'web', { checked: false }), /계정/),
+    assert.rejects(web.saveHabitViewPreference(uid, 'dailyRecordLayout', 'simple'), /계정/),
+  ];
   auth.currentUser = { uid: otherUid };
   releasePersistence();
-  await rejected;
-  assert.deepEqual((await firestore.getDocFromServer(ref)).data().records, saved.records);
+  await Promise.all(rejected);
+  const unchanged = (await firestore.getDocFromServer(ref)).data();
+  assert.deepEqual(unchanged.records, saved.records);
+  assert.deepEqual(unchanged.viewPreferences, saved.viewPreferences);
 
-  console.log('PASS real Firestore emulator: web writer, Android SDK-equivalent and Windows REST masks preserve concurrent edits; account fences verified');
+  console.log('PASS Firestore emulator: web, Windows workspace, Windows widget and Android preserve concurrent records and account preferences; account fences verified');
 } finally {
   await Promise.all(apps.map(async ({ app, db }) => {
     await firestore.terminate(db);
