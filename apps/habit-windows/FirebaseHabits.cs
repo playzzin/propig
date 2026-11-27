@@ -18,16 +18,18 @@ internal sealed record Session(string Uid, string RefreshToken);
 internal sealed class FirebaseHabits
 {
     private const string Project = "propig-63524";
-    private const string WebOrigin = "https://propig-63524.web.app";
+    internal const string WebOrigin = "https://propig-63524.web.app";
     private const string FunctionOrigin = "https://asia-northeast3-propig-63524.cloudfunctions.net";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
     internal static readonly string AppDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProPig", "Habits");
     private readonly string sessionPath = Path.Combine(AppDirectory, "session.bin");
+    private readonly SemaphoreSlim tokenRefresh = new(1, 1);
     private string? apiKey;
     private Session? session;
     private string? idToken;
     private DateTimeOffset expires;
+    private int sessionRevision;
 
     internal string? Uid => session?.Uid;
     internal static string Today => DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -63,6 +65,7 @@ internal sealed class FirebaseHabits
         {
             var bytes = ProtectedData.Unprotect(await File.ReadAllBytesAsync(sessionPath), null, DataProtectionScope.CurrentUser);
             session = JsonSerializer.Deserialize<Session>(bytes);
+            sessionRevision++;
             CryptographicOperations.ZeroMemory(bytes);
         }
         catch (Exception failure) when (failure is CryptographicException or JsonException or IOException)
@@ -85,10 +88,28 @@ internal sealed class FirebaseHabits
 
     internal void SignOut()
     {
+        sessionRevision++;
         session = null;
         idToken = null;
         expires = default;
         File.Delete(sessionPath);
+    }
+
+    internal async Task<string> CreateWorkspaceSessionAsync(string expectedUid, CancellationToken cancel)
+    {
+        if (Uid != expectedUid) throw new InvalidOperationException("Account changed.");
+        var revision = sessionRevision;
+        var bearer = await TokenAsync(cancel);
+        if (revision != sessionRevision) throw new InvalidOperationException("Account changed.");
+        var response = await Post($"{FunctionOrigin}/createHabitDesktopWorkspaceSession",
+            new { data = new { } }, cancel, bearer);
+        cancel.ThrowIfCancellationRequested();
+        if (revision != sessionRevision || Uid != expectedUid) throw new InvalidOperationException("Account changed.");
+        if (response.ValueKind != JsonValueKind.Object || !response.TryGetProperty("result", out var result) ||
+            result.ValueKind != JsonValueKind.Object || !result.TryGetProperty("customToken", out var value) ||
+            value.ValueKind != JsonValueKind.String || value.GetString() is not { Length: > 0 } customToken)
+            throw new InvalidDataException("The workspace session is unavailable.");
+        return customToken;
     }
 
     internal async Task<IReadOnlyList<Habit>> LoadAsync(string date)
@@ -226,22 +247,30 @@ internal sealed class FirebaseHabits
         return apiKey ?? throw new InvalidDataException("Firebase configuration is unavailable.");
     }
 
-    private async Task<string> TokenAsync()
+    private async Task<string> TokenAsync(CancellationToken cancel = default)
     {
-        var current = session ?? throw new InvalidOperationException("Sign in first.");
-        if (idToken != null && expires > DateTimeOffset.UtcNow.AddMinutes(1)) return idToken;
-        var key = await KeyAsync();
-        using var body = new FormUrlEncodedContent(new Dictionary<string, string>
+        await tokenRefresh.WaitAsync(cancel);
+        try
         {
-            ["grant_type"] = "refresh_token", ["refresh_token"] = current.RefreshToken
-        });
-        using var response = await Http.PostAsync($"https://securetoken.googleapis.com/v1/token?key={Uri.EscapeDataString(key)}", body);
-        response.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        if (session != current || json.RootElement.GetProperty("user_id").GetString() != current.Uid)
-            throw new InvalidOperationException("Account changed.");
-        Store(json.RootElement, fromRefresh: true);
-        return idToken ?? throw new InvalidDataException("No ID token.");
+            var current = session ?? throw new InvalidOperationException("Sign in first.");
+            if (idToken != null && expires > DateTimeOffset.UtcNow.AddMinutes(1)) return idToken;
+            var key = await KeyAsync(cancel);
+            using var body = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token", ["refresh_token"] = current.RefreshToken
+            });
+            using var response = await Http.PostAsync($"https://securetoken.googleapis.com/v1/token?key={Uri.EscapeDataString(key)}", body, cancel);
+            response.EnsureSuccessStatusCode();
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancel));
+            if (!ReferenceEquals(session, current) || json.RootElement.GetProperty("user_id").GetString() != current.Uid)
+                throw new InvalidOperationException("Account changed.");
+            Store(json.RootElement, fromRefresh: true);
+            return idToken ?? throw new InvalidDataException("No ID token.");
+        }
+        finally
+        {
+            tokenRefresh.Release();
+        }
     }
 
     private void Store(JsonElement data, bool fromRefresh)
@@ -263,6 +292,7 @@ internal sealed class FirebaseHabits
             CryptographicOperations.ZeroMemory(plain);
         }
         session = next;
+        if (!fromRefresh) sessionRevision++;
         idToken = nextId;
         expires = DateTimeOffset.UtcNow.AddSeconds(seconds);
     }
@@ -278,9 +308,11 @@ internal sealed class FirebaseHabits
         return !string.IsNullOrEmpty(uid) ? uid : throw new InvalidDataException("Firebase UID is unavailable.");
     }
 
-    private static async Task<JsonElement> Post(string url, object body, CancellationToken cancel)
+    private static async Task<JsonElement> Post(string url, object body, CancellationToken cancel, string? bearer = null)
     {
-        using var response = await Http.PostAsJsonAsync(url, body, cancel);
+        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
+        if (bearer != null) request.Headers.Authorization = new("Bearer", bearer);
+        using var response = await Http.SendAsync(request, cancel);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancel);
     }

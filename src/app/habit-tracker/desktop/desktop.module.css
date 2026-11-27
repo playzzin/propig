@@ -1,0 +1,77 @@
+.workspace {
+  --header-h: 0px;
+
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.statusScreen {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  padding: clamp(1rem, 4vw, 2rem);
+  overflow: auto;
+  place-items: center;
+  color: var(--text-main);
+  background: var(--bg-base);
+}
+
+.statusPanel {
+  width: min(100%, 29rem);
+  padding: clamp(1.25rem, 5vw, 2.125rem);
+  border: 1px solid var(--border-medium);
+  border-radius: 1.125rem;
+  background: var(--bg-card);
+}
+
+.statusTitle {
+  margin: 0;
+  color: var(--text-bright);
+  font-size: clamp(1.25rem, 4vw, 1.5rem);
+  font-weight: 700;
+  line-height: 1.4;
+  word-break: keep-all;
+}
+
+.statusDetail {
+  margin: 0.6rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.925rem;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.indicator {
+  display: block;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-bottom: 1rem;
+  border: 2px solid var(--border-medium);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 850ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indicator {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .indicator {
+    border-color: ButtonText;
+    border-top-color: Highlight;
+  }
+}

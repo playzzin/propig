@@ -5,10 +5,12 @@ import {
   browserSessionPersistence,
   getAuth,
   GoogleAuthProvider,
+  inMemoryPersistence,
   indexedDBLocalPersistence,
   initializeAuth,
 } from 'firebase/auth';
 import { enableMultiTabIndexedDbPersistence, getFirestore } from 'firebase/firestore';
+import { isHabitDesktopRoute } from '@/lib/habitDesktopRoute';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -24,11 +26,15 @@ const shouldDebugFirebase =
   (process.env.NEXT_PUBLIC_DEBUG_FIREBASE ?? '').toLowerCase() === 'true';
 
 const app = initializeApp(firebaseConfig);
+const desktopDocument = typeof window !== 'undefined' && isHabitDesktopRoute(window.location.pathname) &&
+  Boolean((window as Window & { chrome?: { webview?: unknown } }).chrome?.webview);
 
 const initializeBrowserAuth = () => {
   try {
     return initializeAuth(app, {
-      persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
+      persistence: desktopDocument
+        ? inMemoryPersistence
+        : [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
     });
   } catch {
     return getAuth(app);
@@ -56,7 +62,7 @@ export const googleProvider = new GoogleAuthProvider();
 let persistenceBootstrap: Promise<void> | null = null;
 
 export const ensureFirestorePersistence = (): Promise<void> => {
-  if (typeof window === 'undefined') return Promise.resolve();
+  if (typeof window === 'undefined' || desktopDocument) return Promise.resolve();
   if (persistenceBootstrap) return persistenceBootstrap;
 
   persistenceBootstrap = enableMultiTabIndexedDbPersistence(db).catch(() => undefined);

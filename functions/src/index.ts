@@ -25,4 +25,4 @@ export * from './api/openRouterUsage';
 export * from './api/hostingApi';
 export * from './triggers/onImageDelete';
 export { setMemoReminder, dispatchMemoReminders } from './triggers/memoReminders';
-export { createHabitDesktopLogin, redeemHabitDesktopLogin } from './habitDesktopAuth';
+export { createHabitDesktopLogin, createHabitDesktopWorkspaceSession, redeemHabitDesktopLogin } from './habitDesktopAuth';

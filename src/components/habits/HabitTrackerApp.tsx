@@ -45,8 +45,11 @@ import {
   createHabitWorkspaceRef,
   deleteHabitRecord,
   deleteHabitWorkspaceEntries,
+  readHabitViewPreferences,
   saveHabitRecordPatch,
+  saveHabitViewPreference,
   saveHabitWorkspaceFields,
+  type HabitViewPreferences,
 } from '@/app/habit-tracker/_lib/habitWorkspaceStore';
 import {
   Area,
@@ -103,6 +106,12 @@ import {
 } from './habitTrackerDateUtils';
 
 export type HabitView = 'daily' | 'stats' | 'manage' | 'manual';
+const VIEW_TABS = [
+  { view: 'daily', href: '/habit-tracker', label: '기록', icon: CalendarDays },
+  { view: 'stats', href: '/habit-tracker/stats', label: '통계', icon: BarChart3 },
+  { view: 'manage', href: '/habit-tracker/manage', label: '관리', icon: Tags },
+  { view: 'manual', href: '/habit-tracker/manual', label: '설명서', icon: BookOpen },
+] as const;
 type ManageSection = 'habits' | 'categories';
 type RecordMode =
   | 'check'
@@ -119,6 +128,8 @@ type ItemStatsChartMode = 'progress' | 'value';
 
 interface HabitTrackerAppProps {
   initialView?: HabitView;
+  onViewChange?: (next: HabitView) => void;
+  onWorkspaceWrite?: () => void;
 }
 
 interface HabitCategory {
@@ -192,6 +203,7 @@ interface HabitWorkspace {
   categories: HabitCategory[];
   habits: HabitItem[];
   records: Record<string, Record<string, HabitRecord>>;
+  viewPreferences?: Partial<HabitViewPreferences>;
 }
 
 interface StatsSummary {
@@ -575,6 +587,7 @@ function normalizeWorkspace(value: unknown): HabitWorkspace {
     categories: sortCategoriesByOrder(categories),
     habits: sortHabitsByOrder(habits, categories),
     records,
+    viewPreferences: readHabitViewPreferences(value.viewPreferences),
   };
 }
 
@@ -2059,8 +2072,11 @@ const ViewTabs = styled.nav`
   }
 `;
 
-const ViewTab = styled(Link)<{ $active: boolean }>`
+const viewTabStyles = css<{ $active: boolean }>`
   min-width: 0;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
   white-space: nowrap;
   &:focus-visible { outline: 2px solid var(--habit-green); outline-offset: 2px; }
   border-radius: 6px;
@@ -2103,6 +2119,9 @@ const ViewTab = styled(Link)<{ $active: boolean }>`
     svg { display: none; }
   }
 `;
+
+const ViewTab = styled(Link)<{ $active: boolean }>`${viewTabStyles}`;
+const ViewTabButton = styled.button<{ $active: boolean }>`${viewTabStyles}`;
 
 const IconButton = styled.button<{ $tone?: 'primary' | 'ghost' | 'danger' | 'warm' }>`
   min-height: 38px;
@@ -5550,7 +5569,7 @@ export function HabitTrackerApp(props: HabitTrackerAppProps) {
   return <HabitTrackerAccount key={currentUser?.uid ?? 'guest'} {...props} />;
 }
 
-function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
+function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceWrite }: HabitTrackerAppProps) {
   const {
     currentUser,
     loading: authLoading,
@@ -5572,6 +5591,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   }, [recordDrafts, savedWorkspace]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const pageRef = useRef<HTMLElement>(null);
   const dailyComposerRef = useRef<HTMLDetailsElement>(null);
   const habitNameInputRef = useRef<HTMLInputElement>(null);
   const readyRef = useRef(false);
@@ -5583,8 +5603,13 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   const [pendingWrites, setPendingWrites] = useState(0);
   const isSaving = pendingWrites > 0;
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
-  const { dailyRecordLayout, setDailyRecordLayout } = useDailyRecordLayout('simple');
-  const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('weekly');
+  const { dailyRecordLayout: browserRecordLayout, setDailyRecordLayout: setBrowserRecordLayout } = useDailyRecordLayout('simple');
+  const [dailyRecordLayoutOverride, setDailyRecordLayoutOverride] = useState<DailyRecordLayout | null>(null);
+  const defaultDailyRecordLayout = savedWorkspace.viewPreferences?.dailyRecordLayout ?? browserRecordLayout;
+  const dailyRecordLayout = dailyRecordLayoutOverride ?? defaultDailyRecordLayout;
+  const [statsPeriodOverride, setStatsPeriod] = useState<StatsPeriod | null>(null);
+  const savedStatsPeriod = savedWorkspace.viewPreferences?.statsDefaultPeriod;
+  const statsPeriod = statsPeriodOverride ?? savedStatsPeriod ?? 'weekly';
   const [selectedStatsHabitId, setSelectedStatsHabitId] = useState('');
   const [itemStatsChartMode, setItemStatsChartMode] = useState<ItemStatsChartMode>('progress');
   const [selectedStatsMetricId, setSelectedStatsMetricId] = useState('');
@@ -5596,6 +5621,10 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   const [habitDraft, setHabitDraft] = useState<HabitDraft>(() => createHabitDraft());
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [showAdvancedHabitSettings, setShowAdvancedHabitSettings] = useState(false);
+
+  useEffect(() => {
+    if (onViewChange) pageRef.current?.scrollTo(0, 0);
+  }, [initialView, onViewChange]);
 
   const orderedCategories = useMemo(() => sortCategoriesByOrder(workspace.categories), [workspace.categories]);
   const orderedHabits = useMemo(() => sortHabitsByOrder(workspace.habits, workspace.categories), [workspace.categories, workspace.habits]);
@@ -5682,7 +5711,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   }, [editingHabitId, habitDraft.categoryId, habitDraft.suggestedCategoryName, orderedCategories, selectedCategoryId]);
 
   const runWorkspaceWrite = useCallback(
-    async (write: (uid: string) => Promise<void>, message: string, toastId: string) => {
+    async (write: (uid: string) => Promise<void>, message: string, toastId: string, notifyHost = true) => {
       if (!currentUser) {
         toast.error('로그인 후 습관 데이터를 저장할 수 있습니다.');
         return false;
@@ -5693,8 +5722,6 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       try {
         await write(currentUser.uid);
         if (!mountedRef.current || auth.currentUser?.uid !== currentUser.uid) return false;
-        toast.success(message, { id: toastId });
-        return true;
       } catch (error) {
         if (mountedRef.current && auth.currentUser?.uid === currentUser.uid) {
           console.error('Failed to save habit tracker workspace:', error);
@@ -5704,13 +5731,16 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
       } finally {
         if (mountedRef.current) setPendingWrites((count) => count - 1);
       }
+      toast.success(message, { id: toastId });
+      if (notifyHost) onWorkspaceWrite?.();
+      return true;
     },
-    [currentUser, hasLoaded],
+    [currentUser, hasLoaded, onWorkspaceWrite],
   );
 
   const persistWorkspace = useCallback((
     nextWorkspace: HabitWorkspace,
-    fields: (keyof HabitWorkspace)[],
+    fields: (keyof Pick<HabitWorkspace, 'categories' | 'habits' | 'records'>)[],
     message: string,
     toastId: string,
   ) => {
@@ -6030,11 +6060,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   const hasHabitTrackerData = orderedCategories.length > 0 || orderedHabits.length > 0 || storedRecordDayCount > 0;
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (initialView !== 'stats') {
-      setStatsUrlReady(true);
-      return;
-    }
+    if (onViewChange || initialView !== 'stats') return;
 
     const params = new URLSearchParams(window.location.search);
     const period = params.get('period');
@@ -6047,7 +6073,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     if (isItemStatsChartModeValue(chartMode)) setItemStatsChartMode(chartMode);
     if (metricId) setSelectedStatsMetricId(metricId);
     setStatsUrlReady(true);
-  }, [initialView]);
+  }, [initialView, onViewChange]);
 
   useEffect(() => {
     if (!selectedHabitHasMetricBreakdown) {
@@ -6063,10 +6089,11 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   }, [selectedHabitHasMetricBreakdown, selectedHabitMetricDefinitions, selectedStatsMetricId]);
 
   useEffect(() => {
-    if (initialView !== 'stats' || !statsUrlReady || typeof window === 'undefined') return;
+    if (onViewChange || initialView !== 'stats' || !statsUrlReady) return;
 
     const params = new URLSearchParams(window.location.search);
-    params.set('period', statsPeriod);
+    if (statsPeriodOverride) params.set('period', statsPeriodOverride);
+    else params.delete('period');
     params.set('chart', itemStatsChartMode);
 
     if (selectedStatsHabit?.id) {
@@ -6093,9 +6120,10 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
     selectedHabitHasMetricBreakdown,
     selectedStatsHabit,
     selectedValueMetric,
-    statsPeriod,
+    statsPeriodOverride,
     statsUrlReady,
     initialView,
+    onViewChange,
   ]);
 
   const patchRecordForDate = useCallback(
@@ -6216,6 +6244,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
         () => waitForPendingWrites(db),
         '습관 기록을 동기화했습니다.',
         'habit-manual-save',
+        false,
       );
     }
   }, [recordDrafts, runWorkspaceWrite, saveRecordForDate, savedWorkspace.habits]);
@@ -6625,13 +6654,30 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   );
 
   const handleDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
-    setDailyRecordLayout(layout);
-  }, [setDailyRecordLayout]);
+    setDailyRecordLayoutOverride(layout);
+    setBrowserRecordLayout(layout);
+  }, [setBrowserRecordLayout]);
 
-  const handleDefaultDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
-    handleDailyRecordLayoutChange(layout);
-    toast.success('기록 기본 방식이 저장되었습니다.', { id: 'habit-default-record-layout' });
-  }, [handleDailyRecordLayoutChange]);
+  const handleDefaultDailyRecordLayoutChange = useCallback(async (layout: DailyRecordLayout) => {
+    const saved = await runWorkspaceWrite(
+      (uid) => saveHabitViewPreference(uid, 'dailyRecordLayout', layout),
+      '기록 기본 방식이 저장되었습니다.',
+      'habit-default-record-layout',
+    );
+    if (saved) {
+      setBrowserRecordLayout(layout);
+      setDailyRecordLayoutOverride(null);
+    }
+  }, [runWorkspaceWrite, setBrowserRecordLayout]);
+
+  const handleSaveStatsDefaultPeriod = useCallback(async () => {
+    const saved = await runWorkspaceWrite(
+      (uid) => saveHabitViewPreference(uid, 'statsDefaultPeriod', statsPeriod),
+      '통계 기본 보기가 저장되었습니다.',
+      'habit-default-stats-period',
+    );
+    if (saved) setStatsPeriod((override) => override === statsPeriod ? null : override);
+  }, [runWorkspaceWrite, statsPeriod]);
 
   const addHabitDraftOption = useCallback(() => {
     setHabitDraft((prev) => ({
@@ -7782,7 +7828,15 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               기록은 오늘 한 일을 남기는 것이고, 통계는 내가 얼마나 꾸준히 했는지 보여주는 점수표입니다.
               관리 화면에서는 습관을 만들고, 기록 화면에서는 매일 표시하고, 통계 화면에서는 잘한 점과 더 해볼 점을 확인합니다.
             </p>
-            <ManualQuickNav aria-label="설명서 목차">
+            <ManualQuickNav
+              aria-label="설명서 목차"
+              onClick={onViewChange ? (event) => {
+                const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href^="#"]') : null;
+                if (!link) return;
+                event.preventDefault();
+                document.getElementById(link.hash.slice(1))?.scrollIntoView();
+              } : undefined}
+            >
               <a href="#manual-start"><Check size={13} /> 시작 순서</a>
               <a href="#manual-workflow"><Activity size={13} /> 흐름</a>
               <a href="#manual-sync"><Save size={13} /> 동기화</a>
@@ -7815,11 +7869,17 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               </ManualHeroStat>
             </ManualHeroStats>
             <ManualInlineActions>
-              <IconButton as={Link} href="/habit-tracker/manage" $tone="primary">
+              <IconButton as={Link} href="/habit-tracker/manage" $tone="primary" onClick={onViewChange ? (event) => {
+                event.preventDefault();
+                onViewChange('manage');
+              } : undefined}>
                 <Plus size={16} />
                 항목 만들기
               </IconButton>
-              <IconButton as={Link} href="/habit-tracker/stats" $tone="ghost">
+              <IconButton as={Link} href="/habit-tracker/stats" $tone="ghost" onClick={onViewChange ? (event) => {
+                event.preventDefault();
+                onViewChange('stats');
+              } : undefined}>
                 <BarChart3 size={16} />
                 통계 보기
               </IconButton>
@@ -8691,7 +8751,7 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
   };
 
   return (
-    <Page id="content-area">
+    <Page id="content-area" ref={pageRef}>
       <Shell>
         <HeaderBand>
           <HeaderCopy>
@@ -8704,22 +8764,20 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
 
           <HeaderActions>
             <ViewTabs aria-label="습관 트래커 화면">
-              <ViewTab href="/habit-tracker" $active={initialView === 'daily'} aria-current={initialView === 'daily' ? 'page' : undefined}>
-                <CalendarDays size={15} />
-                기록
-              </ViewTab>
-              <ViewTab href="/habit-tracker/stats" $active={initialView === 'stats'} aria-current={initialView === 'stats' ? 'page' : undefined}>
-                <BarChart3 size={15} />
-                통계
-              </ViewTab>
-              <ViewTab href="/habit-tracker/manage" $active={initialView === 'manage'} aria-current={initialView === 'manage' ? 'page' : undefined}>
-                <Tags size={15} />
-                관리
-              </ViewTab>
-              <ViewTab href="/habit-tracker/manual" $active={initialView === 'manual'} aria-current={initialView === 'manual' ? 'page' : undefined}>
-                <BookOpen size={15} />
-                설명서
-              </ViewTab>
+              {VIEW_TABS.map(({ view, href, label, icon: Icon }) => {
+                const active = initialView === view;
+                const current = active ? 'page' : undefined;
+                const content = <><Icon size={15} />{label}</>;
+                return onViewChange ? (
+                  <ViewTabButton key={view} type="button" $active={active} aria-current={current} onClick={() => onViewChange(view)}>
+                    {content}
+                  </ViewTabButton>
+                ) : (
+                  <ViewTab key={view} href={href} $active={active} aria-current={current}>
+                    {content}
+                  </ViewTab>
+                );
+              })}
             </ViewTabs>
             <SyncPill $state={syncState} role="status" aria-live="polite">
               {syncState === 'saving' ? <RefreshCcw size={14} /> : <Save size={14} />}
@@ -8748,10 +8806,12 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               <GateEyebrow>PERSONAL HABIT SPACE</GateEyebrow>
               <h2>오늘의 작은 기록을<br />내 리듬으로 쌓아보세요.</h2>
               <p>로그인하면 카테고리, 습관 항목, 날짜별 기록과 통계가 내 계정 기록장에 안전하게 이어집니다.</p>
-              <IconButton type="button" $tone="primary" onClick={() => void handleLogin()} disabled={!isConfigured || authLoading}>
-                <LogIn size={16} />
-                Google 로그인
-              </IconButton>
+              {onViewChange ? <PanelHint>Windows 앱에서 계정 연결을 확인해 주세요.</PanelHint> : (
+                <IconButton type="button" $tone="primary" onClick={() => void handleLogin()} disabled={!isConfigured || authLoading}>
+                  <LogIn size={16} />
+                  Google 로그인
+                </IconButton>
+              )}
               <GateTrustLine>
                 <Check size={14} aria-hidden="true" />
                 한 번 로그인하면 언제든 같은 기록을 이어서 볼 수 있어요.
@@ -9028,23 +9088,25 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
                       <Settings2 size={16} />
                       기록 기본 방식
                     </strong>
-                    <span>하루씩 자세히 기록하거나, 일주일 기록을 한눈에 볼 수 있어요.</span>
+                    <span>웹과 Windows 앱을 열 때 사용할 기록 보기를 선택합니다.</span>
                   </div>
                   <DefaultRecordLayoutActions aria-label="습관 기록 기본 방식 선택">
                     <DefaultRecordLayoutButton
                       type="button"
-                      $active={dailyRecordLayout === 'detail'}
-                      onClick={() => handleDefaultDailyRecordLayoutChange('detail')}
-                      aria-pressed={dailyRecordLayout === 'detail'}
+                      $active={defaultDailyRecordLayout === 'detail'}
+                      onClick={() => void handleDefaultDailyRecordLayoutChange('detail')}
+                      aria-pressed={defaultDailyRecordLayout === 'detail'}
+                      disabled={controlsDisabled}
                     >
                       <CalendarDays size={16} />
                       <span>하루 보기</span>
                     </DefaultRecordLayoutButton>
                     <DefaultRecordLayoutButton
                       type="button"
-                      $active={dailyRecordLayout === 'simple'}
-                      onClick={() => handleDefaultDailyRecordLayoutChange('simple')}
-                      aria-pressed={dailyRecordLayout === 'simple'}
+                      $active={defaultDailyRecordLayout === 'simple'}
+                      onClick={() => void handleDefaultDailyRecordLayoutChange('simple')}
+                      aria-pressed={defaultDailyRecordLayout === 'simple'}
+                      disabled={controlsDisabled}
                     >
                       <ListPlus size={16} />
                       <span>주간 보기</span>
@@ -9430,6 +9492,26 @@ function HabitTrackerAccount({ initialView = 'daily' }: HabitTrackerAppProps) {
               </>
             ) : (
               <>
+                <StatsToolbar role="group" aria-label="통계 보기 설정">
+                  <PanelHint>기본 보기 · {(savedStatsPeriod ?? 'weekly') === 'weekly' ? '주별' : '월별'}</PanelHint>
+                  <RangeNavigator>
+                    <IconButton type="button" aria-pressed={statsPeriod === 'weekly'} onClick={() => setStatsPeriod('weekly')}>
+                      주별
+                    </IconButton>
+                    <IconButton type="button" aria-pressed={statsPeriod === 'monthly'} onClick={() => setStatsPeriod('monthly')}>
+                      월별
+                    </IconButton>
+                    <IconButton
+                      type="button"
+                      $tone="ghost"
+                      onClick={() => void handleSaveStatsDefaultPeriod()}
+                      disabled={controlsDisabled || statsPeriod === savedStatsPeriod}
+                    >
+                      <Save size={16} />
+                      기본 보기로 저장
+                    </IconButton>
+                  </RangeNavigator>
+                </StatsToolbar>
                 <HabitStatsDashboard
                   workspace={workspace}
                   hasLoaded={hasLoaded}

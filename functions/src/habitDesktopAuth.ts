@@ -1,11 +1,12 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getAuth } from 'firebase-admin/auth';
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https';
 import { db } from './firestore';
 
 const LOGIN_TIMEOUT_MS = 3 * 60_000;
 const ISSUE_WINDOW_MS = 60_000;
 const MAX_ISSUES_PER_WINDOW = 6;
+const DESKTOP_CHANNEL_CLAIM = 'propigHabitDesktopChannel';
 const VALUE_FORMAT = /^[A-Za-z0-9_-]{43}$/;
 const options = { region: 'asia-northeast3', timeoutSeconds: 20, memory: '256MiB', maxInstances: 5 } as const;
 
@@ -34,18 +35,25 @@ function invalidCode(): HttpsError {
     return new HttpsError('permission-denied', '연결 코드가 유효하지 않습니다. Windows 앱에서 다시 연결해 주세요.');
 }
 
-export const createHabitDesktopLogin = onCall<unknown>(options, async request => {
+async function verifiedSession(request: CallableRequest<unknown>) {
     if (!request.auth) throw new HttpsError('unauthenticated', 'ProPig 계정으로 로그인해 주세요.');
-
-    const challenge = field(request.data, 'challenge');
-    if (!inputValue(challenge)) throw new HttpsError('invalid-argument', 'Windows 앱에서 다시 연결해 주세요.');
-
     // The callable runtime checks token validity, while this check also rejects revoked sessions.
     const session = await getAuth().verifyIdToken(request.auth.rawToken, true).catch(() => {
         throw new HttpsError('unauthenticated', '다시 로그인한 뒤 Windows 앱을 연결해 주세요.');
     });
     if (session.uid !== request.auth.uid || !Number.isInteger(session.auth_time)) {
         throw new HttpsError('unauthenticated', '다시 로그인한 뒤 Windows 앱을 연결해 주세요.');
+    }
+    return session;
+}
+
+export const createHabitDesktopLogin = onCall<unknown>(options, async request => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'ProPig 계정으로 로그인해 주세요.');
+    const challenge = field(request.data, 'challenge');
+    if (!inputValue(challenge)) throw new HttpsError('invalid-argument', 'Windows 앱에서 다시 연결해 주세요.');
+    const session = await verifiedSession(request);
+    if (session[DESKTOP_CHANNEL_CLAIM] === 'workspace') {
+        throw new HttpsError('permission-denied', 'Windows 앱 연결은 기본 브라우저에서 승인해 주세요.');
     }
 
     const code = randomBytes(32).toString('base64url');
@@ -77,7 +85,7 @@ export const createHabitDesktopLogin = onCall<unknown>(options, async request =>
             codeHash,
             windowStartedAtMs: withinWindow ? previousWindow : now,
             issueCount: issueCount + 1,
-        });
+        }, { merge: true });
     });
 
     return { code };
@@ -120,5 +128,32 @@ export const redeemHabitDesktopLogin = onCall<unknown>({ ...options, cors: false
         (account.tokensValidAfterTime && Date.parse(account.tokensValidAfterTime) > approval.authTime * 1000)) {
         throw invalidCode();
     }
-    return { customToken: await auth.createCustomToken(approval.uid) };
+    return { customToken: await auth.createCustomToken(approval.uid, { [DESKTOP_CHANNEL_CLAIM]: 'native' }) };
+});
+
+export const createHabitDesktopWorkspaceSession = onCall<unknown>({ ...options, cors: false }, async request => {
+    const session = await verifiedSession(request);
+    if (session.firebase.sign_in_provider !== 'custom' || session[DESKTOP_CHANNEL_CLAIM] !== 'native') {
+        throw new HttpsError('permission-denied', 'Windows 앱 연결을 다시 승인해 주세요.');
+    }
+
+    const accountRef = accounts.doc(digest(session.uid));
+    await db.runTransaction(async transaction => {
+        const account = await transaction.get(accountRef);
+        const now = Date.now();
+        const startedAt = account.get('workspaceWindowStartedAtMs');
+        const inWindow = typeof startedAt === 'number' && now - startedAt < ISSUE_WINDOW_MS;
+        const previousCount = account.get('workspaceIssueCount');
+        const count = inWindow && typeof previousCount === 'number' ? previousCount : 0;
+        if (count >= MAX_ISSUES_PER_WINDOW) {
+            throw new HttpsError('resource-exhausted', '전체 화면 연결 요청이 많습니다. 잠시 뒤 다시 시도해 주세요.');
+        }
+        transaction.set(accountRef, {
+            workspaceWindowStartedAtMs: inWindow ? startedAt : now,
+            workspaceIssueCount: count + 1,
+        }, { merge: true });
+    });
+
+    // Only the original native credentials can open another renderer session.
+    return { customToken: await getAuth().createCustomToken(session.uid, { [DESKTOP_CHANNEL_CLAIM]: 'workspace' }) };
 });
