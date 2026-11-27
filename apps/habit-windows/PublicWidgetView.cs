@@ -9,9 +9,11 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace ProPig.Habits;
 
-internal sealed class MarketWidgetView : DockPanel, IDisposable
+internal sealed class PublicWidgetView : DockPanel, IDisposable
 {
-    private static readonly Uri Entry = new(FirebaseHabits.WebOrigin + "/propig/desktop/market");
+    private readonly Uri entry;
+    private readonly string title;
+    private readonly bool market;
     private static readonly HashSet<string> SourcePages = new(StringComparer.Ordinal)
     {
         "https://www.data.go.kr/data/15094807/openapi.do",
@@ -19,13 +21,23 @@ internal sealed class MarketWidgetView : DockPanel, IDisposable
     };
 
     private readonly WebView2 web = new();
-    private readonly TextBlock status = new() { Text = "국내 증시를 여는 중…", TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Button retry = new() { Content = "다시 시도", Visibility = Visibility.Collapsed };
     private readonly StackPanel notice = new() { Margin = new Thickness(14) };
     private bool disposed;
 
-    public MarketWidgetView(Action retryLoad)
+    public PublicWidgetView(DesktopSurface surface, string title, Action retryLoad)
     {
+        this.title = title;
+        market = surface == DesktopSurface.Market;
+        entry = new Uri(FirebaseHabits.WebOrigin + (surface switch
+        {
+            DesktopSurface.Market => "/propig/desktop/market",
+            DesktopSurface.Clock => "/propig/desktop/pc-widgets?public=clock",
+            DesktopSurface.Calendar => "/propig/desktop/pc-widgets?public=calendar",
+            _ => throw new ArgumentOutOfRangeException(nameof(surface))
+        }));
+        status.Text = title + " 위젯을 여는 중…";
         retry.Style = (Style)Application.Current.FindResource("HabitButton");
         retry.HorizontalAlignment = HorizontalAlignment.Left;
         retry.Click += (_, _) => retryLoad();
@@ -44,10 +56,10 @@ internal sealed class MarketWidgetView : DockPanel, IDisposable
         try
         {
             var environment = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: Path.Combine(FirebaseHabits.AppDirectory, "MarketWebView"));
+                userDataFolder: Path.Combine(FirebaseHabits.AppDirectory, market ? "MarketWebView" : "PublicWidgetsWebView"));
             if (disposed) return;
             var options = environment.CreateCoreWebView2ControllerOptions();
-            options.IsInPrivateModeEnabled = true;
+            options.IsInPrivateModeEnabled = market;
             await web.EnsureCoreWebView2Async(environment, options);
             if (disposed) return;
 
@@ -62,13 +74,13 @@ internal sealed class MarketWidgetView : DockPanel, IDisposable
             core.NavigationStarting += (_, navigation) =>
             {
                 navigation.Cancel = !Uri.TryCreate(navigation.Uri, UriKind.Absolute, out var uri)
-                    || uri.GetLeftPart(UriPartial.Authority) != Entry.GetLeftPart(UriPartial.Authority)
-                    || uri.AbsolutePath.TrimEnd('/') != Entry.AbsolutePath || uri.Query.Length != 0;
+                    || uri.GetLeftPart(UriPartial.Authority) != entry.GetLeftPart(UriPartial.Authority)
+                    || uri.AbsolutePath.TrimEnd('/') != entry.AbsolutePath || uri.Query != entry.Query;
             };
             core.NewWindowRequested += (_, request) =>
             {
                 request.Handled = true;
-                if (!request.IsUserInitiated || !SourcePages.Contains(request.Uri)) return;
+                if (!market || !request.IsUserInitiated || !SourcePages.Contains(request.Uri)) return;
                 try { Process.Start(new ProcessStartInfo(request.Uri) { UseShellExecute = true }); }
                 catch (Win32Exception) { }
             };
@@ -79,18 +91,18 @@ internal sealed class MarketWidgetView : DockPanel, IDisposable
                     notice.Visibility = Visibility.Collapsed;
                     web.Visibility = Visibility.Visible;
                 }
-                else Fail("국내 증시 화면을 불러오지 못했습니다.");
+                else Fail(title + " 화면을 불러오지 못했습니다.");
             };
-            core.ProcessFailed += (_, _) => Fail("국내 증시 화면이 닫혔습니다.");
-            web.Source = Entry;
+            core.ProcessFailed += (_, _) => Fail(title + " 화면이 닫혔습니다.");
+            web.Source = entry;
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            Fail("국내 증시를 열려면 Microsoft Edge WebView2 Runtime이 필요합니다.");
+            Fail("이 위젯을 열려면 Microsoft Edge WebView2 Runtime이 필요합니다.");
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or COMException)
         {
-            Fail("국내 증시 창을 시작하지 못했습니다.");
+            Fail(title + " 창을 시작하지 못했습니다.");
         }
     }
 

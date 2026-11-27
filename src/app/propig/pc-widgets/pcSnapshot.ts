@@ -10,17 +10,13 @@ export type PcSensors = { updatedAt: number; cpuTemp: number | null; gpuTemp: nu
 type ProviderId = 'codex' | 'claude' | 'antigravity';
 export type PcUsage = {
   updatedAt: number;
-  providers: { id: ProviderId; status: string; short: number | null; weekly: number | null; shortReset: number | null; weeklyReset: number | null }[];
+  providers: { id: ProviderId; status: string; short: number | null; weekly: number | null; shortReset: number | null; weeklyReset: number | null; measuredAt: number | null }[];
   daily: { date: string; tokens: number | null }[];
   resets: { granted: string; expires: string | null }[];
   flow: { balance: number | null; reset: string | null; recorded: string | null } | null;
 };
-export type PcMiraBox = { updatedAt: number; profiles: number; pages: number; keys: number; slots: { index: number; label: string }[]; online: boolean | null; layoutId?: number | null };
-export type PcWeather = {
-  updatedAt: number; current: { temperature: number; code: number; day: boolean };
-  days: { date: string; code: number; high: number; low: number; rain: number | null }[];
-};
-export type PcSnapshot = { version: 1; sampledAt: number; system: PcSystem; sensors: PcSensors | null; usage: PcUsage | null; mirabox: PcMiraBox | null; weather: PcWeather | null };
+export type PcMiraBox = { updatedAt: number; profiles: number; pages: number; keys: number; slots: { index: number; label: string; runnable: boolean }[]; online: boolean | null; layoutId?: number | null };
+export type PcSnapshot = { version: 1; source: 'windows' | 'legacy'; sampledAt: number; system: PcSystem; sensors: PcSensors | null; usage: PcUsage | null; mirabox: PcMiraBox | null };
 
 type Fields = Record<string, unknown>;
 const fields = (value: unknown): Fields => value && typeof value === 'object' && !Array.isArray(value) ? value as Fields : {};
@@ -40,21 +36,11 @@ function readUsage(value: unknown): PcUsage | null {
   if (!updatedAt) return null;
   const flow = fields(u.flow);
   return { updatedAt, providers: rows(u.providers, 3).flatMap(p => isProvider(p.id) ? [{
-    id: p.id, status: typeof p.status === 'string' && /^(OK|WAIT|LOGIN|INSTALL|IDE|NONE|BUSY|ERROR)$/.test(p.status) ? p.status : 'ERROR',
-    short: pct(p.short), weekly: pct(p.weekly), shortReset: epoch(p.shortReset), weeklyReset: epoch(p.weeklyReset),
+    id: p.id, status: typeof p.status === 'string' && /^(OK|WAIT|LOGIN|INSTALL|IDE|NONE|BUSY|ERROR|MANUAL|STALE|SETUP)$/.test(p.status) ? p.status : 'ERROR',
+    short: pct(p.short), weekly: pct(p.weekly), shortReset: epoch(p.shortReset), weeklyReset: epoch(p.weeklyReset), measuredAt: epoch(p.measuredAt),
   }] : []), daily: rows(u.daily, 7).flatMap(d => day(d.date) ? [{date: d.date, tokens: num(d.tokens, 0, Number.MAX_SAFE_INTEGER)}] : []),
   resets: rows(u.resets, 16).flatMap(r => { const granted = dateLabel(r.granted); return granted ? [{ granted, expires: dateLabel(r.expires) }] : []; }),
   flow: u.flow && typeof u.flow === 'object' ? { balance: num(flow.balance, 0, 1e12), reset: dateLabel(flow.reset), recorded: dateLabel(flow.recorded) } : null };
-}
-
-function readWeather(value: unknown): PcWeather | null {
-  const w = fields(value), c = fields(w.current), updatedAt = epoch(w.updatedAt);
-  const temperature = num(c.temperature, -100, 100), code = num(c.code, 0, 99);
-  if (!updatedAt || temperature === null || code === null || typeof c.day !== 'boolean') return null;
-  return { updatedAt, current: { temperature, code, day: c.day }, days: rows(w.days, 7).flatMap(d => {
-    const high = num(d.high, -100, 100), low = num(d.low, -100, 100), wc = num(d.code, 0, 99);
-    return day(d.date) && high !== null && low !== null && wc !== null ? [{ date: d.date, code: wc, high, low, rain: pct(d.rain) }] : [];
-  }) };
 }
 
 export function readPcSnapshot(input: unknown): PcSnapshot | null {
@@ -66,12 +52,13 @@ export function readPcSnapshot(input: unknown): PcSnapshot | null {
   const sampledAt = epoch(s.sampledAt), systemAt = epoch(sys.updatedAt), sensorAt = epoch(sensors.updatedAt), miraAt = epoch(m.updatedAt);
   const profiles = count(m.profiles, 4096), pages = count(m.pages, 4096), keys = count(m.keys, 65536);
   if (s.version !== 1 || !sampledAt || !systemAt) return null;
-  return { version: 1, sampledAt, system: { updatedAt: systemAt, cpu: pct(sys.cpu), ram: pct(sys.ram),
+  const standalone = s.source === 'windows';
+  return { version: 1, source: standalone ? 'windows' : 'legacy', sampledAt, system: { updatedAt: systemAt, cpu: pct(sys.cpu), ram: pct(sys.ram),
     disk: pct(sys.disk), swap: pct(sys.swap), cpuName: model(sys.cpuName), gpuName: model(sys.gpuName) },
-    sensors: sensorAt ? { updatedAt: sensorAt, cpuTemp: num(sensors.cpuTemp, -50, 180), gpuTemp: num(sensors.gpuTemp, -50, 180), gpu: pct(sensors.gpu) } : null,
-    mirabox: miraAt && profiles !== null && pages !== null && keys !== null ? { updatedAt: miraAt, online: typeof m.online === 'boolean' ? m.online : null, profiles, pages, keys,
+    sensors: standalone && sensorAt ? { updatedAt: sensorAt, cpuTemp: num(sensors.cpuTemp, -50, 180), gpuTemp: num(sensors.gpuTemp, -50, 180), gpu: pct(sensors.gpu) } : null,
+    mirabox: standalone && miraAt && profiles !== null && pages !== null && keys !== null ? { updatedAt: miraAt, online: typeof m.online === 'boolean' ? m.online : null, profiles, pages, keys,
       layoutId: count(m.layoutId, Number.MAX_SAFE_INTEGER) || null,
       slots: rows(m.slots, 32).flatMap(r => typeof r.index === 'number' && Number.isInteger(r.index) && r.index >= 0 && r.index < 32
-        ? [{ index: r.index, label: typeof r.label === 'string' && slotLabels.has(r.label) ? r.label : '키 ' + (r.index + 1) }] : []) } : null,
-    usage: readUsage(s.usage), weather: readWeather(s.weather) };
+        ? [{ index: r.index, label: typeof r.label === 'string' && slotLabels.has(r.label) ? r.label : '키 ' + (r.index + 1), runnable: r.runnable === true && typeof r.label === 'string' && slotLabels.has(r.label) }] : []) } : null,
+    usage: standalone ? readUsage(s.usage) : null };
 }

@@ -5,7 +5,9 @@ import { collection, limit, onSnapshot, query } from 'firebase/firestore';
 import { CalendarDays, Clock3, Cpu, Gauge, Grid2X2, Monitor, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/firebase/config';
-import { CalendarPanel, ClockWeatherPanel } from './ClockCalendar';
+import { CalendarPanel } from './ClockCalendar';
+import { WeatherPanel } from './WeatherPanel';
+import { UsageNotes } from './UsageNotes';
 import { DockPanel, MiraBoxPanel, SystemPanel, UsagePanel } from './DevicePanels';
 import { isPcPanel, pcPanels, readPcSnapshot, type PcPanel, type PcSnapshot } from './pcSnapshot';
 import styles from './PcWidgetBoard.module.css';
@@ -66,7 +68,7 @@ function useCloudDevices(uid: string | undefined) {
         const value = doc.get('sample');
         const sample = typeof value === 'string' && value.length <= 32768 ? readPcSnapshot(value) : null;
         return sample && /^[a-f0-9]{32}$/.test(doc.id) ? [{ id: doc.id, sample }] : [];
-      }).sort((a,b) => a.id.localeCompare(b.id));
+      }).sort((a,b) => Number(b.sample.source === 'windows') - Number(a.sample.source === 'windows') || a.id.localeCompare(b.id));
       setState({uid, devices});
     }, () => { if (active) setState({uid, devices: [], failed: true}); });
     return () => { active = false; unsubscribe(); };
@@ -93,6 +95,8 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
   }, []);
   const device = cloud?.devices.find(row => row.id === deviceId) ?? cloud?.devices[0];
   const sample = desktop ? native?.sample : device?.sample;
+  const onPc = sample?.source === 'windows';
+  const localPanel = panel === 'clock' || panel === 'calendar';
   const stamp = sample && new Date(sample.sampledAt).toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit', timeZone:'Asia/Seoul'});
   const status = sample ? ((now - sample.sampledAt > 180_000 ? '마지막 수신 ' : '측정 ') + stamp + ' · 한국 시각')
     : desktop ? '이 PC 측정 중' : loading ? '계정 확인 중' : !currentUser ? '로그인하면 공유한 PC가 표시됩니다.'
@@ -116,30 +120,37 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
       {pcPanels.map(p => {const Icon = icons[p.id]; return <button type="button" key={p.id} aria-current={p.id === panel ? 'page' : undefined} onClick={() => setPanel(p.id)}>
         <Icon size={17} aria-hidden="true"/>{p.label}</button>;})}
     </nav>}
-    <div className={styles.status}>
+    {!localPanel && <div className={styles.status}>
       <span className={styles.dot} data-live={!!sample && now - sample.sampledAt <= 180_000 || undefined}/>{status}
       {cloud && cloud.devices.length > 1 && <select aria-label="표시할 PC" value={device?.id ?? ''} onChange={e => chooseDevice(e.target.value)}>
         {cloud.devices.map(row => <option key={row.id} value={row.id}>PC · {row.id.slice(-6).toUpperCase()}</option>)}
       </select>}
-    </div>
+    </div>}
     {desktop && settings && <section className={styles.settings} aria-label="PC 연결 설정">
       <h2>이 PC 연결</h2>
-      <p>웹 공유를 켜면 Windows 앱이 열려 있는 동안 PC 모델과 사용률, 날씨, AI 잔여량, MiraBox 키 종류를 약 1분마다 ProPig 계정에 보냅니다.</p>
+      <p>웹 공유를 켜면 이 앱이 PC 모델과 사용률, AI 사용량, MiraBox 키 종류를 약 1분마다 내 ProPig 계정에 보냅니다.</p>
       <button type="button" disabled={waiting || !native} onClick={() => action(native?.sharing ? 'share-off' : 'share-on')}>{native?.sharing ? '공유 중지 및 웹 측정값 삭제' : '이 PC를 내 웹에 공유'}</button>
       {(native?.removing || native?.cloudStatus) && <p role="status">{native.removing ? '웹에서 이 PC의 측정값을 지우는 중입니다.' : native.cloudStatus}</p>}
-      <h3>Rainmeter 측정값</h3>
-      <p>Neon Glass에 내보내기를 연결한 뒤 시스템, AI Usage, MiraBox, Clock &amp; Weather 스킨을 새로 고침해 주세요.</p>
-      <div className={styles.actions}><button type="button" disabled={waiting || !native} onClick={() => action('connect-feeds')}>스킨 연결</button>
-        <button type="button" disabled={waiting || !native} onClick={() => action('remove-feeds')}>스킨 연결 해제</button></div>
+      {onPc && <>
+        <h3>AI 사용량 연결</h3>
+        <p>Codex는 로그인된 CLI에서 한도를 읽습니다. Claude Code와 Antigravity CLI는 연결 후 각 CLI를 사용할 때 상태줄에서 사용량을 받습니다.</p>
+        {([['claude','Claude Code'], ['antigravity','Antigravity CLI']] as const).map(([id,name]) =>
+          <div className={styles.actions} key={id}><button type="button" disabled={waiting} onClick={() => action('statusline/'+id+'/connect')}>{name} 연결</button>
+            <button type="button" disabled={waiting} aria-label={name+' 연결 해제'} onClick={() => action('statusline/'+id+'/remove')}>연결 해제</button></div>)}
+        <h3>바로가기 독</h3>
+        <button type="button" disabled={waiting} onClick={() => action('choose-workspace')}>작업 폴더 선택</button>
+      </>}
     </section>}
-    {!desktop && !sample && !loading && <p className={styles.help}>Windows 앱의 <strong>위젯 → 시스템 정보 → 연결 설정</strong>에서 이 PC를 웹에 공유할 수 있습니다.</p>}
+    {!localPanel && sample?.source === 'legacy' && <p className={styles.help}>이 PC는 이전 버전으로 연결되어 있습니다. 독립형 위젯을 사용하려면 ProPig Windows 앱을 업데이트해 주세요.</p>}
+    {!localPanel && !desktop && !sample && !loading && <p className={styles.help}>Windows 앱의 <strong>위젯 → 시스템 정보 → 연결 설정</strong>에서 이 PC를 웹에 공유할 수 있습니다.</p>}
     <section className={styles.panel} aria-label={pcPanels.find(p => p.id === panel)?.label}>
       {panel === 'system' && <SystemPanel system={sample?.system ?? null} sensors={sample?.sensors ?? null}/>}
-      {panel === 'clock' && <ClockWeatherPanel weather={sample?.weather ?? null} externalLinks={!desktop} onRefresh={desktop ? () => action('weather-refresh') : undefined}/>}
+      {panel === 'clock' && <WeatherPanel externalLinks={!desktop}/>}
       {panel === 'calendar' && <CalendarPanel/>}
-      {panel === 'usage' && <UsagePanel usage={sample?.usage ?? null}/>}
-      {panel === 'mirabox' && <MiraBoxPanel mirabox={sample?.mirabox ?? null} onAction={launch} onPress={pressKey}/>}
-      {panel === 'dock' && <DockPanel onAction={launch} desktop={desktop}/>}
+      {panel === 'usage' && <><UsagePanel usage={sample?.usage ?? null}/>
+        {desktop && onPc && <UsageNotes key={requestId} action={action} waiting={waiting} usage={sample?.usage ?? null}/>}</>}
+      {panel === 'mirabox' && <MiraBoxPanel mirabox={sample?.mirabox ?? null} onAction={onPc ? launch : undefined} onPress={onPc ? pressKey : undefined}/>}
+      {panel === 'dock' && <DockPanel onAction={onPc ? launch : undefined} desktop={desktop}/>}
     </section>
     {native?.result && <p className={styles.help} role="status">{native.result}</p>}
   </main>;
