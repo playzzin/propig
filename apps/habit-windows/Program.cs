@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
+using ShapePath = System.Windows.Shapes.Path;
 
 namespace ProPig.Habits;
 
@@ -16,6 +17,8 @@ internal sealed class Choices
     public bool Topmost { get; set; }
     public double? Left { get; set; }
     public double? Top { get; set; }
+    public double? Width { get; set; }
+    public double? Height { get; set; }
 }
 
 internal sealed class HabitApp
@@ -131,43 +134,56 @@ internal sealed class HabitApp
             return;
         }
 
-        widget = NewWindow("ProPig 오늘 습관 위젯", 348, 570);
-        widget.MinWidth = 260;
-        widget.MinHeight = 250;
-        widget.Topmost = choices.Topmost;
-        widget.WindowStyle = WindowStyle.None;
-        WindowChrome.SetWindowChrome(widget, new WindowChrome
+        const double minWidth = 260;
+        const double minHeight = 250;
+        var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        var window = NewWindow("ProPig 오늘 습관 위젯",
+            RestoreDimension(choices.Width, 348, minWidth, area.Width),
+            RestoreDimension(choices.Height, 570, minHeight, area.Height));
+        window.MinWidth = minWidth;
+        window.MinHeight = minHeight;
+        window.Topmost = choices.Topmost;
+        window.WindowStyle = WindowStyle.None;
+        window.ResizeMode = ResizeMode.CanResize;
+        WindowChrome.SetWindowChrome(window, new WindowChrome
         {
             CaptionHeight = 38, ResizeBorderThickness = new Thickness(6),
             GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(14),
             UseAeroCaptionButtons = false
         });
-        widgetLayout = CreateWidgetLayout(widget);
-        widget.Content = widgetLayout.Root;
-        var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
-            SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        widgetLayout = CreateWidgetLayout(window);
+        window.Content = widgetLayout.Root;
         if (choices.Left is double left && choices.Top is double top &&
             left >= area.Left && left < area.Right - 100 && top >= area.Top && top < area.Bottom - 80)
         {
-            widget.WindowStartupLocation = WindowStartupLocation.Manual;
-            widget.Left = left;
-            widget.Top = top;
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+            window.Left = Math.Min(left, Math.Max(area.Left, area.Right - window.Width));
+            window.Top = Math.Min(top, Math.Max(area.Top, area.Bottom - window.Height));
         }
-        widget.Closing += (_, _) =>
+        window.Closing += (_, _) =>
         {
-            choices.Left = widget?.RestoreBounds.Left;
-            choices.Top = widget?.RestoreBounds.Top;
+            var bounds = window.RestoreBounds;
+            if (bounds.IsEmpty) return;
+            choices.Left = bounds.Left;
+            choices.Top = bounds.Top;
+            choices.Width = bounds.Width;
+            choices.Height = bounds.Height;
             SaveChoices();
         };
-        widget.Closed += (_, _) =>
+        window.Closed += (_, _) =>
         {
             widget = null;
             widgetLayout = null;
             if (!main.IsVisible) main.Close();
         };
-        widget.Show();
+        widget = window;
+        window.Show();
         Paint();
     }
+
+    private static double RestoreDimension(double? saved, double defaultSize, double minimum, double available) =>
+        Math.Clamp(saved is double size && double.IsFinite(size) ? size : defaultSize, minimum, Math.Max(minimum, available));
 
     private void Stop()
     {
@@ -197,7 +213,7 @@ internal sealed class HabitApp
         var layout = compact ? widgetLayout : null;
         var scroller = layout?.List ?? (window.Content as ScrollViewer ?? NewScrollViewer());
         var oldOffset = scroller.VerticalOffset;
-        var stack = new StackPanel { Margin = compact ? new Thickness(14, 8, 2, 1) : new Thickness(22, 22, 10, 22) };
+        var stack = new StackPanel { Margin = compact ? new Thickness(14, 8, 0, 1) : new Thickness(22, 22, 6, 22) };
         scroller.Content = stack;
         if (!compact && window.Content != scroller) window.Content = scroller;
         var uid = firebase.Uid;
@@ -324,11 +340,26 @@ internal sealed class HabitApp
         DockPanel.SetDock(close, Dock.Right);
         caption.Children.Add(close);
 
+        var sizeIcon = new ShapePath { Stroke = Muted, StrokeThickness = 1.3, Width = 13, Height = 13 };
+        var sizeButton = new Button
+        {
+            Content = sizeIcon, Style = (Style)Application.Current.FindResource("HabitWidgetCaptionButton"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        WindowChrome.SetIsHitTestVisibleInChrome(sizeButton, true);
+        sizeButton.Click += (_, _) =>
+        {
+            if (window.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(window);
+            else SystemCommands.MaximizeWindow(window);
+        };
+        DockPanel.SetDock(sizeButton, Dock.Right);
+        caption.Children.Add(sizeButton);
+
         var mark = new Border
         {
             Width = 19, Height = 19, CornerRadius = new CornerRadius(6), Background = Panel,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0),
-            Child = new System.Windows.Shapes.Path
+            Child = new ShapePath
             {
                 Data = Geometry.Parse("M 1,4 L 4,7 L 9,1"), Stroke = Mint, StrokeThickness = 1.5,
                 StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
@@ -365,6 +396,18 @@ internal sealed class HabitApp
             BorderBrush = FrameLine, BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(14, 7, 8, 7), Child = actions
         };
+        var grip = new Border
+        {
+            Width = 20, Height = 20, Background = Brushes.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+            Child = new ShapePath
+            {
+                Data = Geometry.Parse("M 1,7 L 7,1 M 4,8 L 8,4"), Stroke = Muted, StrokeThickness = 1,
+                Margin = new Thickness(0, 0, 4, 4),
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom
+            }
+        };
+        WindowChrome.SetResizeGripDirection(grip, ResizeGripDirection.BottomRight);
         var grid = new Grid
         {
             RowDefinitions =
@@ -374,16 +417,31 @@ internal sealed class HabitApp
                 new RowDefinition(),
                 new RowDefinition { Height = GridLength.Auto }
             },
-            Children = { titleBar, summaryBar, list, footer }
+            Children = { titleBar, summaryBar, list, footer, grip }
         };
         Grid.SetRow(summaryBar, 1);
         Grid.SetRow(list, 2);
         Grid.SetRow(footer, 3);
+        Grid.SetRow(grip, 3);
         var frame = new Border
         {
             Style = (Style)Application.Current.FindResource("HabitWidgetFrame"),
             Background = Background, Child = grid
         };
+        void UpdateSizeButton()
+        {
+            var expanded = window.WindowState == WindowState.Maximized;
+            sizeIcon.Data = Geometry.Parse(expanded ? "M 4,4 V 1 H 12 V 9 H 9 M 1,4 H 9 V 12 H 1 Z" : "M 1,1 H 12 V 12 H 1 Z");
+            var name = expanded ? "이전 크기로 복원" : "위젯 최대화";
+            sizeButton.ToolTip = name;
+            AutomationProperties.SetName(sizeButton, name);
+            grip.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+            frame.CornerRadius = new CornerRadius(expanded ? 0 : 14);
+            titleBar.CornerRadius = expanded ? new CornerRadius(0) : new CornerRadius(13, 13, 0, 0);
+            footer.CornerRadius = expanded ? new CornerRadius(0) : new CornerRadius(0, 0, 13, 13);
+        }
+        window.StateChanged += (_, _) => UpdateSizeButton();
+        UpdateSizeButton();
         return new WidgetLayout(frame, summary, list, actions);
     }
 

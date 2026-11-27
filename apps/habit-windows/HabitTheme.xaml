@@ -10,7 +10,6 @@
     <Style x:Key="HabitWidgetFrame" TargetType="Border">
         <Setter Property="BorderBrush" Value="#30484A" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="14" />
         <Style.Triggers>
             <DataTrigger Binding="{Binding IsActive, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                 <Setter Property="BorderBrush" Value="#64847B" />
@@ -62,7 +61,7 @@
         <Setter Property="Foreground" Value="{StaticResource HabitInk}" />
     </Style>
 
-    <Style x:Key="HabitWidgetClose" TargetType="Button" BasedOn="{StaticResource HabitButton}">
+    <Style x:Key="HabitWidgetCaptionButton" TargetType="Button" BasedOn="{StaticResource HabitButton}">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource HabitMuted}" />
@@ -70,6 +69,9 @@
         <Setter Property="Height" Value="30" />
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style x:Key="HabitWidgetClose" TargetType="Button" BasedOn="{StaticResource HabitWidgetCaptionButton}">
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -112,7 +114,9 @@
     <Style x:Key="HabitScrollBar" TargetType="ScrollBar">
         <Setter Property="Focusable" Value="False" />
         <Setter Property="IsTabStop" Value="False" />
-        <Setter Property="Margin" Value="0,8,2,8" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Width" Value="10" />
+        <Setter Property="Margin" Value="0,8,6,8" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
@@ -165,7 +169,7 @@
                     <Grid Background="Transparent">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="16" />
                         </Grid.ColumnDefinitions>
                         <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Focusable="False"
                                                 CanContentScroll="{TemplateBinding CanContentScroll}"
