@@ -137,7 +137,7 @@
                                             <Image Source="pack://application:,,,/Assets/ProPig.png" Width="18" Height="18"
                                                    RenderOptions.BitmapScalingMode="HighQuality" />
                                         </Border>
-                                        <TextBlock Text="ProPig" FontFamily="Segoe UI" FontSize="14" FontWeight="SemiBold"
+                                        <TextBlock Text="그뚠앱" FontFamily="Segoe UI" FontSize="14" FontWeight="SemiBold"
                                                    VerticalAlignment="Center" />
                                     </StackPanel>
                                     <DockPanel x:Name="SurfaceLabel" Grid.Column="1" Margin="7,0,4,0" VerticalAlignment="Center">
