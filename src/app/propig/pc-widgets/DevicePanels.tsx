@@ -90,7 +90,7 @@ export function SystemPanel({ system, sensors }: { system: PcSystem | null; sens
           <div className={styles.chip} key={title}>
             <div className={styles.chipHeading}>
               <h3>{title}</h3>
-              <span>{temp == null ? '온도 —' : <><span className={styles.srOnly}>{title} 온도 </span>{numberFormat.format(temp)} °C</>}</span>
+              <span>{temp == null ? (sensors ? '온도 미제공' : '온도 —') : <><span className={styles.srOnly}>{title} 온도 </span>{numberFormat.format(temp)} °C</>}</span>
             </div>
             {name && <p className={styles.model}>{name}</p>}
             <Meter label={`${title} 사용률`} value={load} />
@@ -118,7 +118,8 @@ const providers = [
 
 const providerStates = new Map([
   ['OK', '조회 완료'], ['WAIT', '조회 중'], ['BUSY', '조회 제한'], ['LOGIN', '로그인 필요'],
-  ['INSTALL', 'CLI 연결 필요'], ['IDE', 'IDE 연결 필요'], ['NONE', '한도 미제공'], ['ERROR', '조회 실패'],
+  ['INSTALL', 'CLI 설치 필요'], ['IDE', 'IDE에서 직접 기록 가능'], ['SETUP', '상태줄 연결 필요'], ['NONE', '한도 미제공'],
+  ['ERROR', '조회 실패'], ['MANUAL', '직접 입력'], ['STALE', '최근 사용량 대기'],
 ]);
 
 function resetText(reset: number | null | undefined, now: number) {
@@ -183,8 +184,8 @@ export function UsagePanel({ usage }: { usage: PcUsage | null }) {
       <div className={styles.providerList}>
         {providers.map(({ id, name, note }) => {
           const provider = usage?.providers.find(item => item.id === id);
-          const available = provider?.status === 'OK';
-          const pace = available && usage && id === 'codex' ? codexPace(provider, usage.updatedAt, now) : null;
+          const available = provider && (provider.status === 'OK' || provider.status === 'MANUAL');
+          const pace = available && usage && id === 'codex' ? codexPace(provider, provider.measuredAt ?? usage.updatedAt, now) : null;
           return (
             <div className={styles.provider} key={id} data-provider={id}>
               <div className={styles.providerHeader}>
@@ -199,6 +200,7 @@ export function UsagePanel({ usage }: { usage: PcUsage | null }) {
                 </div>
               )}
               {pace && <p className={styles.pace}>{pace}</p>}
+              {provider?.measuredAt && <Stamp value={provider.measuredAt} now={now} staleAfter={15 * minute}/>}
             </div>
           );
         })}
@@ -225,11 +227,11 @@ export function UsagePanel({ usage }: { usage: PcUsage | null }) {
 const slotLabels = new Map([
   ['App', '앱'], ['앱', '앱'], ['Website', '웹'], ['웹', '웹'],
   ['Codex', 'Codex'], ['GitHub', 'GitHub'], ['Unavailable', '비활성'], ['비활성', '비활성'],
+  ...['폴더', '프로필', '페이지', '동작', '단축키', 'Claude', 'Antigravity', 'Gemini'].map(label => [label, label] as const),
 ]);
 const slotIcons: Record<string, LucideIcon> = {
   '앱': AppWindow, '웹': Globe, Codex: SquareTerminal, GitHub: GitBranch, '비활성': Ban, '등록 키': Keyboard,
 };
-const runnableSlots = new Set(['앱', '웹', 'Codex', 'GitHub']);
 
 type MiraBoxProps = ActionProps & {
   mirabox: PcMiraBox | null;
@@ -241,7 +243,8 @@ export function MiraBoxPanel({ mirabox, onAction, onPress }: MiraBoxProps) {
   const slots = new Map(mirabox?.slots.map(({ index, label }) => [index, slotLabels.get(label) ?? '등록 키']));
   const revision = mirabox?.layoutId;
   const layoutId = typeof revision === 'number' && Number.isSafeInteger(revision) && revision > 0 ? revision : null;
-  const canPress = onPress && layoutId !== null && Array.from(slots.values()).some(label => runnableSlots.has(label));
+  const runnable = new Set(mirabox?.slots.filter(slot => slot.runnable).map(slot => slot.index));
+  const canPress = onPress && layoutId !== null && runnable.size > 0;
   const measuredAt = timestamp(mirabox?.updatedAt);
   const old = measuredAt !== null && now - measuredAt > 2 * minute;
   const connection = mirabox?.online == null || !measuredAt || !now ? '기기 연결 미확인'
@@ -265,7 +268,7 @@ export function MiraBoxPanel({ mirabox, onAction, onPress }: MiraBoxProps) {
               const label = slots.get(index);
               const Icon = label && slotIcons[label];
               const description = `${index + 1}번 키, ${label ?? '비어 있음'}`;
-              const press = onPress && layoutId !== null && label && runnableSlots.has(label) ? () => onPress(index, layoutId) : null;
+              const press = onPress && layoutId !== null && runnable.has(index) ? () => onPress(index, layoutId) : null;
               const face = <>
                 <span className={styles.slotNumber}>{index + 1}</span><strong className={styles.slotLabel}>{label ?? '—'}</strong>
                 {Icon && <Icon size={13} className={styles.slotIcon} aria-hidden="true" />}
@@ -283,7 +286,7 @@ export function MiraBoxPanel({ mirabox, onAction, onPress }: MiraBoxProps) {
           </ol>
           <div className={styles.slotLegend} aria-hidden="true">
             {Array.from(new Set(slots.values()), label => {
-              const Icon = slotIcons[label];
+              const Icon = slotIcons[label] ?? Keyboard;
               return <span key={label}><Icon size={12} />{label}</span>;
             })}
           </div>
@@ -296,7 +299,7 @@ export function MiraBoxPanel({ mirabox, onAction, onPress }: MiraBoxProps) {
         </button>
         <Stamp value={mirabox?.updatedAt} now={now} staleAfter={2 * minute} />
       </div>
-      <p className={styles.notice}>PC 컨트롤에서 장면과 모니터를 선택하고 키를 실행할 수 있습니다.</p>
+      <p className={styles.notice}>전용 플러그인과 단축키는 장치에서 누를 수 있습니다. 키 배치는 Stream Dock에서 관리합니다.</p>
     </section>
   );
 }
@@ -321,8 +324,8 @@ const pcShortcuts: Shortcut[] = [
   { id: 'ai-panel', label: 'AI 사용량 패널', icon: ChartNoAxesCombined },
   { id: 'task-manager', label: '작업 관리자', icon: Activity },
   { id: 'windows-settings', label: 'Windows 설정', icon: Settings },
-  { id: 'taskbar', label: '작업 표시줄 전환', icon: PanelBottom },
-  { id: 'taskbar-all', label: '모든 작업 표시줄 표시', icon: Monitor },
+  { id: 'taskbar', label: '작업 표시줄 자동 숨김 전환', icon: PanelBottom },
+  { id: 'taskbar-all', label: '작업 표시줄 항상 표시', icon: Monitor },
   { id: 'mira-controls', label: 'MiraBox 컨트롤', icon: Keyboard },
 ];
 

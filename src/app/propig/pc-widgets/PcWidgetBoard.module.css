@@ -18,5 +18,11 @@
 .settings h3 { margin-top: 18px; }
 .settings p { margin: 6px 0 10px; }
 .settings button:disabled { opacity: .55; cursor: wait; }
+.settings summary { cursor: pointer; font-weight: 650; }
+.settings .actions { margin-block: 6px; flex-wrap: wrap; }
+.note { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.note label { display: grid; gap: 2px; }
+.note input { width: 12em; max-width: 100%; border-radius: 5px; border: 1px solid var(--line); background: #131e20; padding: 5px; color: inherit; }
 .panel { min-width: 0; }
+.help[role='status'] { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 @media (max-width: 420px) { .tabs button { padding: 8px 7px; } }

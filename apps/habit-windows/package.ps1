@@ -1,12 +1,13 @@
 param(
     [string]$PackageName = 'ProPig.Habits.Development',
     [string]$Publisher = 'CN=ProPig Development',
-    [string]$Version = '1.2.0.0'
+    [string]$Version = '1.3.0.0',
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'out')
 )
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot 'HabitWindows.csproj'
 $icon = Join-Path $PSScriptRoot '../../public/icons/justpig-favicon-144.png'
-$output = Join-Path $PSScriptRoot 'out'
+$output = $OutputDirectory
 $staging = Join-Path $output ([guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
@@ -19,7 +20,7 @@ $manifest = [xml]@'
          xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap uap3 rescap">
-  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.2.0.0" ProcessorArchitecture="x64"/>
+  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.3.0.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>ProPig 습관</DisplayName>
     <PublisherDisplayName>ProPig</PublisherDisplayName>
@@ -51,6 +52,9 @@ $identity = $manifest.DocumentElement.SelectSingleNode("*[local-name()='Identity
 $identity.SetAttribute('Name', $PackageName)
 $identity.SetAttribute('Publisher', $Publisher)
 $identity.SetAttribute('Version', $Version)
+if ($PackageName -eq 'heddun.ProPig') {
+    $manifest.Package.Properties.PublisherDisplayName = 'heddun'
+}
 $manifest.Save((Join-Path $staging 'AppxManifest.xml'))
 
 Add-Type -AssemblyName System.Drawing
@@ -85,6 +89,10 @@ try {
 $kit = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
 $makeAppx = Get-ChildItem -Path "$kit/*/x64/makeappx.exe" -ErrorAction SilentlyContinue |
     Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+if (-not $makeAppx) {
+    $sdkCommand = Get-Command makeappx.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($sdkCommand) { $makeAppx = Get-Item -LiteralPath $sdkCommand.Source }
+}
 if (-not $makeAppx) { throw 'Windows SDK MakeAppx was not found.' }
 & $makeAppx.FullName pack /d $staging /p (Join-Path $output 'ProPig-Habits-x64.msix') /o
 if ($LASTEXITCODE) { exit $LASTEXITCODE }

@@ -1,0 +1,17 @@
+.controls { display: flex; align-items: center; gap: 0.4rem; }
+.city {
+  max-width: 100%;
+  min-height: 2rem;
+  padding-inline: 0.55rem;
+  border: 1px solid var(--border-medium, #465955);
+  border-radius: 0.5rem;
+  background: var(--bg-card, #161b22);
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.timeNote, .note, .status { color: var(--text-muted, #b4c2be); }
+.timeNote { font-size: 0.71rem; }
+.status { margin: 0.45rem 0; font-size: 0.78rem; }
+.note { margin: 0 0 0.4rem; font-size: 0.73rem; line-height: 1.5; }

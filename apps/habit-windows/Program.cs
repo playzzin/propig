@@ -84,6 +84,7 @@ internal sealed class HabitApp
     private string? shortcutNotice;
     private readonly PcWidgetHub pcWidgets;
     private string? pendingPanel;
+    private bool sessionRestored;
 
     [STAThread]
     public static void Main(string[] args)
@@ -103,7 +104,7 @@ internal sealed class HabitApp
 
     private HabitApp()
     {
-        pcWidgets = new PcWidgetHub(firebase, () => choices.PcDevices, SaveChoices, lifetime.Token);
+        pcWidgets = new PcWidgetHub(firebase, () => choices.PcDevices, SaveChoices, ActivatePanel, lifetime.Token);
         main.MinWidth = 490;
         main.Width = RestoreDimension(null, main.Width, main.MinWidth, SystemParameters.WorkArea.Width);
         main.Height = RestoreDimension(null, main.Height, main.MinHeight, SystemParameters.WorkArea.Height);
@@ -126,7 +127,12 @@ internal sealed class HabitApp
             catch (Exception failure) when (failure is IOException or JsonException) { choices = new Choices(); }
             var createShortcut = choices.DesktopShortcutCreated
                 ? Task.CompletedTask : CreateDesktopShortcut(showResult: false);
-            await Run(async () => { await firebase.RestoreAsync(); await Read(); }, "연결을 확인하지 못했습니다.");
+            await Run(async () =>
+            {
+                try { await firebase.RestoreAsync(); }
+                finally { sessionRestored = true; }
+                await Read();
+            }, "연결을 확인하지 못했습니다.");
             refresh.Start();
             _ = pcWidgets.Refresh();
             await createShortcut;
@@ -157,6 +163,14 @@ internal sealed class HabitApp
     private async void ActivatePanel(string id)
     {
         if (id == "main") { ShowMain(); return; }
+        if (!sessionRestored) { pendingPanel = id; ShowMain(); return; }
+        if (firebase.Uid == null && id is "clock" or "calendar")
+        {
+            pendingPanel = null;
+            var guest = PcWidgetWindows.Panels.First(p => p.Id == id);
+            OpenDesktopWidget(guest.Surface, guest.Label);
+            return;
+        }
         if (firebase.Uid is not string uid) { pendingPanel = id; ShowMain(); return; }
         pendingPanel = null;
         if (id.Split('/') is ["press", var device, var revision, var slot] && PcWidgetWindows.ValidKey(revision,slot,out var layout,out var key))
@@ -173,7 +187,7 @@ internal sealed class HabitApp
             ShowMain();
             if (MessageBox.Show(main,$"이 PC에서 ‘{label}’ 동작을 열까요?","ProPig · 바로가기", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes && firebase.Uid == uid)
             {
-                var result = await PcWidgetActions.Execute(target);
+                var result = await pcWidgets.Execute(target, main, uid);
                 if (result != "Windows에 요청했습니다.") MessageBox.Show(main,result,"ProPig · 바로가기");
             }
             return;
@@ -354,7 +368,8 @@ internal sealed class HabitApp
     {
         var market = surface == DesktopSurface.Market;
         var uid = firebase.Uid;
-        if (lifetime.IsCancellationRequested || (!market && uid == null)) return;
+        var guestClock = uid == null && surface is DesktopSurface.Clock or DesktopSurface.Calendar;
+        if (lifetime.IsCancellationRequested || (!market && !guestClock && uid == null)) return;
         if (desktopWidgets.TryGetValue(surface, out var existing))
         {
             if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
@@ -412,9 +427,9 @@ internal sealed class HabitApp
         void AttachRenderer()
         {
             renderer?.Dispose();
-            if (market)
+            if (market || guestClock)
             {
-                var view = new MarketWidgetView(AttachRenderer);
+                var view = new PublicWidgetView(surface, surfaceName, AttachRenderer);
                 renderer = view;
                 body.Content = view;
             }
@@ -471,6 +486,7 @@ internal sealed class HabitApp
         refresh.Stop();
         workspaceRefresh.Stop();
         lifetime.Cancel();
+        pcWidgets.Dispose();
         CloseWorkspace();
         CloseDesktopWidgets();
     }
@@ -523,7 +539,7 @@ internal sealed class HabitApp
 
     private void PaintMain()
     {
-        if (pendingPanel is string requested && firebase.Uid != null) ActivatePanel(requested);
+        if (sessionRestored && pendingPanel is string requested && (firebase.Uid != null || requested is "clock" or "calendar")) ActivatePanel(requested);
         var uid = firebase.Uid;
         if (desktopWorkspace != null && desktopWorkspace.AccountUid != uid) CloseWorkspace();
         var nativeScreen = uid == null || configureWidget;
@@ -701,9 +717,20 @@ internal sealed class HabitApp
 
         if (uid == null)
         {
+            if (!compact)
+            {
+                foreach (var panel in PcWidgetWindows.Panels.Where(p => p.Surface is DesktopSurface.Clock or DesktopSurface.Calendar))
+                    stack.Children.Add(Button(panel.Label + " 위젯 열기", () => { OpenDesktopWidget(panel.Surface, panel.Label); return Task.CompletedTask; }));
+            }
             stack.Children.Add(Button("ProPig Google 로그인", async () => await Run(async () =>
             {
                 await firebase.ConnectAsync(lifetime.Token);
+                foreach (var surface in new[] { DesktopSurface.Clock, DesktopSurface.Calendar })
+                {
+                    if (!desktopWidgets.TryGetValue(surface, out var guest)) continue;
+                    guest.Close();
+                    OpenDesktopWidget(surface, PcWidgetWindows.Panels.First(p => p.Surface == surface).Label);
+                }
                 await Read();
             }, "로그인 연결에 실패했습니다. 앱에서 다시 시도해 주세요."), primary: true));
             scroller.ScrollToTop();
