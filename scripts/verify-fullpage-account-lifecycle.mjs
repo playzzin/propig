@@ -16,7 +16,7 @@ async function check(kind){
  let inner=fn(name+'Account');
  inner=inner.slice(0,inner.indexOf(habit?'  const habitCountByCategory':'  const getCategoryMeta'))+`\n capture(${habit?'{workspace,hasLoaded,persistWorkspace,setHabitDraft,habitDraft}':'{items,draft,setDraft,handleCreate,resetWorkspace}'}); return null; }`;
  const auth={currentUser:{uid:'A'}}, listeners=[],writes=[];let out,persistence=Promise.resolve(),defaults=Promise.resolve();
- const ctx={...React,React,auth,exports:{},console:{error(){}},useAuth:()=>({currentUser:auth.currentUser,loading:false}),capture:x=>out=x,
+ const ctx={...React,React,DesktopHabitWriteContext:React.createContext(undefined),auth,exports:{},console:{error(){}},useAuth:()=>({currentUser:auth.currentUser,loading:false}),capture:x=>out=x,
  ensureFirestorePersistence:()=>persistence,createHabitWorkspaceRef:x=>x,onSnapshot:(uid,ok,error)=>{const l={uid,ok,error,closed:false};listeners.push(l);return()=>l.closed=true},
  createInitialWorkspace:()=>({habits:[],categories:[],records:{}}),normalizeWorkspace:x=>x,sanitizeWorkspaceMetadata:x=>x,saveHabitWorkspaceFields:async(uid,data)=>{await persistence;if(auth.currentUser?.uid===uid)writes.push({uid,data})},toDateKey:()=>'',useDailyRecordLayout:()=>({}),createHabitDraft:()=>({}),CATEGORY_COLORS:['red'],sortCategoriesByOrder:x=>x,sortHabitsByOrder:x=>x,
  toast:{success(){},error(){},info(){}},emptyDraft:{title:'',category:''},createEmptyDraft:()=>({title:'',category:''}),sortItems:x=>x,getProgress:()=>0,STATUS_META:{},confirmResetAction:async()=>true,

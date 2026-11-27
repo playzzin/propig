@@ -87,7 +87,7 @@ interface DesktopSessionActions {
   openTarget: (target: DesktopTarget) => void;
 }
 
-export function DesktopSession({ children }: { children: (actions: DesktopSessionActions) => ReactNode }) {
+export function DesktopSession({ children, fullPage = false }: { fullPage?: boolean; children: (actions: DesktopSessionActions) => ReactNode }) {
   const { currentUser, loading } = useAuth();
   const [connection, setConnection] = useState<Connection>({ status: 'pending' });
   const connectedRequest = useRef<string | null>(null);
@@ -198,6 +198,8 @@ export function DesktopSession({ children }: { children: (actions: DesktopSessio
   if (connection.status === 'failed') {
     return <WorkspaceStatus title="계정을 연결하지 못했습니다" detail="Windows 앱에서 다시 연결해 주세요." />;
   }
+
+  if (fullPage && canShowWorkspace) return children({ notifyHabitWrite: notifyWorkspaceWrite, openTarget });
 
   return (
     <div className={styles.workspace}>

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { DesktopHabitWriteContext } from '@/components/desktop/DesktopHabitWriteContext';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import Swal from 'sweetalert2';
@@ -5738,7 +5739,9 @@ export function HabitTrackerApp(props: HabitTrackerAppProps) {
   return <HabitTrackerAccount key={currentUser?.uid ?? 'guest'} {...props} />;
 }
 
-function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceWrite }: HabitTrackerAppProps) {
+function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceWrite: explicitWrite }: HabitTrackerAppProps) {
+  const desktopWrite = React.useContext(DesktopHabitWriteContext);
+  const onWorkspaceWrite = explicitWrite ?? desktopWrite;
   const {
     currentUser,
     loading: authLoading,
