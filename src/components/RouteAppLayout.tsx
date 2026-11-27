@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { AppLayout } from '@/components/AppLayout';
-import { isHabitDesktopRoute } from '@/lib/habitDesktopRoute';
+import { isDesktopWorkspaceRoute } from '@/lib/desktopWorkspaceRoute';
 
 type RouteAppLayoutProps = {
   children: ReactNode;
@@ -11,6 +11,6 @@ type RouteAppLayoutProps = {
 
 export function RouteAppLayout({ children }: RouteAppLayoutProps) {
   const pathname = usePathname();
-  if (isHabitDesktopRoute(pathname)) return <>{children}</>;
+  if (isDesktopWorkspaceRoute(pathname)) return <>{children}</>;
   return <AppLayout>{children}</AppLayout>;
 }

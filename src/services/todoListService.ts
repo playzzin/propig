@@ -15,6 +15,7 @@ import {
   type DocumentData,
   type FirestoreDataConverter,
   type PartialWithFieldValue,
+  type Query,
   type QueryDocumentSnapshot,
   type SetOptions,
   type SnapshotOptions,
@@ -55,6 +56,42 @@ export interface TodoTask {
   completedDates: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TodoOccurrence {
+  task: TodoTask;
+  dateKey: string;
+  completed: boolean;
+}
+
+export function shouldTodoTaskOccurOn(task: TodoTask, dateKey: string): boolean {
+  const recurrence = task.recurrence;
+  if (recurrence.mode === 'unscheduled') return false;
+  if (recurrence.mode === 'dates') return recurrence.dates.includes(dateKey);
+  if (dateKey < task.startDate) return false;
+  if (recurrence.mode === 'once') return dateKey === task.startDate;
+  if (recurrence.mode === 'daily') return true;
+
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  if (recurrence.mode === 'weekly') return recurrence.weekdays.includes(date.getDay());
+  return recurrence.monthDays.includes(date.getDate());
+}
+
+export function getTodoOccurrencesForDate(tasks: readonly TodoTask[], dateKey: string): TodoOccurrence[] {
+  return tasks
+    .filter((task) => shouldTodoTaskOccurOn(task, dateKey))
+    .map((task) => ({
+      task,
+      dateKey,
+      completed: task.completedDates.includes(dateKey),
+    }))
+    .sort((a, b) => {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      const timeCompare = (a.task.time || '00:00').localeCompare(b.task.time || '00:00');
+      if (timeCompare !== 0) return timeCompare;
+      return new Date(b.task.createdAt).getTime() - new Date(a.task.createdAt).getTime();
+    });
 }
 
 export interface TodoTaskDraft {
@@ -339,17 +376,44 @@ function sanitizeDraft(draft: TodoTaskDraft): Omit<TodoTaskDocument, 'createdAt'
   };
 }
 
+interface TodoSubscriptionOptions {
+  waitForServer?: boolean;
+}
+
+function subscribeSortedItems<Document extends DocumentData, Item>(
+  items: Query<Document>,
+  normalize: (snapshot: QueryDocumentSnapshot<Document>) => Item | null,
+  onData: (items: Item[]) => void,
+  onError: (error: Error) => void,
+  { waitForServer = false }: TodoSubscriptionOptions,
+): Unsubscribe {
+  let ready = !waitForServer;
+  return onSnapshot(
+    items,
+    { includeMetadataChanges: waitForServer },
+    (snapshot) => {
+      // An empty initial cache must not be interpreted as missing account data.
+      if (waitForServer && !snapshot.metadata.fromCache) ready = true;
+      if (!ready) return;
+      onData(snapshot.docs.map(normalize).filter((item): item is Item => item !== null));
+    },
+    (error) => onError(error instanceof Error ? error : new Error(String(error))),
+  );
+}
+
 class TodoListService {
-  subscribeTasks(uid: string, onData: (items: TodoTask[]) => void, onError: (error: Error) => void): Unsubscribe {
-    return onSnapshot(
+  subscribeTasks(
+    uid: string,
+    onData: (items: TodoTask[]) => void,
+    onError: (error: Error) => void,
+    options: TodoSubscriptionOptions = {},
+  ): Unsubscribe {
+    return subscribeSortedItems(
       query(todoTaskCollection(uid), orderBy('createdAt', 'desc')),
-      (snapshot) => {
-        const items = snapshot.docs
-          .map(normalizeTaskSnapshot)
-          .filter((item): item is TodoTask => Boolean(item));
-        onData(items);
-      },
-      (error) => onError(error instanceof Error ? error : new Error(String(error))),
+      normalizeTaskSnapshot,
+      onData,
+      onError,
+      options,
     );
   }
 
@@ -357,16 +421,14 @@ class TodoListService {
     uid: string,
     onData: (categories: TodoCategoryOption[]) => void,
     onError: (error: Error) => void,
+    options: TodoSubscriptionOptions = {},
   ): Unsubscribe {
-    return onSnapshot(
+    return subscribeSortedItems(
       query(todoCategoryCollection(uid), orderBy('createdAt', 'asc')),
-      (snapshot) => {
-        const categories = snapshot.docs
-          .map(normalizeCategorySnapshot)
-          .filter((category): category is TodoCategoryOption => Boolean(category));
-        onData(categories);
-      },
-      (error) => onError(error instanceof Error ? error : new Error(String(error))),
+      normalizeCategorySnapshot,
+      onData,
+      onError,
+      options,
     );
   }
 
