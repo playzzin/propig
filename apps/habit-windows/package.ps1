@@ -1,7 +1,7 @@
 param(
     [string]$PackageName = 'ProPig.Habits.Development',
     [string]$Publisher = 'CN=ProPig Development',
-    [string]$Version = '1.0.0.0'
+    [string]$Version = '1.1.0.0'
 )
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot 'HabitWindows.csproj'
@@ -18,7 +18,7 @@ $manifest = [xml]@'
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap rescap">
-  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.0.0.0" ProcessorArchitecture="x64"/>
+  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.1.0.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>ProPig 습관</DisplayName>
     <PublisherDisplayName>ProPig</PublisherDisplayName>

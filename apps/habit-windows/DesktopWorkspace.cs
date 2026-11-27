@@ -64,7 +64,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
     {
         entry = new Uri(FirebaseHabits.WebOrigin + (surface switch
         {
-            DesktopSurface.Workspace => "/propig/desktop",
+            DesktopSurface.Workspace => "/propig?windows=dashboard",
             DesktopSurface.Memo => "/propig/desktop/memo",
             DesktopSurface.Todo => "/propig/desktop/todo",
             _ => throw new ArgumentOutOfRangeException(nameof(surface))
@@ -139,7 +139,8 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
 
     private bool IsWorkspacePage(string? value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri)
-        && (uri.AbsoluteUri == entry.AbsoluteUri || uri.AbsoluteUri == entry.AbsoluteUri + "/");
+        && uri.GetLeftPart(UriPartial.Authority) == entry.GetLeftPart(UriPartial.Authority)
+        && uri.AbsolutePath.TrimEnd('/') == entry.AbsolutePath && uri.Query == entry.Query;
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
     {
@@ -159,8 +160,13 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
 
     private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
-        if (failed || lifetime.IsCancellationRequested || !IsWorkspacePage(args.Source)
-            || !IsWorkspacePage(web.CoreWebView2?.Source) || firebase.Uid != AccountUid) return;
+        if (failed || lifetime.IsCancellationRequested || firebase.Uid != AccountUid) return;
+        var atEntry = IsWorkspacePage(args.Source) && IsWorkspacePage(web.CoreWebView2?.Source);
+        var atHabitPage = connected && recordsChanged != null && args.Source == web.CoreWebView2?.Source
+            && Uri.TryCreate(args.Source, UriKind.Absolute, out var page)
+            && page.GetLeftPart(UriPartial.Authority) == entry.GetLeftPart(UriPartial.Authority)
+            && page.AbsolutePath.TrimEnd('/') is "/habit-tracker" or "/habit-tracker/stats" or "/habit-tracker/manage";
+        if (!atEntry && !atHabitPage) return;
 
         var json = args.WebMessageAsJson;
         if (json.Length > 512) return;
@@ -185,6 +191,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         }
         catch (JsonException) { return; }
 
+        if (!atEntry && type != "workspace-records-changed") return;
         if (type == "workspace-ready" && requestId == null)
         {
             requestId = id;

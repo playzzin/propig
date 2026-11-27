@@ -468,17 +468,33 @@ internal sealed class HabitApp
         }
 
         var actions = new WrapPanel { Margin = new Thickness(12, 8, 6, 2) };
-        actions.Children.Add(WidgetButton("습관 위젯", DesktopTarget.Habit));
-        actions.Children.Add(WidgetButton("메모 위젯", DesktopTarget.Memo));
-        actions.Children.Add(WidgetButton("일정 위젯", DesktopTarget.Todo));
-        actions.Children.Add(Button("습관 위젯 설정", () =>
+        var menu = new Menu { Background = Brushes.Transparent, IsEnabled = !busy };
+        var widgets = new MenuItem { Header = "위젯", Foreground = Brushes.White };
+        menu.Items.Add(widgets);
+
+        void AddAction(string label, Func<Task> action)
+        {
+            var item = new MenuItem { Header = label, Foreground = SystemColors.MenuTextBrush };
+            item.Click += async (_, _) => await action();
+            widgets.Items.Add(item);
+        }
+
+        foreach (var (label, target) in new[] {
+            ("습관 위젯 열기", DesktopTarget.Habit), ("메모 위젯 열기", DesktopTarget.Memo),
+            ("일정 위젯 열기", DesktopTarget.Todo) })
+        {
+            AddAction(label, () => { OpenDesktopTarget(target); return Task.CompletedTask; });
+        }
+        widgets.Items.Add(new Separator());
+        AddAction("습관 위젯 설정", () =>
         {
             configureWidget = true;
             PaintMain();
             return Task.CompletedTask;
-        }));
+        });
         if (applicationId != null)
-            actions.Children.Add(Button("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true)));
+            AddAction("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true));
+        actions.Children.Add(menu);
         var signOut = Button("로그아웃", SignOut);
         signOut.Margin = new Thickness(0, 8, 12, 6);
         signOut.VerticalAlignment = VerticalAlignment.Top;
@@ -1022,9 +1038,4 @@ internal sealed class HabitApp
         return button;
     }
 
-    private Button WidgetButton(string name, DesktopTarget target) => Button(name, () =>
-    {
-        OpenDesktopTarget(target);
-        return Task.CompletedTask;
-    });
 }
