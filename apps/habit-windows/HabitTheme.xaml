@@ -349,6 +349,66 @@
         </Style.Triggers>
     </Style>
 
+    <Style x:Key="HabitWeekDay" TargetType="Button" BasedOn="{StaticResource HabitButton}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource HabitMuted}" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="MinHeight" Value="31" />
+        <Setter Property="Margin" Value="1,0,1,3" />
+    </Style>
+
+    <Style x:Key="HabitWeekDayActive" TargetType="Button" BasedOn="{StaticResource HabitWeekDay}">
+        <Setter Property="Background" Value="#21403B" />
+        <Setter Property="Foreground" Value="{StaticResource HabitMint}" />
+    </Style>
+
+    <Style x:Key="HabitWidgetCheck" TargetType="CheckBox">
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Width" Value="28" />
+        <Setter Property="BorderBrush" Value="{StaticResource HabitLine}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="CheckFrame" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                            Background="#192E32" CornerRadius="6">
+                        <Path x:Name="Tick" Data="M 1,5 L 4,8 L 10,1" Stroke="{StaticResource HabitInk}"
+                              StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="CheckFrame" Property="Background" Value="{StaticResource HabitMint}" />
+                            <Setter TargetName="CheckFrame" Property="BorderBrush" Value="{StaticResource HabitMint}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="CheckFrame" Property="BorderBrush" Value="{StaticResource HabitMint}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="CheckFrame" Property="BorderBrush" Value="White" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="CheckFrame" Property="Opacity" Value="0.72" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="CheckFrame" Property="Opacity" Value="0.65" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HabitWeeklyCheck" TargetType="CheckBox" BasedOn="{StaticResource HabitWidgetCheck}">
+        <Setter Property="Width" Value="Auto" />
+        <Setter Property="Height" Value="27" />
+        <Setter Property="Margin" Value="1,2" />
+    </Style>
+
     <Style TargetType="ProgressBar">
         <Setter Property="Height" Value="6" />
         <Setter Property="Foreground" Value="{StaticResource HabitMint}" />

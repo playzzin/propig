@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import styled, { css } from 'styled-components';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import styled, { css, keyframes } from 'styled-components';
 import Swal from 'sweetalert2';
 import { toast } from 'sonner';
 import {
@@ -1640,6 +1640,11 @@ function getRecordScore(habit: HabitItem, record?: HabitRecord): number {
   if (isChoiceMode(habit.mode)) return getChoiceScore(habit, record);
   const todoStats = getTodoStats(record);
   return todoStats.total > 0 ? todoStats.percent : 0;
+}
+
+function hasCompletedAllHabits(workspace: HabitWorkspace, dateKey: string) {
+  const records = workspace.records[dateKey];
+  return workspace.habits.length > 0 && workspace.habits.every((habit) => getRecordScore(habit, records?.[habit.id]) >= 1);
 }
 
 function calculateDayStats(workspace: HabitWorkspace, dateKey: string, habits = workspace.habits) {
@@ -3398,6 +3403,125 @@ const DailyCompletion = styled.span`
   }
 `;
 
+const DailyProgress = styled.div`
+  position: relative;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--habit-line);
+
+  > strong {
+    min-width: 3ch;
+    color: var(--habit-green);
+    font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+`;
+
+const DailyProgressTrack = styled.div`
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(189, 203, 220, 0.16);
+
+  > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #42d392, #59dfce);
+    transform: scaleX(var(--habit-progress));
+    transform-origin: left;
+    transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    > span { transition: none; }
+  }
+`;
+
+const CelebrationRegion = styled.div`
+  position: absolute;
+  z-index: 2;
+  inset: 100% 0 auto;
+  display: grid;
+  justify-items: center;
+  pointer-events: none;
+`;
+
+const noticeIn = keyframes`
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
+
+const CelebrationNotice = styled.div`
+  position: relative;
+  isolation: isolate;
+  max-width: calc(100% - 24px);
+  margin-top: 6px;
+  padding: 10px 14px;
+  border: 1px solid rgba(127, 231, 171, 0.4);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #142d28;
+  color: #e5faee;
+  box-shadow: 0 8px 24px rgba(4, 16, 12, 0.45);
+  font-size: 0.85rem;
+  font-weight: 750;
+  animation: ${noticeIn} 220ms ease-out both;
+
+  > svg { flex: none; color: #f3c96b; }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+const confettiBurst = keyframes`
+  0% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.65); }
+  14% { opacity: 1; }
+  42% { opacity: 1; transform: translate(var(--spark-peak-x), var(--spark-peak-y)) rotate(125deg) scale(1); }
+  100% { opacity: 0; transform: translate(var(--spark-x), var(--spark-y)) rotate(var(--spark-turn)) scale(0.55); }
+`;
+
+const CelebrationSpark = styled.span`
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  top: 35%;
+  width: var(--spark-size);
+  height: var(--spark-height);
+  border-radius: var(--spark-radius);
+  background: var(--spark-color);
+  animation: ${confettiBurst} var(--spark-duration) var(--spark-delay) ease-out both;
+
+  @media (prefers-reduced-motion: reduce) {
+    display: none;
+  }
+`;
+
+const CELEBRATION_COLORS = ['#7fe7ab', '#2dd4bf', '#f3c96b', '#b9a8f5'] as const;
+const CELEBRATION_SPARKS = Array.from({ length: 20 }, (_, index) => {
+  const x = (index % 2 ? 1 : -1) * (30 + (index * 23) % 139);
+  return {
+    '--spark-peak-x': `${Math.round(x * 0.72)}px`,
+    '--spark-peak-y': `-${14 + (index * 11) % 54}px`,
+    '--spark-x': `${x}px`,
+    '--spark-y': `${16 + (index * 17) % 68}px`,
+    '--spark-turn': `${(index % 2 ? 1 : -1) * (220 + index * 31)}deg`,
+    '--spark-size': `${4 + index % 4}px`,
+    '--spark-height': `${index % 3 === 0 ? 4 + index % 4 : 8 + index % 5}px`,
+    '--spark-radius': index % 3 === 0 ? '50%' : '1.5px',
+    '--spark-color': CELEBRATION_COLORS[index % CELEBRATION_COLORS.length],
+    '--spark-duration': `${760 + (index % 7) * 45}ms`,
+    '--spark-delay': `${(index % 5) * 19}ms`,
+  };
+});
+
 const RecordLayoutSwitch = styled.div`
   grid-area: view;
   height: 38px;
@@ -3753,6 +3877,34 @@ const SimpleRecordCell = styled.button<{ $active: boolean; $selected: boolean; $
     font-weight: 900;
   }
 
+  > svg {
+    grid-area: 1 / 1;
+    width: clamp(13px, 2.6vw, 20px);
+    height: auto;
+    stroke-width: 2.6;
+    transition: opacity 160ms ease, transform 280ms cubic-bezier(0.21, 1.49, 0.45, 1);
+  }
+
+  > [data-record-mark='empty'] { opacity: 0.5; }
+
+  > [data-record-mark='check'] {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+
+  &[aria-pressed='true'] > [data-record-mark='empty'] { opacity: 0; }
+
+  &[aria-pressed='true'] > [data-record-mark='check'] {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+    &:hover:not(:disabled) { transform: none; }
+    > svg { transition: none; }
+  }
+
   @media (max-width: 720px) {
     min-height: 52px;
     padding: ${(props) => (props.$selected ? '5px 4px' : '5px 1px')};
@@ -3884,7 +4036,9 @@ const ProgressFill = styled.div<{ $percent: number; $color: string }>`
   width: ${(props) => getScoreTrackPercent(props.$percent)}%;
   height: 100%;
   background: ${(props) => props.$color};
-  transition: width 0.2s ease;
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 const ControlArea = styled.div`
@@ -3921,6 +4075,11 @@ const ToggleRecordButton = styled.button<{ $active: boolean }>`
     cursor: not-allowed;
     opacity: 0.48;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+    &:hover:not(:disabled) { transform: none; }
+  }
 `;
 
 const CheckBoxMark = styled.span<{ $active: boolean }>`
@@ -3938,7 +4097,12 @@ const CheckBoxMark = styled.span<{ $active: boolean }>`
     width: 21px;
     height: 21px;
     stroke-width: 3;
+    opacity: ${({ $active }) => $active ? 1 : 0};
+    transform: scale(${({ $active }) => $active ? 1 : 0.65});
+    transition: opacity 160ms ease, transform 280ms cubic-bezier(0.21, 1.49, 0.45, 1);
   }
+
+  @media (prefers-reduced-motion: reduce) { svg { transition: none; } }
 `;
 
 const InputWithUnit = styled.div`
@@ -5596,6 +5760,7 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
   const habitNameInputRef = useRef<HTMLInputElement>(null);
   const readyRef = useRef(false);
   const mountedRef = useRef(false);
+  const workspaceSnapshotRef = useRef<HabitWorkspace | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; readyRef.current = false; };
@@ -5603,6 +5768,27 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
   const [pendingWrites, setPendingWrites] = useState(0);
   const isSaving = pendingWrites > 0;
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
+  const recordView = useMemo(() => ({ view: initialView, date: selectedDate }), [initialView, selectedDate]);
+  const recordViewRef = useRef(recordView);
+  const pendingCelebrationRef = useRef<{
+    view: typeof recordView;
+    habitId: string;
+    previousUpdatedAt?: string;
+    expiresAt: number;
+  } | null>(null);
+  const [celebration, setCelebration] = useState<{ view: typeof recordView; sequence: number } | null>(null);
+  const announceCompletion = useCallback((view: typeof recordView) => {
+    setCelebration((previous) => ({ view, sequence: (previous?.sequence ?? 0) + 1 }));
+  }, []);
+  useLayoutEffect(() => {
+    recordViewRef.current = recordView;
+    pendingCelebrationRef.current = null;
+  }, [recordView]);
+  useEffect(() => {
+    if (!celebration) return;
+    const timer = window.setTimeout(() => setCelebration(null), 4400);
+    return () => window.clearTimeout(timer);
+  }, [celebration]);
   const { dailyRecordLayout: browserRecordLayout, setDailyRecordLayout: setBrowserRecordLayout } = useDailyRecordLayout('simple');
   const [dailyRecordLayoutOverride, setDailyRecordLayoutOverride] = useState<DailyRecordLayout | null>(null);
   const defaultDailyRecordLayout = savedWorkspace.viewPreferences?.dailyRecordLayout ?? browserRecordLayout;
@@ -5656,13 +5842,24 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
             const nextWorkspace = snapshot.exists()
               ? normalizeWorkspace(snapshot.data())
               : createInitialWorkspace();
+            workspaceSnapshotRef.current = nextWorkspace;
             setWorkspace(nextWorkspace);
             setHasLoaded(true);
             setLoadError(false);
+            const pending = pendingCelebrationRef.current;
+            pendingCelebrationRef.current = null;
+            if (pending && pending.view === recordViewRef.current && Date.now() < pending.expiresAt &&
+                pending.view.date === toDateKey(new Date())) {
+              const updatedAt = nextWorkspace.records[pending.view.date]?.[pending.habitId]?.updatedAt;
+              if (updatedAt && updatedAt !== pending.previousUpdatedAt && hasCompletedAllHabits(nextWorkspace, pending.view.date)) {
+                announceCompletion(pending.view);
+              }
+            }
           },
           (error) => {
             if (didCancel || auth.currentUser?.uid !== currentUser.uid) return;
             readyRef.current = false;
+            pendingCelebrationRef.current = null;
             console.error('Failed to subscribe habit tracker workspace:', error);
             toast.error('습관 데이터를 불러오지 못했습니다.');
             setHasLoaded(false);
@@ -5694,7 +5891,7 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
       didCancel = true;
       unsubscribe?.();
     };
-  }, [authLoading, currentUser]);
+  }, [announceCompletion, authLoading, currentUser]);
 
   useEffect(() => {
     if (editingHabitId) return;
@@ -5818,6 +6015,8 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
     () => calculateDayStats(workspace, selectedDate, visibleHabits),
     [selectedDate, visibleHabits, workspace],
   );
+  const selectedProgress = Math.min(100, selectedDayStats.percent);
+  const showCelebration = celebration?.view === recordView && hasCompletedAllHabits(savedWorkspace, selectedDate);
 
   const statsBuckets = useMemo(() => createStatsBuckets(workspace, selectedDate, statsPeriod), [selectedDate, statsPeriod, workspace]);
   const activeStatsBucket = useMemo(() => statsBuckets[statsBuckets.length - 1], [statsBuckets]);
@@ -6138,12 +6337,19 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
   );
 
   const saveRecordForDate = useCallback(
-    async (dateKey: string, habitId: string, patch: Partial<HabitRecord>) => {
+    async (dateKey: string, habitId: string, patch: Partial<HabitRecord>, isRecordAction = true) => {
       const key = JSON.stringify([dateKey, habitId]);
       const draft = recordDrafts[key];
       const changes = { ...draft?.patch, ...patch };
       if (Object.keys(changes).length === 0) return true;
-      if (!savedWorkspace.habits.some((habit) => habit.id === habitId)) return false;
+      const habit = savedWorkspace.habits.find((item) => item.id === habitId);
+      if (!habit) return false;
+
+      const beforeWrite = workspaceSnapshotRef.current;
+      const previousRecord = beforeWrite?.records[dateKey]?.[habitId];
+      const completesHabit = isRecordAction && initialView === 'daily' && dateKey === toDateKey(new Date()) &&
+        getRecordScore(habit, previousRecord) < 1 && getRecordScore(habit, { ...previousRecord, ...changes }) >= 1;
+      if (isRecordAction) pendingCelebrationRef.current = null;
 
       const saved = await runWorkspaceWrite(
         (uid) => saveHabitRecordPatch(uid, dateKey, habitId, changes),
@@ -6158,9 +6364,25 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
           return next;
         });
       }
+      const activeView = recordViewRef.current;
+      const snapshot = workspaceSnapshotRef.current;
+      if (saved && completesHabit && snapshot && dateKey === toDateKey(new Date()) &&
+          activeView.view === 'daily' && activeView.date === dateKey) {
+        if (snapshot.habits.some((item) => item.id === habitId) && hasCompletedAllHabits(snapshot, dateKey)) {
+          announceCompletion(activeView);
+        } else if (snapshot === beforeWrite && hasCompletedAllHabits(applyRecordPatch(snapshot, dateKey, habitId, changes), dateKey)) {
+          // The write promise can resolve before the queued snapshot callback.
+          pendingCelebrationRef.current = {
+            view: activeView,
+            habitId,
+            previousUpdatedAt: previousRecord?.updatedAt,
+            expiresAt: Date.now() + 1500,
+          };
+        }
+      }
       return saved;
     },
-    [recordDrafts, runWorkspaceWrite, savedWorkspace.habits],
+    [announceCompletion, initialView, recordDrafts, runWorkspaceWrite, savedWorkspace.habits],
   );
 
   const deleteRecordForDate = useCallback(
@@ -6237,7 +6459,7 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
       savedWorkspace.habits.some((habit) => habit.id === habitId),
     );
     const results = await Promise.all(drafts.map(({ dateKey, habitId }) =>
-      saveRecordForDate(dateKey, habitId, {}),
+      saveRecordForDate(dateKey, habitId, {}, false),
     ));
     if (results.every(Boolean)) {
       await runWorkspaceWrite(
@@ -8431,11 +8653,13 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
         <ToggleRecordButton
           type="button"
           $active={checked}
+          aria-label={`${habit.name} 체크`}
+          aria-pressed={checked}
           disabled={controlsDisabled}
           onClick={() => saveRecord(habit.id, { checked: !checked })}
         >
           <CheckBoxMark $active={checked}>
-            <Check />
+            <Check aria-hidden="true" />
           </CheckBoxMark>
           <span>{checked ? '완료됨' : '박스 체크'}</span>
         </ToggleRecordButton>
@@ -9359,6 +9583,32 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
                     <IconButton type="button" onClick={() => setSelectedDate(toDateKey(new Date()))}>오늘</IconButton>
                   </DailyDateToolbar>
                 </DailyHeader>
+                {selectedDayStats.total > 0 ? (
+                  <DailyProgress>
+                    <DailyProgressTrack
+                      role="progressbar"
+                      aria-label="선택한 날짜 습관 진행률"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={selectedProgress}
+                      aria-valuetext={`${selectedProgress}% · ${selectedDayStats.total}개 중 ${selectedDayStats.completed}개 완료`}
+                    >
+                      <span style={{ '--habit-progress': selectedProgress / 100 } as React.CSSProperties} />
+                    </DailyProgressTrack>
+                    <strong aria-hidden="true">{selectedProgress}%</strong>
+                    <CelebrationRegion role="status" aria-atomic="true">
+                      {showCelebration ? (
+                        <CelebrationNotice key={celebration.sequence}>
+                          <Trophy size={18} aria-hidden="true" />
+                          오늘의 습관을 모두 완료했어요!
+                          {CELEBRATION_SPARKS.map((style, index) => (
+                            <CelebrationSpark key={index} style={style as React.CSSProperties} aria-hidden="true" />
+                          ))}
+                        </CelebrationNotice>
+                      ) : null}
+                    </CelebrationRegion>
+                  </DailyProgress>
+                ) : null}
                 <DailyComposer ref={dailyComposerRef} onToggle={(event) => { if (event.currentTarget.open) habitNameInputRef.current?.focus(); }}>
                   <summary><Plus size={17} aria-hidden="true" /> 습관 추가 <ChevronDown size={16} aria-hidden="true" /></summary>
                   {renderHabitForm()}
@@ -9407,6 +9657,7 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
                               {simpleDateKeys.map((dateKey) => {
                                 const record = workspace.records[dateKey]?.[habit.id];
                                 const display = getQuickRecordDisplay(habit, record);
+                                const isCheck = habit.mode === 'check';
                                 return (
                                   <SimpleRecordCell
                                     type="button"
@@ -9414,6 +9665,8 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
                                     $active={display.active}
                                     $selected={dateKey === selectedDate}
                                     $color={color}
+                                    aria-pressed={isCheck ? display.active : undefined}
+                                    aria-label={isCheck ? `${habit.name} ${formatMonthDay(dateKey)} 체크` : undefined}
                                     disabled={controlsDisabled}
                                     onClick={() => {
                                       setSelectedDate(dateKey);
@@ -9421,7 +9674,12 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
                                     }}
                                     title={`${habit.name} ${formatMonthDay(dateKey)} 항목 기준 기록`}
                                   >
-                                    <strong>{display.value}</strong>
+                                    {isCheck ? (
+                                      <>
+                                        <Minus data-record-mark="empty" aria-hidden="true" />
+                                        <Check data-record-mark="check" aria-hidden="true" />
+                                      </>
+                                    ) : <strong>{display.value}</strong>}
                                     {display.unit ? <span>{display.unit}</span> : null}
                                   </SimpleRecordCell>
                                 );

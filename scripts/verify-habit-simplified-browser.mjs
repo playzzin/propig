@@ -115,8 +115,8 @@ const external = [];
 const results = [];
 let browser;
 
-async function isolatedPage(width, seed) {
-  const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+async function isolatedPage(width, seed, reducedMotion = 'reduce') {
+  const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   if (seed) await context.addInitScript((workspace) => {
     if (!sessionStorage.getItem('habit-fixture-workspace')) sessionStorage.setItem('habit-fixture-workspace', JSON.stringify(workspace));
   }, seed);
@@ -160,7 +160,8 @@ try {
   browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] });
 
   for (const width of [1365, 390]) {
-    const { context, page } = await isolatedPage(width);
+    const reducedMotion = width === 390 ? 'reduce' : 'no-preference';
+    const { context, page } = await isolatedPage(width, undefined, reducedMotion);
     await page.goto(`${origin}/habit-tracker`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: '습관 트래커', exact: true }).waitFor();
     await assertNoPresets(page);
@@ -231,11 +232,29 @@ try {
     assert.equal(await datePicker.inputValue(), offsetDate(selectedDate, -1));
     await page.getByRole('button', { name: '다음 날짜', exact: true }).click();
     assert.equal(await datePicker.inputValue(), selectedDate);
-    const dailyToggle = page.getByRole('button', { name: '박스 체크', exact: true });
+    const dailyToggle = page.getByRole('button', { name: '저녁 산책 체크', exact: true });
+    const progress = page.getByRole('progressbar', { name: '선택한 날짜 습관 진행률', exact: true });
+    const celebration = page.getByRole('status').filter({ hasText: '오늘의 습관을 모두 완료했어요!' });
+    await datePicker.fill(offsetDate(currentDate, -1));
     await dailyToggle.click();
     await waitForWrites(page, 4);
-    await page.getByRole('button', { name: '완료됨', exact: true }).waitFor();
+    assert.equal(await dailyToggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(await celebration.count(), 0, 'completing a historical day does not celebrate today');
+    await page.getByRole('button', { name: '오늘', exact: true }).click();
+    assert.equal(await progress.getAttribute('aria-valuenow'), '0');
+    await dailyToggle.click();
+    await waitForWrites(page, 5);
+    await celebration.waitFor();
+    assert.equal(await progress.getAttribute('aria-valuenow'), '100');
+    const sparkStyle = await celebration.locator('span[aria-hidden="true"]').first()
+      .evaluate((element) => ({ display: getComputedStyle(element).display, animation: getComputedStyle(element).animationName }));
+    if (reducedMotion === 'reduce') assert.equal(sparkStyle.display, 'none', 'reduce keeps the notice and hides particles');
+    else assert.notEqual(sparkStyle.animation, 'none', 'successful completion animates confetti');
     await captureAndAssertWidth(page, `daily-${width}`);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('progressbar', { name: '선택한 날짜 습관 진행률', exact: true }).waitFor();
+    assert.equal(await progress.getAttribute('aria-valuenow'), '100');
+    assert.equal(await celebration.count(), 0, 'loading completed records does not replay celebration');
     await page.getByRole('button', { name: '주간 보기', exact: true }).click();
     await cell.waitFor();
 
@@ -246,7 +265,7 @@ try {
     await captureAndAssertWidth(page, `manage-${width}`);
     await page.getByRole('link', { name: '설명서', exact: true }).click();
     await assertNoPresets(page);
-    results.push({ width, cases: ['keyboard-inline-add', 'default-check', 'automatic-category', 'check-uncheck', 'daily-weekly-layout', 'date-picker-and-navigation', 'empty-manage-no-presets', 'manage-no-presets', 'manual-no-presets', 'no-document-overflow'] });
+    results.push({ width, cases: ['keyboard-inline-add', 'default-check', 'automatic-category', 'check-uncheck', 'daily-weekly-layout', 'date-picker-and-navigation', 'today-completion-feedback', 'motion-preference', 'no-completion-replay', 'empty-manage-no-presets', 'manage-no-presets', 'manual-no-presets', 'no-document-overflow'] });
     await context.close();
   }
 
