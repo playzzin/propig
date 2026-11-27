@@ -10,7 +10,7 @@
 ## 데이터와 연결
 
 - 두 화면은 MarketDashboard를 공유한다. 웹 워커에서 금융위원회 REST V2 지수와 주식 API에 직접 요청한다. 데이터 기준 거래일을 표시한다. 시세는 기준일 다음 영업일 오후 1시 이후 갱신된다. [금융위원회 금융공공데이터 FAQ](https://www.fsc.go.kr/in060501)
-- 서비스 키는 포털 API의 HTTPS 요청에 포함되고 브라우저 저장소나 앱 설정에 기록하지 않는다. 시세와 키를 중계하는 ProPig 서버를 두지 않았다. 데이터 출처와 비상업적 이용 조건을 화면에 표시한다. [공공누리 4유형](https://www.kogl.or.kr/info/licenseType4.do)
+- 서비스 키는 포털 API의 HTTPS 요청에 포함되고 브라우저 저장소나 앱 설정을 사용하지 않는다. 화면에 데이터 출처와 포털 이용 조건을 확인할 수 있는 링크를 표시한다. 금융위원회 공지상 현재 공공누리 4유형은 2026년 12월 17일부터 기존 API에도 1유형으로 일괄 변경될 예정이다. [금융위원회 이용 조건 변경 공지](https://www.data.go.kr/bbs/ntc/selectNotice.do?originId=NOTICE_0000000005172)
 - Windows는 지정된 ProPig의 /propig/desktop/market을 분리된 InPrivate WebView2에 연다. 공공데이터포털 이용 안내 링크는 기본 브라우저로 연다. 실제 운영 앱에서 사용하려면 해당 웹 경로와 새 Windows 패키지가 모두 반영되어야 한다.
 - TradingView 무료 임베드에서는 KRX의 삼성전자와 에코프로비엠이 TradingView 사이트 전용 심볼로 표시됐다. 공식 발급 키로 개인 열람이 가능한 금융위원회 API를 사용했다. [TradingView 위젯 지원 안내](https://www.tradingview.com/widget-docs/faq/)
 

@@ -213,7 +213,7 @@ export default function MarketDashboard({ compact = false }: { compact?: boolean
         </section>
       )}
       <div className={styles.sources}>
-        <span>금융위원회·한국거래소 제공 · 다음 영업일 오후 1시 이후 갱신 · 비상업적 이용</span>
+        <span>금융위원회·한국거래소 제공 · 다음 영업일 오후 1시 이후 갱신</span>
         <a href={marketSources.index} target="_blank" rel="noreferrer">지수시세정보</a>
         <a href={marketSources.stock} target="_blank" rel="noreferrer">주식시세정보</a>
       </div>
