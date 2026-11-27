@@ -260,7 +260,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             }
             else if (target?.Split('/') is ["key", var version, var slot] && PcWidgetWindows.ValidKey(version,slot,out var layout,out var index))
                 PostPcReply(id, document, pcWidgets!.PressKey(Window.GetWindow(this), AccountUid, layout, index));
-            else PostPcReply(id, document, await PcWidgetActions.Execute(target));
+            else PostPcReply(id, document, await pcWidgets!.Execute(target, Window.GetWindow(this), AccountUid));
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or UnauthorizedAccessException)
         {

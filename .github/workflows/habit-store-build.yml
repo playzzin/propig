@@ -5,7 +5,6 @@ on:
     paths:
       - 'android/habit-store/**'
       - 'apps/habit-windows/**'
-      - 'scripts/rainmeter/**'
       - 'android/app/google-services.json'
       - 'android/gradle/**'
       - '.github/workflows/habit-store-build.yml'
@@ -14,7 +13,6 @@ on:
     paths:
       - 'android/habit-store/**'
       - 'apps/habit-windows/**'
-      - 'scripts/rainmeter/**'
       - 'android/app/google-services.json'
       - 'android/gradle/**'
       - '.github/workflows/habit-store-build.yml'
@@ -33,9 +31,16 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Verify reversible Rainmeter connections
+      - name: Verify native widgets on a fresh Windows runner
         shell: pwsh
-        run: ./scripts/rainmeter/Test-ProPigMeasures.ps1 -InstallerOnly
+        run: |
+          if ((Get-Process Rainmeter -ErrorAction SilentlyContinue) -or
+              (Test-Path "$env:ProgramFiles/Rainmeter/Rainmeter.exe") -or
+              (Test-Path "$env:LOCALAPPDATA/Programs/Rainmeter/Rainmeter.exe") -or
+              (Test-Path "$env:USERPROFILE/.propig/rainmeter")) {
+            throw 'The clean-install test requires a Windows runner without the previous widget provider.'
+          }
+          dotnet run --project apps/habit-windows/checks/WidgetChecks.csproj -c Release
       - name: Package Windows desktop app and widget
         shell: pwsh
         env:
