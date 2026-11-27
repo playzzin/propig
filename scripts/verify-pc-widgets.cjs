@@ -38,6 +38,8 @@ function load(name, replacements = {}) {
 
 const contract = load('pcSnapshot.ts');
 const clock = load('ClockCalendar.tsx');
+const forecast = load('forecast.ts');
+const notes = load('UsageNotes.tsx');
 const panels = load('DevicePanels.tsx');
 const sourceTime = Date.parse('2024-02-29T14:59:00Z'); // 23:59 on leap day in Korea
 const layoutId = 1_812_365_004_517;
@@ -46,7 +48,7 @@ const daily = Array.from({ length: 7 }, (_, index) => ({
   date: new Date(sourceTime + index * 86400000).toISOString().slice(0, 10), tokens: index === 1 ? null : index,
 }));
 const fixture = {
-  version: 1, sampledAt: sourceTime,
+  version: 1, source: 'windows', sampledAt: sourceTime,
   system: { updatedAt: sourceTime, cpu: 0, ram: null, swap: null, disk: 100, cpuName: 'Fixture CPU', gpuName: null },
   sensors: { updatedAt: sourceTime, cpuTemp: 0, gpuTemp: null, gpu: 39.5 },
   usage: {
@@ -58,8 +60,8 @@ const fixture = {
   mirabox: {
     updatedAt: sourceTime, profiles: 2, pages: 3, keys: 4, online: null, layoutId,
     slots: [
-      { index: 0, label: '웹' }, { index: 14, label: '키 15' },
-      { index: 27, label: '비활성' }, { index: 31, label: 'Codex' },
+      { index: 0, label: '웹', runnable: true }, { index: 14, label: '키 15' },
+      { index: 27, label: '비활성' }, { index: 31, label: '폴더', runnable: true },
     ],
   },
   weather: {
@@ -82,8 +84,13 @@ function checkDecoder() {
   assert.equal(snapshot.system.ram, null);
   assert.equal(snapshot.usage.daily[0].tokens, 0);
   assert.equal(snapshot.usage.daily[1].tokens, null);
-  assert.equal(snapshot.weather.days[0].rain, 0);
-  assert.equal(snapshot.weather.days[1].rain, null);
+  const previousStore = readPcSnapshot({ ...fixture, source: undefined });
+  assert.equal(previousStore.source, 'legacy');
+  assert.equal(previousStore.system.cpu, 0);
+  assert.equal(previousStore.mirabox, null);
+  assert.equal(previousStore.usage, null);
+  assert.equal(previousStore.sensors, null);
+  assert(!('weather' in snapshot));
   assert.equal(snapshot.mirabox.online, null);
   assert.equal(snapshot.mirabox.layoutId, layoutId);
   for (const invalidLayout of [undefined, 0, -1, '2', 3.5, Number.MAX_SAFE_INTEGER + 1]) {
@@ -100,7 +107,7 @@ function checkDecoder() {
   noisy.usage.daily.push({ date: '2024-03-08', tokens: 99 });
   noisy.mirabox.slots = Array.from({ length: 33 }, (_, index) => ({ index, label: 'Codex', path: privateText }));
   noisy.mirabox.slots[0].label = privateText;
-  noisy.weather.days.push({ date: '2024-03-08', code: 2, high: 1, low: 0, rain: 0 });
+
   const cleaned = readPcSnapshot(noisy);
   assert(!JSON.stringify(cleaned).includes(privateText));
   assert.equal(cleaned.system.ram, null);
@@ -112,8 +119,6 @@ function checkDecoder() {
   assert.equal(cleaned.mirabox.slots[0].label, '키 1');
   assert.equal(readPcSnapshot({ ...fixture, mirabox: { ...fixture.mirabox, keys: null } }).mirabox, null);
   assert.equal(readPcSnapshot({ ...fixture, mirabox: { ...fixture.mirabox, keys: 0, slots: [] } }).mirabox.keys, 0);
-  assert.equal(cleaned.weather.days.length, 7);
-  assert.equal(readPcSnapshot({ ...fixture, weather: { updatedAt: sourceTime } }).weather, null);
   assert.equal(readPcSnapshot({ ...fixture, usage: {} }).usage, null);
   return snapshot;
 }
@@ -138,12 +143,12 @@ function renderedText(node) {
 }
 
 async function checkPanels(sample) {
-  assert.match(renderToString(element(clock.ClockWeatherPanel)), /––:––/);
+  assert.match(renderToString(element(clock.ClockFace)), /––:––/);
   let view;
   const events = [];
   function render(snapshot, desktop = false) {
     return element(React.Fragment, null,
-      element(clock.ClockWeatherPanel, { weather: snapshot.weather }),
+      element(clock.ClockFace),
       element(clock.CalendarPanel),
       element(panels.SystemPanel, { system: snapshot.system, sensors: snapshot.sensors }),
       element(panels.UsagePanel, { usage: snapshot.usage }),
@@ -155,7 +160,7 @@ async function checkPanels(sample) {
   await act(async () => { view = create(render(sample)); });
   try {
     const calendar = view.root.findByType(clock.CalendarPanel);
-    const weather = view.root.findByType(clock.ClockWeatherPanel);
+    const weather = view.root.findByType(clock.ClockFace);
     const mira = view.root.findByType(panels.MiraBoxPanel);
     const usage = view.root.findByType(panels.UsagePanel);
     const system = view.root.findByType(panels.SystemPanel);
@@ -167,9 +172,6 @@ async function checkPanels(sample) {
     await act(async () => calendar.findAllByType('button').find(button => renderedText(button) === '오늘').props.onClick());
     assert.equal(heading(calendar), '2024년 2월');
     assert.equal(weather.findAllByType('time')[0].children[0], '23:59');
-    assert.equal(weather.findAllByType('tr').length, 8);
-    assert(weather.findAllByType('td').some(cell => renderedText(cell) === '0%'));
-    assert(weather.findAllByType('td').some(cell => renderedText(cell) === '—'));
     assert.equal(system.findByProps({ 'aria-label': 'CPU 사용률' }).props.value, 0);
     assert.equal(system.findByProps({ 'aria-label': '메모리 측정값 없음' }).props.role, 'img');
     assert.equal(usage.findByProps({ 'aria-label': '5시간 잔여' }).props.value, 0);
@@ -180,7 +182,7 @@ async function checkPanels(sample) {
     assert.equal(firstKey.props['aria-label'], '1번 키, 웹 실행 확인');
     assert.equal(firstKey.props.type, 'button');
     assert.notEqual(firstKey.props.tabIndex, -1, 'an enabled key retains native keyboard activation');
-    assert.equal(rows[31].findByType('button').props['aria-label'], '32번 키, Codex 실행 확인');
+    assert.equal(rows[31].findByType('button').props['aria-label'], '32번 키, 폴더 실행 확인');
     for (const index of [1, 14, 27]) {
       assert.equal(rows[index].findAllByType('button').length, 0, 'empty, unrecognized and disabled keys are read-only');
       assert.match(rows[index].props.title, new RegExp('^' + (index + 1) + '번 키, '));
@@ -213,7 +215,6 @@ async function checkPanels(sample) {
       for (const tick of [...timers.values()]) tick();
       view.update(render({ ...sample, mirabox: { ...sample.mirabox, online: true } }));
     });
-    assert.match(renderedText(weather), /최근 수신/);
     assert.match(renderedText(mira), /마지막 측정 시 연결됨/);
     assert.equal(mira.findByProps({ 'data-live': false }).props['data-live'], false);
   } finally {
@@ -239,7 +240,8 @@ async function checkAccountAndBridge() {
   const Board = load('PcWidgetBoard.tsx', {
     'firebase/firestore': firestore, '@/firebase/config': { db: {} },
     '@/contexts/AuthContext': { useAuth: () => auth },
-    './pcSnapshot': contract, './ClockCalendar': clock, './DevicePanels': panels,
+    './pcSnapshot': contract, './ClockCalendar': clock, './DevicePanels': panels, './UsageNotes': notes,
+    './WeatherPanel': { WeatherPanel: () => element('h2', null, '독립 예보') },
   }).default;
   const bridge = Object.assign(new EventTarget(), { postMessage: message => messages.push(message) });
   window.chrome = { webview: bridge };
@@ -281,6 +283,11 @@ async function checkAccountAndBridge() {
     await act(async () => view.update(element(Board)));
     assert.match(renderedText(view.root), /로그인하면/);
     assert(accounts[1].stopped);
+    await act(async () => choosePanel('시계·날씨').props.onClick());
+    assert.match(renderedText(view.root), /독립 예보/);
+    assert.doesNotMatch(renderedText(view.root), /로그인하면|PC가 없습니다/);
+    await act(async () => choosePanel('달력').props.onClick());
+    assert.match(renderedText(view.root), /2024년/);
   } finally { await act(async () => view.unmount()); }
 
   const response = (id, data) => bridge.dispatchEvent(new MessageEvent('message', {
@@ -310,7 +317,7 @@ async function checkAccountAndBridge() {
   await act(async () => { view = create(element(Board, { requestId: second })); });
   try {
     await act(async () => response(second, fixture));
-    await act(async () => view.root.findByProps({ 'aria-label': '32번 키, Codex 실행 확인' }).props.onClick());
+    await act(async () => view.root.findByProps({ 'aria-label': '32번 키, 폴더 실행 확인' }).props.onClick());
     assert.deepEqual(messages.at(-1), {
       version: 1, requestId: second, type: 'pc-widget-action', target: 'key/' + layoutId + '/31',
     });
@@ -328,6 +335,7 @@ async function main() {
   Date.now = () => now;
   globalThis.clearInterval = cancel;
   try {
+    await checkForecast();
     await checkAccountAndBridge();
     await checkPanels(sample);
   } finally {
@@ -335,5 +343,41 @@ async function main() {
     globalThis.clearInterval = originalClearInterval;
   }
   console.log('PASS PC widgets: bounded readings, six panels, KST rollover, account changes, device-scoped key links, keyboard-accessible slots and native session isolation.');
+}
+
+async function checkForecast() {
+  const { forecastCities, forecastUrl, startOfKoreanDay, koreanDate, parseForecast, describeForecast, loadForecast } = forecast;
+  const seoul = forecastCities[0], start = startOfKoreanDay(sourceTime);
+  const url = forecastUrl(seoul, sourceTime);
+  assert.equal(url.origin, 'https://api.brightsky.dev');
+  assert.equal(url.searchParams.get('tz'), 'Asia/Seoul');
+  assert.equal(url.searchParams.get('wmo_station_id'), seoul.station);
+  assert.equal(koreanDate(start), '2024-02-29');
+  const stations = [{ id: 3, observation_type: 'forecast', wmo_station_id: seoul.station }];
+  const rows = Array.from({ length: 168 }, (_, hour) => ({ source_id: 3, timestamp: new Date(start + hour * 3_600_000).toISOString(),
+    temperature: hour % 24 - 3, precipitation_probability_6h: hour < 24 ? 0 : null, icon: 'clear-day' }));
+  const payload = { sources: stations, weather: rows };
+  const result = describeForecast(parseForecast(payload, seoul, sourceTime), sourceTime);
+  assert.equal(result.days.length, 7);
+  assert.equal(result.days[0].high, 20);
+  assert.equal(result.days[0].low, -3);
+  assert.equal(result.days[0].rain, 0);
+  assert.equal(result.days[1].rain, null);
+  assert.throws(() => parseForecast(payload, forecastCities[1], sourceTime));
+  assert.throws(() => parseForecast({ sources: stations, weather: [] }, seoul, sourceTime));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (target, options) => { requests.push({target, options}); return {ok:true, json: async () => payload}; };
+  try {
+    const [first, second] = await Promise.all([loadForecast(seoul), loadForecast(seoul)]);
+    assert.equal(first, second);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].options.credentials, 'omit');
+    await loadForecast(seoul);
+    assert.equal(requests.length, 1, 'a fresh station forecast is reused');
+    globalThis.fetch = async () => { throw new Error('offline'); };
+    await assert.rejects(loadForecast(seoul, true));
+    assert.equal(forecast.readCachedForecast(seoul).fetchedAt, first.fetchedAt);
+  } finally { globalThis.fetch = originalFetch; }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
