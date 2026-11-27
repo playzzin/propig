@@ -84,6 +84,7 @@ internal sealed class HabitApp
     private string? shortcutNotice;
     private readonly PcWidgetHub pcWidgets;
     private string? pendingPanel;
+    private bool sessionRestored;
 
     [STAThread]
     public static void Main(string[] args)
@@ -126,7 +127,12 @@ internal sealed class HabitApp
             catch (Exception failure) when (failure is IOException or JsonException) { choices = new Choices(); }
             var createShortcut = choices.DesktopShortcutCreated
                 ? Task.CompletedTask : CreateDesktopShortcut(showResult: false);
-            await Run(async () => { await firebase.RestoreAsync(); await Read(); }, "연결을 확인하지 못했습니다.");
+            await Run(async () =>
+            {
+                try { await firebase.RestoreAsync(); }
+                finally { sessionRestored = true; }
+                await Read();
+            }, "연결을 확인하지 못했습니다.");
             refresh.Start();
             _ = pcWidgets.Refresh();
             await createShortcut;
@@ -157,6 +163,7 @@ internal sealed class HabitApp
     private async void ActivatePanel(string id)
     {
         if (id == "main") { ShowMain(); return; }
+        if (!sessionRestored) { pendingPanel = id; ShowMain(); return; }
         if (firebase.Uid == null && id is "clock" or "calendar")
         {
             pendingPanel = null;
@@ -532,7 +539,7 @@ internal sealed class HabitApp
 
     private void PaintMain()
     {
-        if (pendingPanel is string requested && (firebase.Uid != null || requested is "clock" or "calendar")) ActivatePanel(requested);
+        if (sessionRestored && pendingPanel is string requested && (firebase.Uid != null || requested is "clock" or "calendar")) ActivatePanel(requested);
         var uid = firebase.Uid;
         if (desktopWorkspace != null && desktopWorkspace.AccountUid != uid) CloseWorkspace();
         var nativeScreen = uid == null || configureWidget;
