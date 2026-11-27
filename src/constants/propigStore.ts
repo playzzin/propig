@@ -1,6 +1,6 @@
 import type { MenuItem } from '@/types/menu';
 
-export type PropigStoreAppId = 'memos' | 'habit' | 'bucket' | 'todo' | 'calculator' | 'finance';
+export type PropigStoreAppId = 'memos' | 'habit' | 'bucket' | 'todo' | 'calculator' | 'pc-widgets' | 'finance';
 export type PropigStoreAppStatus = 'available' | 'planned';
 export type PropigWidgetId = 'memo' | 'habit' | 'bucket' | 'todo';
 
@@ -87,6 +87,19 @@ export const PROPIG_STORE_APPS: PropigStoreApp[] = [
     icon: 'calculator',
     color: '#f472b6',
     badge: 'CALC',
+    status: 'available',
+  },
+  {
+    id: 'pc-widgets',
+    title: 'PC 위젯',
+    shortTitle: 'PC 위젯',
+    summary: 'PC 상태, 날씨, AI 사용량과 MiraBox를 확인합니다.',
+    description: '시계와 달력을 열고, Windows 앱에서 공유한 PC별 측정값을 확인합니다.',
+    path: '/propig/pc-widgets',
+    menuItemId: 'shop-pc-widgets',
+    icon: 'desktop',
+    color: '#53c5bb',
+    badge: 'PC',
     status: 'available',
   },
   {

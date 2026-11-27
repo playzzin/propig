@@ -20,7 +20,7 @@ const SmartMemoWorkspace = dynamic(() => import('@/components/propig/memos/Smart
 const StickyNotesBoard = dynamic(() => import('@/components/StickyNotesBoard'), { loading: LoadingScreen });
 
 type DesktopApp = 'habit' | 'memos' | 'todo';
-type WebApp = 'bucket' | 'calculator';
+type WebApp = 'bucket' | 'calculator' | 'pc-widgets';
 type DesktopWidget = 'habit' | 'memo' | 'todo';
 type View = 'home' | 'store' | DesktopApp;
 
@@ -37,7 +37,7 @@ const WIDGET_LABELS: Record<DesktopWidget, string> = {
 };
 
 function isWebApp(appId: PropigStoreAppId): appId is WebApp {
-  return appId === 'bucket' || appId === 'calculator';
+  return appId === 'bucket' || appId === 'calculator' || appId === 'pc-widgets';
 }
 
 function desktopWidgetFor(app: PropigStoreApp | undefined): DesktopWidget | undefined {
