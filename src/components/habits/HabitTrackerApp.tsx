@@ -50,6 +50,7 @@ import {
   saveHabitRecordPatch,
   saveHabitViewPreference,
   saveHabitWorkspaceFields,
+  type DailyRecordLayout,
   type HabitViewPreferences,
 } from '@/app/habit-tracker/_lib/habitWorkspaceStore';
 import {
@@ -84,7 +85,7 @@ import {
   type TrendValueSummary,
 } from './habitMetricStats';
 import { HabitStatsDashboard } from './HabitStatsDashboard';
-import { useDailyRecordLayout, type DailyRecordLayout } from './useDailyRecordLayout';
+
 import {
   DATE_LABELS,
   addDays,
@@ -5797,10 +5798,7 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
     const timer = window.setTimeout(() => setCelebration(null), 4400);
     return () => window.clearTimeout(timer);
   }, [celebration]);
-  const { dailyRecordLayout: browserRecordLayout, setDailyRecordLayout: setBrowserRecordLayout } = useDailyRecordLayout('simple');
-  const [dailyRecordLayoutOverride, setDailyRecordLayoutOverride] = useState<DailyRecordLayout | null>(null);
-  const defaultDailyRecordLayout = savedWorkspace.viewPreferences?.dailyRecordLayout ?? browserRecordLayout;
-  const dailyRecordLayout = dailyRecordLayoutOverride ?? defaultDailyRecordLayout;
+  const dailyRecordLayout = savedWorkspace.viewPreferences?.dailyRecordLayout ?? 'simple';
   const [statsPeriodOverride, setStatsPeriod] = useState<StatsPeriod | null>(null);
   const savedStatsPeriod = savedWorkspace.viewPreferences?.statsDefaultPeriod;
   const statsPeriod = statsPeriodOverride ?? savedStatsPeriod ?? 'weekly';
@@ -6884,21 +6882,12 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
   );
 
   const handleDailyRecordLayoutChange = useCallback((layout: DailyRecordLayout) => {
-    setDailyRecordLayoutOverride(layout);
-    setBrowserRecordLayout(layout);
-  }, [setBrowserRecordLayout]);
-
-  const handleDefaultDailyRecordLayoutChange = useCallback(async (layout: DailyRecordLayout) => {
-    const saved = await runWorkspaceWrite(
+    return runWorkspaceWrite(
       (uid) => saveHabitViewPreference(uid, 'dailyRecordLayout', layout),
-      '기록 기본 방식이 저장되었습니다.',
+      '기록 보기가 저장되었습니다.',
       'habit-default-record-layout',
     );
-    if (saved) {
-      setBrowserRecordLayout(layout);
-      setDailyRecordLayoutOverride(null);
-    }
-  }, [runWorkspaceWrite, setBrowserRecordLayout]);
+  }, [runWorkspaceWrite]);
 
   const handleSaveStatsDefaultPeriod = useCallback(async () => {
     const saved = await runWorkspaceWrite(
@@ -9325,9 +9314,9 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
                   <DefaultRecordLayoutActions aria-label="습관 기록 기본 방식 선택">
                     <DefaultRecordLayoutButton
                       type="button"
-                      $active={defaultDailyRecordLayout === 'detail'}
-                      onClick={() => void handleDefaultDailyRecordLayoutChange('detail')}
-                      aria-pressed={defaultDailyRecordLayout === 'detail'}
+                      $active={dailyRecordLayout === 'detail'}
+                      onClick={() => void handleDailyRecordLayoutChange('detail')}
+                      aria-pressed={dailyRecordLayout === 'detail'}
                       disabled={controlsDisabled}
                     >
                       <CalendarDays size={16} />
@@ -9335,9 +9324,9 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
                     </DefaultRecordLayoutButton>
                     <DefaultRecordLayoutButton
                       type="button"
-                      $active={defaultDailyRecordLayout === 'simple'}
-                      onClick={() => void handleDefaultDailyRecordLayoutChange('simple')}
-                      aria-pressed={defaultDailyRecordLayout === 'simple'}
+                      $active={dailyRecordLayout === 'simple'}
+                      onClick={() => void handleDailyRecordLayoutChange('simple')}
+                      aria-pressed={dailyRecordLayout === 'simple'}
                       disabled={controlsDisabled}
                     >
                       <ListPlus size={16} />
@@ -9573,10 +9562,10 @@ function HabitTrackerAccount({ initialView = 'daily', onViewChange, onWorkspaceW
                     </DailyCompletion>
                   </DailyHeading>
                   <RecordLayoutSwitch role="group" aria-label="기록 보기 설정">
-                    <RecordLayoutButton type="button" $active={dailyRecordLayout === 'detail'} aria-pressed={dailyRecordLayout === 'detail'} onClick={() => handleDailyRecordLayoutChange('detail')}>
+                    <RecordLayoutButton type="button" disabled={controlsDisabled} $active={dailyRecordLayout === 'detail'} aria-pressed={dailyRecordLayout === 'detail'} onClick={() => handleDailyRecordLayoutChange('detail')}>
                       하루 보기
                     </RecordLayoutButton>
-                    <RecordLayoutButton type="button" $active={dailyRecordLayout === 'simple'} aria-pressed={dailyRecordLayout === 'simple'} onClick={() => handleDailyRecordLayoutChange('simple')}>
+                    <RecordLayoutButton type="button" disabled={controlsDisabled} $active={dailyRecordLayout === 'simple'} aria-pressed={dailyRecordLayout === 'simple'} onClick={() => handleDailyRecordLayoutChange('simple')}>
                       주간 보기
                     </RecordLayoutButton>
                   </RecordLayoutSwitch>

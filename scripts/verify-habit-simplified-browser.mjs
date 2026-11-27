@@ -237,13 +237,13 @@ try {
     const celebration = page.getByRole('status').filter({ hasText: '오늘의 습관을 모두 완료했어요!' });
     await datePicker.fill(offsetDate(currentDate, -1));
     await dailyToggle.click();
-    await waitForWrites(page, 4);
+    await waitForWrites(page, 5);
     assert.equal(await dailyToggle.getAttribute('aria-pressed'), 'true');
     assert.equal(await celebration.count(), 0, 'completing a historical day does not celebrate today');
     await page.getByRole('button', { name: '오늘', exact: true }).click();
     assert.equal(await progress.getAttribute('aria-valuenow'), '0');
     await dailyToggle.click();
-    await waitForWrites(page, 5);
+    await waitForWrites(page, 6);
     await celebration.waitFor();
     assert.equal(await progress.getAttribute('aria-valuenow'), '100');
     const noticeBounds = await celebration.boundingBox();
@@ -257,6 +257,13 @@ try {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('progressbar', { name: '선택한 날짜 습관 진행률', exact: true }).waitFor();
     assert.equal(await progress.getAttribute('aria-valuenow'), '100');
+    assert.equal(await page.getByRole('button', { name: '하루 보기', exact: true }).getAttribute('aria-pressed'), 'true');
+    await page.evaluate(() => {
+      window.__fixture.workspace.viewPreferences.dailyRecordLayout = 'simple';
+      window.__fixture.notify();
+    });
+    await cell.waitFor();
+    assert.equal(await page.getByRole('button', { name: '주간 보기', exact: true }).getAttribute('aria-pressed'), 'true');
     assert.equal(await celebration.count(), 0, 'loading completed records does not replay celebration');
     await page.getByRole('button', { name: '주간 보기', exact: true }).click();
     await cell.waitFor();
@@ -293,9 +300,9 @@ try {
     assert.equal(await numericFields.nth(0).inputValue(), '3');
     assert.equal(await numericFields.nth(1).inputValue(), '25');
     await page.getByTitle('1잔 더하기', { exact: true }).click();
-    await waitForWrites(page, 1);
-    await page.getByTitle('10분 더하기', { exact: true }).click();
     await waitForWrites(page, 2);
+    await page.getByTitle('10분 더하기', { exact: true }).click();
+    await waitForWrites(page, 3);
     assert.equal(await numericFields.nth(0).inputValue(), '4');
     assert.equal(await numericFields.nth(1).inputValue(), '35');
     await captureAndAssertWidth(page, `existing-numeric-daily-${width}`);
@@ -305,13 +312,13 @@ try {
     await dialog.waitFor();
     await dialog.locator('#habit-quick-value').fill('6');
     await dialog.getByRole('button', { name: '저장', exact: true }).click();
-    await waitForWrites(page, 3);
+    await waitForWrites(page, 5);
     await dialog.waitFor({ state: 'hidden' });
     await page.locator('button[title^="집중하기 "][title$="항목 기준 기록"]').first().click();
     await dialog.waitFor();
     await dialog.locator('#habit-quick-minutes').fill('45');
     await dialog.getByRole('button', { name: '저장', exact: true }).click();
-    await waitForWrites(page, 4);
+    await waitForWrites(page, 6);
     await dialog.waitFor({ state: 'hidden' });
     const saved = await page.evaluate(() => window.__fixture.workspace);
     assert.equal(saved.records['2026-10-08'].water.value, 6);
