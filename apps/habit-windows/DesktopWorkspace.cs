@@ -17,7 +17,8 @@ internal enum DesktopSurface
 {
     Workspace,
     Memo,
-    Todo
+    Todo,
+    Cpu
 }
 
 internal enum DesktopTarget
