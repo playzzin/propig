@@ -52,6 +52,9 @@ $identity = $manifest.DocumentElement.SelectSingleNode("*[local-name()='Identity
 $identity.SetAttribute('Name', $PackageName)
 $identity.SetAttribute('Publisher', $Publisher)
 $identity.SetAttribute('Version', $Version)
+if ($PackageName -eq 'heddun.ProPig') {
+    $manifest.Package.Properties.PublisherDisplayName = 'heddun'
+}
 $manifest.Save((Join-Path $staging 'AppxManifest.xml'))
 
 Add-Type -AssemblyName System.Drawing
