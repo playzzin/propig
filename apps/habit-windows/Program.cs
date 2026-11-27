@@ -4,7 +4,6 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
@@ -21,6 +20,8 @@ internal sealed class Choices
 
 internal sealed class HabitApp
 {
+    private sealed record WidgetLayout(Border Root, ContentControl Summary, ScrollViewer List, ContentControl Actions);
+
     private static readonly Brush Background = new SolidColorBrush(Color.FromRgb(12, 24, 27));
     private static readonly Brush Foreground = new SolidColorBrush(Color.FromRgb(242, 247, 244));
     private static readonly Brush Muted = new SolidColorBrush(Color.FromRgb(172, 196, 188));
@@ -33,7 +34,7 @@ internal sealed class HabitApp
     private readonly Window main = NewWindow("ProPig 습관", 520, 680);
     private readonly string preferences = Path.Combine(FirebaseHabits.AppDirectory, "widget.json");
     private Window? widget;
-    private ScrollViewer? widgetScroll;
+    private WidgetLayout? widgetLayout;
     private Choices choices = new();
     private IReadOnlyList<Habit> habits = Array.Empty<Habit>();
     private string date = FirebaseHabits.Today;
@@ -137,13 +138,12 @@ internal sealed class HabitApp
         widget.WindowStyle = WindowStyle.None;
         WindowChrome.SetWindowChrome(widget, new WindowChrome
         {
-            CaptionHeight = 40, ResizeBorderThickness = new Thickness(6),
-            GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(12),
+            CaptionHeight = 38, ResizeBorderThickness = new Thickness(6),
+            GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(14),
             UseAeroCaptionButtons = false
         });
-        widgetScroll = NewScrollViewer();
-        widgetScroll.Resources.Add(typeof(ScrollBar), Application.Current.FindResource("HabitWidgetScrollBar"));
-        widget.Content = WidgetFrame(widget, widgetScroll);
+        widgetLayout = CreateWidgetLayout(widget);
+        widget.Content = widgetLayout.Root;
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         if (choices.Left is double left && choices.Top is double top &&
@@ -162,7 +162,7 @@ internal sealed class HabitApp
         widget.Closed += (_, _) =>
         {
             widget = null;
-            widgetScroll = null;
+            widgetLayout = null;
             if (!main.IsVisible) main.Close();
         };
         widget.Show();
@@ -194,27 +194,31 @@ internal sealed class HabitApp
 
     private void PaintWindow(Window window, bool compact)
     {
-        var scroller = compact ? widgetScroll! : (window.Content as ScrollViewer ?? NewScrollViewer());
+        var layout = compact ? widgetLayout : null;
+        var scroller = layout?.List ?? (window.Content as ScrollViewer ?? NewScrollViewer());
         var oldOffset = scroller.VerticalOffset;
-        var stack = new StackPanel { Margin = compact ? new Thickness(14, 10, 14, 12) : new Thickness(22) };
+        var stack = new StackPanel { Margin = compact ? new Thickness(14, 8, 2, 1) : new Thickness(22, 22, 10, 22) };
         scroller.Content = stack;
         if (!compact && window.Content != scroller) window.Content = scroller;
         var uid = firebase.Uid;
         var selected = uid == null ? new HashSet<string>(StringComparer.Ordinal) : Chosen(uid);
         var rows = compact ? habits.Where(habit => selected.Contains(habit.Id)).Take(5).ToArray() : habits;
-        stack.Children.Add(DailyHeading(compact, loaded ? rows.Count(row => row.Checked) : null, rows.Count));
-        var dateLabel = Text(DateTime.Now.ToString("M월 d일 ddd", CultureInfo.GetCultureInfo("ko-KR")), 12, Muted);
-        dateLabel.Margin = new Thickness(0, 0, 10, 0);
-        var statusLabel = Text(busy ? "연결·저장 중" : status, 12, status == "동기화됨" ? Mint : Muted);
-        statusLabel.Margin = new Thickness(0);
-        stack.Children.Add(new WrapPanel { Margin = new Thickness(0, 0, 0, 10), Children = { dateLabel, statusLabel } });
+        var summary = DailySummary(compact, loaded ? rows.Count(row => row.Checked) : null, rows.Count);
+        if (layout != null) layout.Summary.Content = summary;
+        else stack.Children.Add(summary);
 
-        var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        var actions = new WrapPanel { Margin = compact ? new Thickness(0) : new Thickness(0, 0, 0, 6) };
         if (compact)
         {
-            actions.Children.Add(Button("앱 열기", () => { main.Show(); main.Activate(); return Task.CompletedTask; }));
+            var open = Button("앱 열기", () =>
+            {
+                main.Show();
+                if (main.WindowState == WindowState.Minimized) main.WindowState = WindowState.Normal;
+                main.Activate();
+                return Task.CompletedTask;
+            });
+            actions.Children.Add(open);
             var pin = Option("항상 위", choices.Topmost);
-            pin.Margin = new Thickness(0, 0, 6, 6);
             pin.Click += (_, _) =>
             {
                 choices.Topmost = pin.IsChecked == true;
@@ -223,30 +227,40 @@ internal sealed class HabitApp
             };
             actions.Children.Add(pin);
         }
+        if (uid != null)
+        {
+            if (!compact)
+            {
+                actions.Children.Add(Button("바탕화면 위젯 켜기", () => { ToggleWidget(); return Task.CompletedTask; }, primary: true));
+                actions.Children.Add(Button("로그아웃", async () => await Run(() =>
+                {
+                    firebase.SignOut();
+                    return Read();
+                }, "로그아웃을 완료하지 못했습니다.")));
+            }
+            actions.Children.Add(Button("새로고침", async () => await Run(Read, "기록을 불러오지 못했습니다.")));
+        }
+        if (layout != null)
+        {
+            foreach (FrameworkElement action in actions.Children) action.Margin = new Thickness(0, 0, 5, 0);
+            layout.Actions.Content = actions;
+        }
+        else if (uid != null)
+        {
+            stack.Children.Add(actions);
+        }
 
         if (uid == null)
         {
-            if (compact) stack.Children.Add(actions);
             stack.Children.Add(Button("ProPig Google 로그인", async () => await Run(async () =>
             {
                 await firebase.ConnectAsync(lifetime.Token);
                 await Read();
             }, "로그인 연결에 실패했습니다. 앱에서 다시 시도해 주세요."), primary: true));
+            scroller.ScrollToTop();
             return;
         }
 
-        if (!compact)
-        {
-            actions.Children.Add(Button("바탕화면 위젯 켜기", () => { ToggleWidget(); return Task.CompletedTask; }, primary: true));
-            actions.Children.Add(Button("로그아웃", async () => await Run(() =>
-            {
-                firebase.SignOut();
-                return Read();
-            }, "로그아웃을 완료하지 못했습니다.")));
-        }
-        actions.Children.Add(Button("새로고침", async () => await Run(Read, "기록을 불러오지 못했습니다.")));
-
-        if (!compact) stack.Children.Add(actions);
         if (loaded && rows.Count == 0) stack.Children.Add(Text(compact
             ? "앱에서 위젯에 표시할 체크형 습관을 선택하세요."
             : "웹에서 체크형 습관을 추가하면 여기에 표시됩니다.", 13, Muted));
@@ -293,16 +307,15 @@ internal sealed class HabitApp
             };
             stack.Children.Add(pick);
         }
-        if (compact) stack.Children.Add(actions);
         scroller.ScrollToVerticalOffset(oldOffset);
     }
 
-    private static Border WidgetFrame(Window window, ScrollViewer content)
+    private static WidgetLayout CreateWidgetLayout(Window window)
     {
-        var caption = new DockPanel { Height = 40 };
+        var caption = new DockPanel { Height = 43, LastChildFill = false };
         var close = new Button
         {
-            Content = "×", Style = (Style)Application.Current.FindResource("HabitWidgetClose"),
+            Style = (Style)Application.Current.FindResource("HabitWidgetClose"),
             VerticalAlignment = VerticalAlignment.Center, ToolTip = "위젯 닫기"
         };
         AutomationProperties.SetName(close, "위젯 닫기");
@@ -311,29 +324,86 @@ internal sealed class HabitApp
         DockPanel.SetDock(close, Dock.Right);
         caption.Children.Add(close);
 
-        var brand = Text("ProPig", 12, Mint);
-        brand.FontWeight = FontWeights.SemiBold;
-        brand.VerticalAlignment = VerticalAlignment.Center;
-        caption.Children.Add(brand);
-
-        var captionFrame = new Border
+        var mark = new Border
         {
+            Width = 19, Height = 19, CornerRadius = new CornerRadius(6), Background = Panel,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0),
+            Child = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M 1,4 L 4,7 L 9,1"), Stroke = Mint, StrokeThickness = 1.5,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        caption.Children.Add(mark);
+        caption.Children.Add(new TextBlock
+        {
+            Text = "ProPig", FontSize = 13, FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var summary = new ContentControl { Focusable = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var actions = new ContentControl { Focusable = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var list = NewScrollViewer();
+        AutomationProperties.SetName(list, "습관 목록");
+
+        var surface = (Brush)Application.Current.FindResource("HabitWidgetSurface");
+        var titleBar = new Border
+        {
+            Background = surface, CornerRadius = new CornerRadius(13, 13, 0, 0),
             BorderBrush = FrameLine, BorderThickness = new Thickness(0, 0, 0, 1),
             Padding = new Thickness(14, 0, 8, 0), Child = caption
         };
-        DockPanel.SetDock(captionFrame, Dock.Top);
-        return new Border
+        var summaryBar = new Border
         {
-            BorderThickness = new Thickness(1), BorderBrush = FrameLine, CornerRadius = new CornerRadius(12),
-            Background = Background, Child = new DockPanel { Children = { captionFrame, content } }
+            BorderBrush = FrameLine, BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(14, 9, 14, 10), Child = summary
         };
+        var footer = new Border
+        {
+            Background = surface, CornerRadius = new CornerRadius(0, 0, 13, 13),
+            BorderBrush = FrameLine, BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(14, 7, 8, 7), Child = actions
+        };
+        var grid = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition(),
+                new RowDefinition { Height = GridLength.Auto }
+            },
+            Children = { titleBar, summaryBar, list, footer }
+        };
+        Grid.SetRow(summaryBar, 1);
+        Grid.SetRow(list, 2);
+        Grid.SetRow(footer, 3);
+        var frame = new Border
+        {
+            Style = (Style)Application.Current.FindResource("HabitWidgetFrame"),
+            Background = Background, Child = grid
+        };
+        return new WidgetLayout(frame, summary, list, actions);
     }
 
     private static ScrollViewer NewScrollViewer() => new()
     {
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        Style = (Style)Application.Current.FindResource("HabitScrollViewer")
     };
+
+    private StackPanel DailySummary(bool compact, int? completed, int total)
+    {
+        var dateLabel = Text(DateTime.Now.ToString("M월 d일 ddd", CultureInfo.GetCultureInfo("ko-KR")), 12, Muted);
+        dateLabel.Margin = new Thickness(0, 0, 10, 0);
+        var statusLabel = Text(busy ? "연결·저장 중" : status, 12, !busy && status == "동기화됨" ? Mint : Muted);
+        statusLabel.Margin = new Thickness(0);
+        return new StackPanel
+        {
+            Margin = new Thickness(0, 0, 0, compact ? 0 : 10),
+            Children = { DailyHeading(compact, completed, total), new WrapPanel { Children = { dateLabel, statusLabel } } }
+        };
+    }
 
     private static DockPanel DailyHeading(bool compact, int? completed, int total)
     {
