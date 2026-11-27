@@ -37,9 +37,8 @@ internal sealed class DesktopWidgetPlacement
 
 internal sealed class HabitApp
 {
-    private sealed record WidgetLayout(Border Root, ContentControl Summary, ScrollViewer List, ContentControl Actions);
+    private sealed record WidgetLayout(Grid Root, ContentControl Summary, ScrollViewer List, ContentControl Actions);
 
-    private static readonly Brush Background = new SolidColorBrush(Color.FromRgb(12, 24, 27));
     private static readonly Brush Foreground = new SolidColorBrush(Color.FromRgb(242, 247, 244));
     private static readonly Brush Muted = new SolidColorBrush(Color.FromRgb(172, 196, 188));
     private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(121, 240, 178));
@@ -49,7 +48,7 @@ internal sealed class HabitApp
     private readonly CancellationTokenSource lifetime = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer workspaceRefresh = new() { Interval = TimeSpan.FromMilliseconds(250) };
-    private readonly Window main = NewWindow("ProPig", 1120, 780);
+    private readonly Window main = new ProPigWindow("ProPig", 1120, 780);
     private readonly ScrollViewer mainList = NewScrollViewer();
     private readonly DockPanel workspacePanel = new() { Visibility = Visibility.Collapsed };
     private readonly ContentControl workspaceToolbar = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -93,8 +92,7 @@ internal sealed class HabitApp
         main.Height = RestoreDimension(null, main.Height, main.MinHeight, SystemParameters.WorkArea.Height);
         var toolbarFrame = new Border
         {
-            Child = workspaceToolbar, Background = (Brush)Application.Current.FindResource("HabitWidgetSurface"),
-            BorderBrush = FrameLine, BorderThickness = new Thickness(0, 0, 0, 1)
+            Child = workspaceToolbar, Style = (Style)Application.Current.FindResource("ProPigToolbar")
         };
         DockPanel.SetDock(toolbarFrame, Dock.Top);
         workspacePanel.Children.Add(toolbarFrame);
@@ -182,6 +180,7 @@ internal sealed class HabitApp
     {
         if (widget != null)
         {
+            if (widget.WindowState == WindowState.Minimized) widget.WindowState = WindowState.Normal;
             widget.Activate();
             return;
         }
@@ -190,20 +189,12 @@ internal sealed class HabitApp
         const double minHeight = 250;
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        var window = NewWindow("ProPig 오늘 습관 위젯",
+        var window = new ProPigWindow("ProPig 오늘 습관 위젯",
             RestoreDimension(choices.Width, 348, minWidth, area.Width),
-            RestoreDimension(choices.Height, 570, minHeight, area.Height));
+            RestoreDimension(choices.Height, 570, minHeight, area.Height), "오늘 습관");
         window.MinWidth = minWidth;
         window.MinHeight = minHeight;
         window.Topmost = choices.Topmost;
-        window.WindowStyle = WindowStyle.None;
-        window.ResizeMode = ResizeMode.CanResize;
-        WindowChrome.SetWindowChrome(window, new WindowChrome
-        {
-            CaptionHeight = 38, ResizeBorderThickness = new Thickness(6),
-            GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(14),
-            UseAeroCaptionButtons = false
-        });
         widgetLayout = CreateWidgetLayout(window);
         window.Content = widgetLayout.Root;
         if (choices.Left is double left && choices.Top is double top &&
@@ -253,10 +244,10 @@ internal sealed class HabitApp
         switch (target)
         {
             case DesktopTarget.Memo:
-                OpenDesktopWidget(DesktopSurface.Memo, "ProPig 메모 위젯");
+                OpenDesktopWidget(DesktopSurface.Memo, "메모장");
                 break;
             case DesktopTarget.Todo:
-                OpenDesktopWidget(DesktopSurface.Todo, "ProPig 할일 위젯");
+                OpenDesktopWidget(DesktopSurface.Todo, "할일 일정표");
                 break;
             case DesktopTarget.Habit:
                 ToggleWidget();
@@ -279,7 +270,7 @@ internal sealed class HabitApp
         }
     }
 
-    private void OpenDesktopWidget(DesktopSurface surface, string title)
+    private void OpenDesktopWidget(DesktopSurface surface, string surfaceName)
     {
         if (firebase.Uid is not string uid || lifetime.IsCancellationRequested) return;
         if (desktopWidgets.TryGetValue(surface, out var existing))
@@ -294,13 +285,12 @@ internal sealed class HabitApp
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         const double minWidth = 280;
         const double minHeight = 320;
-        var window = NewWindow(title,
+        var window = new ProPigWindow($"ProPig {surfaceName} 위젯",
             RestoreDimension(placement.Width, 374, minWidth, area.Width),
-            RestoreDimension(placement.Height, 550, minHeight, area.Height));
+            RestoreDimension(placement.Height, 550, minHeight, area.Height), surfaceName);
         window.MinWidth = minWidth;
         window.MinHeight = minHeight;
         window.Topmost = placement.Topmost;
-        window.ResizeMode = ResizeMode.CanResize;
         if (placement.Left is double left && placement.Top is double top &&
             left >= area.Left && left < area.Right - 100 && top >= area.Top && top < area.Bottom - 80)
         {
@@ -313,7 +303,11 @@ internal sealed class HabitApp
         open.IsEnabled = true;
         var pin = Option("항상 위", window.Topmost);
         pin.Click += (_, _) => window.Topmost = pin.IsChecked == true;
-        var toolbar = new WrapPanel { Margin = new Thickness(10, 7, 7, 0), Children = { open, pin } };
+        var toolbar = new Border
+        {
+            Style = (Style)Application.Current.FindResource("ProPigToolbar"),
+            Child = new WrapPanel { Margin = new Thickness(11, 7, 6, 1), Children = { open, pin } }
+        };
         DockPanel.SetDock(toolbar, Dock.Top);
         var body = new ContentControl
         {
@@ -433,8 +427,10 @@ internal sealed class HabitApp
         }
 
         var actions = new WrapPanel { Margin = new Thickness(12, 8, 6, 2) };
-        actions.Children.Add(Button("습관 위젯 켜기", () => { ToggleWidget(); return Task.CompletedTask; }));
-        actions.Children.Add(Button("습관 위젯 항목 설정", () =>
+        actions.Children.Add(WidgetButton("습관 위젯", DesktopTarget.Habit));
+        actions.Children.Add(WidgetButton("메모 위젯", DesktopTarget.Memo));
+        actions.Children.Add(WidgetButton("일정 위젯", DesktopTarget.Todo));
+        actions.Children.Add(Button("습관 위젯 설정", () =>
         {
             configureWidget = true;
             PaintMain();
@@ -442,8 +438,16 @@ internal sealed class HabitApp
         }));
         if (applicationId != null)
             actions.Children.Add(Button("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true)));
-        actions.Children.Add(Button("로그아웃", SignOut));
-        var toolbar = new StackPanel { Children = { actions } };
+        var signOut = Button("로그아웃", SignOut);
+        signOut.Margin = new Thickness(0, 8, 12, 6);
+        signOut.VerticalAlignment = VerticalAlignment.Top;
+        var toolbarRow = new Grid
+        {
+            ColumnDefinitions = { new ColumnDefinition(), new ColumnDefinition { Width = GridLength.Auto } },
+            Children = { actions, signOut }
+        };
+        Grid.SetColumn(signOut, 1);
+        var toolbar = new StackPanel { Children = { toolbarRow } };
         if (shortcutNotice != null) toolbar.Children.Add(ShortcutNotice());
         if (busy && desktopWorkspace == null) toolbar.Children.Add(Text("Windows 앱 연결 확인 중", 12, Muted));
         workspaceToolbar.Content = toolbar;
@@ -614,63 +618,12 @@ internal sealed class HabitApp
 
     private static WidgetLayout CreateWidgetLayout(Window window)
     {
-        var caption = new DockPanel { Height = 43, LastChildFill = false };
-        var close = new Button
-        {
-            Style = (Style)Application.Current.FindResource("HabitWidgetClose"),
-            VerticalAlignment = VerticalAlignment.Center, ToolTip = "위젯 닫기"
-        };
-        AutomationProperties.SetName(close, "위젯 닫기");
-        WindowChrome.SetIsHitTestVisibleInChrome(close, true);
-        close.Click += (_, _) => window.Close();
-        DockPanel.SetDock(close, Dock.Right);
-        caption.Children.Add(close);
-
-        var sizeIcon = new ShapePath { Stroke = Muted, StrokeThickness = 1.3, Width = 13, Height = 13 };
-        var sizeButton = new Button
-        {
-            Content = sizeIcon, Style = (Style)Application.Current.FindResource("HabitWidgetCaptionButton"),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        WindowChrome.SetIsHitTestVisibleInChrome(sizeButton, true);
-        sizeButton.Click += (_, _) =>
-        {
-            if (window.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(window);
-            else SystemCommands.MaximizeWindow(window);
-        };
-        DockPanel.SetDock(sizeButton, Dock.Right);
-        caption.Children.Add(sizeButton);
-
-        var mark = new Border
-        {
-            Width = 19, Height = 19, CornerRadius = new CornerRadius(6), Background = Panel,
-            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0),
-            Child = new ShapePath
-            {
-                Data = Geometry.Parse("M 1,4 L 4,7 L 9,1"), Stroke = Mint, StrokeThickness = 1.5,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-        caption.Children.Add(mark);
-        caption.Children.Add(new TextBlock
-        {
-            Text = "ProPig", FontSize = 13, FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-
         var summary = new ContentControl { Focusable = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         var actions = new ContentControl { Focusable = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         var list = NewScrollViewer();
         AutomationProperties.SetName(list, "습관 목록");
 
         var surface = (Brush)Application.Current.FindResource("HabitWidgetSurface");
-        var titleBar = new Border
-        {
-            Background = surface, CornerRadius = new CornerRadius(13, 13, 0, 0),
-            BorderBrush = FrameLine, BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(14, 0, 8, 0), Child = caption
-        };
         var summaryBar = new Border
         {
             BorderBrush = FrameLine, BorderThickness = new Thickness(0, 0, 0, 1),
@@ -678,7 +631,7 @@ internal sealed class HabitApp
         };
         var footer = new Border
         {
-            Background = surface, CornerRadius = new CornerRadius(0, 0, 13, 13),
+            Background = surface, CornerRadius = new CornerRadius(0, 0, 9, 9),
             BorderBrush = FrameLine, BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(14, 7, 8, 7), Child = actions
         };
@@ -699,36 +652,21 @@ internal sealed class HabitApp
             RowDefinitions =
             {
                 new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto },
                 new RowDefinition(),
                 new RowDefinition { Height = GridLength.Auto }
             },
-            Children = { titleBar, summaryBar, list, footer, grip }
+            Children = { summaryBar, list, footer, grip }
         };
-        Grid.SetRow(summaryBar, 1);
-        Grid.SetRow(list, 2);
-        Grid.SetRow(footer, 3);
-        Grid.SetRow(grip, 3);
-        var frame = new Border
-        {
-            Style = (Style)Application.Current.FindResource("HabitWidgetFrame"),
-            Background = Background, Child = grid
-        };
-        void UpdateSizeButton()
+        Grid.SetRow(list, 1);
+        Grid.SetRow(footer, 2);
+        Grid.SetRow(grip, 2);
+        window.StateChanged += (_, _) =>
         {
             var expanded = window.WindowState == WindowState.Maximized;
-            sizeIcon.Data = Geometry.Parse(expanded ? "M 4,4 V 1 H 12 V 9 H 9 M 1,4 H 9 V 12 H 1 Z" : "M 1,1 H 12 V 12 H 1 Z");
-            var name = expanded ? "이전 크기로 복원" : "위젯 최대화";
-            sizeButton.ToolTip = name;
-            AutomationProperties.SetName(sizeButton, name);
             grip.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
-            frame.CornerRadius = new CornerRadius(expanded ? 0 : 14);
-            titleBar.CornerRadius = expanded ? new CornerRadius(0) : new CornerRadius(13, 13, 0, 0);
-            footer.CornerRadius = expanded ? new CornerRadius(0) : new CornerRadius(0, 0, 13, 13);
-        }
-        window.StateChanged += (_, _) => UpdateSizeButton();
-        UpdateSizeButton();
-        return new WidgetLayout(frame, summary, list, actions);
+            footer.CornerRadius = expanded ? new CornerRadius(0) : new CornerRadius(0, 0, 9, 9);
+        };
+        return new WidgetLayout(grid, summary, list, actions);
     }
 
     private static ScrollViewer NewScrollViewer() => new()
@@ -821,14 +759,6 @@ internal sealed class HabitApp
         };
     }
 
-    private static Window NewWindow(string title, double width, double height) => new()
-    {
-        Title = title, Width = width, Height = height, MinWidth = 290, MinHeight = 300,
-        Background = Background, Foreground = Foreground, UseLayoutRounding = true,
-        WindowStartupLocation = WindowStartupLocation.CenterScreen,
-        FontFamily = new FontFamily("맑은 고딕")
-    };
-
     private static TextBlock Text(string message, double fontSize, Brush? color = null) => new()
     {
         Text = message, FontSize = fontSize, Foreground = color ?? Foreground,
@@ -851,4 +781,10 @@ internal sealed class HabitApp
         button.Click += async (_, _) => await action();
         return button;
     }
+
+    private Button WidgetButton(string name, DesktopTarget target) => Button(name, () =>
+    {
+        OpenDesktopTarget(target);
+        return Task.CompletedTask;
+    });
 }
