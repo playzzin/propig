@@ -6,8 +6,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ProPig.Habits</AssemblyName>
+    <ApplicationIcon>Assets\ProPig.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="Assets/ProPig.ico" />
+    <Resource Include="../../public/icons/justpig-favicon-144.png" Link="Assets/ProPig.png" />
     <EmbeddedResource Include="ConnectComplete.html" LogicalName="ProPig.Habits.ConnectComplete.html" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4370.26" />
   </ItemGroup>
