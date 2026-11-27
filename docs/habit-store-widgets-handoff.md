@@ -28,3 +28,7 @@ Windows 앱을 설치한 뒤 처음 실행하면 현재 사용자의 바탕화�
 
 - 로컬 Firestore 에뮬레이터에서 `FIRESTORE_EMULATOR_HOST=127.0.0.1:8191 node scripts/verify-habit-store-sync-emulator.mjs`를 실행한다. 프로젝트는 `demo-propig-habit`, 데이터베이스는 `pppp`다. 웹과 Windows 본창의 저장 함수, Android SDK 필드 경로, Windows 위젯의 REST 업데이트 마스크가 동시에 기록과 계정 설정을 쓸 때 과거 기록과 각 변경이 보존되는지 확인한다. 다른 계정의 쓰기 거부도 확인한다.
 - 실제 스토어 설치와 운영 계정의 기기 간 왕복 체크는 스토어 게시자 접근, 서명 및 운영 연동 후 확인한다.
+
+## Windows 본창 대시보드
+
+새 Windows 본창은 기존 계정 세션을 복원한 뒤 /propig의 웹 대시보드를 연다. 웹 화면과 Windows 패키지를 함께 검증하고 웹을 먼저 게시한다. 기존 Store 패키지는 계속 /propig/desktop을 사용한다. 위젯 열기, 설정, 바탕화면 바로가기 명령은 본창의 위젯 메뉴에서 제공한다.
