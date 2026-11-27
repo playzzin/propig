@@ -50,20 +50,19 @@ async function windowsRequest(accountUid, options) {
   const headers = { Authorization: 'Bearer ' + createMockUserToken(claimsFor(accountUid), projectId) };
   if (!options) return fetch(url, { headers, signal: AbortSignal.timeout(10000) });
 
-  const { checked } = options;
+  const { checked, day = today } = options;
   // Firestore REST paths quote the date and the dotted habit ID as literal map keys.
-  const recordMask = ['records', charQuoted(today), charQuoted('windows.walk')].join('.');
-  for (const field of [recordMask + '.checked', recordMask + '.updatedAt', 'updatedAt']) {
+  const recordMask = ['records', charQuoted(day), charQuoted('windows.walk')].join('.');
+  for (const field of [recordMask + '.checked', recordMask + '.updatedAt']) {
     url.searchParams.append('updateMask.fieldPaths', field);
   }
   url.searchParams.set('currentDocument.exists', 'true');
   const map = (fields) => ({ mapValue: { fields } });
   const fields = {
-    records: map({ [today]: map({ 'windows.walk': map({
+    records: map({ [day]: map({ 'windows.walk': map({
       checked: { booleanValue: checked },
       updatedAt: { stringValue: timestamp },
     }) }) }),
-    updatedAt: { timestampValue: timestamp },
   };
   return fetch(url, {
     method: 'PATCH',
@@ -84,7 +83,10 @@ const initialRecords = {
     'windows.walk': { checked: false, note: 'keep Windows note' },
     water: { value: 2 },
   },
-  [yesterday]: { web: { checked: true, note: 'keep yesterday' } },
+  [yesterday]: {
+    web: { checked: true, note: 'keep yesterday' },
+    'windows.walk': { checked: false, note: 'keep the earlier Windows note' },
+  },
 };
 const workspace = {
   categories: [{ id: 'routine', name: '루틴' }],
@@ -153,7 +155,24 @@ try {
   assert.deepEqual(desktopSaved.viewPreferences, saved.viewPreferences);
   assert.equal(saved.unrelated, workspace.unrelated);
 
-  const foreignSave = await windowsRequest(otherUid, { checked: false });
+  const [pastWindowsSave] = await Promise.all([
+    windowsRequest(uid, { day: yesterday, checked: true }),
+    web.saveHabitRecordPatch(uid, today, 'web', { checked: false }),
+  ]);
+  assert.equal(pastWindowsSave.status, 200, await pastWindowsSave.clone().text());
+  const savedAcrossDays = (await firestore.getDocFromServer(ref)).data();
+  assert.deepEqual(savedAcrossDays.records[yesterday]['windows.walk'], {
+    checked: true,
+    updatedAt: timestamp,
+    note: initialRecords[yesterday]['windows.walk'].note,
+  });
+  assert.deepEqual(savedAcrossDays.records[yesterday].web, initialRecords[yesterday].web);
+  assert.equal(savedAcrossDays.records[today].web.checked, false);
+  assert.equal(savedAcrossDays.records[today].web.note, initialRecords[today].web.note);
+  assert.deepEqual(savedAcrossDays.records[today]['windows.walk'], saved.records[today]['windows.walk']);
+  assert.deepEqual(savedAcrossDays.viewPreferences, saved.viewPreferences);
+
+  const foreignSave = await windowsRequest(otherUid, { day: yesterday, checked: false });
   assert.equal(foreignSave.status, 403, await foreignSave.text());
 
   persistence = new Promise((resolve) => { releasePersistence = resolve; });
@@ -165,10 +184,10 @@ try {
   releasePersistence();
   await Promise.all(rejected);
   const unchanged = (await firestore.getDocFromServer(ref)).data();
-  assert.deepEqual(unchanged.records, saved.records);
+  assert.deepEqual(unchanged.records, savedAcrossDays.records);
   assert.deepEqual(unchanged.viewPreferences, saved.viewPreferences);
 
-  console.log('PASS Firestore emulator: web, Windows workspace, Windows widget and Android preserve concurrent records and account preferences; account fences verified');
+  console.log('PASS Firestore emulator: concurrent today and historical records, widget field masks, account preferences and access boundaries');
 } finally {
   await Promise.all(apps.map(async ({ app, db }) => {
     await firestore.terminate(db);
