@@ -17,7 +17,7 @@ internal enum DesktopSurface
 {
     Workspace,
     Memo,
-    Todo
+    Todo, System, Clock, Calendar, Usage, MiraBox, Dock
 }
 
 internal enum DesktopTarget
@@ -45,6 +45,9 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         Margin = new Thickness(0, 8, 0, 0)
     };
     private readonly FirebaseHabits firebase;
+    private readonly PcWidgetHub? pcWidgets;
+    private readonly Action<string>? openPcPanel;
+    private bool actionPending;
     private readonly Action? recordsChanged;
     private readonly Action<DesktopTarget>? openTarget;
     private readonly Action retry;
@@ -60,20 +63,23 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
     internal string AccountUid { get; }
 
     internal DesktopWorkspace(FirebaseHabits firebase, string uid, DesktopSurface surface, Action retry, Func<Task> reconnect,
-        Action? recordsChanged = null, Action<DesktopTarget>? openTarget = null)
+        Action? recordsChanged = null, Action<DesktopTarget>? openTarget = null, PcWidgetHub? pcWidgets = null, Action<string>? openPcPanel = null)
     {
         entry = new Uri(FirebaseHabits.WebOrigin + (surface switch
         {
             DesktopSurface.Workspace => "/propig?windows=dashboard",
             DesktopSurface.Memo => "/propig/desktop/memo",
             DesktopSurface.Todo => "/propig/desktop/todo",
+            _ when PcWidgetWindows.PanelId(surface) is string panel => "/propig/desktop/pc-widgets?panel=" + panel,
             _ => throw new ArgumentOutOfRangeException(nameof(surface))
         }));
         this.firebase = firebase;
+        this.pcWidgets = PcWidgetWindows.PanelId(surface) != null ? pcWidgets : null;
         if (surface == DesktopSurface.Workspace)
         {
             this.recordsChanged = recordsChanged;
             this.openTarget = openTarget;
+            this.openPcPanel = openPcPanel;
         }
         this.retry = retry;
         this.reconnect = reconnect;
@@ -144,6 +150,12 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
     {
+        if (connected && firebase.Uid == AccountUid && openPcPanel != null && PcWidgetWindows.FromCommandLine([args.Uri]) is string panel)
+        {
+            args.Cancel = true;
+            openPcPanel(panel);
+            return;
+        }
         if (!IsWorkspacePage(args.Uri) || failed)
         {
             args.Cancel = true;
@@ -186,7 +198,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             type = rawType.GetString();
             id = rawId.GetString();
             if (!Guid.TryParseExact(id, "D", out _)) return;
-            if (type == "workspace-open" && message.TryGetProperty("target", out var rawTarget)
+            if (type is "workspace-open" or "pc-widget-action" && message.TryGetProperty("target", out var rawTarget)
                 && rawTarget.ValueKind == JsonValueKind.String) target = rawTarget.GetString();
         }
         catch (JsonException) { return; }
@@ -215,12 +227,50 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
                 case "workspace-open" when connected && openTarget != null:
                     OpenTarget(target);
                     break;
+                case "pc-widget-read" when connected && pcWidgets != null:
+                    PostPcReply(id!, navigation);
+                    break;
+                case "pc-widget-action" when connected && pcWidgets != null && !actionPending:
+                    await PcAction(id!, navigation, target);
+                    break;
             }
         }
     }
 
+    private void PostPcReply(string id, int document, string? result = null)
+    {
+        if (disposed || failed || id != requestId || document != navigation || firebase.Uid != AccountUid ||
+            pcWidgets == null || web.CoreWebView2 is not { } core || !IsWorkspacePage(core.Source)) return;
+        var json = JsonSerializer.Serialize(new { type = "pc-widget-state", version = ProtocolVersion, requestId = id,
+            data = pcWidgets.Read(AccountUid), result }, PcWidgetSampler.Json);
+        try { core.PostWebMessageAsJson(json); }
+        catch (Exception e) when (e is COMException or InvalidOperationException) { }
+    }
+
+    private async Task PcAction(string id, int document, string? target)
+    {
+        actionPending = true;
+        try
+        {
+            if (target is "share-on" or "share-off")
+            {
+                await pcWidgets!.ChangeSharing(AccountUid, target == "share-on");
+                PostPcReply(id, document, target == "share-on" ? "웹 공유를 켰습니다." : "측정값 공유를 중지했습니다.");
+            }
+            else if (target?.Split('/') is ["key", var version, var slot] && PcWidgetWindows.ValidKey(version,slot,out var layout,out var index))
+                PostPcReply(id, document, pcWidgets!.PressKey(Window.GetWindow(this), AccountUid, layout, index));
+            else PostPcReply(id, document, await PcWidgetActions.Execute(target));
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            PostPcReply(id, document, "설정을 저장하지 못했습니다.");
+        }
+        finally { actionPending = false; }
+    }
+
     private void OpenTarget(string? target)
     {
+        if (target == "pc-widgets") { openPcPanel?.Invoke("system"); return; }
         DesktopTarget? destination = target switch
         {
             "memo" => DesktopTarget.Memo,

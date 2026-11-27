@@ -204,6 +204,27 @@ internal sealed class FirebaseHabits
 
     private static object Map(Dictionary<string, object> fields) => new { mapValue = new { fields } };
 
+    internal async Task WritePcSnapshotAsync(string account, Guid device, PcSnapshot? sample, CancellationToken cancel)
+    {
+        if (Uid != account) throw new InvalidOperationException("Account changed.");
+        var revision = sessionRevision;
+        var bearer = await TokenAsync(cancel);
+        if (Uid != account || revision != sessionRevision) throw new InvalidOperationException("Account changed.");
+        var url = $"https://firestore.googleapis.com/v1/projects/{Project}/databases/pppp/documents/users/{Uri.EscapeDataString(account)}/pcWidgetDevices/{device:N}";
+        using var request = new HttpRequestMessage(sample == null ? HttpMethod.Delete : HttpMethod.Patch, url);
+        request.Headers.Authorization = new("Bearer", bearer);
+        if (sample != null)
+        {
+            request.Content = JsonContent.Create(new { fields = new {
+                sampledAt = new { integerValue = sample.SampledAt.ToString(CultureInfo.InvariantCulture) },
+                sample = new { stringValue = JsonSerializer.Serialize(sample, PcWidgetSampler.Json) }
+            } });
+        }
+        using var response = await Http.SendAsync(request, cancel);
+        if (sample == null && response.StatusCode == HttpStatusCode.NotFound) return;
+        response.EnsureSuccessStatusCode();
+    }
+
     private static bool TryMapField(JsonElement fields, string key, out JsonElement result)
     {
         result = default;
