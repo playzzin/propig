@@ -53,7 +53,7 @@ internal sealed class HabitApp
     private readonly CancellationTokenSource lifetime = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer workspaceRefresh = new() { Interval = TimeSpan.FromMilliseconds(250) };
-    private readonly Window main = new ProPigWindow("ProPig", 1120, 780);
+    private readonly Window main = new ProPigWindow("그뚠앱", 1120, 780);
     private readonly ScrollViewer mainList = NewScrollViewer();
     private readonly DockPanel workspacePanel = new() { Visibility = Visibility.Collapsed };
     private readonly ContentControl workspaceToolbar = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -279,7 +279,7 @@ internal sealed class HabitApp
         const double minHeight = 250;
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        var window = new ProPigWindow("ProPig 오늘 습관 위젯",
+        var window = new ProPigWindow("그뚠앱 오늘 습관 위젯",
             RestoreDimension(choices.Width, 348, minWidth, area.Width),
             RestoreDimension(choices.Height, 570, minHeight, area.Height), "오늘 습관");
         window.MinWidth = minWidth;
@@ -382,7 +382,7 @@ internal sealed class HabitApp
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         var minWidth = market ? 350 : 280;
         var minHeight = market ? 390 : 320;
-        var window = new ProPigWindow($"ProPig {surfaceName} 위젯",
+        var window = new ProPigWindow($"그뚠앱 {surfaceName} 위젯",
             RestoreDimension(placement.Width, market ? 665 : 374, minWidth, area.Width),
             RestoreDimension(placement.Height, market ? 650 : 550, minHeight, area.Height), surfaceName);
         window.MinWidth = minWidth;
@@ -685,7 +685,7 @@ internal sealed class HabitApp
         {
             if (!compact)
             {
-                actions.Children.Add(Button("ProPig 본창으로 돌아가기", () =>
+                actions.Children.Add(Button("그뚠앱 본창으로 돌아가기", () =>
                 {
                     configureWidget = false;
                     PaintMain();
