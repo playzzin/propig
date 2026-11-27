@@ -10,7 +10,7 @@ import {
   initializeAuth,
 } from 'firebase/auth';
 import { enableMultiTabIndexedDbPersistence, getFirestore } from 'firebase/firestore';
-import { isDesktopWorkspaceRoute } from '@/lib/desktopWorkspaceRoute';
+import { isDesktopWorkspaceRoute, isWindowsDashboard } from '@/lib/desktopWorkspaceRoute';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -26,7 +26,7 @@ const shouldDebugFirebase =
   (process.env.NEXT_PUBLIC_DEBUG_FIREBASE ?? '').toLowerCase() === 'true';
 
 const app = initializeApp(firebaseConfig);
-const desktopDocument = typeof window !== 'undefined' && isDesktopWorkspaceRoute(window.location.pathname) &&
+const desktopDocument = typeof window !== 'undefined' && (isWindowsDashboard || isDesktopWorkspaceRoute(window.location.pathname)) &&
   Boolean((window as Window & { chrome?: { webview?: unknown } }).chrome?.webview);
 
 const initializeBrowserAuth = () => {
