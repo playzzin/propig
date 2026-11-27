@@ -4,6 +4,7 @@ const desktopPaths = new Set([
   '/propig/desktop/memo',
   '/propig/desktop/todo',
   '/propig/desktop/pc-widgets',
+  '/propig/desktop/market',
 ]);
 
 export function isDesktopWorkspaceRoute(pathname: string | null) {
