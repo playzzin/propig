@@ -8,7 +8,7 @@ namespace ProPig.Habits;
 internal static class DesktopShortcut
 {
     private const int ErrorInsufficientBuffer = 122;
-    private const string Name = "ProPig 습관.lnk";
+    private const string Name = "그뚠앱.lnk";
 
     internal static string? CurrentApplicationId()
     {
