@@ -313,7 +313,9 @@ internal sealed class HabitApp
 
     private void OpenDesktopWidget(DesktopSurface surface, string surfaceName)
     {
-        if (firebase.Uid is not string uid || lifetime.IsCancellationRequested) return;
+        var cpu = surface == DesktopSurface.Cpu;
+        var uid = firebase.Uid;
+        if (lifetime.IsCancellationRequested || (!cpu && uid == null)) return;
         if (desktopWidgets.TryGetValue(surface, out var existing))
         {
             if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
@@ -325,10 +327,10 @@ internal sealed class HabitApp
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         const double minWidth = 280;
-        const double minHeight = 320;
+        var minHeight = cpu ? 270 : 320;
         var window = new ProPigWindow($"ProPig {surfaceName} 위젯",
             RestoreDimension(placement.Width, 374, minWidth, area.Width),
-            RestoreDimension(placement.Height, 550, minHeight, area.Height), surfaceName);
+            RestoreDimension(placement.Height, cpu ? 295 : 550, minHeight, area.Height), surfaceName);
         window.MinWidth = minWidth;
         window.MinHeight = minHeight;
         window.Topmost = placement.Topmost;
@@ -358,10 +360,11 @@ internal sealed class HabitApp
         window.Content = new DockPanel { Children = { toolbar, body } };
 
         DesktopWorkspace? renderer = null;
+        var cpuWidget = cpu ? new CpuUsageWidget() : null;
         void AttachRenderer()
         {
             renderer?.Dispose();
-            renderer = new DesktopWorkspace(firebase, uid, surface, AttachRenderer, ReconnectWorkspace);
+            renderer = new DesktopWorkspace(firebase, uid!, surface, AttachRenderer, ReconnectWorkspace);
             body.Content = renderer;
         }
 
@@ -381,14 +384,22 @@ internal sealed class HabitApp
         window.Closed += (_, _) =>
         {
             body.Content = null;
+            cpuWidget?.Dispose();
             renderer?.Dispose();
             desktopWidgets.Remove(surface);
             CloseHiddenMainWhenIdle();
         };
 
         desktopWidgets.Add(surface, window);
-        AttachRenderer();
+        if (cpuWidget != null) body.Content = cpuWidget;
+        else AttachRenderer();
         window.Show();
+    }
+
+    private Task OpenCpuWidget()
+    {
+        OpenDesktopWidget(DesktopSurface.Cpu, "CPU 사용률");
+        return Task.CompletedTask;
     }
 
     private void CloseDesktopWidgets()
@@ -485,6 +496,7 @@ internal sealed class HabitApp
         {
             AddAction(label, () => { OpenDesktopTarget(target); return Task.CompletedTask; });
         }
+        AddAction("CPU 위젯 열기", OpenCpuWidget);
         widgets.Items.Add(new Separator());
         AddAction("습관 위젯 설정", () =>
         {
@@ -609,6 +621,12 @@ internal sealed class HabitApp
         }
         if (!compact && applicationId != null)
             actions.Children.Add(Button("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true)));
+        if (!compact)
+        {
+            var cpuButton = Button("CPU 위젯 열기", OpenCpuWidget);
+            cpuButton.IsEnabled = true;
+            actions.Children.Add(cpuButton);
+        }
 
         if (layout != null)
         {

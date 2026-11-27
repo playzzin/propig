@@ -4,7 +4,7 @@ import { SiteAppDownload } from '@/components/site-home/SiteAppDownload';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -30,6 +30,7 @@ import {
   Check,
   Circle,
   ClipboardList,
+  Cpu,
   Eye,
   EyeOff,
   Flag,
@@ -59,6 +60,7 @@ import { auth, ensureFirestorePersistence } from '@/firebase/config';
 import { createHabitWorkspaceRef, saveHabitRecordPatch, saveHabitWorkspaceFields } from '@/app/habit-tracker/_lib/habitWorkspaceStore';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 import { useStickyNotes } from '@/hooks/useStickyNotes';
+import { isWindowsDashboard } from '@/lib/desktopWorkspaceRoute';
 import {
   bucketListService,
   type BucketCategoryOption,
@@ -1092,8 +1094,13 @@ export default function PropigDashboard() {
   return <PropigDashboardSession key={currentUser?.uid ?? 'anonymous'} />;
 }
 
+const subscribeToWindowsHost = () => () => {};
+const getWindowsHost = () => isWindowsDashboard;
+const getServerWindowsHost = () => false;
+
 function PropigDashboardSession() {
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
+  const windowsDashboard = useSyncExternalStore(subscribeToWindowsHost, getWindowsHost, getServerWindowsHost);
   const appRegistry = usePropigAppRegistry();
   const router = useRouter();
   const [memoDraft, setMemoDraft] = useState('');
@@ -2366,6 +2373,12 @@ function PropigDashboardSession() {
           위젯 배치
         </LayoutTitle>
         <LayoutActions>
+          {!windowsDashboard ? (
+            <ShowWidgetButton as={Link} href="/propig/cpu" prefetch={false}>
+              <Cpu size={15} aria-hidden="true" />
+              CPU 사용률
+            </ShowWidgetButton>
+          ) : null}
           {hiddenWidgets.length > 0 ? (
             hiddenWidgets.map((id) => (
               <ShowWidgetButton key={id} type="button" onClick={() => showWidget(id)}>
