@@ -1,0 +1,135 @@
+.page {
+  width: min(100%, 1120px);
+  margin-inline: auto;
+  padding: clamp(24px, 5vw, 64px) clamp(16px, 4vw, 40px);
+  color: var(--text-main);
+}
+
+.hero {
+  padding: clamp(24px, 6vw, 64px);
+  border: 1px solid #34534a;
+  border-radius: 18px;
+  background: radial-gradient(ellipse at 100% 0%, #244338, transparent 65%), #12221d;
+  color: #f2fcf6;
+}
+
+.hero h1,
+.headline,
+.summary {
+  margin: 0;
+}
+
+.hero h1 {
+  color: #a7eec7;
+  font-size: clamp(1.25rem, 3vw, 1.65rem);
+  font-weight: 800;
+}
+
+.headline {
+  margin-top: 12px;
+  font-size: clamp(2rem, 5vw, 3.75rem);
+  font-weight: 850;
+  line-height: 1.16;
+  letter-spacing: -0.04em;
+  word-break: keep-all;
+}
+
+.summary {
+  max-width: 42rem;
+  margin-top: 18px;
+  color: #c8e1d4;
+  font-size: 1rem;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.primary,
+.secondary,
+.pcLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.primary,
+.secondary {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.primary {
+  color: #11271b;
+  background: #a7eec7;
+}
+
+.secondary {
+  border-color: #547160;
+  color: #f2fcf6;
+}
+
+.primary:hover,
+.secondary:hover,
+.pcLink:hover {
+  text-decoration: underline;
+}
+
+.features {
+  margin-top: 34px;
+}
+
+.features h2 {
+  margin: 0 0 14px;
+  font-size: 1.3rem;
+}
+
+.features ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-medium);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.features li svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.features h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.features p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+  word-break: keep-all;
+}
+
+.pcLink {
+  margin-top: 8px;
+  color: var(--text-main);
+}

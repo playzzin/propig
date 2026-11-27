@@ -2308,7 +2308,7 @@ function PropigDashboardSession() {
             {dateLabel}
           </DateText>
           <PageTitle>위젯 대시보드</PageTitle>
-          <DashboardTagline>작은 기록이 모여, 나다운 하루가 돼요.</DashboardTagline>
+          <DashboardTagline>웹과 바탕화면에 필요한 위젯을 골라 쓰세요.</DashboardTagline>
           <HeroSummary>
             <span>{heroStatus}</span>
             <em>{heroDetail}</em>
@@ -2373,10 +2373,13 @@ function PropigDashboardSession() {
         </LayoutTitle>
         <LayoutActions>
           {!windowsDashboard && (
-            <ShowWidgetButton as={Link} href="/propig/market" prefetch={false}>
-              <BarChart3 size={15} aria-hidden="true" />
-              국내 증시
-            </ShowWidgetButton>
+            <>
+              <ShowWidgetButton as={Link} href="/propig/about" prefetch={false}>그뚠앱 소개</ShowWidgetButton>
+              <ShowWidgetButton as={Link} href="/propig/market" prefetch={false}>
+                <BarChart3 size={15} aria-hidden="true" />
+                국내 증시
+              </ShowWidgetButton>
+            </>
           )}
           {hiddenWidgets.length > 0 ? (
             hiddenWidgets.map((id) => (
