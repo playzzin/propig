@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
@@ -19,6 +20,7 @@ internal sealed class Choices
     public double? Top { get; set; }
     public double? Width { get; set; }
     public double? Height { get; set; }
+    public bool DesktopShortcutCreated { get; set; }
 }
 
 internal sealed class HabitApp
@@ -36,6 +38,7 @@ internal sealed class HabitApp
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly Window main = NewWindow("ProPig 습관", 520, 680);
     private readonly string preferences = Path.Combine(FirebaseHabits.AppDirectory, "widget.json");
+    private readonly string? applicationId = DesktopShortcut.CurrentApplicationId();
     private Window? widget;
     private WidgetLayout? widgetLayout;
     private Choices choices = new();
@@ -44,6 +47,8 @@ internal sealed class HabitApp
     private string status = "연결 확인 중";
     private bool busy;
     private bool loaded;
+    private Task<bool>? desktopShortcutOperation;
+    private string? shortcutNotice;
 
     [STAThread]
     public static void Main()
@@ -67,8 +72,11 @@ internal sealed class HabitApp
                     choices = JsonSerializer.Deserialize<Choices>(File.ReadAllText(preferences)) ?? new Choices();
             }
             catch (Exception failure) when (failure is IOException or JsonException) { choices = new Choices(); }
+            var createShortcut = choices.DesktopShortcutCreated
+                ? Task.CompletedTask : CreateDesktopShortcut(showResult: false);
             await Run(async () => { await firebase.RestoreAsync(); await Read(); }, "연결을 확인하지 못했습니다.");
             refresh.Start();
+            await createShortcut;
         };
         main.Closing += (_, eventArgs) =>
         {
@@ -202,6 +210,35 @@ internal sealed class HabitApp
         File.Move(preferences + ".tmp", preferences, overwrite: true);
     }
 
+    private async Task CreateDesktopShortcut(bool showResult)
+    {
+        if (applicationId == null) return;
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        var operation = desktopShortcutOperation ??= Task.Run(() => DesktopShortcut.EnsureExists(applicationId, desktop));
+        try
+        {
+            var created = await operation;
+            if (!choices.DesktopShortcutCreated)
+            {
+                choices.DesktopShortcutCreated = true;
+                try { SaveChoices(); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
+            if (showResult) shortcutNotice = created
+                ? "바탕화면에 ‘ProPig 습관’ 바로가기를 만들었습니다."
+                : "바탕화면에 ‘ProPig 습관’ 바로가기가 이미 있습니다.";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or COMException)
+        {
+            if (showResult) shortcutNotice = "바로가기를 만들 수 없습니다. 바탕화면 폴더와 같은 이름의 파일을 확인해 주세요.";
+        }
+        finally
+        {
+            if (ReferenceEquals(desktopShortcutOperation, operation)) desktopShortcutOperation = null;
+            if (showResult && !lifetime.IsCancellationRequested) PaintWindow(main, false);
+        }
+    }
+
     private void Paint()
     {
         if (main.IsLoaded || !lifetime.IsCancellationRequested) PaintWindow(main, false);
@@ -256,14 +293,23 @@ internal sealed class HabitApp
             }
             actions.Children.Add(Button("새로고침", async () => await Run(Read, "기록을 불러오지 못했습니다.")));
         }
+        if (!compact && applicationId != null)
+            actions.Children.Add(Button("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true)));
+
         if (layout != null)
         {
             foreach (FrameworkElement action in actions.Children) action.Margin = new Thickness(0, 0, 5, 0);
             layout.Actions.Content = actions;
         }
-        else if (uid != null)
+        else if (actions.Children.Count > 0)
         {
             stack.Children.Add(actions);
+            if (shortcutNotice != null)
+            {
+                var notice = Text(shortcutNotice, 12, Muted);
+                AutomationProperties.SetLiveSetting(notice, AutomationLiveSetting.Polite);
+                stack.Children.Add(notice);
+            }
         }
 
         if (uid == null)
