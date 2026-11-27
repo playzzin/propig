@@ -23,6 +23,8 @@ $hook = '[!CommandMeasure ProPigWidgetExporter "Export()"]'
 $begin = '; BEGIN ProPig Widget Feeds v1'
 $end = '; END ProPig Widget Feeds v1'
 $luaName = 'ProPigWidgetFeeds.lua'
+if (!$env:USERPROFILE -or ![IO.Path]::IsPathRooted($env:USERPROFILE)) { throw 'Windows user profile not found.' }
+$shared = [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE '.propig\rainmeter'))
 $locks = [Collections.Generic.List[IDisposable]]::new()
 $changes = [Collections.Generic.List[object]]::new()
 $committed = [Collections.Generic.List[object]]::new()
@@ -64,7 +66,7 @@ function Get-IniEncoding([byte[]] $Bytes) {
 
 function Get-Block([string] $Feed, [string] $Newline, [string] $Hash) {
     return (@('', $begin, "; Exporter SHA256 $Hash", '[ProPigWidgetExporter]', 'Measure=Script',
-        "ScriptFile=#@#$luaName", "Feed=$Feed", 'UpdateDivider=-1', $end, '') -join $Newline)
+        "ScriptFile=%USERPROFILE%\.propig\rainmeter\$luaName", "Feed=$Feed", 'UpdateDivider=-1', $end, '') -join $Newline)
 }
 
 function Edit-Config([string] $Text, $Target, [string] $Hash) {
@@ -107,7 +109,11 @@ function Edit-Config([string] $Text, $Target, [string] $Hash) {
 # Each action has a recoverable backup until the four configs and their shared exporter agree.
 function Add-Change([string] $Path, [string] $OriginalHash, $Bytes) {
     $tag = '.' + [IO.Path]::GetFileName($Path) + '.propig-' + [Guid]::NewGuid().ToString('N')
-    $temporary = Join-Path ([IO.Path]::GetDirectoryName($Path)) $tag
+    # Keep new files outside package-virtualized AppData. File.Replace requires a single volume.
+    $stageDir = if ([IO.Path]::GetPathRoot($Path) -eq [IO.Path]::GetPathRoot($shared)) {
+        $shared
+    } else { [IO.Path]::GetDirectoryName($Path) }
+    $temporary = Join-Path $stageDir $tag
     $newHash = if ($null -ne $Bytes) { Get-Hash $Bytes }
     if ($newHash -eq $OriginalHash) { return }
     $changes.Add([pscustomobject]@{ Path=$Path; Original=$OriginalHash; New=$newHash; Bytes=$Bytes
@@ -129,7 +135,7 @@ if (!$SkinRoot) {
 }
 $SkinRoot = (Get-Item -LiteralPath $SkinRoot -ErrorAction Stop).FullName
 $operation = if ($Remove) { 'Disconnect the four ProPig widget feeds' } else { 'Connect the four ProPig widget feeds' }
-$rootId = Get-Hash ([Text.Encoding]::UTF8.GetBytes($SkinRoot.TrimEnd('\','/').ToUpperInvariant()))
+$rootId = Get-Hash ([Text.Encoding]::UTF8.GetBytes($shared.ToUpperInvariant()))
 $mutex = [Threading.Mutex]::new($false, 'Local\ProPig-Rainmeter-Widget-Feeds-' + $rootId)
 $held = $false
 try {
@@ -148,7 +154,7 @@ try {
         $bytes = [byte[]]($bom + $encoding.GetBytes($newText))
         Add-Change $path (Get-Hash $original) $bytes
     }
-    $installed = Join-Path $SkinRoot "@Resources\$luaName"
+    $installed = Join-Path $shared $luaName
     $installedHash = ''
     if ([IO.File]::Exists($installed)) { $installedHash = Get-Hash (Read-CurrentFile $installed) }
     if ($Remove) {
@@ -156,13 +162,13 @@ try {
         elseif ($installedHash) { Write-Warning 'The existing custom exporter was preserved.' }
     } else {
         if ($installedHash -and $installedHash -ne $hash -and !$oldHashes.Contains($installedHash)) {
-            throw 'A different file already uses @Resources\ProPigWidgetFeeds.lua.'
+            throw 'A different file already uses the shared ProPigWidgetFeeds.lua path.'
         }
         Add-Change $installed $installedHash $source
     }
 
     if (!$PSCmdlet.ShouldProcess($SkinRoot, $operation)) { return }
-    if (!$Remove) { [void][IO.Directory]::CreateDirectory((Join-Path $env:LOCALAPPDATA 'ProPig\WidgetFeeds')) }
+    if (!$Remove -or $changes.Count) { [void][IO.Directory]::CreateDirectory($shared) }
     foreach ($change in $changes) {
         if ($null -ne $change.Bytes) { [IO.File]::WriteAllBytes($change.Stage, $change.Bytes) }
     }
@@ -201,8 +207,8 @@ try {
 } finally {
     foreach ($stream in $locks) { $stream.Dispose() }
     foreach ($change in $changes) {
-        [IO.File]::Delete($change.Stage)
-        if (!$change.KeepBackup) { [IO.File]::Delete($change.Backup) }
+        if ([IO.File]::Exists($change.Stage)) { [IO.File]::Delete($change.Stage) }
+        if (!$change.KeepBackup -and [IO.File]::Exists($change.Backup)) { [IO.File]::Delete($change.Backup) }
     }
     if ($held) { $mutex.ReleaseMutex() }
     $mutex.Dispose()

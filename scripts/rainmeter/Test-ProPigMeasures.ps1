@@ -11,9 +11,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if (!$InstallerOnly) { $lua = (Get-Command $LuaExe -CommandType Application -ErrorAction Stop).Source }
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ('ProPig-measures-test-' + [Guid]::NewGuid().ToString('N'))
-$skin = Join-Path $scratch 'Neon Glass'
-$appData = Join-Path $scratch 'AppData'
-$feedDir = Join-Path $appData 'ProPig\WidgetFeeds'
+$testProfile = Join-Path $scratch ('Profile ' + [char]0xD55C + [char]0xAE00)
+$appData = Join-Path $testProfile 'AppData\Local'
+$skin = Join-Path $appData 'Programs\Rainmeter\Skins\Neon Glass'
+$feedDir = Join-Path $testProfile '.propig\rainmeter'
 $connect = Join-Path $PSScriptRoot 'Connect-ProPigMeasures.ps1'
 $paths = @('@Resources\AiUsage\Panel.inc', 'Neon Glass.ini', '@Resources\ClockWeather.inc', 'MiraBox\MiraBox.ini')
 $sections = @('MeasureAiCollector', 'MeasureHardwareTelemetry', 'MeasureWeatherResponse', 'ReadSlots')
@@ -21,6 +22,7 @@ $encodings = @([Text.Encoding]::Unicode, [Text.UTF8Encoding]::new($true), [Text.
     [Text.UTF8Encoding]::new($false))
 $baselines = @()
 $previousLocal = $env:LOCALAPPDATA
+$previousProfile = $env:USERPROFILE
 $previousSource = $env:PROPIG_LUA_TEST_SOURCE
 
 function Assert-Equal($Expected, $Actual, [string] $Label) {
@@ -39,6 +41,7 @@ function Get-State {
 try {
     [void][IO.Directory]::CreateDirectory($skin)
     $env:LOCALAPPDATA = $appData
+    $env:USERPROFILE = $testProfile
     $env:PROPIG_LUA_TEST_SOURCE = (Get-Item -LiteralPath (Join-Path $PSScriptRoot 'ExportMeasures.lua')).FullName
     for ($i = 0; $i -lt 4; $i++) {
         $path = Join-Path $skin $paths[$i]
@@ -71,12 +74,13 @@ try {
     }
     & $connect -SkinRoot $skin | Out-Null
     $installedState = @(Get-State) -join '|'
-    $installedLua = Join-Path $skin '@Resources\ProPigWidgetFeeds.lua'
+    $installedLua = Join-Path $feedDir 'ProPigWidgetFeeds.lua'
     Assert-Equal $true ([IO.File]::Exists($installedLua)) 'exporter is installed'
     for ($i = 0; $i -lt 4; $i++) {
         $body = [IO.File]::ReadAllText((Join-Path $skin $paths[$i]), $encodings[$i])
         Assert-Equal 1 ([regex]::Matches($body, '\[!CommandMeasure ProPigWidgetExporter "Export\(\)"\]').Count) 'one completion hook'
         Assert-Equal 1 ([regex]::Matches($body, '\[ProPigWidgetExporter\]').Count) 'one exporter measure'
+        Assert-Equal $true ($body.Contains('ScriptFile=%USERPROFILE%\.propig\rainmeter\ProPigWidgetFeeds.lua')) 'ASCII path expands to real user profile'
         Assert-Equal $true ($body.Contains('FinishAction=[!Redraw]')) 'unrelated section preserved'
     }
     & $connect -SkinRoot $skin | Out-Null
@@ -86,6 +90,18 @@ try {
     Assert-Equal $false ([IO.File]::Exists($installedLua)) 'uninstall removes owned Lua file'
     & $connect -SkinRoot $skin -Remove | Out-Null
     Assert-Equal $originalState (@(Get-State) -join '|') 'second removal is a byte-level no-op'
+
+    $legacyPath = Join-Path $skin $paths[3]
+    $korean = [Text.Encoding]::GetEncoding(949)
+    [IO.File]::WriteAllText($legacyPath, $baselines[3], $korean)
+    $legacyBytes = Get-BytesFingerprint $legacyPath
+    & $connect -SkinRoot $skin | Out-Null
+    $legacyBody = [IO.File]::ReadAllText($legacyPath, $korean)
+    Assert-Equal $true ($legacyBody.Contains('ScriptFile=%USERPROFILE%\.propig\rainmeter\ProPigWidgetFeeds.lua')) 'portable path in unmarked CP949 config'
+    Assert-Equal $true ($legacyBody.Contains("$([char]0xD55C)$([char]0xAE00)")) 'unmarked CP949 prose preserved'
+    & $connect -SkinRoot $skin -Remove | Out-Null
+    Assert-Equal $legacyBytes (Get-BytesFingerprint $legacyPath) 'unmarked CP949 restored byte-for-byte'
+    [IO.File]::WriteAllText($legacyPath, $baselines[3], $encodings[3])
 
     [IO.File]::WriteAllText($installedLua, '-- custom content')
     Assert-Fails { & $connect -SkinRoot $skin } 'custom script collision'
@@ -143,7 +159,7 @@ SKIN = {
     ReplaceVariables=function(_, text) return (text:gsub('#@#', 'C:\\Test Skin\\')) end,
     Bang=function(_, ...) launched[#launched+1] = {...} end
 }
-local root = os.getenv('LOCALAPPDATA') .. '\\ProPig\\WidgetFeeds\\'
+local root = os.getenv('USERPROFILE') .. '\\.propig\\rainmeter\\'
 local function output()
     local file = io.open(root .. feed .. '.json', 'rb')
     if not file then return nil end
@@ -304,6 +320,7 @@ assert(run('timeout') == weather)
     Write-Output 'PASS: installer transaction, encoding, idempotency, rollback, privacy, freshness, and four Lua feeds.'
 } finally {
     $env:LOCALAPPDATA = $previousLocal
+    $env:USERPROFILE = $previousProfile
     $env:PROPIG_LUA_TEST_SOURCE = $previousSource
     $rootPath = [IO.Path]::GetFullPath($scratch)
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')

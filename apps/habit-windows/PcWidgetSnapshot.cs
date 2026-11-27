@@ -30,9 +30,14 @@ internal sealed class PcWidgetSampler
 
     internal PcWidgetSampler(string? feedDirectory = null)
     {
-        feeds = feedDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProPig", "WidgetFeeds");
-        using var cpu = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor\0");
-        cpuName = Model(cpu?.GetValue("ProcessorNameString") as string);
+        // Rainmeter runs outside the MSIX. Both processes use the user's profile for shared feeds.
+        feeds = feedDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".propig", "rainmeter");
+        try
+        {
+            using var cpu = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor\0");
+            cpuName = Model(cpu?.GetValue("ProcessorNameString") as string);
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException) { }
         for (uint n = 0; n < 32; n++)
         {
             var adapter = new DisplayDevice { Size = Marshal.SizeOf<DisplayDevice>() };

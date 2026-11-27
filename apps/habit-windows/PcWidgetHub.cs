@@ -16,7 +16,7 @@ internal sealed class PcDeviceLink
 
 internal sealed class PcWidgetHub(FirebaseHabits firebase, Func<Dictionary<string, PcDeviceLink>> devices, Action persist, CancellationToken lifetime)
 {
-    private readonly PcWidgetSampler sampler = new();
+    private readonly Lazy<PcWidgetSampler> sampler = new(() => new PcWidgetSampler());
     private readonly SemaphoreSlim transfer = new(1, 1);
     private string? lastAccount;
     private DateTime lastAttempt;
@@ -25,7 +25,7 @@ internal sealed class PcWidgetHub(FirebaseHabits firebase, Func<Dictionary<strin
     internal object Read(string account)
     {
         var link = devices().GetValueOrDefault(account);
-        return new { sample = sampler.Sample(), sharing = link?.Share == true,
+        return new { sample = sampler.Value.Sample(), sharing = link?.Share == true,
             removing = link?.Removing == true, cloudStatus = account == lastAccount ? cloudStatus : null };
     }
 
@@ -50,7 +50,7 @@ internal sealed class PcWidgetHub(FirebaseHabits firebase, Func<Dictionary<strin
             && link.Share && link.Id.ToString("N") == device);
         PcSlot? CurrentSlot()
         {
-            var mira = sampler.Sample().Mirabox;
+            var mira = sampler.Value.Sample().Mirabox;
             if (mira?.LayoutId != layout || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - mira.UpdatedAt > 15000) return null;
             return mira.Slots.FirstOrDefault(s => s.Index == index && s.Label is "앱" or "웹" or "Codex" or "GitHub");
         }
@@ -77,7 +77,7 @@ internal sealed class PcWidgetHub(FirebaseHabits firebase, Func<Dictionary<strin
                 lastAccount = account;
                 lastAttempt = now;
                 var removing = !link.Share;
-                await firebase.WritePcSnapshotAsync(account, link.Id, removing ? null : sampler.Sample(), lifetime);
+                await firebase.WritePcSnapshotAsync(account, link.Id, removing ? null : sampler.Value.Sample(), lifetime);
                 if (firebase.Uid != account) return;
                 if (removing && !link.Share)
                 {

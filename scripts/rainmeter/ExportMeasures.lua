@@ -353,10 +353,10 @@ end
 function Initialize()
     source, destination, deckState, lastLayoutId = nil, nil, nil, 0
     feed = SELF:GetOption('Feed', '')
-    local base = os.getenv('LOCALAPPDATA')
+    local base = os.getenv('USERPROFILE')
     if sources[feed] and base and base ~= '' then
         source = SKIN:GetMeasure(sources[feed])
-        destination = base .. '\\ProPig\\WidgetFeeds\\' .. feed .. '.json'
+        destination = base .. '\\.propig\\rainmeter\\' .. feed .. '.json'
         if feed == 'mirabox' then
             lastLayoutId = math.max(previousLayout(destination), previousLayout(destination .. '.previous'))
         end
