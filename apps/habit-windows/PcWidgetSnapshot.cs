@@ -6,7 +6,7 @@ using Microsoft.Win32;
 namespace ProPig.Habits;
 
 internal sealed record PcSystem(long UpdatedAt, double? Cpu, double? Ram, double? Swap, double? Disk, string? CpuName, string? GpuName);
-internal sealed record PcSensors(long UpdatedAt, double? CpuTemp, double? GpuTemp, double? Gpu);
+internal sealed record PcSensors(long UpdatedAt, double? CpuTemp, double? GpuTemp, double? Gpu, string? CpuTempSource = null);
 internal sealed record PcProvider(string Id, string Status, double? Short, double? Weekly, long? ShortReset, long? WeeklyReset, long? MeasuredAt = null);
 internal sealed record PcDay(string Date, long? Tokens);
 internal sealed record PcReset(string Granted, string? Expires);

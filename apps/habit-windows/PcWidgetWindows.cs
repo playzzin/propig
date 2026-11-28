@@ -12,7 +12,8 @@ internal static class PcWidgetWindows
     internal static readonly (DesktopSurface Surface, string Id, string Label)[] Panels = [
         (DesktopSurface.System,"system","시스템 정보"), (DesktopSurface.Clock,"clock","시계·날씨"),
         (DesktopSurface.Calendar,"calendar","달력"), (DesktopSurface.Usage,"usage","AI 사용량"),
-        (DesktopSurface.MiraBox,"mirabox","MiraBox"), (DesktopSurface.Dock,"dock","바로가기 독")
+        (DesktopSurface.MiraBox,"mirabox","MiraBox"), (DesktopSurface.Dock,"dock","바로가기 독"),
+        (DesktopSurface.Market,"market","국내 증시")
     ];
     internal static string? PanelId(DesktopSurface surface) => Panels.FirstOrDefault(p => p.Surface == surface).Id;
     internal static string? FromCommandLine(string[] args)

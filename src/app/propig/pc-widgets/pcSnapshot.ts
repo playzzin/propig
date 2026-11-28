@@ -2,11 +2,12 @@ export const pcPanels = [
   { id: 'system', label: '시스템 정보' }, { id: 'clock', label: '시계·날씨' },
   { id: 'calendar', label: '달력' }, { id: 'usage', label: 'AI 사용량' },
   { id: 'mirabox', label: 'MiraBox' }, { id: 'dock', label: '바로가기 독' },
+  { id: 'market', label: '국내 증시' },
 ] as const;
 export type PcPanel = typeof pcPanels[number]['id'];
 export const isPcPanel = (value: unknown): value is PcPanel => pcPanels.some(panel => panel.id === value);
 export type PcSystem = { updatedAt: number; cpu: number | null; ram: number | null; swap: number | null; disk: number | null; cpuName: string | null; gpuName: string | null };
-export type PcSensors = { updatedAt: number; cpuTemp: number | null; gpuTemp: number | null; gpu: number | null };
+export type PcSensors = { updatedAt: number; cpuTemp: number | null; gpuTemp: number | null; gpu: number | null; cpuTempSource?: 'firmware' | 'core-temp' };
 type ProviderId = 'codex' | 'claude' | 'antigravity';
 export type PcUsage = {
   updatedAt: number;
@@ -53,9 +54,12 @@ export function readPcSnapshot(input: unknown): PcSnapshot | null {
   const profiles = count(m.profiles, 4096), pages = count(m.pages, 4096), keys = count(m.keys, 65536);
   if (s.version !== 1 || !sampledAt || !systemAt) return null;
   const standalone = s.source === 'windows';
+  const cpuTemp = num(sensors.cpuTemp, -50, 180);
+  const source = sensors.cpuTempSource;
   return { version: 1, source: standalone ? 'windows' : 'legacy', sampledAt, system: { updatedAt: systemAt, cpu: pct(sys.cpu), ram: pct(sys.ram),
     disk: pct(sys.disk), swap: pct(sys.swap), cpuName: model(sys.cpuName), gpuName: model(sys.gpuName) },
-    sensors: standalone && sensorAt ? { updatedAt: sensorAt, cpuTemp: num(sensors.cpuTemp, -50, 180), gpuTemp: num(sensors.gpuTemp, -50, 180), gpu: pct(sensors.gpu) } : null,
+    sensors: standalone && sensorAt ? { updatedAt: sensorAt, cpuTemp, gpuTemp: num(sensors.gpuTemp, -50, 180), gpu: pct(sensors.gpu),
+      ...(cpuTemp !== null && (source === 'firmware' || source === 'core-temp') ? { cpuTempSource: source } : {}) } : null,
     mirabox: standalone && miraAt && profiles !== null && pages !== null && keys !== null ? { updatedAt: miraAt, online: typeof m.online === 'boolean' ? m.online : null, profiles, pages, keys,
       layoutId: count(m.layoutId, Number.MAX_SAFE_INTEGER) || null,
       slots: rows(m.slots, 32).flatMap(r => typeof r.index === 'number' && Number.isInteger(r.index) && r.index >= 0 && r.index < 32

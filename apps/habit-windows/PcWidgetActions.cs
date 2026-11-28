@@ -13,7 +13,8 @@ internal static class PcWidgetActions
         ["chrome"]="Chrome", ["codex"]="Codex", ["claude"]="Claude", ["antigravity"]="Antigravity",
         ["kakaotalk"]="카카오톡", ["explorer"]="파일 탐색기", ["workspace"]="작업 폴더", ["downloads"]="다운로드 폴더",
         ["drive"]="Google Drive", ["ai-panel"]="AI 사용량 패널", ["task-manager"]="작업 관리자", ["windows-settings"]="Windows 설정",
-        ["taskbar"]="작업 표시줄 자동 숨김 전환", ["taskbar-all"]="작업 표시줄 항상 표시", ["dock-controls"]="바로가기 독", ["mira-controls"]="Stream Dock 제어판"
+        ["taskbar"]="작업 표시줄 자동 숨김 전환", ["taskbar-all"]="작업 표시줄 항상 표시", ["dock-controls"]="바로가기 독", ["mira-controls"]="Stream Dock 제어판",
+        ["core-temp-info"]="Core Temp 공식 사이트"
     };
     private static string Folder(Environment.SpecialFolder folder) => Environment.GetFolderPath(folder);
 
@@ -27,6 +28,7 @@ internal static class PcWidgetActions
                 case "dock-controls": openPanel("dock"); break;
                 case "ai-panel": openPanel("usage"); break;
                 case "mira-controls": return PcMiraBoxDevice.OpenControls();
+                case "core-temp-info": Open("https://www.alcpu.com/CoreTemp/"); break;
                 case "chrome": Run(Installed("chrome.exe", @"Google\Chrome\Application\chrome.exe")); break;
                 case "claude": Run(Installed("Claude.exe", @"AnthropicClaude\Claude.exe", @"Programs\Claude\Claude.exe", @"Claude\Claude.exe")); break;
                 case "antigravity": Run(Installed("Antigravity.exe", @"Programs\Antigravity\Antigravity.exe", @"Programs\Antigravity IDE\Antigravity IDE.exe")); break;
