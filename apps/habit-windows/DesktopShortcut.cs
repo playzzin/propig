@@ -50,8 +50,7 @@ internal static class DesktopShortcut
 
                 foreach (var previous in previousNames.Where(File.Exists))
                 {
-                    try { CheckExisting(file, link, previous, target); }
-                    catch (Exception error) when (error is IOException or COMException) { continue; }
+                    if (!TargetsApplication(previous, target)) continue;
                     File.Move(previous, destination);
                     return true;
                 }
@@ -84,6 +83,18 @@ internal static class DesktopShortcut
         {
             Marshal.FreeCoTaskMem(target);
         }
+    }
+
+    private static bool TargetsApplication(string path, nint expected)
+    {
+        object probe = new ShellLink();
+        try
+        {
+            CheckExisting((IPersistFile)probe, (IShellLink)probe, path, expected);
+            return true;
+        }
+        catch (Exception error) when (error is IOException or COMException) { return false; }
+        finally { Marshal.FinalReleaseComObject(probe); }
     }
 
     private static void CheckExisting(IPersistFile file, IShellLink link, string name, nint expected)
