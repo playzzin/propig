@@ -106,6 +106,13 @@ try {
   for (const name of inputs) {
     if (present(join(root, name))) copyTree(join(root, name), join(workspace, name));
   }
+  // Inline the public quote parser in its web entry point. The Functions tree stays outside the export workspace.
+  const marketEntry = join(workspace, 'src/app/propig/market/marketData.ts');
+  if (present(marketEntry)) {
+    const parser = join(root, 'functions/src/shared/koreanMarket.ts');
+    if (realpathSync(parser) !== parser || !lstatSync(parser).isFile()) throw new Error('Expected a regular shared market parser.');
+    copyFileSync(parser, marketEntry);
+  }
   for (const name of envInputs) {
     const source = join(root, name);
     if (present(source)) {
