@@ -608,13 +608,14 @@ async function main() {
     await checkForecast();
     await checkDashboardBrands();
     await checkMarketReconnect();
+    console.log('PASS dashboard host names, saved market connections and profile isolation.');
     await checkAccountAndBridge();
     await checkPanels(sample);
   } finally {
     Date.now = originalNow;
     globalThis.clearInterval = originalClearInterval;
   }
-  console.log('PASS PC widgets: platform branding, market reconnect and profile isolation, market registration and launch, temperature sources, KST rollover, account changes, device-scoped key links and native session isolation.');
+  console.log('PASS PC widgets: temperature sources, market registration and launch, KST rollover, account changes, device-scoped key links and native session isolation.');
 }
 
 async function checkForecast() {
