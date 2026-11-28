@@ -1,7 +1,7 @@
 param(
     [string]$PackageName = 'ProPig.Habits.Development',
     [string]$Publisher = 'CN=ProPig Development',
-    [string]$Version = '1.4.0.0',
+    [string]$Version = '1.4.1.0',
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'out')
 )
 $ErrorActionPreference = 'Stop'
@@ -20,7 +20,7 @@ $manifest = [xml]@'
          xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap uap3 rescap">
-  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.4.0.0" ProcessorArchitecture="x64"/>
+  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.4.1.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>그뚠뎃</DisplayName>
     <PublisherDisplayName>ProPig</PublisherDisplayName>
@@ -53,8 +53,6 @@ $identity.SetAttribute('Name', $PackageName)
 $identity.SetAttribute('Publisher', $Publisher)
 $identity.SetAttribute('Version', $Version)
 if ($PackageName -eq 'heddun.ProPig') {
-    # Partner Center validates the package display name against this product's reservations.
-    $manifest.Package.Properties.DisplayName = '그뚠앱'
     $manifest.Package.Properties.PublisherDisplayName = 'heddun'
 }
 $manifest.Save((Join-Path $staging 'AppxManifest.xml'))
