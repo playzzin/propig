@@ -281,10 +281,12 @@ async function checkPanels(sample) {
 
 function marketFixture(auth, host) {
   const saved = new Map();
+  const linked = new Set();
   const changes = new EventTarget();
   const requests = [];
   const storageCalls = [];
-  const data = load('../market/marketData.ts');
+  const data = load('../../../../functions/src/shared/koreanMarket.ts');
+  const bars = [{ date: '2024-02-29', close: 1234.5, open: 1200, high: 1300, low: 1190, change: 1.2 }];
   const connection = {
     ...load('../market/marketConnection.ts', { './marketData': data }),
     async readMarketConnection(scope) { storageCalls.push('read'); return saved.get(scope) ?? null; },
@@ -302,21 +304,37 @@ function marketFixture(auth, host) {
   const Market = load('../market/MarketDashboard.tsx', {
     '@/lib/desktopWorkspaceRoute': host,
     '@/contexts/AuthContext': { useAuth: () => auth },
+    '@/app/propig/_lib/dashboardPreferences': { useMarketView: () => ({ instrument: data.indices[0], months: 3, mode: 'line', ready: true }) },
+    './accountMarketClient': {
+      watchAccountMarket(uid, handler) {
+        const notify = () => handler(linked.has(uid));
+        changes.addEventListener('account:' + uid, notify);
+        notify();
+        return () => changes.removeEventListener('account:' + uid, notify);
+      },
+      async connectAccountMarket(uid) { linked.add(uid); changes.dispatchEvent(new Event('account:' + uid)); },
+      async disconnectAccountMarket(uid) { linked.delete(uid); changes.dispatchEvent(new Event('account:' + uid)); },
+      async loadAccountPrices(uid, instrument) {
+        assert(linked.has(uid));
+        requests.push({ uid, code: instrument.code });
+        return bars;
+      },
+    },
     './MarketChart': load('../market/MarketChart.tsx'),
     './marketData': data, './marketConnection': connection,
     './marketClient': {
       async loadPrices(key, instrument) {
         requests.push({ key, code: instrument.code });
-        return [{ date: '2024-02-29', close: 1234.5, open: 1200, high: 1300, low: 1190, change: 1.2 }];
+        return bars;
       },
     },
   }).default;
-  return { Market, connection, requests, storageCalls };
+  return { Market, connection, requests, storageCalls, linked };
 }
 
 async function checkMarketReconnect() {
   const auth = { currentUser: null, loading: true };
-  const { Market, connection, requests, storageCalls } = marketFixture(auth, { isWindowsDashboard: false });
+  const { Market, connection, requests, storageCalls, linked } = marketFixture(auth, { isWindowsDashboard: false });
   const accountKey = 'fixture-first-account', secondKey = 'fixture-second-account', guestKey = 'fixture-guest-market';
   let view, compact = false;
   const render = () => element(Market, { compact });
@@ -364,6 +382,7 @@ async function checkMarketReconnect() {
     expectPrompt();
     assert.equal(inputs('checkbox')[0]?.props.checked, true);
     await connect(accountKey, true);
+    assert.equal(linked.size, 0, 'remembering on a device cannot share its credential');
     expectQuotes(accountKey, 0);
     await expectReconnection(accountKey);
 
@@ -447,7 +466,8 @@ async function checkMarketReconnect() {
     const beforeLegacy = storageCalls.length;
     await reopen();
     expectPrompt();
-    assert.equal(inputs('checkbox').length, 0);
+    assert.equal(inputs('checkbox').length, 1, 'signed-in legacy profile only offers explicit account sharing');
+    assert.equal(inputs('checkbox')[0].props.checked, false);
     assert.match(renderedText(view.root), /그뚠뎃을 업데이트/);
     start = requests.length;
     await connect('fixture-legacy-window');
@@ -458,11 +478,29 @@ async function checkMarketReconnect() {
 
     window.__geuttunMarketProfile = 'persistent';
     await reopen();
-    expectPrompt();
+    assert.match(renderedText(view.root), /이 기기에서 자동 연결/, 'the native account profile preserves its former local slot');
+    await act(async () => view.root.findAllByType('button').find(b => renderedText(b) === '인증키 변경').props.onClick());
     start = requests.length;
     await connect('fixture-windows-profile', true);
     expectQuotes('fixture-windows-profile', start);
     await expectReconnection('fixture-windows-profile');
+
+    const button = label => view.root.findAllByType('button').find(b => renderedText(b) === label);
+    await act(async () => button('계정에 연결').props.onClick());
+    assert.equal(inputs('checkbox')[0].props.checked, false);
+    assert.equal(button('계정에 연결').props.disabled, true);
+    assert.equal(linked.size, 0);
+    await act(async () => inputs('checkbox')[0].props.onChange({target:{checked:true}}));
+    start = requests.length;
+    await act(async () => view.root.findByType('form').props.onSubmit({preventDefault(){}}));
+    assert(linked.has('blocked'));
+    assert(requests.slice(start).every(req => req.uid === 'blocked' && !('key' in req)));
+    assert.match(renderedText(view.root), /이 계정으로 자동 연결/);
+    await reopen();
+    assert.match(renderedText(view.root), /이 계정으로 자동 연결/);
+    await act(async () => button('계정 연결 해제').props.onClick());
+    assert.equal(linked.size, 0);
+    assert.match(renderedText(view.root), /이 기기에서 자동 연결/);
   } finally {
     await act(async () => view.unmount());
     delete window.chrome;
@@ -543,15 +581,16 @@ async function checkAccountAndBridge() {
     await act(async () => choosePanel('국내 증시').props.onClick());
     assert.match(renderedText(view.root), /시세 데이터 연결/);
     assert.doesNotMatch(renderedText(view.root), /로그인하면|PC 목록을/);
-    assert(view.root.findAllByType('a').some(link => link.props.href === 'propig-widgets:market'));
+    assert(!view.root.findAllByType('a').some(link => link.props.href === 'propig-widgets:market'));
     await act(async () => view.root.findByProps({type: 'password'}).props.onChange({target: {value: 'public-data-test-fixture'}}));
     await act(async () => view.root.findByType('form').props.onSubmit({preventDefault() {}}));
     assert.match(renderedText(view.root), /코스피/);
     assert.match(renderedText(view.root), /1,234.5/);
     assert(view.root.findAllByType('polyline').length > 0);
     host.isWindowsDashboard = true;
-    await act(async () => choosePanel('국내 증시').props.onClick());
-    assert.equal(window.location.href, 'propig-widgets:market');
+    await act(async () => view.update(element(Board)));
+    assert.notEqual(window.location.href, 'propig-widgets:market');
+    assert(view.root.findAllByType('a').some(link => link.props.href === 'propig-widgets:market' && renderedText(link) === '바탕화면에 띄우기'));
     host.isWindowsDashboard = false;
   } finally { await act(async () => view.unmount()); }
 

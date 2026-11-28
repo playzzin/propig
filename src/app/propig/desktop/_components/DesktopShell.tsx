@@ -19,8 +19,9 @@ const HabitTrackerApp = dynamic(() => import('@/components/habits/HabitTrackerAp
 const TodoListApp = dynamic(() => import('@/components/todo-list/TodoListApp'), { loading: LoadingScreen });
 const SmartMemoWorkspace = dynamic(() => import('@/components/propig/memos/SmartMemoWorkspace'), { loading: LoadingScreen });
 const StickyNotesBoard = dynamic(() => import('@/components/StickyNotesBoard'), { loading: LoadingScreen });
+const MarketDashboard = dynamic(() => import('@/app/propig/market/MarketDashboard'), { loading: LoadingScreen });
 
-type DesktopApp = 'habit' | 'memos' | 'todo';
+type DesktopApp = 'habit' | 'memos' | 'todo' | 'market';
 type WebApp = 'bucket' | 'calculator' | 'pc-widgets';
 type DesktopWidget = 'habit' | 'memo' | 'todo' | 'market';
 type View = 'home' | 'store' | DesktopApp;
@@ -44,7 +45,7 @@ function isWebApp(appId: PropigStoreAppId): appId is WebApp {
 
 function desktopWidgetFor(app: PropigStoreApp | undefined): DesktopWidget | undefined {
   const widget = app?.widgetId;
-  if (widget === 'memo' || widget === 'todo' || widget === 'habit') return widget;
+  if (widget === 'memo' || widget === 'todo' || widget === 'habit' || widget === 'market') return widget;
   return undefined;
 }
 
@@ -69,9 +70,8 @@ export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: Deskt
     : undefined;
 
   function openApp(appId: PropigStoreAppId) {
-    if (appId === 'market') onOpenWidget('market');
     if (isWebApp(appId)) onOpenWebApp(appId);
-    if (appId === 'habit' || appId === 'memos' || appId === 'todo') setView(appId);
+    if (appId === 'habit' || appId === 'memos' || appId === 'todo' || appId === 'market') setView(appId);
   }
 
   return (
@@ -184,6 +184,7 @@ export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: Deskt
             {memoView === 'list' ? <SmartMemoWorkspace /> : <StickyNotesBoard />}
           </main>
         ) : null}
+        {view === 'market' ? <main className={styles.home} aria-label="국내 증시"><MarketDashboard /></main> : null}
         {view === 'todo' ? <TodoListApp /> : null}
         {view === 'habit' ? <HabitTrackerApp initialView={habitView} onViewChange={setHabitView} onWorkspaceWrite={onHabitWrite} /> : null}
       </div>

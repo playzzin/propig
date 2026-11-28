@@ -297,9 +297,15 @@ service cloud.firestore {
         allow create, delete: if false;
       }
 
+      // The callable writes only the connection flag and its timestamp here.
+      match /marketAccount/status {
+        allow get: if isOwner(userId);
+      }
+
       match /{collectionId}/{document=**} {
         allow read, write: if (isOwner(userId) || isAdmin()) &&
           !isRetiredUserProgramCollection(collectionId) &&
+          collectionId != 'marketAccount' &&
           collectionId != 'storyboardArtifactCleanupCandidates' && collectionId != 'memoNotifications';
       }
     }
@@ -350,11 +356,18 @@ service cloud.firestore {
       allow create: if isAdmin() || ownsIncomingUserId();
     }
 
+    // Encrypted service keys are accessed only by the callable's Admin SDK.
+    match /marketAccountCredentials/{document=**} {
+      allow read, write: if false;
+    }
+
     match /{collection}/{document=**} {
-      allow read: if isAdmin() && collection != 'onboardingInvitations' && collection != 'memoReminderJobs' && collection != 'users';
+      allow read: if isAdmin() && collection != 'onboardingInvitations' && collection != 'memoReminderJobs' &&
+        collection != 'users' && collection != 'marketAccountCredentials';
       allow write: if isAdmin() &&
         collection != 'onboardingInvitations' &&
         collection != 'memoReminderJobs' &&
+        collection != 'marketAccountCredentials' &&
         collection != 'aiBudgetPolicies' &&
         collection != 'aiDailyBudgets' &&
         collection != 'aiOperationReservations' &&

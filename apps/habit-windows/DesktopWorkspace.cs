@@ -34,6 +34,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
 {
     private const int ProtocolVersion = 1;
     private readonly Uri entry;
+    private readonly string? marketProfile;
     private readonly WebView2 web = new();
     private readonly DispatcherTimer timeout = new() { Interval = TimeSpan.FromSeconds(40) };
     private readonly CancellationTokenSource lifetime = new();
@@ -71,11 +72,13 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             DesktopSurface.Workspace => "/propig?windows=dashboard",
             DesktopSurface.Memo => "/propig/desktop/memo",
             DesktopSurface.Todo => "/propig/desktop/todo",
+            DesktopSurface.Market => "/propig/desktop/market?account=1",
             _ when PcWidgetWindows.PanelId(surface) is string panel => "/propig/desktop/pc-widgets?panel=" + panel,
             _ => throw new ArgumentOutOfRangeException(nameof(surface))
         }));
         this.firebase = firebase;
-        this.pcWidgets = PcWidgetWindows.PanelId(surface) != null ? pcWidgets : null;
+        marketProfile = surface == DesktopSurface.Market ? PublicWidgetView.MarketProfileName(uid) : null;
+        this.pcWidgets = marketProfile == null && PcWidgetWindows.PanelId(surface) != null ? pcWidgets : null;
         if (surface == DesktopSurface.Workspace)
         {
             this.recordsChanged = recordsChanged;
@@ -110,10 +113,11 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         try
         {
             var environment = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: Path.Combine(firebase.DataDirectory, "WorkspaceWebView"));
+                userDataFolder: Path.Combine(firebase.DataDirectory, marketProfile == null ? "WorkspaceWebView" : "MarketWebView"));
             if (lifetime.IsCancellationRequested) return;
             var options = environment.CreateCoreWebView2ControllerOptions();
-            options.IsInPrivateModeEnabled = true;
+            if (marketProfile == null) options.IsInPrivateModeEnabled = true;
+            else options.ProfileName = marketProfile;
             await web.EnsureCoreWebView2Async(environment, options);
             if (lifetime.IsCancellationRequested) return;
 
@@ -122,7 +126,11 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             core.Settings.AreDevToolsEnabled = false;
             ProPigWindow.ConfigureWebWidgetMenu(this, core);
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
-            core.NewWindowRequested += (_, e) => e.Handled = true;
+            core.NewWindowRequested += (_, e) =>
+            {
+                e.Handled = true;
+                if (marketProfile != null || openPcPanel != null) PublicWidgetView.OpenMarketSource(e);
+            };
             core.NavigationStarting += OnNavigationStarting;
             core.NavigationCompleted += (_, e) =>
             {
@@ -132,6 +140,14 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             core.ProcessFailed += (_, _) => Fail("그뚠뎃 화면 연결이 끊겼습니다.");
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += OnWebMessage;
+            if (marketProfile != null)
+            {
+                core.Settings.IsPasswordAutosaveEnabled = false;
+                core.Settings.IsGeneralAutofillEnabled = false;
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    "if (window === window.top) Object.defineProperty(window, '__geuttunMarketProfile', {value: 'persistent'});");
+                if (lifetime.IsCancellationRequested) return;
+            }
             web.Source = entry;
         }
         catch (WebView2RuntimeNotFoundException)

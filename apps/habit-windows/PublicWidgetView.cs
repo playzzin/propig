@@ -34,6 +34,13 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
     internal static string MarketProfileName(string? uid) => uid == null
         ? "guest" : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(uid)).AsSpan(0, 16));
 
+    internal static void OpenMarketSource(CoreWebView2NewWindowRequestedEventArgs request)
+    {
+        if (!request.IsUserInitiated || !SourcePages.Contains(request.Uri)) return;
+        try { Process.Start(new ProcessStartInfo(request.Uri) { UseShellExecute = true }); }
+        catch (Win32Exception) { }
+    }
+
     public PublicWidgetView(DesktopSurface surface, string title, string dataDirectory, Action retryLoad, string? uid)
     {
         this.dataDirectory = dataDirectory;
@@ -90,9 +97,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
             core.NewWindowRequested += (_, request) =>
             {
                 request.Handled = true;
-                if (!market || !request.IsUserInitiated || !SourcePages.Contains(request.Uri)) return;
-                try { Process.Start(new ProcessStartInfo(request.Uri) { UseShellExecute = true }); }
-                catch (Win32Exception) { }
+                if (market) OpenMarketSource(request);
             };
             core.NavigationCompleted += (_, navigation) =>
             {

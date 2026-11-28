@@ -422,7 +422,7 @@ internal sealed partial class HabitApp
         void AttachRenderer()
         {
             renderer?.Dispose();
-            if (market || guestClock)
+            if ((market && uid == null) || guestClock)
             {
                 var view = new PublicWidgetView(surface, surfaceName, firebase.DataDirectory, AttachRenderer, uid);
                 renderer = view;
