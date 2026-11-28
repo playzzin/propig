@@ -11,7 +11,11 @@ Windows 1.3.0.0부터 ProPig가 PC를 직접 측정한다. 바탕화면에서 **
 | 바로가기 독 | 웹 서비스는 브라우저에서 열고, Windows 앱과 도구는 설치된 프로그램이나 Windows 셸로 연다. **연결 설정 → 작업 폴더 선택**에서 내 작업 폴더를 지정한다. |
 | 국내 증시 | 웹 상점에서 등록하면 내 대시보드에 추가된다. PC 위젯 목록과 Windows의 **위젯 → 국내 증시**에서도 열 수 있다. |
 
-CPU 온도가 비어 있으면 측정할 Windows PC의 CPU 모델을 지원 목록에서 확인하고 Core Temp를 별도로 실행한다. Core Temp가 센서에 접근할 때 Windows가 관리자 승인을 요청할 수 있다. ProPig는 일반 사용자 권한으로 공개된 측정값을 읽는다. 시스템 정보의 **CPU 온도 센서**에서 출처를 확인할 수 있다. [지원 CPU](https://www.alcpu.com/CoreTemp/supportlist.html) · [Core Temp](https://www.alcpu.com/CoreTemp/) · [공개 센서 인터페이스](https://www.alcpu.com/CoreTemp/developers.html)
+그뚠뎃은 Windows가 CPU로 식별한 온도 영역의 고정밀 또는 일반 카운터를 먼저 확인하고, 이어서 실행 중인 Core Temp의 측정값을 읽는다. **시스템 정보 → CPU 온도 센서**에서 출처를 확인할 수 있다. [Core Temp 센서 인터페이스](https://www.alcpu.com/CoreTemp/developers.html)
+
+1.4.2.0부터 온도 확인을 마친 PC에서 값이 비어 있으면 시스템 정보 위젯에 Core Temp 연결 버튼이 나타난다. 선택하면 해당 PC에 확인 창이 열린다. 동의하면 기존 Core Temp를 실행하거나 Windows 패키지 관리자가 ALCPU 공식 설치 파일을 받아 설치 마법사를 연다. Windows 패키지 관리자가 없는 PC에서는 제작사의 다운로드 페이지가 열린다. 설치 옵션과 Windows 관리자 승인은 사용자가 선택한다. Core Temp가 측정값을 제공하면 열린 위젯이 자동으로 갱신된다. [Core Temp 다운로드 및 지원 CPU](https://www.alcpu.com/CoreTemp/) · [Windows 패키지 관리자 등록 정보](https://github.com/microsoft/winget-pkgs/tree/master/manifests/a/ALCPU/CoreTemp)
+
+웹에서는 **PC 위젯**에서 그뚠뎃의 비공개 Microsoft Store 설치 페이지 또는 설치된 Windows 위젯을 열 수 있다. 여러 기기를 공유하는 경우 온도 연결은 측정할 PC에서 진행한다. Windows 시스템 정보 위젯 상단의 **바탕화면에 추가**를 누르면 다음부터 같은 위젯을 여는 **그뚠뎃 시스템 정보** 바로가기가 생긴다.
 
 ## 내 PC를 웹에서 보기
 

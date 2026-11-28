@@ -18,7 +18,7 @@ Windows의 기존 Store 제품 ID는 `9P80XDSKT26X`, 패키지 이름은 `heddun
 
 ## 패키지와 비공개 테스트 조건
 
-Windows 앱을 설치한 뒤 처음 실행하면 현재 사용자의 바탕화면에 ‘ProPig 습관’ 바로가기가 생긴다. 바로가기는 설치된 앱의 ID로 실행하므로 MSIX 버전이 바뀌어도 사용할 수 있다. 지운 바로가기는 앱의 ‘바탕화면 바로가기 만들기’에서 다시 만들 수 있다.
+Windows 1.4.2.0부터 그뚠뎃의 앱 아이콘은 **바탕화면 바로가기 만들기**를 선택해 추가한다. 이전 버전에서 만든 앱 바로가기는 같은 제품 ID를 계속 사용한다. **위젯 → 시스템 정보 위젯 바로가기 만들기**를 선택하면 바탕화면에서 시스템 정보 위젯을 바로 열 수 있다. 시스템 정보 창에서도 **바탕화면에 추가**를 사용할 수 있다.
 
 1. GitHub Actions의 **Habit store packages**가 Windows MSIX와 Android AAB 및 디버그 APK를 만든다. CI의 기본 Windows 패키지 ID는 개발용이고, Android AAB는 서명하기 전 상태다.
 2. Microsoft Partner Center에서 실제 앱 ID와 Publisher를 확인하고 `HABIT_WINDOWS_PACKAGE_NAME`, `HABIT_WINDOWS_PUBLISHER`에 지정한다. 해당 ID로 만든 MSIX를 비공개 대상 제출에 사용한다.

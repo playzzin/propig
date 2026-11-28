@@ -85,6 +85,28 @@ internal static class DesktopShortcut
         }
     }
 
+    internal static bool EnsureSystemWidget(string desktop)
+    {
+        if (!Directory.Exists(desktop)) throw new DirectoryNotFoundException("The Windows desktop is unavailable.");
+        var destination = Path.Combine(desktop, "그뚠뎃 시스템 정보.url");
+        // The installed app registers this URI across Store updates.
+        const string shortcut = "[InternetShortcut]\r\nURL=propig-widgets:system\r\n";
+        var temporary = Path.Combine(desktop, $".propig-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temporary, shortcut, Encoding.ASCII);
+            File.Move(temporary, destination);
+            return true;
+        }
+        catch (IOException) when (File.Exists(destination))
+        {
+            var existing = new FileInfo(destination);
+            if (existing.Length == shortcut.Length && File.ReadAllText(destination, Encoding.ASCII) == shortcut) return false;
+            throw new IOException("Another desktop shortcut already uses this name.");
+        }
+        finally { File.Delete(temporary); }
+    }
+
     private static bool TargetsApplication(string path, nint expected)
     {
         object probe = new ShellLink();

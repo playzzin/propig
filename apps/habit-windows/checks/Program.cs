@@ -85,7 +85,7 @@ if (args.Contains("--temperature-live"))
     return;
 }
 var fixture = Directory.CreateTempSubdirectory("propig-widget-check-");
-try { CheckLayout(fixture.FullName); await CheckProviders(fixture.FullName); }
+try { CheckLayout(fixture.FullName); TemperatureChecks.CheckDesktopShortcut(fixture.FullName); await CheckProviders(fixture.FullName); }
 finally { fixture.Delete(recursive: true); }
 
 using var sampler = new PcWidgetSampler();

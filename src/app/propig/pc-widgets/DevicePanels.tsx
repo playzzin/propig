@@ -76,8 +76,30 @@ function Meter({ label, value, detail }: { label: string; value: number | null |
   );
 }
 
-export function SystemPanel({ system, sensors, onSensorHelp }: { system: PcSystem | null; sensors: PcSensors | null; onSensorHelp?: () => void }) {
-  const now = useSyncExternalStore(subscribeClock, getTime, getServerTime);
+const sensorFreshness = 30_000;
+const sharedFreshness = 3 * minute;
+const getReadingTime = () => Math.ceil(Date.now() / 1000) * 1000;
+
+export function hasRecentSensorReading(sensors: PcSensors | null | undefined, now = Date.now(), maxAge = sensorFreshness) {
+  if (!sensors) return false;
+  const age = now - sensors.updatedAt;
+  return age >= 0 && age <= maxAge;
+}
+
+type SystemPanelProps = {
+  system: PcSystem | null;
+  sensors: PcSensors | null;
+  onSensorSetup?: () => void;
+  onSensorHelp?: () => void;
+  waiting?: boolean;
+  remotePc?: boolean;
+};
+
+export function SystemPanel({ system, sensors, onSensorSetup, onSensorHelp, waiting, remotePc }: SystemPanelProps) {
+  const now = useSyncExternalStore(subscribeClock, getReadingTime, getServerTime);
+  const maxSensorAge = remotePc ? sharedFreshness : sensorFreshness;
+  const fresh = hasRecentSensorReading(sensors, now, maxSensorAge);
+  const emptyTemperature = !sensors ? '측정 대기' : fresh ? '값 없음' : '최근 측정 대기';
   const chips = [
     { title: 'CPU', name: system?.cpuName, load: system?.cpu, temp: sensors?.cpuTemp },
     { title: 'GPU', name: system?.gpuName, load: sensors?.gpu, temp: sensors?.gpuTemp },
@@ -89,14 +111,29 @@ export function SystemPanel({ system, sensors, onSensorHelp }: { system: PcSyste
         {chips.map(({ title, name, load, temp }) => (
           <div className={styles.chip} key={title}>
             <div className={styles.chipHeading}>
-              <h3>{title}</h3>
-              <span>{temp == null ? (sensors ? '온도 미제공' : '온도 —') : <><span className={styles.srOnly}>{title} 온도 </span>{numberFormat.format(temp)} °C</>}</span>
+              <h3>{title} 온도</h3>
+              {temp == null ? <span>{emptyTemperature}</span> : (
+                <strong className={styles.temperature} data-stale={!fresh || undefined}>{!fresh && <small>이전 측정 </small>}{numberFormat.format(temp)} °C</strong>
+              )}
             </div>
             {name && <p className={styles.model}>{name}</p>}
             <Meter label={`${title} 사용률`} value={load} />
           </div>
         ))}
       </div>
+      {fresh && sensors?.cpuTemp === null && (onSensorSetup || onSensorHelp) && (
+        <div className={styles.sensorHelp}>
+          <p>{onSensorSetup
+            ? '이 PC에서 CPU 온도를 읽지 못했습니다. 원하면 Core Temp를 연결할 수 있습니다. 이 PC에서 승인하면 설치된 Core Temp를 실행하거나 설치를 시작합니다.'
+            : '이 PC에서 CPU 온도를 읽지 못했습니다. Core Temp를 사용하려면 공식 사이트에서 설치 방법을 확인하세요.'}</p>
+          <div className={styles.sensorActions}>
+            {onSensorSetup && <button className={styles.primaryButton} type="button" disabled={waiting} onClick={onSensorSetup}>이 PC에서 Core Temp 설정</button>}
+            {onSensorHelp && <button className={styles.textButton} type="button" disabled={waiting} onClick={onSensorHelp}>Core Temp 공식 사이트</button>}
+          </div>
+        </div>
+      )}
+      {remotePc && sensors?.cpuTemp == null && <p className={styles.notice}>CPU 온도를 확인하려면 선택한 PC에서 그뚠뎃의 시스템 정보 위젯을 여세요.</p>}
+      {!onSensorSetup && onSensorHelp && !sensors && <p className={styles.notice}>센서 측정값을 기다리고 있습니다. 계속 비어 있으면 Microsoft Store에서 그뚠뎃 업데이트를 확인하세요.</p>}
       <div className={styles.resourceMeters}>
         <Meter label="메모리" value={system?.ram} />
         <Meter label="커밋 메모리" value={system?.swap} />
@@ -104,18 +141,9 @@ export function SystemPanel({ system, sensors, onSensorHelp }: { system: PcSyste
       </div>
       <dl className={styles.sources}>
         {sensors?.cpuTempSource && <div><dt>CPU 온도 센서</dt><dd>{sensors.cpuTempSource === 'firmware' ? 'Windows CPU 온도 영역' : 'Core Temp · 최고 측정 온도'}</dd></div>}
-        <div><dt>Windows 리소스</dt><dd><Stamp value={system?.updatedAt} now={now} staleAfter={2 * minute} /></dd></div>
-        <div><dt>하드웨어 센서</dt><dd><Stamp value={sensors?.updatedAt} now={now} staleAfter={30_000} /></dd></div>
+        <div><dt>Windows 리소스</dt><dd><Stamp value={system?.updatedAt} now={now} staleAfter={remotePc ? sharedFreshness : 2 * minute} /></dd></div>
+        <div><dt>하드웨어 센서</dt><dd><Stamp value={sensors?.updatedAt} now={now} staleAfter={maxSensorAge} /></dd></div>
       </dl>
-      {system?.cpuName && sensors?.cpuTemp == null && (
-        <details className={styles.notice}>
-          <summary>CPU 온도 연결 방법</summary>
-          <p>Windows가 CPU 온도를 제공하면 자동으로 표시됩니다. 값이 비어 있으면 측정할 PC에서 Core Temp를 실행하세요. 여러 코어 온도가 있으면 가장 높은 값을 표시합니다.</p>
-          {onSensorHelp
-            ? <button className={styles.textButton} type="button" onClick={onSensorHelp}>Core Temp 공식 사이트</button>
-            : <a href="https://www.alcpu.com/CoreTemp/" target="_blank" rel="noreferrer">Core Temp 공식 사이트</a>}
-        </details>
-      )}
     </section>
   );
 }

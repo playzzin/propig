@@ -10,7 +10,7 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
     private PcSensors? latest;
     private long nextRead;
     private bool pending, disposed;
-    private nint query, gpuCounter, thermalCounter;
+    private nint query, gpuCounter, preciseThermalCounter, thermalCounter;
 
     internal PcSensors? Sample()
     {
@@ -44,6 +44,7 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
             if (query == 0 && PdhOpenQueryW(null, 0, out query) == 0)
             {
                 PdhAddEnglishCounterW(query, @"\GPU Engine(*)\Utilization Percentage", 0, out gpuCounter);
+                PdhAddEnglishCounterW(query, @"\Thermal Zone Information(*)\High Precision Temperature", 0, out preciseThermalCounter);
                 PdhAddEnglishCounterW(query, @"\Thermal Zone Information(*)\Temperature", 0, out thermalCounter);
             }
             if (query != 0 && PdhCollectQueryData(query) == 0)
@@ -61,13 +62,8 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
                     }
                     if (engines.Count > 0) gpu = Math.Round(Math.Min(100, engines.Values.Max()), 1);
                 }
-                foreach (var (zone, kelvin) in Values(thermalCounter))
-                {
-                    // Generic ACPI zones may refer to the case or motherboard.
-                    if (!Regex.IsMatch(zone, @"(?:^|[^A-Z0-9])CPU(?:[0-9]+|Z|T|P|_PACKAGE)?(?:$|[^A-Z0-9])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) continue;
-                    var celsius = Math.Round(kelvin - 273.15, 1);
-                    if (celsius is > -50 and < 150) cpuTemp = Math.Max(cpuTemp ?? celsius, celsius);
-                }
+                cpuTemp = CpuZoneTemperature(Values(preciseThermalCounter, unscaled: true), tenthsOfKelvin: true)
+                    ?? CpuZoneTemperature(Values(thermalCounter, unscaled: true), tenthsOfKelvin: false);
             }
         }
         catch (Exception error) when (error is EntryPointNotFoundException or DllNotFoundException or ExternalException) { }
@@ -81,14 +77,28 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
             }
             lock (gate)
             {
-                latest = gpuTemp != null || gpu != null || cpuTemp != null
-                    ? new(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cpuTemp, gpuTemp, gpu, temperatureSource)
-                    : null;
+                // A completed probe with no readings is distinct from the initial pending sample.
+                latest = new(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cpuTemp, gpuTemp, gpu, temperatureSource);
                 nextRead = Environment.TickCount64 + 4000;
                 pending = false;
                 if (disposed) CloseQuery();
             }
         }
+    }
+
+    internal static double? CpuZoneTemperature(IEnumerable<(string Name, double Value)> readings, bool tenthsOfKelvin)
+    {
+        double? highest = null;
+        foreach (var (zone, value) in readings)
+        {
+            // An unnamed ACPI zone or a GPU, socket board or battery sensor is not a CPU reading.
+            if (!Regex.IsMatch(zone, @"(?:^|[^A-Z0-9])(?:TCPU|CPU(?:[0-9]+|Z|T|P|[ _-]PACKAGE|[ _-]CORE[ _-]?[0-9]+)?)(?:[_#][0-9]+)?$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) continue;
+            var kelvin = tenthsOfKelvin ? value / 10 : value;
+            var celsius = Math.Round(kelvin - 273.15, 1);
+            if (celsius is > -50 and < 150) highest = Math.Max(highest ?? celsius, celsius);
+        }
+        return highest;
     }
 
     private static double? Temperature(uint handle)
@@ -106,17 +116,18 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
         finally { Marshal.FreeHGlobal(buffer); }
     }
 
-    private static IEnumerable<(string Name, double Value)> Values(nint counter)
+    private static IEnumerable<(string Name, double Value)> Values(nint counter, bool unscaled = false)
     {
         if (counter == 0) yield break;
-        const uint asDouble = 0x200, moreData = 0x800007D2;
+        const uint asDouble = 0x200, noScale = 0x1000, moreData = 0x800007D2;
+        var format = unscaled ? asDouble | noScale : asDouble;
         uint size = 0;
-        if (PdhGetFormattedCounterArrayW(counter, asDouble, ref size, out _, 0) != moreData || size is 0 or > 4_194_304) yield break;
+        if (PdhGetFormattedCounterArrayW(counter, format, ref size, out _, 0) != moreData || size is 0 or > 4_194_304) yield break;
         var buffer = Marshal.AllocHGlobal((int)size);
         try
         {
             var stride = Marshal.SizeOf<CounterItem>();
-            if (PdhGetFormattedCounterArrayW(counter, asDouble, ref size, out var count, buffer) != 0 || count > size / stride) yield break;
+            if (PdhGetFormattedCounterArrayW(counter, format, ref size, out var count, buffer) != 0 || count > size / stride) yield break;
             for (var i = 0; i < count; i++)
             {
                 var item = Marshal.PtrToStructure<CounterItem>(buffer + i * stride);
