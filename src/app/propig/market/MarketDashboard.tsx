@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { isWindowsDashboard } from '@/lib/desktopWorkspaceRoute';
 import MarketChart, { priceText, type ChartMode } from './MarketChart';
 import { findStocks, loadPrices } from './marketClient';
 import {
@@ -178,10 +179,24 @@ function MarketSession({ serviceKey, disconnect }: { serviceKey: string; disconn
   );
 }
 
+const subscribeToHost = () => () => {};
+const windowsHost = () => isWindowsDashboard;
+const serverHost = () => false;
+
 export default function MarketDashboard({ compact = false }: { compact?: boolean }) {
+  const nativeHost = useSyncExternalStore(subscribeToHost, windowsHost, serverHost);
   const [serviceKey, setServiceKey] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [invalid, setInvalid] = useState(false);
+
+  if (nativeHost) return (
+    <div className={styles.dashboard}>
+      <div className={styles.connectCard}>
+        <a className={styles.primary} href="propig-widgets:market">국내 증시 위젯 열기</a>
+        <p>앱 상단의 위젯 메뉴에서도 국내 증시를 열 수 있습니다.</p>
+      </div>
+    </div>
+  );
 
   function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

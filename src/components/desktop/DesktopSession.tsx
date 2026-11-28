@@ -15,7 +15,7 @@ type WorkspaceMessageType =
   | 'workspace-records-changed'
   | 'workspace-open';
 
-export type DesktopTarget = 'memo' | 'todo' | 'habit' | 'bucket' | 'calculator' | 'pc-widgets';
+export type DesktopTarget = 'memo' | 'todo' | 'habit' | 'bucket' | 'calculator' | 'pc-widgets' | 'market';
 
 type WebViewBridge = {
   postMessage: (message: { type: WorkspaceMessageType; version: 1; requestId: string; target?: DesktopTarget }) => void;

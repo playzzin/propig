@@ -145,6 +145,10 @@
 }
 
 .primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   border-color: var(--market-line);
   color: var(--market-line);
 }
