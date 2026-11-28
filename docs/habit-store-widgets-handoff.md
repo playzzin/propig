@@ -34,3 +34,13 @@ Windows 앱을 설치한 뒤 처음 실행하면 현재 사용자의 바탕화�
 ## Windows 본창 대시보드
 
 새 Windows 본창은 기존 계정 세션을 복원한 뒤 /propig의 웹 대시보드를 연다. 웹 화면과 Windows 패키지를 함께 검증하고 웹을 먼저 게시한다. 기존 Store 패키지는 계속 /propig/desktop을 사용한다. 위젯 열기, 설정, 바탕화면 바로가기 명령은 본창의 위젯 메뉴에서 제공한다.
+
+## Windows 바탕화면 위젯 관리
+
+본창에서 **위젯 → 위젯 관리**를 선택하거나 Windows 알림 영역의 그뚠뎃 아이콘을 클릭해 관리 창을 연다. 목록을 더블클릭하거나 선택 뒤 **위젯 불러오기 / 위젯 닫기**를 누른다. 트레이 아이콘을 우클릭하면 본창과 같은 체크 표시로 위젯을 열고 닫을 수 있다. 위젯 자체를 우클릭하면 관리 창을 열거나 해당 위젯을 닫을 수 있다. 본창의 닫기 버튼은 트레이로 숨기고, **그뚠뎃 종료**는 열린 목록을 저장한 채 앱을 끝낸다.
+
+기본 위젯은 바탕화면 위에 자리를 잡는다. Windows의 바탕화면 표시 후에도 입력할 수 있고 **항상 위**를 켜면 다른 앱 위에 표시된다. 열림 상태는 이 PC의 ProPig 계정별로 저장하며 비로그인 목록은 별도로 보관한다. 위치와 크기도 이 PC에 저장한다. **위젯 → Windows 로그인 시 위젯 자동 시작**은 설치 시 꺼져 있다. 켜면 로그인 시 본창을 띄우지 않고 열어 둔 위젯을 복원한다. 모두 닫아 둔 경우 트레이에서 시작한다.
+
+REA로 Windows에 설치된 Rainmeter 4.5.28.3936의 한국어 리소스에서 불러오기(2086), 닫기(2087), 스킨 닫기(2059), 바탕 화면 고정(2031)을 식별했다. 같은 릴리스의 관리 창, 위젯 메뉴, 활성 상태 저장 경로를 대조해 동작을 구현했다. [관리 창](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/DialogManage.cpp#L1334) · [위젯 메뉴](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/ContextMenu.cpp#L335) · [열림 상태 저장](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/Rainmeter.cpp#L1185)
+
+Windows CI는 임시 프로필에서 관리 창 열기·닫기, 다른 프로세스에서 위치와 크기 복원, 빈 목록으로 자동 시작을 검증한다. 대화형 Windows 세션에서는 `dotnet run --project apps/habit-windows/checks/WidgetChecks.csproj -c Release -- --desktop-layer-live`로 Explorer 바탕화면 표시, 빈 바탕화면 클릭, 항상 위와 명시적 최소화를 확인할 수 있다. 검증이 끝나면 바탕화면 표시 상태와 포커스를 복구한다.

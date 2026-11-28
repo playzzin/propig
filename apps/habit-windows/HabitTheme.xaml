@@ -9,6 +9,30 @@
     <SolidColorBrush x:Key="HabitLine" Color="#375659" />
     <SolidColorBrush x:Key="HabitWidgetSurface" Color="#112326" />
 
+    <Style x:Key="WidgetManagerRow" TargetType="ListBoxItem">
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Row" Padding="{TemplateBinding Padding}" CornerRadius="7"
+                            Background="Transparent" BorderBrush="Transparent" BorderThickness="1">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="#1B3436" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="#24403F" />
+                            <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource HabitMint}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="ProPigToolbar" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource HabitWidgetSurface}" />
         <Setter Property="BorderBrush" Value="#2D494B" />
@@ -134,7 +158,7 @@
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <Border Width="25" Height="25" CornerRadius="6" Margin="0,0,8,0"
                                                 Background="#23393A" BorderBrush="#365052" BorderThickness="1">
-                                            <Image Source="pack://application:,,,/Assets/ProPig.png" Width="18" Height="18"
+                                            <Image Source="Assets/ProPig.png" Width="18" Height="18"
                                                    RenderOptions.BitmapScalingMode="HighQuality" />
                                         </Border>
                                         <TextBlock Text="그뚠뎃" FontFamily="Segoe UI" FontSize="14" FontWeight="SemiBold"

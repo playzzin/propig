@@ -17,6 +17,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
     private readonly string title;
     private readonly bool market;
     private readonly string? marketProfile;
+    private readonly string dataDirectory;
     private static readonly HashSet<string> SourcePages = new(StringComparer.Ordinal)
     {
         "https://www.data.go.kr/data/15094807/openapi.do",
@@ -29,12 +30,13 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
     private readonly StackPanel notice = new() { Margin = new Thickness(14) };
     private bool disposed;
 
-    // WebView2 adds this name to the paths of every IndexedDB file under the Store app's data folder.
+    // WebView2 appends this name to the IndexedDB paths in the Store app's data folder.
     internal static string MarketProfileName(string? uid) => uid == null
         ? "guest" : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(uid)).AsSpan(0, 16));
 
-    public PublicWidgetView(DesktopSurface surface, string title, Action retryLoad, string? uid)
+    public PublicWidgetView(DesktopSurface surface, string title, string dataDirectory, Action retryLoad, string? uid)
     {
+        this.dataDirectory = dataDirectory;
         this.title = title;
         market = surface == DesktopSurface.Market;
         marketProfile = market ? MarketProfileName(uid) : null;
@@ -64,7 +66,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
         try
         {
             var environment = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: Path.Combine(FirebaseHabits.AppDirectory, market ? "MarketWebView" : "PublicWidgetsWebView"));
+                userDataFolder: Path.Combine(dataDirectory, market ? "MarketWebView" : "PublicWidgetsWebView"));
             if (disposed) return;
             var options = environment.CreateCoreWebView2ControllerOptions();
             if (marketProfile != null) options.ProfileName = marketProfile;
@@ -75,7 +77,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
             core.Settings.AreHostObjectsAllowed = false;
             core.Settings.IsWebMessageEnabled = false;
             core.Settings.AreDevToolsEnabled = false;
-            core.Settings.AreDefaultContextMenusEnabled = false;
+            ProPigWindow.ConfigureWebWidgetMenu(this, core);
             core.Settings.IsGeneralAutofillEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.PermissionRequested += (_, request) => request.State = CoreWebView2PermissionState.Deny;

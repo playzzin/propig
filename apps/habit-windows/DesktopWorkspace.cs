@@ -110,7 +110,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         try
         {
             var environment = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: Path.Combine(FirebaseHabits.AppDirectory, "WorkspaceWebView"));
+                userDataFolder: Path.Combine(firebase.DataDirectory, "WorkspaceWebView"));
             if (lifetime.IsCancellationRequested) return;
             var options = environment.CreateCoreWebView2ControllerOptions();
             options.IsInPrivateModeEnabled = true;
@@ -120,7 +120,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             var core = web.CoreWebView2;
             core.Settings.AreHostObjectsAllowed = false;
             core.Settings.AreDevToolsEnabled = false;
-            core.Settings.AreDefaultContextMenusEnabled = false;
+            ProPigWindow.ConfigureWebWidgetMenu(this, core);
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
             core.NewWindowRequested += (_, e) => e.Handled = true;
             core.NavigationStarting += OnNavigationStarting;

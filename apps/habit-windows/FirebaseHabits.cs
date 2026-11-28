@@ -15,7 +15,7 @@ namespace ProPig.Habits;
 internal sealed record Habit(string Id, string Name, string Category, uint Color, int Position, bool Checked);
 internal sealed record Session(string Uid, string RefreshToken);
 
-internal sealed class FirebaseHabits
+internal sealed class FirebaseHabits(string dataDirectory)
 {
     private const string Project = "propig-63524";
     internal const string WebOrigin = "https://propig-63524.web.app";
@@ -23,7 +23,8 @@ internal sealed class FirebaseHabits
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
     internal static readonly string AppDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProPig", "Habits");
-    private readonly string sessionPath = Path.Combine(AppDirectory, "session.bin");
+    internal string DataDirectory => dataDirectory;
+    private readonly string sessionPath = Path.Combine(dataDirectory, "session.bin");
     private readonly SemaphoreSlim tokenRefresh = new(1, 1);
     private string? apiKey;
     private Session? session;
@@ -305,7 +306,7 @@ internal sealed class FirebaseHabits
         var uid = fromRefresh ? Required("user_id") : FirebaseUserId(nextId);
         var next = new Session(uid, Required(fromRefresh ? "refresh_token" : "refreshToken"));
         var seconds = int.Parse(Required(fromRefresh ? "expires_in" : "expiresIn"), CultureInfo.InvariantCulture);
-        Directory.CreateDirectory(AppDirectory);
+        Directory.CreateDirectory(DataDirectory);
         var plain = JsonSerializer.SerializeToUtf8Bytes(next);
         try
         {
