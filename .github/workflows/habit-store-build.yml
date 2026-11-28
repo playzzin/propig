@@ -91,6 +91,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
       - name: Install matching Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
@@ -102,7 +103,15 @@ jobs:
           HABIT_ANDROID_VERSION_CODE: ${{ vars.HABIT_ANDROID_VERSION_CODE }}
         run: |
           npx --no-install cap sync android
-          bash android/gradlew -p android --no-daemon :app:bundleRelease :app:assembleDebug :app:assembleDebugAndroidTest
+          # Hosted runners share Maven Central rate limits. Use Google's Central mirror first.
+          cat > "$RUNNER_TEMP/mobile-central.gradle" <<'GRADLE'
+          beforeProject { project ->
+              [project.buildscript.repositories, project.repositories].each { repositories ->
+                  repositories.maven { url = uri('https://maven-central.storage-download.googleapis.com/maven2') }
+              }
+          }
+          GRADLE
+          bash android/gradlew -p android --no-daemon -I "$RUNNER_TEMP/mobile-central.gradle" :app:bundleRelease :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Enable emulator acceleration
         run: sudo chmod a+rw /dev/kvm
       - name: Bind and exercise home screen widgets
@@ -129,7 +138,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Apple toolchain
-        run: swift --version && xcodebuild -version
+        run: |
+          swift --version
+          xcodebuild -version
+          swiftc ios/App/Shared/DashboardSummary.swift scripts/mobile-widget-checks/ios/CheckSummary.swift -o "$RUNNER_TEMP/check-summary"
+          "$RUNNER_TEMP/check-summary"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

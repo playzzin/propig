@@ -39,7 +39,7 @@ public final class TodayWidget extends AppWidgetProvider {
             views.setTextViewText(R.id.today_widget_summary_todo, count(saved, "할 일", "todo"));
             views.setTextViewText(R.id.today_widget_summary_habit, count(saved, "습관", "habit"));
             Date updated = new Date(saved.getLong("updatedAt", 0));
-            status = DateFormat.getTimeInstance(DateFormat.SHORT).format(updated) + " 기준";
+            status = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(updated) + " 기준";
         }
         views.setTextViewText(R.id.today_widget_status, status);
         Intent intent = new Intent(context, MainActivity.class).setAction(MainActivity.OPEN_DASHBOARD)

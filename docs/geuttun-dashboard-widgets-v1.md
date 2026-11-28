@@ -16,7 +16,7 @@
 
 ## 빌드와 설치
 
-- Android 배포 진입점은 `android/app`이다. 기존 `com.propig.app`의 서명과 버전 체계를 이어받고 `android/habit-store`의 체크형 위젯 소스를 함께 컴파일한다. `/downloads/android/shop.apk`는 웹 바로가기용 기존 패키지다. 테스트 기기에는 Actions의 `propig-android-packages` 안에 있는 `app-debug.apk`를 설치한다. 다른 서명의 기존 앱이 설치된 기기는 같은 서명으로 빌드한 업데이트가 필요하다.
+- Android 배포 진입점은 `android/app`이다. 기존 `com.propig.app`의 서명과 버전 체계를 이어받고 `android/habit-store`의 체크형 위젯 소스를 함께 컴파일한다. `/downloads/android/propig-shop-1.0.0.apk`는 웹 바로가기용 기존 패키지다. 테스트 기기에는 Actions의 `propig-android-packages` 안에 있는 `app-debug.apk`를 설치한다. 다른 서명의 기존 앱이 설치된 기기는 같은 서명으로 빌드한 업데이트가 필요하다.
 - iOS는 `npx cap sync ios` 후 `ios/App/App.xcodeproj`의 App 스킴에서 앱과 TodayWidget 확장을 함께 빌드한다. 타깃 구성의 원본은 `ios/App/project.yml`이며 변경 후 macOS에서 `xcodegen generate`를 실행한다. 시뮬레이터용 앱은 Actions의 `geuttun-ios-simulator`에서 받는다. 실제 iPhone 및 TestFlight는 Apple 개발팀으로 앱과 확장을 서명하고 두 App ID에 같은 App Group을 연결해야 한다. iPhone용 Google 로그인을 추가할 때는 Firebase의 iOS 앱 등록과 Google 클라이언트 설정이 필요하다.
 - Windows 패키지는 `propig-windows-msix`에서 받는다. 현재 Store 제품에 배포하려면 기존 제품 ID와 게시자 서명으로 패키지를 제출하고 ‘그뚠뎃’ 표시 이름을 Store 목록에도 반영한다.
 - `Habit store packages` 수동 실행의 `mobile_web_origin`에 해당 브랜치의 Firebase 미리보기 출처를 넣으면 그 웹을 여는 모바일 테스트 빌드가 생성된다. 기본 빌드는 운영 Hosting을 연다. 정식 배포 순서는 웹 게시, 서명한 모바일·Windows 빌드의 실제 기기 확인, 각 스토어 제출 순이다.

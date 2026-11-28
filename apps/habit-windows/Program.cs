@@ -125,8 +125,7 @@ internal sealed class HabitApp
                     choices = JsonSerializer.Deserialize<Choices>(File.ReadAllText(preferences)) ?? new Choices();
             }
             catch (Exception failure) when (failure is IOException or JsonException) { choices = new Choices(); }
-            var createShortcut = choices.DesktopShortcutCreated
-                ? Task.CompletedTask : CreateDesktopShortcut(showResult: false);
+            var createShortcut = CreateDesktopShortcut(showResult: false, preserveMissing: choices.DesktopShortcutCreated);
             await Run(async () =>
             {
                 try { await firebase.RestoreAsync(); }
@@ -502,11 +501,11 @@ internal sealed class HabitApp
         File.Move(preferences + ".tmp", preferences, overwrite: true);
     }
 
-    private async Task CreateDesktopShortcut(bool showResult)
+    private async Task CreateDesktopShortcut(bool showResult, bool preserveMissing = false)
     {
         if (applicationId == null) return;
         var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        var operation = desktopShortcutOperation ??= Task.Run(() => DesktopShortcut.EnsureExists(applicationId, desktop));
+        var operation = desktopShortcutOperation ??= Task.Run(() => DesktopShortcut.EnsureExists(applicationId, desktop, preserveMissing));
         try
         {
             var created = await operation;

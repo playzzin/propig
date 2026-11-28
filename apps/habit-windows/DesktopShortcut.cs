@@ -26,9 +26,12 @@ internal static class DesktopShortcut
         return GetCurrentPackageFamilyName(ref length, family) == 0 ? $"{family}!Habits" : null;
     }
 
-    internal static bool EnsureExists(string applicationId, string desktop)
+    internal static bool EnsureExists(string applicationId, string desktop, bool preserveMissing = false)
     {
         if (!Directory.Exists(desktop)) throw new DirectoryNotFoundException("The Windows desktop is unavailable.");
+        var destination = Path.Combine(desktop, Name);
+        string[] previousNames = [Path.Combine(desktop, "그뚠앱.lnk"), Path.Combine(desktop, "ProPig 습관.lnk")];
+        if (preserveMissing && (File.Exists(destination) || !previousNames.Any(File.Exists))) return false;
 
         // Resolve the installed app rather than its versioned MSIX executable path.
         Marshal.ThrowExceptionForHR(SHParseDisplayName($"shell:AppsFolder\\{applicationId}", 0, out var target, 0, 0));
@@ -39,12 +42,20 @@ internal static class DesktopShortcut
             {
                 var link = (IShellLink)instance;
                 var file = (IPersistFile)instance;
-                var destination = Path.Combine(desktop, Name);
                 if (File.Exists(destination))
                 {
                     CheckExisting(file, link, destination, target);
                     return false;
                 }
+
+                foreach (var previous in previousNames.Where(File.Exists))
+                {
+                    try { CheckExisting(file, link, previous, target); }
+                    catch (Exception error) when (error is IOException or COMException) { continue; }
+                    File.Move(previous, destination);
+                    return true;
+                }
+                if (preserveMissing) return false;
 
                 var temporary = Path.Combine(desktop, $".propig-{Guid.NewGuid():N}.lnk");
                 link.SetIDList(target);

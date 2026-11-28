@@ -62,6 +62,10 @@ public final class HabitWidget extends AppWidgetProvider {
     }
 
     private static void refresh(Context context, String status, Runnable done) {
+        if (AppWidgetManager.getInstance(context).getAppWidgetIds(new ComponentName(context, HabitWidget.class)).length == 0) {
+            done.run();
+            return;
+        }
         String uid = Habits.uid();
         if (uid == null) {
             publish(context, null, null, null);

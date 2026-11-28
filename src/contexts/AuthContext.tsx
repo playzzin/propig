@@ -64,8 +64,13 @@ const isMissingNativeAuthPluginError = (error: unknown) => {
 // The Android check-off widget uses Firebase's native session as well as the web dashboard.
 async function syncAndroidPasswordSession(email: string, password: string, uid: string) {
   if (getDashboardPlatform() !== 'android' || auth.currentUser?.uid !== uid) return;
-  const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-  await FirebaseAuthentication.signInWithEmailAndPassword({ email, password });
+  try {
+    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+    await FirebaseAuthentication.signInWithEmailAndPassword({ email, password });
+  } catch {
+    // The dashboard already authenticated. The independent check-off widget requires matching sessions.
+    console.warn('[Android] Habit widget sign-in is unavailable.');
+  }
 }
 
 const signInWithNativeGoogle = async (): Promise<UserCredential> => {
@@ -188,6 +193,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   );
 
   const loginWithGoogle = useCallback(async (): Promise<UserCredential> => {
+    if (getDashboardPlatform() === 'ios') throw new Error('iPhone에서는 로그인 메뉴에서 이메일과 비밀번호로 로그인해 주세요.');
     assertConfigured();
     const credential = await isNativeAuthPlatform()
       ? await signInWithNativeGoogle()
