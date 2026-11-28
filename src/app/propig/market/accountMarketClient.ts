@@ -13,8 +13,8 @@ export function watchAccountMarket(uid: string, onStatus: (connected: boolean) =
   void Promise.all([import('@/firebase/config'), import('firebase/firestore')]).then(([{ auth, db }, { doc, onSnapshot }]) => {
     if (!active) return;
     if (auth.currentUser?.uid !== uid) { onError(); return; }
-    unsubscribe = onSnapshot(doc(db, 'users', uid, 'marketAccount', 'status'), snapshot => {
-      if (active && auth.currentUser?.uid === uid) onStatus(snapshot.get('connected') === true);
+    unsubscribe = onSnapshot(doc(db, 'users', uid, 'marketAccount', 'status'), { includeMetadataChanges: true }, snapshot => {
+      if (active && !snapshot.metadata.fromCache && auth.currentUser?.uid === uid) onStatus(snapshot.get('connected') === true);
     }, () => { if (active && auth.currentUser?.uid === uid) onError(); });
   }).catch(() => { if (active) onError(); });
   return () => { active = false; unsubscribe?.(); };
@@ -35,6 +35,7 @@ function accountError(error: unknown, op: Operation['op']) {
 }
 
 async function request<T>(uid: string, operation: Operation, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
   const [{ auth }, { asiaNortheastFunctions }, { httpsCallable }] = await Promise.all([
     import('@/firebase/config'), import('@/firebase/functions'), import('firebase/functions'),
   ]);
@@ -44,14 +45,12 @@ async function request<T>(uid: string, operation: Operation, signal?: AbortSigna
   }
   checkAccount();
   const call = httpsCallable<Operation & { expectedUid: string }, T>(asiaNortheastFunctions, 'accountMarket');
-  try {
-    const result = await call({ ...operation, expectedUid: uid });
-    checkAccount();
-    return result.data;
-  } catch (error: unknown) {
+  const result = await call({ ...operation, expectedUid: uid }).catch((error: unknown) => {
     checkAccount();
     throw accountError(error, operation.op);
-  }
+  });
+  checkAccount();
+  return result.data;
 }
 
 export async function connectAccountMarket(uid: string, serviceKey: string, signal?: AbortSignal) {

@@ -3,7 +3,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { PROPIG_WIDGET_IDS, type PropigWidgetId } from '@/constants/propigStore';
-import { db } from '@/firebase/config';
+import { auth, db } from '@/firebase/config';
 import type { ChartMode } from '../market/MarketChart';
 import { indices, type Instrument } from '../market/marketData';
 import { getDashboardPlatform } from './mobileDashboardWidget';
@@ -51,7 +51,7 @@ function instrumentFrom(value: unknown, previous: Instrument): Instrument | null
   const raw = fields(value);
   if (raw.kind === 'index') return indices.find(index => index.code === raw.code) ?? null;
   if (raw.kind !== 'stock' || typeof raw.code !== 'string' || !/^[A-Z0-9]{6}$/.test(raw.code)
-      || typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 200
+      || typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 120
       || (raw.market !== 'KOSPI' && raw.market !== 'KOSDAQ')) return null;
   const name = raw.name.trim();
   const isin = typeof raw.isin === 'string' && /^[A-Z]{2}[A-Z0-9]{10}$/.test(raw.isin) ? raw.isin : null;
@@ -253,22 +253,24 @@ function createPreferences<T extends object>(uid: string | null, model: Model<T>
   function flush() {
     if (!uid || !listeners.size || !changes.length || !state.ready || writing || writeFailed) return;
     const attempt = generation;
-    const current = () => generation === attempt && listeners.size > 0;
+    // A submitted selection survives navigation within this account, even after its view unmounts.
+    const ownsChanges = () => auth.currentUser?.uid === uid;
     writing = true;
     // Retry the failed gesture before later gestures, using the latest data for each transaction.
     void (async () => {
       const ref = doc(db, 'users', uid, 'propigStore', model.document);
-      while (changes.length && current()) {
+      while (changes.length && ownsChanges()) {
         const change = changes[0];
         await runTransaction(db, async tx => {
           const latest = await tx.get(ref);
+          if (!ownsChanges()) throw new Error('Preference account changed');
           const patch = change(model.decode(latest.data(), state.value));
           if (patch) tx.set(ref, { ...patch }, { mergeFields: Object.keys(patch) });
         });
         changes.shift();
       }
     })().catch(() => {
-      if (current()) { writeFailed = true; show(confirmed, state.ready, saveError); }
+      if (generation === attempt && listeners.size && ownsChanges()) { writeFailed = true; show(confirmed, state.ready, saveError); }
     }).finally(() => {
       writing = false;
       if (generation !== attempt) flush();

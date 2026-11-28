@@ -240,7 +240,12 @@ function useAccountConnection(uid: string | null) {
   const version = useRef(0);
   const expectedEcho = useRef<boolean | null>(null);
   const mutation = useRef<AbortController | null>(null);
-  useEffect(() => () => mutation.current?.abort(), []);
+  useEffect(() => () => {
+    if (!mutation.current) return;
+    mutation.current.abort();
+    mutation.current = null;
+    setBusy(false);
+  }, []);
 
   useEffect(() => {
     if (!uid) return;
@@ -346,7 +351,14 @@ function MarketProfile({ uid, compact, host }: { uid: string | null; compact: bo
     if (!canRemember) return;
     const unsubscribe = subscribeMarketConnection(scope, () => { void restore(); });
     void restore();
-    return () => { nextVersion(); unsubscribe(); };
+    return () => {
+      nextVersion();
+      unsubscribe();
+      if (writing.current) {
+        writing.current = false;
+        temporary.current = false;
+      }
+    };
   }, [canRemember, nextVersion, restore, scope]);
 
   function openEditor(editor: Editor | null) {
