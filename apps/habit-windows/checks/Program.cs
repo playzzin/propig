@@ -81,9 +81,10 @@ if (args is ["--desktop-layer-live"])
     DesktopLayerChecks.Run();
     return;
 }
-if (args is ["--widget-session-live", var phase, var directory])
+if (args is ["--widget-session-live", var phase, var directory, ..] &&
+    (args.Length == 3 || args is [_, _, _, "--account"]))
 {
-    WidgetSessionChecks.RunWindowsPhase(phase, directory);
+    WidgetSessionChecks.RunWindowsPhase(phase, directory, account: args.Length == 4);
     return;
 }
 TemperatureChecks.CheckReadings();

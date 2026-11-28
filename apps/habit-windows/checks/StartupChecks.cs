@@ -1,5 +1,6 @@
 using ProPig.Habits;
 using Windows.ApplicationModel;
+using Windows.ApplicationModel.Activation;
 
 internal static class StartupChecks
 {
@@ -9,6 +10,11 @@ internal static class StartupChecks
             WidgetStartup.IsActivation(["propig-widgets:clock"]) || WidgetStartup.IsActivation(["propig-widgets:--startup-widgets"]) ||
             WidgetStartup.IsActivation(["--startup-widgets", "market"]))
             throw new InvalidOperationException("Only the exact packaged startup arguments may start widget restoration.");
+        if (!WidgetStartup.IsRegisteredTask(ActivationKind.StartupTask, "ProPigWidgetsStartup") ||
+            WidgetStartup.IsRegisteredTask(ActivationKind.Launch, "ProPigWidgetsStartup") ||
+            WidgetStartup.IsRegisteredTask(ActivationKind.StartupTask, "OtherTask") ||
+            WidgetStartup.IsWidgetStartup([], packaged: false))
+            throw new InvalidOperationException("Only this package's Windows startup activation should hide the dashboard.");
 
         void Expect(StartupTaskState state, bool enable, WidgetStartup.Change expected)
         {

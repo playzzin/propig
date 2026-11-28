@@ -53,11 +53,15 @@ jobs:
           }
           dotnet run --project apps/habit-windows/checks/WidgetChecks.csproj -c Release
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $profileDir = Join-Path $env:RUNNER_TEMP 'propig-widget-session'
-          New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
-          foreach ($phase in 'manage', 'restore', 'empty') {
-            dotnet run --no-build --project apps/habit-windows/checks/WidgetChecks.csproj -c Release -- --widget-session-live $phase $profileDir
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($sessionKind in 'guest', 'account') {
+            $profileDir = Join-Path $env:RUNNER_TEMP "propig-widget-session-$sessionKind"
+            New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+            $options = @()
+            if ($sessionKind -eq 'account') { $options += '--account' }
+            foreach ($phase in 'manage', 'teardown', 'restore', 'empty') {
+              dotnet run --no-build --project apps/habit-windows/checks/WidgetChecks.csproj -c Release -- --widget-session-live $phase $profileDir @options
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            }
           }
       - name: Package Windows desktop app and widget
         shell: pwsh

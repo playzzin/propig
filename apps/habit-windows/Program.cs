@@ -16,7 +16,7 @@ using ShapePath = System.Windows.Shapes.Path;
 
 namespace ProPig.Habits;
 
-internal sealed class Choices
+internal sealed class Choices : WidgetSelection
 {
     public Dictionary<string, string[]> Habits { get; set; } = new();
     public bool Topmost { get; set; }
@@ -27,8 +27,6 @@ internal sealed class Choices
     public double? Height { get; set; }
     public bool DesktopShortcutCreated { get; set; }
     public Dictionary<DesktopSurface, DesktopWidgetPlacement> DesktopWidgets { get; set; } = new();
-    public HashSet<string> GuestWidgets { get; set; } = new();
-    public Dictionary<string, HashSet<string>> OpenWidgets { get; set; } = new();
     public Dictionary<string, PcDeviceLink> PcDevices { get; set; } = new();
 }
 
@@ -86,14 +84,15 @@ internal sealed partial class HabitApp
     private string? shortcutNotice;
     private readonly PcWidgetHub pcWidgets;
     private string? pendingPanel;
-    private bool sessionRestored;
+    internal bool SessionRestored { get; private set; }
 
     [STAThread]
     public static void Main(string[] args)
     {
-        var startup = WidgetStartup.IsActivation(args);
+        var applicationId = DesktopShortcut.CurrentApplicationId();
+        var startup = WidgetStartup.IsWidgetStartup(args, applicationId != null);
         var panel = PcWidgetWindows.FromCommandLine(args);
-        using var activation = new PcWidgetWindows.Activation();
+        using var activation = new PcWidgetWindows.Activation(applicationId);
         if (!activation.Primary)
         {
             if (!startup) activation.Forward(panel);
@@ -122,6 +121,7 @@ internal sealed partial class HabitApp
     {
         firebase = new FirebaseHabits(dataDirectory);
         preferences = Path.Combine(dataDirectory, "widget.json");
+        layoutStore = new WidgetLayoutStore(dataDirectory, applicationId);
         pcWidgets = new PcWidgetHub(firebase, () => choices.PcDevices, SaveChoices, ActivatePanel, lifetime.Token);
         main.MinWidth = 490;
         main.Width = RestoreDimension(null, main.Width, main.MinWidth, SystemParameters.WorkArea.Width);
@@ -159,7 +159,7 @@ internal sealed partial class HabitApp
     private async void ActivatePanel(string id)
     {
         if (id == "main") { ShowMain(); return; }
-        if (!sessionRestored) { pendingPanel = id; ShowMain(); return; }
+        if (!SessionRestored) { pendingPanel = id; ShowMain(); return; }
         if (firebase.Uid == null && id is "clock" or "calendar" or "market")
         {
             pendingPanel = null;
@@ -262,7 +262,7 @@ internal sealed partial class HabitApp
         else Paint();
     }
 
-    private void OpenHabitWidget(bool activate = true)
+    private void OpenHabitWidget(bool activate = true, bool restore = false)
     {
         if (widget != null)
         {
@@ -276,29 +276,23 @@ internal sealed partial class HabitApp
         const double minHeight = 250;
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        var placement = savedLayout.Placement("habit");
         var window = new ProPigWindow("그뚠뎃 오늘 습관 위젯",
-            RestoreDimension(choices.Width, 348, minWidth, area.Width),
-            RestoreDimension(choices.Height, 570, minHeight, area.Height), "오늘 습관");
+            RestoreDimension(placement.Width, 348, minWidth, area.Width),
+            RestoreDimension(placement.Height, 570, minHeight, area.Height), "오늘 습관");
         window.MinWidth = minWidth;
         window.MinHeight = minHeight;
         window.ShowActivated = activate;
-        window.Topmost = choices.Topmost;
+        window.Topmost = placement.Topmost;
         widgetLayout = CreateWidgetLayout(window);
         window.Content = widgetLayout.Root;
-        if (choices.Left is double left && choices.Top is double top &&
+        if (placement.Left is double left && placement.Top is double top &&
             left >= area.Left && left < area.Right - 100 && top >= area.Top && top < area.Bottom - 80)
         {
             window.WindowStartupLocation = WindowStartupLocation.Manual;
             window.Left = Math.Min(left, Math.Max(area.Left, area.Right - window.Width));
             window.Top = Math.Min(top, Math.Max(area.Top, area.Bottom - window.Height));
         }
-        TrackWidget(window, "habit", bounds =>
-        {
-            choices.Left = bounds.Left;
-            choices.Top = bounds.Top;
-            choices.Width = bounds.Width;
-            choices.Height = bounds.Height;
-        });
         window.Closed += (_, _) =>
         {
             widgetLayout?.Motion.Dismiss();
@@ -309,7 +303,7 @@ internal sealed partial class HabitApp
             manager?.Refresh();
         };
         widget = window;
-        window.Show();
+        ShowWidget(window, WidgetEntry.Habit, restore);
         Paint();
         _ = ChangeWidgetView();
     }
@@ -352,7 +346,7 @@ internal sealed partial class HabitApp
         }
     }
 
-    private void OpenDesktopWidget(DesktopSurface surface, string surfaceName, bool activate = true)
+    private void OpenDesktopWidget(DesktopSurface surface, string surfaceName, bool activate = true, bool restore = false)
     {
         var market = surface == DesktopSurface.Market;
         var uid = firebase.Uid;
@@ -366,7 +360,8 @@ internal sealed partial class HabitApp
             return;
         }
 
-        var placement = choices.DesktopWidgets.GetValueOrDefault(surface) ?? new DesktopWidgetPlacement();
+        var entry = WidgetEntry.ForSurface(surface);
+        var placement = savedLayout.Placement(entry.Id);
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         var minWidth = market ? 350 : 280;
@@ -391,8 +386,8 @@ internal sealed partial class HabitApp
         var pin = Option("항상 위", window.Topmost);
         pin.Click += (_, _) =>
         {
-            placement.Topmost = window.Topmost = pin.IsChecked == true;
-            SaveWidgetChoices();
+            var topmost = window.Topmost = pin.IsChecked == true;
+            SetWidgetTopmost(entry.Id, topmost);
         };
         var toolbar = new Border
         {
@@ -435,15 +430,6 @@ internal sealed partial class HabitApp
             }
         }
 
-        choices.DesktopWidgets[surface] = placement;
-        TrackWidget(window, WidgetEntry.ForSurface(surface).Id, bounds =>
-        {
-            placement.Left = bounds.Left;
-            placement.Top = bounds.Top;
-            placement.Width = bounds.Width;
-            placement.Height = bounds.Height;
-            placement.Topmost = window.Topmost;
-        });
         window.Closed += (_, _) =>
         {
             body.Content = null;
@@ -454,7 +440,7 @@ internal sealed partial class HabitApp
 
         desktopWidgets.Add(surface, window);
         AttachRenderer();
-        window.Show();
+        ShowWidget(window, entry, restore);
     }
 
     private void CloseDesktopWidgets()
@@ -629,12 +615,11 @@ internal sealed partial class HabitApp
         {
             var open = Button("앱 열기", () => { ShowMain(); return Task.CompletedTask; });
             actions.Children.Add(open);
-            var pin = Option("항상 위", choices.Topmost);
+            var pin = Option("항상 위", window.Topmost);
             pin.Click += (_, _) =>
             {
-                choices.Topmost = pin.IsChecked == true;
-                window.Topmost = choices.Topmost;
-                SaveChoices();
+                var topmost = window.Topmost = pin.IsChecked == true;
+                SetWidgetTopmost("habit", topmost);
             };
             actions.Children.Add(pin);
         }
@@ -672,7 +657,7 @@ internal sealed partial class HabitApp
                 var guestWindows = WidgetEntry.All.Where(entry => entry.CanOpen(null) && IsWidgetOpen(entry)).ToArray();
                 SuspendAccountWidgets();
                 RestoreWidgets();
-                foreach (var entry in guestWindows) OpenManagedWidget(entry, activate: false);
+                foreach (var entry in guestWindows) OpenManagedWidget(entry);
                 await Read();
             }, "로그인 연결에 실패했습니다. 앱에서 다시 시도해 주세요."), primary: true));
             scroller.ScrollToTop();

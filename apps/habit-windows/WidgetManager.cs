@@ -8,8 +8,9 @@ namespace ProPig.Habits;
 
 internal sealed record WidgetEntry(string Id, string Label, DesktopSurface? Surface)
 {
+    internal static readonly WidgetEntry Habit = new("habit", "오늘 습관", null);
     internal static readonly WidgetEntry[] All = [
-        new("habit", "오늘 습관", null), new("memo", "메모장", DesktopSurface.Memo),
+        Habit, new("memo", "메모장", DesktopSurface.Memo),
         new("todo", "할일 일정표", DesktopSurface.Todo),
         .. PcWidgetWindows.Panels.Select(panel => new WidgetEntry(panel.Id, panel.Label, panel.Surface))
     ];
@@ -17,17 +18,17 @@ internal sealed record WidgetEntry(string Id, string Label, DesktopSurface? Surf
     internal static WidgetEntry ForSurface(DesktopSurface surface) => All.First(entry => entry.Surface == surface);
     internal bool CanOpen(string? uid) => uid != null || Surface is DesktopSurface.Clock or DesktopSurface.Calendar or DesktopSurface.Market;
 
-    internal static IEnumerable<WidgetEntry> ToRestore(Choices choices, string? uid)
+    internal static IEnumerable<WidgetEntry> ToRestore(WidgetSelection choices, string? uid)
     {
         var saved = uid == null ? choices.GuestWidgets : choices.OpenWidgets.GetValueOrDefault(uid);
         return All.Where(entry => entry.CanOpen(uid) && saved?.Contains(entry.Id) == true);
     }
 
-    internal void SetOpen(Choices choices, string? uid, bool open)
+    internal void SetOpen(WidgetSelection choices, string? uid, bool open)
     {
         if (!CanOpen(uid)) return;
         var saved = choices.GuestWidgets;
-        if (uid != null && !choices.OpenWidgets.TryGetValue(uid, out saved))
+        if (uid != null && (!choices.OpenWidgets.TryGetValue(uid, out saved) || saved == null))
         {
             if (!open) return;
             choices.OpenWidgets[uid] = saved = new();

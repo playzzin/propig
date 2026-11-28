@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using Windows.ApplicationModel;
+using Windows.ApplicationModel.Activation;
 
 namespace ProPig.Habits;
 
@@ -17,6 +18,23 @@ internal static class WidgetStartup
     internal enum Change { None, Enable, Disable, WindowsSettings }
 
     internal static bool IsActivation(string[] args) => args is ["--startup-widgets"];
+
+    internal static bool IsWidgetStartup(string[] args, bool packaged)
+    {
+        if (IsActivation(args)) return true;
+        if (args.Length != 0 || !packaged) return false;
+        try
+        {
+            var activation = AppInstance.GetActivatedEventArgs();
+            return activation is IStartupTaskActivatedEventArgs task &&
+                IsRegisteredTask(task.Kind, task.TaskId);
+        }
+        catch (Exception error) when (error is ExternalException or InvalidOperationException or
+            UnauthorizedAccessException or NotSupportedException) { return false; }
+    }
+
+    internal static bool IsRegisteredTask(ActivationKind kind, string? taskId) =>
+        kind == ActivationKind.StartupTask && taskId == TaskId;
 
     internal static Change RequestedChange(StartupTaskState state, bool enable) => (state, enable) switch
     {
