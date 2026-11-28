@@ -7,6 +7,7 @@ import { CalendarDays, ChartCandlestick, Clock3, Cpu, Gauge, Grid2X2, Monitor, P
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/firebase/config';
 import { isWindowsDashboard } from '@/lib/desktopWorkspaceRoute';
+import { getDashboardPlatform } from '../_lib/mobileDashboardWidget';
 import { CalendarPanel } from './ClockCalendar';
 import { WeatherPanel } from './WeatherPanel';
 import { UsageNotes } from './UsageNotes';
@@ -28,7 +29,19 @@ const icons = { system: Cpu, clock: Clock3, calendar: CalendarDays, usage: Gauge
 const subscribeRoute = () => () => {};
 const initialPanel = (): PcPanel => { const p = new URLSearchParams(window.location.search).get('panel'); return isPcPanel(p) ? p : 'system'; };
 const serverPanel = (): PcPanel => 'system';
+const serverCanOpenSystemWidget = () => false;
 const bridge = () => (window as Window & {chrome?: {webview?: Bridge}}).chrome?.webview;
+
+function canOpenSystemWidget() {
+  if (typeof window === 'undefined') return false;
+  const platform = getDashboardPlatform();
+  if (platform !== 'web') return platform === 'windows';
+  const browser = window.navigator as Navigator & { userAgentData?: { platform?: string; mobile?: boolean } };
+  if (!browser || browser.userAgentData?.mobile) return false;
+  if (browser.userAgentData?.platform) return browser.userAgentData.platform === 'Windows';
+  if (/Android|iPhone|iPad|IEMobile|Windows Phone/i.test(browser.userAgent)) return false;
+  return /\bWindows NT\b/i.test(browser.userAgent) || /^Win(?:32|64|dows)$/i.test(browser.platform);
+}
 
 function useNativeWidget(requestId?: string) {
   const [state, setState] = useState<Native | null>(null);
@@ -101,6 +114,7 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
   const { currentUser, loading } = useAuth();
   const desktop = Boolean(requestId);
   const entry = useSyncExternalStore(subscribeRoute, initialPanel, serverPanel);
+  const openSystemLocally = useSyncExternalStore(subscribeRoute, canOpenSystemWidget, serverCanOpenSystemWidget);
   const [selected, setPanel] = useState<PcPanel | null>(null);
   const panel = selected ?? entry;
   const localPanel = panel === 'clock' || panel === 'calendar' || panel === 'market';
@@ -141,8 +155,10 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
       {!nativeMarket && (desktop ? <button type="button" className={styles.option} aria-expanded={settings} onClick={() => setSettings(!settings)}>
         <Settings2 size={16} aria-hidden="true"/> 연결 설정
       </button> : <div className={styles.heading}>
-        {panel === 'system' && !isWindowsDashboard && <a className={styles.option} href="https://apps.microsoft.com/detail/restricted/9P80XDSKT26X">그뚠뎃 설치 (테스터)</a>}
-        <a className={styles.option} href={'propig-widgets:' + panel}><Monitor size={15} aria-hidden="true"/>{panel === 'system' ? '이 PC의 시스템 위젯 열기' : 'Windows 위젯 열기'}</a>
+        {panel === 'system' && !isWindowsDashboard && <a className={styles.option} href="https://apps.microsoft.com/detail/restricted/9P80XDSKT26X">
+          {openSystemLocally ? '그뚠뎃 설치 (Windows 테스터)' : 'Windows용 그뚠뎃 설치 정보 (테스터)'}
+        </a>}
+        {(panel !== 'system' || openSystemLocally) && <a className={styles.option} href={'propig-widgets:' + panel}><Monitor size={15} aria-hidden="true"/>{panel === 'system' ? '이 PC의 시스템 위젯 열기' : 'Windows 위젯 열기'}</a>}
       </div>)}
     </header>
     {!desktop && <nav className={styles.tabs} aria-label="PC 위젯 선택">
@@ -171,7 +187,8 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
       </>}
     </section>}
     {!localPanel && sample?.source === 'legacy' && <p className={styles.help}>이 PC는 이전 버전으로 연결되어 있습니다. 독립형 위젯을 사용하려면 그뚠뎃을 업데이트해 주세요.</p>}
-    {!localPanel && !desktop && !sample && !loading && <p className={styles.help}>Windows 앱의 <strong>위젯 → 시스템 정보 → 연결 설정</strong>에서 이 PC를 웹에 공유할 수 있습니다.</p>}
+    {!localPanel && !desktop && !sample && !loading && <p className={styles.help}>측정할 Windows PC에서 그뚠뎃의 <strong>위젯 → 시스템 정보 → 연결 설정</strong>을 열어 PC를 웹에 공유하세요.</p>}
+    {panel === 'system' && !desktop && !openSystemLocally && sample?.sensors?.cpuTemp != null && <p className={styles.help}>바탕화면 위젯은 값을 공유한 Windows PC의 그뚠뎃에서 <strong>위젯 → 시스템 정보</strong>를 선택해 여세요.</p>}
     <section className={styles.panel} aria-label={pcPanels.find(p => p.id === panel)?.label}>
       {panel === 'system' && <SystemPanel system={sample?.system ?? null} sensors={sample?.sensors ?? null} waiting={waiting} remotePc={Boolean(device) && !desktop}
         onSensorSetup={desktop && onPc && native?.temperatureSetupSupported ? () => action('core-temp-setup') : undefined}

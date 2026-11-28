@@ -261,6 +261,7 @@ async function checkAccountAndBridge() {
   const Board = load('PcWidgetBoard.tsx', {
     'next/dynamic': () => market,
     '@/lib/desktopWorkspaceRoute': host,
+    '../_lib/mobileDashboardWidget': load('../_lib/mobileDashboardWidget.ts', { '@/lib/desktopWorkspaceRoute': host }),
     'firebase/firestore': firestore, '@/firebase/config': { db: {} },
     '@/contexts/AuthContext': { useAuth: () => auth },
     './pcSnapshot': contract, './ClockCalendar': clock, './DevicePanels': panels, './UsageNotes': notes,
@@ -268,36 +269,56 @@ async function checkAccountAndBridge() {
   }).default;
   const bridge = Object.assign(new EventTarget(), { postMessage: message => messages.push(message) });
   window.chrome = { webview: bridge };
+  const windowsBrowser = { platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', userAgentData: { platform: 'Windows', mobile: false } };
+  window.navigator = windowsBrowser;
   const missingTemperature = { ...fixture, sensors: { ...fixture.sensors, cpuTemp: null } };
-  const device = (hex, model, revision = layoutId) => ({
+  const device = (hex, model, revision = layoutId, cpuTemp = null) => ({
     id: hex.repeat(32),
     get: key => key === 'sample' ? JSON.stringify({
-      ...missingTemperature, system: { ...fixture.system, cpuName: model }, mirabox: { ...fixture.mirabox, layoutId: revision },
+      ...fixture, system: { ...fixture.system, cpuName: model }, sensors: { ...fixture.sensors, cpuTemp }, mirabox: { ...fixture.mirabox, layoutId: revision },
     }) : undefined,
   });
   let view;
   const setupButton = () => view.root.findAllByType('button').find(button =>
     renderedText(button) === '이 PC에서 Core Temp 설정');
+  function checkSharedSystemLinks(platform, opensWidget) {
+    const links = view.root.findAllByType('a');
+    const store = links.find(link => link.props.href === 'https://apps.microsoft.com/detail/restricted/9P80XDSKT26X');
+    assert(store && renderedText(store).includes('Windows'), `${platform} identifies the Windows product in Microsoft Store`);
+    assert.equal(links.some(link => link.props.href === 'propig-widgets:system'), opensWidget, `${platform} system widget protocol`);
+    assert(!links.some(link => /core-temp-setup|\.(?:exe|msi)(?:[?#]|$)/i.test(link.props.href)), `${platform} cannot start a local installer`);
+    assert(!setupButton(), `${platform} cannot request native setup for a shared PC`);
+    assert.match(renderedText(view.root), /선택한 PC/);
+  }
   await act(async () => { view = create(element(Board)); });
   try {
     assert.equal(accounts[0].query.source, 'users/account-a/pcWidgetDevices');
     assert.equal(messages.length, 0, 'a normal page cannot send native requests');
-    await act(async () => accounts[0].next({ docs: [device('b', 'A secondary', layoutId + 8), device('a', 'A primary')] }));
+    await act(async () => accounts[0].next({ docs: [device('b', 'A secondary', layoutId + 8, 57.5), device('a', 'A primary')] }));
     assert.match(renderedText(view.root), /A primary/);
-    assert(!setupButton(), 'cloud readings must never offer a local installer');
-    const supportLinks = view.root.findAllByType('a').map(link => link.props.href);
-    assert(supportLinks.includes('propig-widgets:system'), 'a browser can open its Windows system widget');
-    assert(supportLinks.includes('https://apps.microsoft.com/detail/restricted/9P80XDSKT26X'), 'a browser can find the Windows app in Microsoft Store');
-    assert(!supportLinks.some(href => /core-temp-setup|\.(?:exe|msi)(?:[?#]|$)/i.test(href)), 'a shared PC cannot install software on the browser device');
-    assert.match(renderedText(view.root), /선택한 PC/);
+    checkSharedSystemLinks('Windows browser', true);
     host.isWindowsDashboard = true;
     await act(async () => view.update(element(Board)));
     assert(!setupButton(), 'a Windows main dashboard showing a cloud device still cannot install for it');
+    assert(view.root.findAllByType('a').some(link => link.props.href === 'propig-widgets:system'), 'the Windows dashboard opens the local widget');
     host.isWindowsDashboard = false;
     await act(async () => view.update(element(Board)));
     const chooser = view.root.findByProps({ 'aria-label': '표시할 PC' });
     await act(async () => chooser.props.onChange({ target: { value: 'b'.repeat(32) } }));
     assert.match(renderedText(view.root), /A secondary/);
+    try {
+      for (const [age, expected] of [[60_000, '57.5 °C'], [181_000, '이전 측정 57.5 °C']]) {
+        now = sourceTime + age;
+        await act(async () => { for (const tick of [...timers.values()]) tick(); });
+        const panel = view.root.findByType(panels.SystemPanel);
+        const temp = panel.findAllByType('strong').find(node => renderedText(node).includes('57.5 °C'));
+        assert(temp && renderedText(temp) === expected, `shared temperature at ${age / 1000}s`);
+        for (const label of ['Windows 리소스', '하드웨어 센서']) {
+          const row = panel.findAllByType('dt').find(dt => renderedText(dt) === label).parent;
+          assert.equal(renderedText(row.findByType('dd')).startsWith('이전 측정'), age > 180_000, `${label} uses the sharing interval`);
+        }
+      }
+    } finally { now = sourceTime; }
     const choosePanel = label => view.root.findByType('nav').findAllByType('button').find(button => renderedText(button) === label);
     await act(async () => choosePanel('MiraBox').props.onClick());
     await act(async () => view.root.findByProps({ 'aria-label': '1번 키, 웹 실행 확인' }).props.onClick());
@@ -340,16 +361,36 @@ async function checkAccountAndBridge() {
     host.isWindowsDashboard = false;
   } finally { await act(async () => view.unmount()); }
 
+  const androidBrowser = { platform: 'Linux armv8l', userAgent: 'Mozilla/5.0 (Linux; Android 15) Mobile', userAgentData: { platform: 'Android', mobile: true } };
+  const iphoneBrowser = { platform: 'iPhone', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' };
+  auth.currentUser = { uid: 'account-a' };
+  for (const [name, browser, nativePlatform, opensWidget] of [
+    ['Windows browser without client hints', { platform: 'Win32', userAgent: windowsBrowser.userAgent }, null, true],
+    ['Android browser', androidBrowser, null, false], ['Android app', androidBrowser, 'android', false],
+    ['iPhone browser', iphoneBrowser, null, false], ['iPhone app', iphoneBrowser, 'ios', false],
+  ]) {
+    window.navigator = browser;
+    window.Capacitor = nativePlatform ? { getPlatform: () => nativePlatform } : undefined;
+    await act(async () => { view = create(element(Board)); });
+    try {
+      await act(async () => accounts.at(-1).next({ docs: [device('a', 'Shared CPU')] }));
+      assert.match(renderedText(view.root), /Shared CPU/);
+      checkSharedSystemLinks(name, opensWidget);
+    } finally { await act(async () => view.unmount()); }
+  }
+  window.navigator = windowsBrowser;
+  delete window.Capacitor;
+  assert.equal(messages.length, 0, 'shared system panels cannot send native setup requests');
+  const cloudStreamCount = accounts.length;
   const response = (id, sample, capability, result) => bridge.dispatchEvent(new MessageEvent('message', {
     data: { version: 1, requestId: id, type: 'pc-widget-state', result,
       data: { sample, sharing: false, ...(capability !== undefined && { temperatureSetupSupported: capability }) } },
   }));
-  auth.currentUser = { uid: 'account-a' };
   const first = '2f72dd63-74df-4768-ad80-836fb7f73122';
   const second = '962b86f5-5b40-4120-b4ec-a93f0faedd13';
   await act(async () => { view = create(element(Board, { requestId: first })); });
   try {
-    assert.equal(accounts.length, 2, 'native panel reads its own PC');
+    assert.equal(accounts.length, cloudStreamCount, 'native panel reads its own PC');
     assert.deepEqual(messages[0], { version: 1, requestId: first, type: 'pc-widget-read' });
     assert(!setupButton(), 'loading a widget must not offer installation');
     await act(async () => { response(second, missingTemperature, true); response(first, { version: 2 }, true); });
@@ -373,6 +414,11 @@ async function checkAccountAndBridge() {
     await act(async () => response(first, missingTemperature, true));
     assert(setupButton() && !setupButton().props.disabled, 'a fresh local missing temperature can request native setup');
     assert(!messages.some(message => message.type === 'pc-widget-action'), 'observing a missing temperature cannot start setup');
+    const officialSite = view.root.findAllByType('button').find(button => renderedText(button) === 'Core Temp 공식 사이트');
+    assert(officialSite, 'the latest host also offers the official site independently of setup');
+    await act(async () => officialSite.props.onClick());
+    assert.deepEqual(messages.at(-1), { version: 1, requestId: first, type: 'pc-widget-action', target: 'core-temp-info' });
+    await act(async () => response(first, missingTemperature, true, '공식 사이트를 열었습니다.'));
     const previousClick = setupButton().props.onClick;
     now += 31_000;
     try {
@@ -435,7 +481,7 @@ async function main() {
     Date.now = originalNow;
     globalThis.clearInterval = originalClearInterval;
   }
-  console.log('PASS PC widgets: temperature sources and local setup consent, market registration and launch, KST rollover, account changes, device-scoped key links and native session isolation.');
+  console.log('PASS PC widgets: temperature sources, shared reading age, platform links, local setup consent, market registration and launch, KST rollover, account changes, device-scoped key links and native session isolation.');
 }
 
 async function checkForecast() {
