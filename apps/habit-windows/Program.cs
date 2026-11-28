@@ -366,6 +366,7 @@ internal sealed class HabitApp
     private void OpenDesktopWidget(DesktopSurface surface, string surfaceName)
     {
         var market = surface == DesktopSurface.Market;
+        if (market && !sessionRestored) { pendingPanel = "market"; return; }
         var uid = firebase.Uid;
         var guestClock = uid == null && surface is DesktopSurface.Clock or DesktopSurface.Calendar;
         if (lifetime.IsCancellationRequested || (!market && !guestClock && uid == null)) return;
@@ -428,7 +429,7 @@ internal sealed class HabitApp
             renderer?.Dispose();
             if (market || guestClock)
             {
-                var view = new PublicWidgetView(surface, surfaceName, AttachRenderer);
+                var view = new PublicWidgetView(surface, surfaceName, AttachRenderer, uid);
                 renderer = view;
                 body.Content = view;
             }
@@ -469,6 +470,17 @@ internal sealed class HabitApp
     private void CloseDesktopWidgets()
     {
         foreach (var window in desktopWidgets.Values.ToArray()) window.Close();
+    }
+
+    private void ReopenPublicWidgetsAfterSignIn()
+    {
+        foreach (var panel in PcWidgetWindows.Panels)
+        {
+            if (panel.Surface is not (DesktopSurface.Clock or DesktopSurface.Calendar or DesktopSurface.Market)
+                || !desktopWidgets.TryGetValue(panel.Surface, out var previous)) continue;
+            previous.Close();
+            OpenDesktopWidget(panel.Surface, panel.Label);
+        }
     }
 
     private Task OpenMarketWidget()
@@ -615,6 +627,7 @@ internal sealed class HabitApp
         CloseDesktopWidgets();
         PaintMain();
         await firebase.ConnectAsync(lifetime.Token);
+        ReopenPublicWidgetsAfterSignIn();
         await Read();
     }, "Windows 앱 연결에 실패했습니다. 다시 시도해 주세요.");
 
@@ -723,12 +736,7 @@ internal sealed class HabitApp
             stack.Children.Add(Button("ProPig Google 로그인", async () => await Run(async () =>
             {
                 await firebase.ConnectAsync(lifetime.Token);
-                foreach (var surface in new[] { DesktopSurface.Clock, DesktopSurface.Calendar })
-                {
-                    if (!desktopWidgets.TryGetValue(surface, out var guest)) continue;
-                    guest.Close();
-                    OpenDesktopWidget(surface, PcWidgetWindows.Panels.First(p => p.Surface == surface).Label);
-                }
+                ReopenPublicWidgetsAfterSignIn();
                 await Read();
             }, "로그인 연결에 실패했습니다. 앱에서 다시 시도해 주세요."), primary: true));
             scroller.ScrollToTop();

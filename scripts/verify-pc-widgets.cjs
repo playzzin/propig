@@ -138,7 +138,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.document = document;
 globalThis.window = Object.assign(new EventTarget(), {
   setTimeout: schedule, clearTimeout: cancel, setInterval: schedule, clearInterval: cancel,
-  location: { search: '', assign(value) { this.href = value; } },
+  location: { pathname: '/propig', search: '', assign(value) { this.href = value; } },
+  navigator: { userAgent: 'Windows NT 10.0', platform: 'Win32' },
 });
 
 const element = React.createElement;
@@ -146,6 +147,49 @@ const heading = calendar => calendar.findByType('h2').children.join('');
 function renderedText(node) {
   if (typeof node === 'string') return node;
   return (node.children ?? []).map(renderedText).join('');
+}
+
+async function checkDashboardBrands() {
+  const location = window.location, navigator = window.navigator;
+  const cases = [
+    ['Windows browser', {}, '그뚠웹'],
+    ['Android browser', { device: 'Android' }, '그뚠웹'],
+    ['iPhone browser', { device: 'iPhone' }, '그뚠웹'],
+    ['Android app', { device: 'Android', capacitor: 'android' }, '그뚠앱'],
+    ['iPhone app', { device: 'iPhone', capacitor: 'ios' }, '그뚠앱'],
+    ['installed Android PWA', { device: 'Android', standalone: true }, '그뚠앱'],
+    ['installed iPhone PWA', { device: 'iPhone', appleStandalone: true }, '그뚠앱'],
+    ['Windows browser app', { standalone: true }, '그뚠웹'],
+    ['Windows dashboard', { bridge: true, search: '?windows=dashboard' }, '그뚠뎃'],
+    ['dashboard URL in a browser', { search: '?windows=dashboard' }, '그뚠웹'],
+    ['Windows market widget', { bridge: true, path: '/propig/desktop/market' }, '그뚠뎃'],
+    ['market widget URL in a browser', { path: '/propig/desktop/market' }, '그뚠웹'],
+  ];
+  try {
+    for (const [name, env, expected] of cases) {
+      window.location = { ...location, pathname: env.path ?? '/propig', search: env.search ?? '' };
+      window.navigator = env.device ? { userAgent: env.device, platform: env.device, standalone: env.appleStandalone } : navigator;
+      window.chrome = env.bridge ? { webview: {} } : undefined;
+      window.Capacitor = env.capacitor ? { getPlatform: () => env.capacitor } : undefined;
+      window.matchMedia = query => ({ matches: query === '(display-mode: standalone)' && !!env.standalone });
+      const desktop = load('../../../lib/desktopWorkspaceRoute.ts');
+      const mobile = load('../_lib/mobileDashboardWidget.ts', { '@/lib/desktopWorkspaceRoute': desktop });
+      const brand = load('../_lib/dashboardBrand.ts', { '@/lib/desktopWorkspaceRoute': desktop, './mobileDashboardWidget': mobile });
+      assert.equal(brand.getDashboardBrand(), expected, name);
+      if (env.standalone || env.appleStandalone) assert.equal(mobile.getDashboardPlatform(), 'web', 'PWA naming preserves web capabilities');
+      if (name === 'Windows market widget') {
+        const Header = () => element('h1', null, brand.useDashboardBrand());
+        assert.match(renderToString(element(Header)), /그뚠웹/);
+        let header;
+        await act(async () => { header = create(element(Header)); });
+        try { assert.equal(renderedText(header.root), expected); }
+        finally { await act(async () => header.unmount()); }
+      }
+    }
+  } finally {
+    window.location = location; window.navigator = navigator;
+    delete window.chrome; delete window.Capacitor; delete window.matchMedia;
+  }
 }
 
 async function checkPanels(sample) {
@@ -235,19 +279,204 @@ async function checkPanels(sample) {
   assert.equal(timers.size, 0, 'widget timers stop on unmount');
 }
 
+function marketFixture(auth, host) {
+  const saved = new Map();
+  const changes = new EventTarget();
+  const requests = [];
+  const storageCalls = [];
+  const data = load('../market/marketData.ts');
+  const connection = {
+    ...load('../market/marketConnection.ts', { './marketData': data }),
+    async readMarketConnection(scope) { storageCalls.push('read'); return saved.get(scope) ?? null; },
+    async saveMarketConnection(scope, key) {
+      storageCalls.push('save'); saved.set(scope, key); changes.dispatchEvent(new Event(scope)); return true;
+    },
+    async forgetMarketConnection(scope) {
+      storageCalls.push('forget'); saved.delete(scope); changes.dispatchEvent(new Event(scope));
+    },
+    subscribeMarketConnection(scope, read) {
+      storageCalls.push('subscribe'); changes.addEventListener(scope, read);
+      return () => changes.removeEventListener(scope, read);
+    },
+  };
+  const Market = load('../market/MarketDashboard.tsx', {
+    '@/lib/desktopWorkspaceRoute': host,
+    '@/contexts/AuthContext': { useAuth: () => auth },
+    './MarketChart': load('../market/MarketChart.tsx'),
+    './marketData': data, './marketConnection': connection,
+    './marketClient': {
+      async loadPrices(key, instrument) {
+        requests.push({ key, code: instrument.code });
+        return [{ date: '2024-02-29', close: 1234.5, open: 1200, high: 1300, low: 1190, change: 1.2 }];
+      },
+    },
+  }).default;
+  return { Market, connection, requests, storageCalls };
+}
+
+async function checkMarketReconnect() {
+  const auth = { currentUser: null, loading: true };
+  const { Market, connection, requests, storageCalls } = marketFixture(auth, { isWindowsDashboard: false });
+  const accountKey = 'fixture-first-account', secondKey = 'fixture-second-account', guestKey = 'fixture-guest-market';
+  let view, compact = false;
+  const render = () => element(Market, { compact });
+  const inputs = type => view.root.findAllByProps({ type }).filter(node => node.type === 'input');
+  async function reopen() {
+    if (view) await act(async () => view.unmount());
+    await act(async () => { view = create(render()); });
+  }
+  async function selectUser(uid) {
+    auth.currentUser = uid === null ? null : { uid };
+    auth.loading = false;
+    await act(async () => view.update(render()));
+  }
+  function expectPrompt() {
+    assert.equal(inputs('password').length, 1, 'a disconnected profile asks for its own key');
+    assert.equal(inputs('password')[0].props.value, '');
+    assert.equal(view.root.findAllByType('polyline').length, 0, 'previous prices are hidden');
+  }
+  async function connect(key, remember) {
+    if (remember !== undefined) {
+      const choice = inputs('checkbox')[0];
+      assert(choice, 'the profile offers the remember option');
+      if (choice.props.checked !== remember) await act(async () => choice.props.onChange({ target: { checked: remember } }));
+    }
+    await act(async () => inputs('password')[0].props.onChange({ target: { value: key } }));
+    await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  }
+  function expectQuotes(key, since) {
+    const batch = requests.slice(since);
+    assert.deepEqual(batch.map(item => item.code).sort(), ['KOSDAQ', 'KOSPI']);
+    assert(batch.every(item => item.key === key), 'both requests use only the active profile key');
+    assert(view.root.findAllByType('polyline').length > 0, 'the quote history is charted');
+    assert(!renderedText(view.root).includes(key), 'the key is absent from visible text');
+  }
+  async function expectReconnection(key) {
+    const start = requests.length;
+    await reopen();
+    expectQuotes(key, start);
+  }
+  await reopen();
+  try {
+    assert.equal(inputs('password').length, 0, 'auth resolution cannot expose guest or account credentials');
+    assert.equal(storageCalls.length, 0);
+    await selectUser('first');
+    expectPrompt();
+    assert.equal(inputs('checkbox')[0]?.props.checked, true);
+    await connect(accountKey, true);
+    expectQuotes(accountKey, 0);
+    await expectReconnection(accountKey);
+
+    let start = requests.length;
+    await selectUser('second');
+    expectPrompt();
+    assert.equal(requests.length, start, 'switching to a new UID cannot query with the previous UID key');
+    await connect(secondKey, true);
+    expectQuotes(secondKey, start);
+    start = requests.length;
+    await selectUser(null);
+    expectPrompt();
+    assert.equal(requests.length, start, 'a guest cannot inherit the signed-in connection');
+    await connect(guestKey, true);
+    expectQuotes(guestKey, start);
+    await expectReconnection(guestKey);
+
+    start = requests.length;
+    await selectUser('first');
+    expectQuotes(accountKey, start);
+    const edit = view.root.findAllByType('button').find(button => renderedText(button) === '인증키 변경');
+    await act(async () => edit.props.onClick());
+    expectPrompt();
+    start = requests.length;
+    await connect('fixture-replaced-key', true);
+    expectQuotes('fixture-replaced-key', start);
+    await expectReconnection('fixture-replaced-key');
+    const forget = view.root.findAllByType('button').find(button => renderedText(button) === '인증키 지우기');
+    await act(async () => forget.props.onClick());
+    expectPrompt();
+    start = requests.length;
+    await reopen();
+    expectPrompt();
+    assert.equal(requests.length, start, 'forgetting the key survives a fresh mount');
+    await selectUser('second');
+    expectQuotes(secondKey, start);
+    start = requests.length;
+    await selectUser(null);
+    expectQuotes(guestKey, start);
+
+    const read = connection.readMarketConnection;
+    let finishRead;
+    connection.readMarketConnection = scope => scope === connection.marketConnectionScope('delayed')
+      ? new Promise(resolve => { finishRead = resolve; }) : read(scope);
+    await selectUser('delayed');
+    assert.equal(view.root.findAllByType('polyline').length, 0, 'a pending account lookup hides the previous chart');
+    start = requests.length;
+    await selectUser('second');
+    expectQuotes(secondKey, start);
+    start = requests.length;
+    await act(async () => finishRead('fixture-obsolete-key'));
+    assert.equal(requests.length, start, 'a late storage reply from a previous account cannot issue a price request');
+    connection.readMarketConnection = read;
+
+    await selectUser('temporary');
+    start = requests.length;
+    await connect('fixture-session-only', false);
+    expectQuotes('fixture-session-only', start);
+    await reopen();
+    expectPrompt();
+
+    const save = connection.saveMarketConnection;
+    const denied = async () => { throw new Error('Storage access denied'); };
+    connection.readMarketConnection = denied;
+    connection.saveMarketConnection = denied;
+    await selectUser('blocked');
+    expectPrompt();
+    assert.match(renderedText(view.root), /저장된 연결을 확인할 수 없습니다/);
+    start = requests.length;
+    await connect('fixture-blocked-storage', true);
+    expectQuotes('fixture-blocked-storage', start);
+    assert.match(renderedText(view.root), /(?:현재|이번|이) (?:창|화면|세션)|저장할 수 없/);
+    await reopen();
+    expectPrompt();
+    connection.readMarketConnection = read;
+    connection.saveMarketConnection = save;
+
+    compact = true;
+    window.chrome = { webview: { postMessage() { throw new Error('the public market widget has no native message bridge'); } } };
+    window.location.pathname = '/propig/desktop/market';
+    const beforeLegacy = storageCalls.length;
+    await reopen();
+    expectPrompt();
+    assert.equal(inputs('checkbox').length, 0);
+    assert.match(renderedText(view.root), /그뚠뎃을 업데이트/);
+    start = requests.length;
+    await connect('fixture-legacy-window');
+    expectQuotes('fixture-legacy-window', start);
+    await reopen();
+    expectPrompt();
+    assert.equal(storageCalls.length, beforeLegacy, 'an older InPrivate widget never tries to remember its session');
+
+    window.__geuttunMarketProfile = 'persistent';
+    await reopen();
+    expectPrompt();
+    start = requests.length;
+    await connect('fixture-windows-profile', true);
+    expectQuotes('fixture-windows-profile', start);
+    await expectReconnection('fixture-windows-profile');
+  } finally {
+    await act(async () => view.unmount());
+    delete window.chrome;
+    delete window.__geuttunMarketProfile;
+    window.location.pathname = '/propig';
+  }
+}
+
 async function checkAccountAndBridge() {
   const accounts = [];
   const messages = [];
   const host = { isWindowsDashboard: false };
-  const market = load('../market/MarketDashboard.tsx', {
-    '@/lib/desktopWorkspaceRoute': host,
-    './MarketChart': load('../market/MarketChart.tsx'),
-    './marketData': load('../market/marketData.ts'),
-    './marketClient': {
-      loadPrices: async () => [{ date: '2024-02-29', close: 1234.5, open: 1200, high: 1300, low: 1190, change: 1.2 }],
-    },
-  }).default;
   const auth = { currentUser: { uid: 'account-a' }, loading: false };
+  const { Market: market } = marketFixture(auth, host);
   const firestore = {
     collection: (_db, ...segments) => segments.join('/'),
     limit: size => size,
@@ -377,13 +606,15 @@ async function main() {
   globalThis.clearInterval = cancel;
   try {
     await checkForecast();
+    await checkDashboardBrands();
+    await checkMarketReconnect();
     await checkAccountAndBridge();
     await checkPanels(sample);
   } finally {
     Date.now = originalNow;
     globalThis.clearInterval = originalClearInterval;
   }
-  console.log('PASS PC widgets: temperature sources, market registration and launch, KST rollover, account changes, device-scoped key links and native session isolation.');
+  console.log('PASS PC widgets: platform branding, market reconnect and profile isolation, market registration and launch, temperature sources, KST rollover, account changes, device-scoped key links and native session isolation.');
 }
 
 async function checkForecast() {

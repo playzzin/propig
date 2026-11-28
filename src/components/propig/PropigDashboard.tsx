@@ -3,6 +3,7 @@
 import { SiteAppDownload } from '@/components/site-home/SiteAppDownload';
 import dynamic from 'next/dynamic';
 import { getDashboardPlatform, publishMobileWidget, requestMobileWidgetPin } from '@/app/propig/_lib/mobileDashboardWidget';
+import { useDashboardBrand } from '@/app/propig/_lib/dashboardBrand';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -1111,7 +1112,7 @@ function PropigDashboardSession() {
   const platform = useSyncExternalStore(subscribeToHost, getDashboardPlatform, getServerPlatform);
   const windowsDashboard = platform === 'windows';
   const mobileDashboard = platform === 'ios' || platform === 'android';
-  const brand = windowsDashboard ? '그뚠뎃' : mobileDashboard ? '그뚠앱' : '그뚠웹';
+  const brand = useDashboardBrand();
   const [loginOpen, setLoginOpen] = useState(false);
   const appRegistry = usePropigAppRegistry();
   const router = useRouter();

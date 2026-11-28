@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { useDashboardBrand } from '@/app/propig/_lib/dashboardBrand';
 import { getCorpPageByPath } from '@/constants/corpPages';
 import { isDashboardStyleCorpPath } from '@/constants/dashboardStyleCorpRoutes';
 import { MENU_PAGE_OPTIONS } from '@/constants/menuPages';
@@ -95,21 +96,21 @@ function getRouteViewState(pathname: string | null, menuTitle: string | null): V
 
   if (pathname === '/propig/store') {
     return {
-      title: 'propig 상점',
+      title: '상점',
       description: '개인별로 사용할 프로그램을 등록하고 위젯 대시보드에 연결합니다.',
     };
   }
 
   if (pathname === '/propig/memos') {
     return {
-      title: 'propig 메모장',
+      title: '메모장',
       description: '생각, 할 일 보조 기록, 아이디어를 빠르게 적고 다시 찾습니다.',
     };
   }
 
   if (pathname.startsWith('/propig/') || pathname.startsWith('/shop/')) {
     return {
-      title: 'propig 자기관리',
+      title: '자기관리',
       description: '개인 성장 워크스페이스를 점검합니다.',
     };
   }
@@ -252,7 +253,9 @@ function getRouteViewState(pathname: string | null, menuTitle: string | null): V
 
 export function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
-  const { currentSite, filteredMenu } = useMenuContext();
+  const { currentSite, filteredMenu, siteData } = useMenuContext();
+  const dashboardBrand = useDashboardBrand();
+  const siteName = currentSite === 'shop' ? dashboardBrand : siteData[currentSite]?.name || currentSite.toUpperCase();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -364,6 +367,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       <Sidebar
         currentEnv={currentSite}
+        siteName={siteName}
         isCollapsed={isSidebarCollapsed}
         isMobileOpen={isMobileSidebarOpen}
         isMobileViewport={isMobileViewport}
@@ -389,6 +393,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         }}
       >
         <Header
+          siteName={siteName}
           isMobileSidebarOpen={isMobileSidebarOpen}
           toggleMobileSidebar={toggleMobileSidebar}
           title={viewState.title}

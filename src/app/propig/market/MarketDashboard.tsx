@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { isWindowsDashboard } from '@/lib/desktopWorkspaceRoute';
 import MarketChart, { priceText, type ChartMode } from './MarketChart';
 import { findStocks, loadPrices } from './marketClient';
+import { forgetMarketConnection, marketConnectionScope, readMarketConnection, saveMarketConnection, subscribeMarketConnection } from './marketConnection';
 import {
   indices, marketSources, normalizeServiceKey,
   type Instrument, type MarketStock, type PriceBar,
@@ -72,7 +74,9 @@ function IndexButton({ instrument, active, result, onClick }: {
   );
 }
 
-function MarketSession({ serviceKey, disconnect }: { serviceKey: string; disconnect: () => void }) {
+function MarketSession({ serviceKey, saved, edit, disconnect }: {
+  serviceKey: string; saved: boolean; edit: () => void; disconnect: () => void;
+}) {
   const [selected, setSelected] = useState<Instrument>(indices[0]);
   const [mode, setMode] = useState<ChartMode>('line');
   const [months, setMonths] = useState<number>(periods[1].months);
@@ -173,23 +177,25 @@ function MarketSession({ serviceKey, disconnect }: { serviceKey: string; disconn
       </section>
       <div className={styles.sessionControls}>
         <button type="button" className={styles.secondary} onClick={() => setRefresh(count => count + 1)}>새로고침</button>
+        <button type="button" className={styles.secondary} onClick={edit}>인증키 변경</button>
         <button type="button" className={styles.secondary} onClick={disconnect}>인증키 지우기</button>
+        <small>{saved ? '이 기기에서 자동 연결' : '현재 창에서만 연결'}</small>
       </div>
     </>
   );
 }
 
 const subscribeToHost = () => () => {};
-const windowsHost = () => isWindowsDashboard;
-const serverHost = () => false;
+const serverHost = () => 'checking' as const;
 
 export default function MarketDashboard({ compact = false }: { compact?: boolean }) {
-  const nativeHost = useSyncExternalStore(subscribeToHost, windowsHost, serverHost);
-  const [serviceKey, setServiceKey] = useState<string | null>(null);
-  const [input, setInput] = useState('');
-  const [invalid, setInvalid] = useState(false);
-
-  if (nativeHost) return (
+  const { currentUser, loading } = useAuth();
+  const host = useSyncExternalStore(subscribeToHost, () => {
+    if (isWindowsDashboard) return 'windows-main' as const;
+    const current = window as Window & { chrome?: { webview?: unknown }; __geuttunMarketProfile?: string };
+    return compact && current.chrome?.webview && current.__geuttunMarketProfile !== 'persistent' ? 'temporary' : 'profile';
+  }, serverHost);
+  if (host === 'windows-main') return (
     <div className={styles.dashboard}>
       <div className={styles.connectCard}>
         <a className={styles.primary} href="propig-widgets:market">국내 증시 위젯 열기</a>
@@ -197,36 +203,165 @@ export default function MarketDashboard({ compact = false }: { compact?: boolean
       </div>
     </div>
   );
+  if (loading || host === 'checking') return <p className={styles.notice} role="status">시세 연결을 확인하는 중…</p>;
+  const scope = marketConnectionScope(currentUser?.uid ?? null);
+  return <MarketProfile key={host + ':' + scope} scope={scope} compact={compact} canRemember={host === 'profile'} />;
+}
 
-  function connect(event: FormEvent<HTMLFormElement>) {
+type Connection = { value: string; saved: boolean; revision: number };
+
+function MarketProfile({ scope, compact, canRemember }: { scope: string; compact: boolean; canRemember: boolean }) {
+  const [connection, setConnection] = useState<Connection | null>(null);
+  const [pending, setPending] = useState<'read' | 'write' | null>(canRemember ? 'read' : null);
+  const [input, setInput] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [remember, setRemember] = useState(canRemember);
+  const [invalid, setInvalid] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [mayHaveSavedKey, setMayHaveSavedKey] = useState(false);
+  const generation = useRef(0);
+  const nextVersion = useCallback(() => ++generation.current, []);
+  const writing = useRef(false);
+  const temporary = useRef(false);
+
+  function activate(value: string, saved: boolean) {
+    setConnection(previous => previous?.value === value && previous.saved === saved
+      ? previous : { value, saved, revision: (previous?.revision ?? 0) + 1 });
+  }
+
+  const restore = useCallback(async () => {
+    if (writing.current || temporary.current) return;
+    const version = nextVersion();
+    try {
+      const value = await readMarketConnection(scope);
+      if (version !== generation.current) return;
+      if (value) activate(value, true);
+      else setConnection(null);
+      setMayHaveSavedKey(Boolean(value));
+      setNotice('');
+    } catch {
+      if (version !== generation.current) return;
+      setConnection(null);
+      setMayHaveSavedKey(true);
+      setNotice('기기에 저장된 연결을 확인할 수 없습니다. 인증키를 입력하면 이 창에서 시세를 볼 수 있습니다.');
+    } finally {
+      if (version === generation.current) setPending(null);
+    }
+  }, [nextVersion, scope]);
+
+  useEffect(() => {
+    if (!canRemember) return;
+    const unsubscribe = subscribeMarketConnection(scope, () => { void restore(); });
+    void restore();
+    return () => { nextVersion(); unsubscribe(); };
+  }, [canRemember, nextVersion, restore, scope]);
+
+  async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const key = normalizeServiceKey(input);
-    setInvalid(key === null);
-    if (!key) return;
+    if (writing.current) return;
+    const value = normalizeServiceKey(input);
+    setInvalid(value === null);
+    if (!value) return;
+    const version = nextVersion();
+    writing.current = true;
+    setPending('write');
     setInput('');
-    setServiceKey(key);
+    let saved = false;
+    let stored = mayHaveSavedKey;
+    let superseded = false;
+    let message = '';
+    try {
+      if (canRemember && remember) {
+        saved = await saveMarketConnection(scope, value);
+        superseded = !saved;
+        stored = saved;
+      } else if (canRemember && stored) {
+        await forgetMarketConnection(scope);
+        stored = false;
+      }
+    } catch {
+      message = stored
+        ? '새 인증키는 이 창에서만 사용합니다. 기기의 이전 연결이 남아 있을 수 있습니다.'
+        : '이 기기에 저장할 수 없어 이 창에서만 연결했습니다.';
+    }
+    if (version !== generation.current) return;
+    writing.current = false;
+    temporary.current = !saved && !superseded;
+    setEditing(false);
+    if (superseded) {
+      setConnection(null);
+      setPending('read');
+      void restore();
+      return;
+    }
+    activate(value, saved);
+    setMayHaveSavedKey(stored);
+    setNotice(message);
+    setPending(null);
+    if (saved) void restore();
+  }
+
+  async function disconnect() {
+    if (writing.current) return;
+    const version = nextVersion();
+    writing.current = true;
+    temporary.current = true;
+    setConnection(null);
+    setEditing(false);
+    setInput('');
+    setInvalid(false);
+    setPending('write');
+    try {
+      if (canRemember) await forgetMarketConnection(scope);
+      if (version !== generation.current) return;
+      temporary.current = false;
+      setMayHaveSavedKey(false);
+      setNotice('');
+    } catch {
+      if (version !== generation.current) return;
+      setMayHaveSavedKey(true);
+      setNotice('이 창의 연결을 해제했습니다. 기기에 저장된 인증키를 지우려면 다시 시도해 주세요.');
+    } finally {
+      if (version === generation.current) {
+        writing.current = false;
+        setPending(null);
+      }
+    }
   }
 
   return (
     <div className={styles.dashboard} data-compact={compact || undefined}>
-      {serviceKey ? (
-        <MarketSession serviceKey={serviceKey} disconnect={() => setServiceKey(null)} />
+      {pending === 'read' ? <p className={styles.notice} role="status">저장된 시세 연결을 확인하는 중…</p> : connection && !editing ? (
+        <MarketSession key={connection.revision} serviceKey={connection.value} saved={connection.saved}
+          edit={() => { setRemember(connection.saved); setEditing(true); }} disconnect={() => void disconnect()} />
       ) : (
         <section className={styles.connectCard}>
-          <h2>시세 데이터 연결</h2>
+          <h2>{editing ? '인증키 변경' : '시세 데이터 연결'}</h2>
           <p>공공데이터포털에서 지수시세와 주식시세 이용을 신청한 뒤 본인의 인증키를 입력하세요.</p>
-          <form className={styles.form} onSubmit={connect} autoComplete="off">
-            <label className={styles.field}>
-              공공데이터포털 인증키
-              <input type="password" required autoComplete="off" spellCheck={false} maxLength={512}
-                aria-invalid={invalid} value={input} onChange={event => { setInput(event.target.value); setInvalid(false); }} />
-            </label>
-            <button className={styles.primary} type="submit">연결</button>
+          <form onSubmit={connect} autoComplete="off">
+            <div className={styles.form}>
+              <label className={styles.field}>
+                공공데이터포털 인증키
+                <input type="password" required autoComplete="off" spellCheck={false} maxLength={512} disabled={pending === 'write'}
+                  aria-invalid={invalid} value={input} onChange={event => { setInput(event.target.value); setInvalid(false); }} />
+              </label>
+              <button className={styles.primary} type="submit" disabled={pending === 'write'}>연결</button>
+            </div>
+            {canRemember && <p className={styles.notice}><label>
+              <input type="checkbox" checked={remember} disabled={pending === 'write'} onChange={event => setRemember(event.target.checked)} /> 이 기기에서 연결 기억
+            </label></p>}
           </form>
           {invalid && <p className={styles.notice} role="alert">공공데이터포털에서 발급된 인증키를 확인해 주세요.</p>}
-          <p className={styles.notice}>이 화면을 다시 열면 인증키를 다시 입력해야 합니다.</p>
+          <p className={styles.notice}>{canRemember
+            ? '선택하면 이 기기의 현재 프로필에 인증키를 암호화해 저장합니다. 공용 기기에서는 선택을 해제하세요.'
+            : '이 버전의 Windows 위젯은 현재 창에서만 연결됩니다. 자동 연결을 사용하려면 그뚠뎃을 업데이트하세요.'}</p>
+          {editing && connection && <button className={styles.secondary} type="button" disabled={pending === 'write'}
+            onClick={() => { setInput(''); setInvalid(false); setEditing(false); }}>취소</button>}
+          {!connection && mayHaveSavedKey && <button className={styles.secondary} type="button" disabled={pending === 'write'}
+            onClick={() => void disconnect()}>저장된 인증키 지우기</button>}
         </section>
       )}
+      {notice && <p className={styles.notice} role="status">{notice}</p>}
       <div className={styles.sources}>
         <span>금융위원회·한국거래소 제공 · 다음 영업일 오후 1시 이후 갱신</span>
         <a href={marketSources.index} target="_blank" rel="noreferrer">지수시세정보</a>

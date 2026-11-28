@@ -10,6 +10,7 @@ import {
   type PropigStoreAppId,
 } from '@/constants/propigStore';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
+import { useDashboardBrand } from '@/app/propig/_lib/dashboardBrand';
 import styles from './DesktopShell.module.css';
 
 const LoadingScreen = () => <div className={styles.loading} role="status">화면을 여는 중…</div>;
@@ -52,6 +53,7 @@ function AppIcon({ app }: { app: PropigStoreApp }) {
 }
 
 export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: DesktopShellProps) {
+  const brand = useDashboardBrand();
   const registry = usePropigAppRegistry();
   const [view, setView] = useState<View>('home');
   const [habitView, setHabitView] = useState<HabitView>('daily');
@@ -75,8 +77,8 @@ export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: Deskt
   return (
     <div className={styles.shell}>
       <aside className={styles.rail}>
-        <div className={styles.brand}>ProPig</div>
-        <nav className={styles.navigation} aria-label="ProPig 앱">
+        <div className={styles.brand}>{brand}</div>
+        <nav className={styles.navigation} aria-label={`${brand} 메뉴`}>
           <button type="button" className={styles.navButton} aria-current={view === 'home' ? 'page' : undefined} onClick={() => setView('home')}>
             <House size={17} aria-hidden="true" />
             <span>홈</span>

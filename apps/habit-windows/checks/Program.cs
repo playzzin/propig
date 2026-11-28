@@ -79,6 +79,12 @@ Check(PcWidgetWindows.PanelId(DesktopSurface.Market) == "market" &&
     PcWidgetWindows.FromCommandLine(["propig-widgets:market"]) == "market" &&
     PcWidgetWindows.FromCommandLine(["propig-widgets:market/other"]) == null,
     "The stock widget must open only through its registered desktop target.");
+var marketProfile = PublicWidgetView.MarketProfileName("member");
+Check(marketProfile == PublicWidgetView.MarketProfileName("member") && marketProfile.Length == 32
+    && marketProfile.All(char.IsAsciiHexDigitLower)
+    && marketProfile != PublicWidgetView.MarketProfileName("Member")
+    && marketProfile != PublicWidgetView.MarketProfileName(null),
+    "The stock widget must reopen the same persistent profile and isolate accounts and guests.");
 if (args.Contains("--temperature-live"))
 {
     await TemperatureChecks.CheckLive();
