@@ -14,6 +14,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
     private readonly Uri entry;
     private readonly string title;
     private readonly bool market;
+    private readonly string dataDirectory;
     private static readonly HashSet<string> SourcePages = new(StringComparer.Ordinal)
     {
         "https://www.data.go.kr/data/15094807/openapi.do",
@@ -26,8 +27,9 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
     private readonly StackPanel notice = new() { Margin = new Thickness(14) };
     private bool disposed;
 
-    public PublicWidgetView(DesktopSurface surface, string title, Action retryLoad)
+    public PublicWidgetView(DesktopSurface surface, string title, string dataDirectory, Action retryLoad)
     {
+        this.dataDirectory = dataDirectory;
         this.title = title;
         market = surface == DesktopSurface.Market;
         entry = new Uri(FirebaseHabits.WebOrigin + (surface switch
@@ -56,7 +58,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
         try
         {
             var environment = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: Path.Combine(FirebaseHabits.AppDirectory, market ? "MarketWebView" : "PublicWidgetsWebView"));
+                userDataFolder: Path.Combine(dataDirectory, market ? "MarketWebView" : "PublicWidgetsWebView"));
             if (disposed) return;
             var options = environment.CreateCoreWebView2ControllerOptions();
             options.IsInPrivateModeEnabled = market;
@@ -67,7 +69,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
             core.Settings.AreHostObjectsAllowed = false;
             core.Settings.IsWebMessageEnabled = false;
             core.Settings.AreDevToolsEnabled = false;
-            core.Settings.AreDefaultContextMenusEnabled = false;
+            ProPigWindow.ConfigureWebWidgetMenu(this, core);
             core.Settings.IsGeneralAutofillEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.PermissionRequested += (_, request) => request.State = CoreWebView2PermissionState.Deny;

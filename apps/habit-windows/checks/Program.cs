@@ -74,6 +74,18 @@ static async Task CheckProviders(string root)
     Check(sample.Providers.Any(p => p.Id == "antigravity" && p.Status == "STALE" && p.Weekly == null), "Expired observations cannot appear current.");
 }
 
+StartupChecks.Run();
+WidgetSessionChecks.CheckPreferences();
+if (args is ["--desktop-layer-live"])
+{
+    DesktopLayerChecks.Run();
+    return;
+}
+if (args is ["--widget-session-live", var phase, var directory])
+{
+    WidgetSessionChecks.RunWindowsPhase(phase, directory);
+    return;
+}
 TemperatureChecks.CheckReadings();
 Check(PcWidgetWindows.PanelId(DesktopSurface.Market) == "market" &&
     PcWidgetWindows.FromCommandLine(["propig-widgets:market"]) == "market" &&

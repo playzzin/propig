@@ -18,8 +18,10 @@ $manifest = [xml]@'
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+         xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap uap3 rescap">
+         IgnorableNamespaces="uap uap3 desktop uap10 rescap">
   <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.4.1.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>그뚠뎃</DisplayName>
@@ -36,6 +38,10 @@ $manifest = [xml]@'
         BackgroundColor="#101821" Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"/>
       <Extensions>
+        <desktop:Extension Category="windows.startupTask" Executable="ProPig.Habits.exe"
+          EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--startup-widgets">
+          <desktop:StartupTask TaskId="ProPigWidgetsStartup" Enabled="false" DisplayName="그뚠뎃 위젯"/>
+        </desktop:Extension>
         <uap3:Extension Category="windows.protocol">
           <uap3:Protocol Name="propig-widgets" Parameters="&quot;%1&quot;" />
         </uap3:Extension>
