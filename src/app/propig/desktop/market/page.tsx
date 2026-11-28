@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import MarketDashboard from '@/app/propig/market/MarketDashboard';
+import DesktopMarketContent from './DesktopMarketContent';
 import styles from '../../market/MarketPage.module.css';
 
 export const metadata: Metadata = {
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 export default function DesktopMarketPage() {
   return (
     <main className={styles.desktop} aria-label="국내 증시 위젯">
-      <MarketDashboard compact />
+      <DesktopMarketContent />
     </main>
   );
 }

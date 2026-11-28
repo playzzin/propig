@@ -60,7 +60,7 @@ function flattenAccountMenu(items: MenuItem[], depth = 0): AccountMenuRenderItem
   });
 }
 
-export const ProfileButton: React.FC<{ onOpenSiteSelection: () => void }> = ({ onOpenSiteSelection }) => {
+export const ProfileButton: React.FC<{ onOpenSiteSelection: () => void; siteName?: string }> = ({ onOpenSiteSelection, siteName }) => {
   const { currentUser, logout } = useAuth();
   const { currentSite, siteData, userRole, currentPosition, menuAccess, permissions } = useMenuContext();
   const router = useRouter();
@@ -240,7 +240,7 @@ export const ProfileButton: React.FC<{ onOpenSiteSelection: () => void }> = ({ o
                 <span className="auth-account-action-icon" aria-hidden="true"><i className="fa-solid fa-globe" /></span>
                 <span className="auth-account-action-copy">
                   <strong>사이트 선택</strong>
-                  <span>현재 {siteData[currentSite]?.name || currentSite}</span>
+                  <span>현재 {siteName || siteData[currentSite]?.name || currentSite}</span>
                 </span>
                 <i className="fa-solid fa-chevron-right auth-account-action-caret" aria-hidden="true" />
               </button>

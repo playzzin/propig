@@ -39,6 +39,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -104,7 +106,16 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$credentials" >> "$GITHUB_ENV"
 
       - name: Deploy Windows habit login functions
+        env:
+          PREVIOUS_MAIN: ${{ github.event.before }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == push && "$PREVIOUS_MAIN" =~ ^[0-9a-f]{40}$ && "$PREVIOUS_MAIN" != 0000000000000000000000000000000000000000 ]]; then
+            git cat-file -e "$PREVIOUS_MAIN^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$PREVIOUS_MAIN"
+            if git diff --quiet "$PREVIOUS_MAIN" "$GITHUB_SHA" -- firebase.json functions ':!functions/src/shared/koreanMarket.ts'; then
+              echo 'Windows login functions are current. Continuing with Firebase Hosting.'
+              exit 0
+            fi
+          fi
           firebase deploy \
             --project "$FIREBASE_PROJECT_ID" \
             --only functions:createHabitDesktopLogin,functions:redeemHabitDesktopLogin,functions:createHabitDesktopWorkspaceSession \

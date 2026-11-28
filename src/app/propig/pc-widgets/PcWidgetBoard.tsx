@@ -86,11 +86,10 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
   const [selected, setPanel] = useState<PcPanel | null>(null);
   const panel = selected ?? entry;
   const localPanel = panel === 'clock' || panel === 'calendar' || panel === 'market';
-  const nativeMarket = panel === 'market' && (isWindowsDashboard || desktop);
   const [deviceId, chooseDevice] = useState('');
   const [settings, setSettings] = useState(false);
   const [now, setNow] = useState(0);
-  const {native, waiting, action} = useNativeWidget(nativeMarket ? undefined : requestId);
+  const {native, waiting, action} = useNativeWidget(panel === 'market' ? undefined : requestId);
   const cloud = useCloudDevices(desktop || localPanel ? undefined : currentUser?.uid);
   useEffect(() => {
     let active = true;
@@ -113,19 +112,15 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
     if (desktop) action('key/' + layoutId + '/' + index);
     else if (device) window.location.href = 'propig-widgets:press/' + device.id + '/' + layoutId + '/' + index;
   };
-  const selectPanel = (id: PcPanel) => {
-    if (id === 'market' && isWindowsDashboard) window.location.assign('propig-widgets:market');
-    else setPanel(id);
-  };
   return <main className={styles.board} data-compact={desktop || undefined}>
     <header className={styles.heading}>
       <div className={styles.title}><Monitor size={22} aria-hidden="true"/><h1>PC 위젯</h1></div>
-      {!nativeMarket && (desktop ? <button type="button" className={styles.option} aria-expanded={settings} onClick={() => setSettings(!settings)}>
+      {panel !== 'market' && (desktop ? <button type="button" className={styles.option} aria-expanded={settings} onClick={() => setSettings(!settings)}>
         <Settings2 size={16} aria-hidden="true"/> 연결 설정
       </button> : <a className={styles.option} href={'propig-widgets:' + panel}><Monitor size={15} aria-hidden="true"/>Windows 위젯 열기</a>)}
     </header>
     {!desktop && <nav className={styles.tabs} aria-label="PC 위젯 선택">
-      {pcPanels.map(p => {const Icon = icons[p.id]; return <button type="button" key={p.id} aria-current={p.id === panel ? 'page' : undefined} onClick={() => selectPanel(p.id)}>
+      {pcPanels.map(p => {const Icon = icons[p.id]; return <button type="button" key={p.id} aria-current={p.id === panel ? 'page' : undefined} onClick={() => setPanel(p.id)}>
         <Icon size={17} aria-hidden="true"/>{p.label}</button>;})}
     </nav>}
     {!localPanel && <div className={styles.status}>
@@ -134,7 +129,7 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
         {cloud.devices.map(row => <option key={row.id} value={row.id}>PC · {row.id.slice(-6).toUpperCase()}</option>)}
       </select>}
     </div>}
-    {desktop && settings && !nativeMarket && <section className={styles.settings} aria-label="PC 연결 설정">
+    {desktop && settings && panel !== 'market' && <section className={styles.settings} aria-label="PC 연결 설정">
       <h2>이 PC 연결</h2>
       <p>웹 공유를 켜면 이 앱이 PC 모델, 사용률과 온도, AI 사용량, MiraBox 키 종류를 약 1분마다 내 ProPig 계정에 보냅니다.</p>
       <button type="button" disabled={waiting || !native} onClick={() => action(native?.sharing ? 'share-off' : 'share-on')}>{native?.sharing ? '공유 중지 및 웹 측정값 삭제' : '이 PC를 내 웹에 공유'}</button>
@@ -160,9 +155,7 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
         {desktop && onPc && <UsageNotes key={requestId} action={action} waiting={waiting} usage={sample?.usage ?? null}/>}</>}
       {panel === 'mirabox' && <MiraBoxPanel mirabox={sample?.mirabox ?? null} onAction={onPc ? launch : undefined} onPress={onPc ? pressKey : undefined}/>}
       {panel === 'dock' && <DockPanel onAction={onPc ? launch : undefined} desktop={desktop}/>}
-      {panel === 'market' && (nativeMarket
-        ? <a className={styles.option} href="propig-widgets:market"><ChartCandlestick size={15} aria-hidden="true"/>국내 증시 위젯 열기</a>
-        : <MarketDashboard key={currentUser?.uid}/>)}
+      {panel === 'market' && <MarketDashboard compact={desktop}/>}
     </section>
     {native?.result && <p className={styles.help} role="status">{native.result}</p>}
   </main>;
