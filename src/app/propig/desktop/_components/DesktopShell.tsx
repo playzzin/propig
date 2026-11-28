@@ -10,6 +10,7 @@ import {
   type PropigStoreAppId,
 } from '@/constants/propigStore';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
+import { useDashboardBrand } from '@/app/propig/_lib/dashboardBrand';
 import styles from './DesktopShell.module.css';
 
 const LoadingScreen = () => <div className={styles.loading} role="status">화면을 여는 중…</div>;
@@ -18,8 +19,9 @@ const HabitTrackerApp = dynamic(() => import('@/components/habits/HabitTrackerAp
 const TodoListApp = dynamic(() => import('@/components/todo-list/TodoListApp'), { loading: LoadingScreen });
 const SmartMemoWorkspace = dynamic(() => import('@/components/propig/memos/SmartMemoWorkspace'), { loading: LoadingScreen });
 const StickyNotesBoard = dynamic(() => import('@/components/StickyNotesBoard'), { loading: LoadingScreen });
+const MarketDashboard = dynamic(() => import('@/app/propig/market/MarketDashboard'), { loading: LoadingScreen });
 
-type DesktopApp = 'habit' | 'memos' | 'todo';
+type DesktopApp = 'habit' | 'memos' | 'todo' | 'market';
 type WebApp = 'bucket' | 'calculator' | 'pc-widgets';
 type DesktopWidget = 'habit' | 'memo' | 'todo' | 'market';
 type View = 'home' | 'store' | DesktopApp;
@@ -43,7 +45,7 @@ function isWebApp(appId: PropigStoreAppId): appId is WebApp {
 
 function desktopWidgetFor(app: PropigStoreApp | undefined): DesktopWidget | undefined {
   const widget = app?.widgetId;
-  if (widget === 'memo' || widget === 'todo' || widget === 'habit') return widget;
+  if (widget === 'memo' || widget === 'todo' || widget === 'habit' || widget === 'market') return widget;
   return undefined;
 }
 
@@ -52,6 +54,7 @@ function AppIcon({ app }: { app: PropigStoreApp }) {
 }
 
 export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: DesktopShellProps) {
+  const brand = useDashboardBrand();
   const registry = usePropigAppRegistry();
   const [view, setView] = useState<View>('home');
   const [habitView, setHabitView] = useState<HabitView>('daily');
@@ -67,16 +70,15 @@ export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: Deskt
     : undefined;
 
   function openApp(appId: PropigStoreAppId) {
-    if (appId === 'market') onOpenWidget('market');
     if (isWebApp(appId)) onOpenWebApp(appId);
-    if (appId === 'habit' || appId === 'memos' || appId === 'todo') setView(appId);
+    if (appId === 'habit' || appId === 'memos' || appId === 'todo' || appId === 'market') setView(appId);
   }
 
   return (
     <div className={styles.shell}>
       <aside className={styles.rail}>
-        <div className={styles.brand}>ProPig</div>
-        <nav className={styles.navigation} aria-label="ProPig 앱">
+        <div className={styles.brand}>{brand}</div>
+        <nav className={styles.navigation} aria-label={`${brand} 메뉴`}>
           <button type="button" className={styles.navButton} aria-current={view === 'home' ? 'page' : undefined} onClick={() => setView('home')}>
             <House size={17} aria-hidden="true" />
             <span>홈</span>
@@ -182,6 +184,7 @@ export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: Deskt
             {memoView === 'list' ? <SmartMemoWorkspace /> : <StickyNotesBoard />}
           </main>
         ) : null}
+        {view === 'market' ? <main className={styles.home} aria-label="국내 증시"><MarketDashboard /></main> : null}
         {view === 'todo' ? <TodoListApp /> : null}
         {view === 'habit' ? <HabitTrackerApp initialView={habitView} onViewChange={setHabitView} onWorkspaceWrite={onHabitWrite} /> : null}
       </div>

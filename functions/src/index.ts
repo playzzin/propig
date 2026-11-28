@@ -26,3 +26,4 @@ export * from './api/hostingApi';
 export * from './triggers/onImageDelete';
 export { setMemoReminder, dispatchMemoReminders } from './triggers/memoReminders';
 export { createHabitDesktopLogin, createHabitDesktopWorkspaceSession, redeemHabitDesktopLogin } from './habitDesktopAuth';
+export { accountMarket } from './marketAccount';

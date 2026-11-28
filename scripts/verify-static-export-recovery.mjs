@@ -30,6 +30,7 @@ assert.ok(!fs.existsSync('src/app/api'));
 assert.ok(!fs.existsSync('src/api'));
 assert.equal(fs.readFileSync(path.join(root,'src/app/api/a/route.ts'),'utf8'),'original-a');
 assert.equal(fs.readFileSync('src/app/page.tsx','utf8'),'dirty-page');
+assert.equal(fs.readFileSync('src/app/propig/market/marketData.ts','utf8'),'public-parser');
 for (const name of ['.env','.env.local','.env.production','.env.production.local']) assert.ok(fs.existsSync(name));
 for (const name of ['.env.development','.env.example','personal.txt','.git','functions','old-build']) assert.ok(!fs.existsSync(name));
 `;
@@ -48,6 +49,8 @@ function setup(name, body = success) {
   for (const name of ['a', 'z']) write(dir, `src/app/api/${name}/route.ts`, `original-${name}`);
   write(dir, 'src/api/private.ts', 'server-only');
   write(dir, 'src/app/page.tsx', 'dirty-page');
+  write(dir, 'src/app/propig/market/marketData.ts', 'web-entry');
+  write(dir, 'functions/src/shared/koreanMarket.ts', 'public-parser');
   for (const name of ['next.config.ts', 'tsconfig.json', 'tsconfig.typecheck.json', 'tsconfig.static-export.json', 'next-env.d.ts', 'postcss.config.mjs', 'package.json', 'package-lock.json', 'types/custom.d.ts', 'public/asset.txt']) write(dir, name, 'original-config');
   write(dir, 'package.json', JSON.stringify({ private: true }));
   // Synthetic env contents only. Never read or print the real repository env.
@@ -73,6 +76,7 @@ function unchanged(dir) {
   assert.equal(text(dir, 'src/app/api/z/route.ts'), 'original-z');
   assert.equal(text(dir, 'src/api/private.ts'), 'server-only');
   assert.equal(text(dir, 'src/app/page.tsx'), 'dirty-page');
+  assert.equal(text(dir, 'src/app/propig/market/marketData.ts'), 'web-entry');
   assert.equal(text(dir, 'next-env.d.ts'), 'original-config');
   assert.equal(text(dir, 'tsconfig.json'), 'original-config');
   assert.equal(text(dir, '.env.local'), 'FIXTURE_ONLY=synthetic-never-print');

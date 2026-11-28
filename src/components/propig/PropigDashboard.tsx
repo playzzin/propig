@@ -3,6 +3,8 @@
 import { SiteAppDownload } from '@/components/site-home/SiteAppDownload';
 import dynamic from 'next/dynamic';
 import { getDashboardPlatform, publishMobileWidget, requestMobileWidgetPin } from '@/app/propig/_lib/mobileDashboardWidget';
+import { useDashboardBrand } from '@/app/propig/_lib/dashboardBrand';
+import { useDashboardLayout } from '@/app/propig/_lib/dashboardPreferences';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -18,7 +20,6 @@ import {
 } from '@dnd-kit/core';
 import {
   SortableContext,
-  arrayMove,
   rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
@@ -172,13 +173,11 @@ interface WidgetChrome {
   hideButton: ReactNode;
 }
 
-const WIDGET_LAYOUT_STORAGE_KEY = 'propig:widget-layout:v1';
 const MEMO_ALL_CATEGORY = 'all';
 const MEMO_UNTAGGED_CATEGORY = '__untagged__';
 const MEMO_ALL_COLORS = 'all';
 const HABIT_ALL_CATEGORY = 'all';
 const MarketDashboard = dynamic(() => import('@/app/propig/market/MarketDashboard'));
-const DEFAULT_WIDGET_ORDER = PROPIG_WIDGET_IDS;
 const WIDGET_LABELS: Record<WidgetId, string> = {
   memo: '메모장',
   habit: '습관 트래커',
@@ -462,41 +461,6 @@ function isWidgetId(value: unknown): value is WidgetId {
 
 function isChoiceMode(mode: RecordMode): mode is 'singleChoice' | 'multiChoice' {
   return mode === 'singleChoice' || mode === 'multiChoice';
-}
-
-function normalizeWidgetOrder(value: unknown): WidgetId[] {
-  const parsed = Array.isArray(value) ? value.filter(isWidgetId) : [];
-  const unique = [...new Set(parsed)];
-  return [...unique, ...DEFAULT_WIDGET_ORDER.filter((id) => !unique.includes(id))];
-}
-
-function normalizeHiddenWidgets(value: unknown): WidgetId[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter(isWidgetId))];
-}
-
-function layoutKey() {
-  const platform = getDashboardPlatform();
-  return platform === 'web' ? WIDGET_LAYOUT_STORAGE_KEY : `${WIDGET_LAYOUT_STORAGE_KEY}:${platform}`;
-}
-
-function loadWidgetLayout(): { order: WidgetId[]; hidden: WidgetId[] } {
-  if (typeof window === 'undefined') {
-    return { order: DEFAULT_WIDGET_ORDER, hidden: [] };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(layoutKey()) ?? window.localStorage.getItem(WIDGET_LAYOUT_STORAGE_KEY);
-    if (!raw) return { order: DEFAULT_WIDGET_ORDER, hidden: [] };
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isPlainRecord(parsed)) return { order: DEFAULT_WIDGET_ORDER, hidden: [] };
-    return {
-      order: normalizeWidgetOrder(parsed.order),
-      hidden: normalizeHiddenWidgets(parsed.hidden),
-    };
-  } catch {
-    return { order: DEFAULT_WIDGET_ORDER, hidden: [] };
-  }
 }
 
 function isRecordMode(value: unknown): value is RecordMode {
@@ -1111,7 +1075,7 @@ function PropigDashboardSession() {
   const platform = useSyncExternalStore(subscribeToHost, getDashboardPlatform, getServerPlatform);
   const windowsDashboard = platform === 'windows';
   const mobileDashboard = platform === 'ios' || platform === 'android';
-  const brand = windowsDashboard ? '그뚠뎃' : mobileDashboard ? '그뚠앱' : '그뚠웹';
+  const brand = useDashboardBrand();
   const [loginOpen, setLoginOpen] = useState(false);
   const appRegistry = usePropigAppRegistry();
   const router = useRouter();
@@ -1132,9 +1096,6 @@ function PropigDashboardSession() {
   const [openBucketIds, setOpenBucketIds] = useState<string[]>([]);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [widgetOrder, setWidgetOrder] = useState<WidgetId[]>(DEFAULT_WIDGET_ORDER);
-  const [hiddenWidgetIds, setHiddenWidgetIds] = useState<WidgetId[]>([]);
-  const [layoutReady, setLayoutReady] = useState(false);
   const [todayKey, setTodayKey] = useState(getTodayKey);
   useEffect(() => {
     let timer: number;
@@ -1157,6 +1118,10 @@ function PropigDashboardSession() {
   }, [todayKey]);
   const dateLabel = useMemo(() => formatDashboardDate(todayKey), [todayKey]);
   const uid = currentUser?.uid;
+  const {
+    order: widgetOrder, hidden: hiddenWidgetIds, move, setHidden, reset: resetWidgetLayout,
+    error: layoutError, retry: retryLayout,
+  } = useDashboardLayout(uid ?? null);
   const installedWidgetIds = useMemo(
     () =>
       new Set(
@@ -1189,18 +1154,6 @@ function PropigDashboardSession() {
       todoDone: scheduled.filter(item => item.completed).length,
     });
   }, [mobileDashboard, uid, todayKey, todo.state, todo.tasks, todo.anytimeTasks, habit.state, habit.workspace]);
-
-  useEffect(() => {
-    const savedLayout = loadWidgetLayout();
-    setWidgetOrder(savedLayout.order);
-    setHiddenWidgetIds(savedLayout.hidden);
-    setLayoutReady(true);
-  }, []);
-
-  useEffect(() => {
-    if (!layoutReady || typeof window === 'undefined') return;
-    window.localStorage.setItem(layoutKey(), JSON.stringify({ order: widgetOrder, hidden: hiddenWidgetIds }));
-  }, [hiddenWidgetIds, layoutReady, widgetOrder]);
 
   const toggleHabitRecordEditor = useCallback((habitId: string) => {
     setOpenHabitRecordIds((current) =>
@@ -1370,26 +1323,11 @@ function PropigDashboardSession() {
     const overId = event.over?.id;
     if (!isWidgetId(activeId) || !isWidgetId(overId) || activeId === overId) return;
 
-    setWidgetOrder((current) => {
-      const oldIndex = current.indexOf(activeId);
-      const newIndex = current.indexOf(overId);
-      if (oldIndex < 0 || newIndex < 0) return current;
-      return arrayMove(current, oldIndex, newIndex);
-    });
-  }, []);
+    move(activeId, overId);
+  }, [move]);
 
-  const hideWidget = useCallback((id: WidgetId) => {
-    setHiddenWidgetIds((current) => (current.includes(id) ? current : [...current, id]));
-  }, []);
-
-  const showWidget = useCallback((id: WidgetId) => {
-    setHiddenWidgetIds((current) => current.filter((item) => item !== id));
-  }, []);
-
-  const resetWidgetLayout = useCallback(() => {
-    setWidgetOrder(DEFAULT_WIDGET_ORDER);
-    setHiddenWidgetIds([]);
-  }, []);
+  const hideWidget = useCallback((id: WidgetId) => setHidden(id, true), [setHidden]);
+  const showWidget = useCallback((id: WidgetId) => setHidden(id, false), [setHidden]);
 
   const openRoute = useCallback(
     (href: string) => {
@@ -1789,7 +1727,7 @@ function PropigDashboardSession() {
           <WidgetHeader>
             {chrome.renderTitle(<BarChart3 size={20} />)}
             <WidgetHeaderActions>
-              {!windowsDashboard && <WidgetLink href="/propig/market" aria-label="국내 증시 전체 보기"><ArrowUpRight size={17} /></WidgetLink>}
+              <WidgetLink href="/propig/market" aria-label="국내 증시 전체 보기"><ArrowUpRight size={17} /></WidgetLink>
               {chrome.hideButton}
             </WidgetHeaderActions>
           </WidgetHeader>
@@ -2444,12 +2382,13 @@ function PropigDashboardSession() {
                   if (!await requestMobileWidgetPin()) toast.info('홈 화면을 길게 누르고 위젯에서 그뚠앱의 오늘 요약을 선택하세요.');
                 }}>홈 화면에 오늘 요약 추가</ShowWidgetButton>
               )}
-              <ShowWidgetButton as={Link} href="/propig/market" prefetch={false}>
-                <BarChart3 size={15} aria-hidden="true" />
-                국내 증시
-              </ShowWidgetButton>
             </>
           )}
+          <ShowWidgetButton as={Link} href="/propig/market" prefetch={false}>
+            <BarChart3 size={15} aria-hidden="true" />
+            국내 증시
+          </ShowWidgetButton>
+          {layoutError && <LayoutStatus role="status">{layoutError} <ShowWidgetButton type="button" onClick={retryLayout}>다시 시도</ShowWidgetButton></LayoutStatus>}
           {hiddenWidgets.length > 0 ? (
             hiddenWidgets.map((id) => (
               <ShowWidgetButton key={id} type="button" onClick={() => showWidget(id)}>

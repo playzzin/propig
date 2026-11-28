@@ -1,5 +1,7 @@
 'use client';
 
+import { useDashboardBrand } from '@/app/propig/_lib/dashboardBrand';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Calculator, ClipboardCopy, Copy, Divide, Equal, Loader2, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
@@ -314,6 +316,7 @@ function getRecordForSave(data: CalculatorData): CalculationRecord {
 }
 
 export default function PropigCalculator() {
+  const brand = useDashboardBrand();
   const { currentUser, loading: authLoading } = useAuth();
   const uid = currentUser?.uid;
   const storageKey = useMemo(() => getStorageKey(uid), [uid]);
@@ -552,7 +555,7 @@ export default function PropigCalculator() {
       <CalculatorHero>
         <HeroBadge>
           <Calculator size={17} />
-          PROPIG CALC
+          {brand}
         </HeroBadge>
         <HeroTitle>계산기</HeroTitle>
         <HeroMeta>

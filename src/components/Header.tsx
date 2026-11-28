@@ -21,6 +21,7 @@ const ProfileButton = dynamic(
 const MemoNotificationBell = dynamic(() => import('./propig/memos/MemoNotificationBell'), { ssr: false });
 
 interface HeaderProps {
+    siteName: string;
     isMobileSidebarOpen: boolean;
     toggleMobileSidebar: () => void;
     title?: string;
@@ -30,6 +31,7 @@ interface HeaderProps {
 const LEGACY_DESIGN_MODE_STORAGE_KEY = 'propig:design-mode';
 
 export default function Header({
+    siteName,
     isMobileSidebarOpen,
     toggleMobileSidebar,
     title,
@@ -39,7 +41,6 @@ export default function Header({
     const { currentSite, siteData } = useMenuContext();
     const pathname = usePathname();
     const homePath = getSiteHomePath(currentSite, siteData);
-    const siteName = siteData[currentSite]?.name || currentSite.toUpperCase();
     const { settings } = useSystem();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
     const openLogin = useCallback(() => setIsLoginOpen(true), []);
@@ -55,7 +56,11 @@ export default function Header({
         document.body.removeAttribute('data-propig-design');
 
         if (typeof window !== 'undefined') {
-            window.localStorage.removeItem(LEGACY_DESIGN_MODE_STORAGE_KEY);
+            try {
+                window.localStorage.removeItem(LEGACY_DESIGN_MODE_STORAGE_KEY);
+            } catch {
+                // Storage can be disabled while the dashboard is open.
+            }
         }
     }, []);
 
@@ -78,6 +83,7 @@ export default function Header({
                     <Link
                         href={homePath}
                         className="mobile-brand-link"
+                        data-show-name={currentSite === 'shop' || undefined}
                         aria-label={`${siteName} 홈`}
                         title={`${siteName} 홈`}
                         onClick={(event) => {
@@ -102,6 +108,7 @@ export default function Header({
                         ) : (
                             <i className="fa-solid fa-layer-group" aria-hidden="true" />
                         )}
+                        {currentSite === 'shop' && <span>{siteName}</span>}
                     </Link>
 
                     {title && (
@@ -121,7 +128,7 @@ export default function Header({
                 <div className="header-actions">
                     {currentUser && <MemoNotificationBell key={currentUser.uid} uid={currentUser.uid} />}
                     {currentUser ? (
-                        <ProfileButton onOpenSiteSelection={openLogin} />
+                        <ProfileButton siteName={siteName} onOpenSiteSelection={openLogin} />
                     ) : (
                         <button
                             type="button"

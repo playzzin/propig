@@ -103,14 +103,14 @@ jobs:
           printf "%s" "$FIREBASE_SERVICE_ACCOUNT" > "$credentials"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$credentials" >> "$GITHUB_ENV"
 
-      - name: Deploy Windows habit login functions
+      - name: Deploy desktop login and account market functions
         run: |
           firebase deploy \
             --project "$FIREBASE_PROJECT_ID" \
-            --only functions:createHabitDesktopLogin,functions:redeemHabitDesktopLogin,functions:createHabitDesktopWorkspaceSession \
+            --only functions:createHabitDesktopLogin,functions:redeemHabitDesktopLogin,functions:createHabitDesktopWorkspaceSession,functions:accountMarket \
             --non-interactive
 
-      - name: Verify Windows habit login functions
+      - name: Verify desktop login and account market functions
         run: |
           origin="https://asia-northeast3-${FIREBASE_PROJECT_ID}.cloudfunctions.net"
           response="$RUNNER_TEMP/habit-login-response.json"
@@ -130,6 +130,7 @@ jobs:
           check_callable createHabitDesktopLogin 401 UNAUTHENTICATED
           check_callable redeemHabitDesktopLogin 403 PERMISSION_DENIED
           check_callable createHabitDesktopWorkspaceSession 401 UNAUTHENTICATED
+          check_callable accountMarket 401 UNAUTHENTICATED
 
       - name: Deploy Firebase Hosting
         run: |

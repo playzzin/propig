@@ -355,6 +355,7 @@ internal sealed partial class HabitApp
     private void OpenDesktopWidget(DesktopSurface surface, string surfaceName, bool activate = true)
     {
         var market = surface == DesktopSurface.Market;
+        if (market && !sessionRestored) { pendingPanel = "market"; return; }
         var uid = firebase.Uid;
         var guestClock = uid == null && surface is DesktopSurface.Clock or DesktopSurface.Calendar;
         if (lifetime.IsCancellationRequested || (!market && !guestClock && uid == null)) return;
@@ -421,9 +422,9 @@ internal sealed partial class HabitApp
         void AttachRenderer()
         {
             renderer?.Dispose();
-            if (market || guestClock)
+            if ((market && uid == null) || guestClock)
             {
-                var view = new PublicWidgetView(surface, surfaceName, firebase.DataDirectory, AttachRenderer);
+                var view = new PublicWidgetView(surface, surfaceName, firebase.DataDirectory, AttachRenderer, uid);
                 renderer = view;
                 body.Content = view;
             }
