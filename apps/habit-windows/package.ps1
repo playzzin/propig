@@ -53,6 +53,8 @@ $identity.SetAttribute('Name', $PackageName)
 $identity.SetAttribute('Publisher', $Publisher)
 $identity.SetAttribute('Version', $Version)
 if ($PackageName -eq 'heddun.ProPig') {
+    # Partner Center validates the package display name against this product's reservations.
+    $manifest.Package.Properties.DisplayName = '그뚠앱'
     $manifest.Package.Properties.PublisherDisplayName = 'heddun'
 }
 $manifest.Save((Join-Path $staging 'AppxManifest.xml'))
