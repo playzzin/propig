@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Web.WebView2.Core;
@@ -14,6 +16,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
     private readonly Uri entry;
     private readonly string title;
     private readonly bool market;
+    private readonly string? marketProfile;
     private readonly string dataDirectory;
     private static readonly HashSet<string> SourcePages = new(StringComparer.Ordinal)
     {
@@ -27,11 +30,23 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
     private readonly StackPanel notice = new() { Margin = new Thickness(14) };
     private bool disposed;
 
-    public PublicWidgetView(DesktopSurface surface, string title, string dataDirectory, Action retryLoad)
+    // WebView2 appends this name to the IndexedDB paths in the Store app's data folder.
+    internal static string MarketProfileName(string? uid) => uid == null
+        ? "guest" : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(uid)).AsSpan(0, 16));
+
+    internal static void OpenMarketSource(CoreWebView2NewWindowRequestedEventArgs request)
+    {
+        if (!request.IsUserInitiated || !SourcePages.Contains(request.Uri)) return;
+        try { Process.Start(new ProcessStartInfo(request.Uri) { UseShellExecute = true }); }
+        catch (Win32Exception) { }
+    }
+
+    public PublicWidgetView(DesktopSurface surface, string title, string dataDirectory, Action retryLoad, string? uid)
     {
         this.dataDirectory = dataDirectory;
         this.title = title;
         market = surface == DesktopSurface.Market;
+        marketProfile = market ? MarketProfileName(uid) : null;
         entry = new Uri(FirebaseHabits.WebOrigin + (surface switch
         {
             DesktopSurface.Market => "/propig/desktop/market",
@@ -61,7 +76,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
                 userDataFolder: Path.Combine(dataDirectory, market ? "MarketWebView" : "PublicWidgetsWebView"));
             if (disposed) return;
             var options = environment.CreateCoreWebView2ControllerOptions();
-            options.IsInPrivateModeEnabled = market;
+            if (marketProfile != null) options.ProfileName = marketProfile;
             await web.EnsureCoreWebView2Async(environment, options);
             if (disposed) return;
 
@@ -82,9 +97,7 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
             core.NewWindowRequested += (_, request) =>
             {
                 request.Handled = true;
-                if (!market || !request.IsUserInitiated || !SourcePages.Contains(request.Uri)) return;
-                try { Process.Start(new ProcessStartInfo(request.Uri) { UseShellExecute = true }); }
-                catch (Win32Exception) { }
+                if (market) OpenMarketSource(request);
             };
             core.NavigationCompleted += (_, navigation) =>
             {
@@ -96,6 +109,12 @@ internal sealed class PublicWidgetView : DockPanel, IDisposable
                 else Fail(title + " 화면을 불러오지 못했습니다.");
             };
             core.ProcessFailed += (_, _) => Fail(title + " 화면이 닫혔습니다.");
+            if (market)
+            {
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    "if (window === window.top) Object.defineProperty(window, '__geuttunMarketProfile', {value: 'persistent'});");
+                if (disposed) return;
+            }
             web.Source = entry;
         }
         catch (WebView2RuntimeNotFoundException)
