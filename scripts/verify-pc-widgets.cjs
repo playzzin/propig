@@ -410,10 +410,15 @@ async function checkAccountAndBridge() {
       assert(!setupButton(), label + ' must not offer installation');
     }
     await act(async () => response(first, missingTemperature));
-    assert(view.root.findAllByType('button').some(button => renderedText(button) === 'Core Temp 공식 사이트'), 'older hosts keep the official-site help');
+    assert(!messages.some(message => message.type === 'pc-widget-action'), 'observing a missing temperature cannot start setup');
+    const legacyHelp = view.root.findAllByType('button').find(button => renderedText(button) === 'Core Temp 공식 사이트');
+    assert(legacyHelp, 'older hosts keep the official-site help');
+    await act(async () => legacyHelp.props.onClick());
+    await act(async () => response(first, missingTemperature, false, '지원하지 않는 동작입니다.'));
+    assert.match(renderedText(view.root), /https:\/\/www\.alcpu\.com\/CoreTemp\//, '1.3.x can still reach the vendor in a regular browser');
     await act(async () => response(first, missingTemperature, true));
     assert(setupButton() && !setupButton().props.disabled, 'a fresh local missing temperature can request native setup');
-    assert(!messages.some(message => message.type === 'pc-widget-action'), 'observing a missing temperature cannot start setup');
+    assert(!messages.some(message => message.target === 'core-temp-setup'), 'new capability notification does not install anything');
     const officialSite = view.root.findAllByType('button').find(button => renderedText(button) === 'Core Temp 공식 사이트');
     assert(officialSite, 'the latest host also offers the official site independently of setup');
     await act(async () => officialSite.props.onClick());

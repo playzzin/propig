@@ -47,6 +47,7 @@ function useNativeWidget(requestId?: string) {
   const [state, setState] = useState<Native | null>(null);
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const latest = useRef<NativeReading | null>(null);
+  const pendingTarget = useRef<string | null>(null);
   const send = useCallback((target?: string) => {
     if (!requestId) return;
     bridge()?.postMessage({ version: 1, requestId, type: target ? 'pc-widget-action' : 'pc-widget-read', ...(target && {target}) });
@@ -60,10 +61,16 @@ function useNativeWidget(requestId?: string) {
       if (!sample) return;
       const reading = { requestId, sample, temperatureSetupSupported: data.data.temperatureSetupSupported === true };
       latest.current = reading;
+      let result = typeof data.result === 'string' ? data.result : null;
+      if (result !== null) {
+        if (pendingTarget.current === 'core-temp-info' && result === '지원하지 않는 동작입니다.')
+          result = '기본 브라우저에서 Core Temp 공식 사이트(https://www.alcpu.com/CoreTemp/)를 열어 주세요. Microsoft Store에서 그뚠뎃을 업데이트하면 위젯에서도 온도를 연결할 수 있습니다.';
+        pendingTarget.current = null;
+        setWaitingFor(null);
+      }
       setState(previous => ({ ...reading, sharing: data.data.sharing === true, removing: data.data.removing === true,
         cloudStatus: typeof data.data.cloudStatus === 'string' ? data.data.cloudStatus : '',
-        result: typeof data.result === 'string' ? data.result : previous?.requestId === requestId ? previous.result : '' }));
-      if (typeof data.result === 'string') setWaitingFor(null);
+        result: result ?? (previous?.requestId === requestId ? previous.result : '') }));
     };
     host.addEventListener('message', receive);
     const read = () => { if (document.visibilityState !== 'hidden') send(); };
@@ -72,18 +79,20 @@ function useNativeWidget(requestId?: string) {
     document.addEventListener('visibilitychange', read);
     return () => {
       latest.current = null;
+      pendingTarget.current = null;
       host.removeEventListener('message', receive);
       clearInterval(interval);
       document.removeEventListener('visibilitychange', read);
     };
   }, [requestId, send]);
   const action = (id: string) => {
-    if (!requestId || waitingFor === requestId) return;
+    if (!requestId || pendingTarget.current !== null || latest.current?.requestId !== requestId) return;
     if (id === 'core-temp-setup') {
       const reading = latest.current;
       if (!reading?.temperatureSetupSupported || reading.requestId !== requestId || reading.sample.source !== 'windows'
           || reading.sample.sensors?.cpuTemp !== null || !hasRecentSensorReading(reading.sample.sensors)) return;
     }
+    pendingTarget.current = id;
     setWaitingFor(requestId);
     send(id);
   };
