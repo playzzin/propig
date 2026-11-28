@@ -249,10 +249,12 @@ internal static class WidgetSessionChecks
                 SystemCommands.CloseWindowCommand.Execute(null, restored);
                 Check(Clock() == null && Active().SetEquals([secondId]), "Explicit unload must affect only its widget.");
                 var layoutFile = Path.Combine(directory, "WidgetLayouts", "unpackaged.json");
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                second!.Closed += (_, _) => closed.TrySetResult();
                 using (File.Open(layoutFile, FileMode.Open, FileAccess.Read, FileShare.None))
                 {
-                    SystemCommands.CloseWindow(second!);
-                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                    SystemCommands.CloseWindow(second);
+                    await closed.Task.WaitAsync(TimeSpan.FromSeconds(8));
                 }
                 Check(SecondWindow() == null, "The native caption must close the last widget.");
                 async Task WaitForSave()
