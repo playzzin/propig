@@ -3,11 +3,13 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using ProPig.Habits;
@@ -15,6 +17,9 @@ using ProPig.Habits;
 internal static class WidgetSessionChecks
 {
     private const string FixtureUid = "layout-test-account";
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern nint SendMessage(nint hwnd, uint message, nint wParam, nint lParam);
+
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
@@ -253,7 +258,11 @@ internal static class WidgetSessionChecks
                 second!.Closed += (_, _) => closed.TrySetResult();
                 using (File.Open(layoutFile, FileMode.Open, FileAccess.Read, FileShare.None))
                 {
-                    SystemCommands.CloseWindow(second);
+                    // Deliver the caption's WM_SYSCOMMAND / SC_CLOSE directly to this fixture's HWND.
+                    // A hosted runner can filter posted input before WPF dispatches it.
+                    var hwnd = new WindowInteropHelper(second).Handle;
+                    Check(hwnd != 0, "The second widget must have a native window.");
+                    SendMessage(hwnd, 0x0112, 0xF060, 0);
                     await closed.Task.WaitAsync(TimeSpan.FromSeconds(8));
                 }
                 Check(SecondWindow() == null, "The native caption must close the last widget.");
