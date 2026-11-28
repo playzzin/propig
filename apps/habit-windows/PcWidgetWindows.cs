@@ -43,10 +43,11 @@ internal static class PcWidgetWindows
         private readonly CancellationTokenSource stop = new();
         internal readonly bool Primary;
 
-        internal Activation()
+        internal Activation(string? applicationId)
         {
             var user = WindowsIdentity.GetCurrent().User!.Value;
-            pipeName = "ProPig.Habits.PcWidget." + user;
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            pipeName = $"ProPig.Habits.PcWidget.{user}.{process.SessionId}.{applicationId ?? "unpackaged"}";
             instance = new Mutex(false, @"Local\" + pipeName, out Primary);
         }
 

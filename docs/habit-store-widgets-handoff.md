@@ -43,4 +43,8 @@ Windows 앱을 설치한 뒤 처음 실행하면 현재 사용자의 바탕화�
 
 REA로 Windows에 설치된 Rainmeter 4.5.28.3936의 한국어 리소스에서 불러오기(2086), 닫기(2087), 스킨 닫기(2059), 바탕 화면 고정(2031)을 식별했다. 같은 릴리스의 관리 창, 위젯 메뉴, 활성 상태 저장 경로를 대조해 동작을 구현했다. [관리 창](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/DialogManage.cpp#L1334) · [위젯 메뉴](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/ContextMenu.cpp#L335) · [열림 상태 저장](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/Rainmeter.cpp#L1185)
 
-Windows CI는 임시 프로필에서 관리 창 열기·닫기, 다른 프로세스에서 위치와 크기 복원, 빈 목록으로 자동 시작을 검증한다. 대화형 Windows 세션에서는 `dotnet run --project apps/habit-windows/checks/WidgetChecks.csproj -c Release -- --desktop-layer-live`로 Explorer 바탕화면 표시, 빈 바탕화면 클릭, 항상 위와 명시적 최소화를 확인할 수 있다. 검증이 끝나면 바탕화면 표시 상태와 포커스를 복구한다.
+같은 Rainmeter 설치 파일로 격리 스킨 세 개를 불러온 뒤 하나만 닫고 종료·재실행했다. 두 스킨의 `Active=1`과 화면 픽셀 좌표·크기가 유지됐고 닫은 스킨의 `Active=0`도 유지됐다. 그뚠뎃도 불러오기와 명시적 닫기에서 해당 위젯의 열림 상태를 기록한다. 앱을 종료하거나 Windows가 창을 정리할 때는 마지막 배치를 보존한다. [활성 스킨 복원](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/Rainmeter.cpp#L1071) · [활성값 저장](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/Rainmeter.cpp#L1266) · [종료 시 창 정리](https://github.com/rainmeter/rainmeter/blob/v4.5.28.3936/Library/Rainmeter.cpp#L1289)
+
+첫 실행에서 기존 `widget.json`의 계정별 열림 목록과 위젯 배치를 `WidgetLayouts` 아래 설치본별 파일로 이전한다. 닫힌 위젯도 위치와 크기를 기억한다. 복원 목록이 이미 비어 있는 PC에서는 원하는 위젯을 한 번 불러온다. 이후 Store 앱과 개발 실행본은 각각의 배치를 사용한다. Windows 로그인 시작은 기존 `ProPigWidgetsStartup` 설정을 사용하고, 시작 인수 또는 Windows가 전달한 같은 시작 작업 ID를 확인한다.
+
+Windows CI는 임시 계정·비로그인 프로필을 각각 네 프로세스에서 시험한다. 계정 테스트는 외부 연결을 차단하고 시스템 정보와 시계·날씨 위젯을 배치한 뒤 달력만 닫는다. 일반 종료와 WPF 창 정리 뒤에 두 위젯의 화면 픽셀 좌표와 크기를 비교하고, 모두 명시적으로 닫으면 다음 실행에서 트레이만 남는지 확인한다. 실제 Windows 재로그인은 Store 배포 후 설치본에서 검증한다. 대화형 Windows 세션에서는 `dotnet run --project apps/habit-windows/checks/WidgetChecks.csproj -c Release -- --desktop-layer-live`로 Explorer 바탕화면 표시, 빈 바탕화면 클릭, 항상 위와 명시적 최소화를 확인할 수 있다. 검증이 끝나면 바탕화면 표시 상태와 포커스를 복구한다.

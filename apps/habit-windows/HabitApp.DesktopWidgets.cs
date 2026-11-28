@@ -11,11 +11,15 @@ namespace ProPig.Habits;
 internal sealed partial class HabitApp
 {
     private readonly DesktopWidgetLayer widgetLayer = new();
-    private readonly DispatcherTimer savePlacement = new() { Interval = TimeSpan.FromMilliseconds(450) };
+    private readonly WidgetLayoutStore layoutStore;
+    private DesktopLayout savedLayout = new();
+    private readonly Dictionary<string, Rect> changedBounds = new();
+    private readonly Dictionary<(WidgetEntry Entry, string? Uid), bool> changedActive = new();
+    private readonly Dictionary<string, bool> changedTopmost = new();
+    private readonly DispatcherTimer savePlacement = new();
     private WidgetManager? manager;
     private WidgetTray? tray;
     private bool exiting;
-    private bool switchingAccount;
 
     private async Task StartAsync(bool startup)
     {
@@ -25,6 +29,11 @@ internal sealed partial class HabitApp
                 choices = JsonSerializer.Deserialize<Choices>(File.ReadAllText(preferences)) ?? new Choices();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { }
+        try { savedLayout = layoutStore.ReadOrUpdate(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not read desktop widget layout: {0}", error.Message);
+        }
         savePlacement.Tick += (_, _) => FlushPlacement();
         tray = new WidgetTray(ShowMain, ShowManager, AvailableWidgets, IsWidgetOpen, ToggleManagedWidget, ExitApp);
         if (!startup) ShowMain();
@@ -34,7 +43,7 @@ internal sealed partial class HabitApp
             try { await firebase.RestoreAsync(); }
             finally
             {
-                sessionRestored = true;
+                SessionRestored = true;
                 if (!exiting) RestoreWidgets();
             }
             if (!exiting) await Read();
@@ -46,43 +55,38 @@ internal sealed partial class HabitApp
     }
 
     private IEnumerable<WidgetEntry> AvailableWidgets() =>
-        WidgetEntry.All.Where(entry => sessionRestored && entry.CanOpen(firebase.Uid));
+        WidgetEntry.All.Where(entry => SessionRestored && entry.CanOpen(firebase.Uid));
 
     private Window? WidgetWindow(WidgetEntry entry) =>
         entry.Surface is DesktopSurface surface ? desktopWidgets.GetValueOrDefault(surface) : widget;
 
     private bool IsWidgetOpen(WidgetEntry entry) => WidgetWindow(entry) != null;
 
-    private void OpenManagedWidget(WidgetEntry entry, bool activate)
+    private void OpenManagedWidget(WidgetEntry entry, bool restore = false)
     {
-        if (exiting || !sessionRestored || !entry.CanOpen(firebase.Uid)) return;
-        if (entry.Surface is DesktopSurface surface) OpenDesktopWidget(surface, entry.Label, activate);
-        else OpenHabitWidget(activate);
+        if (exiting || !SessionRestored || !entry.CanOpen(firebase.Uid)) return;
+        if (entry.Surface is DesktopSurface surface) OpenDesktopWidget(surface, entry.Label, activate: false, restore: restore);
+        else OpenHabitWidget(activate: false, restore: restore);
     }
 
     private void ToggleManagedWidget(WidgetEntry entry)
     {
-        if (WidgetWindow(entry) is Window open) open.Close();
-        else OpenManagedWidget(entry, activate: false);
+        if (WidgetWindow(entry) is ProPigWindow open) open.RequestClose();
+        else OpenManagedWidget(entry);
     }
 
     private void RestoreWidgets()
     {
-        foreach (var entry in WidgetEntry.ToRestore(choices, firebase.Uid).ToArray())
-            OpenManagedWidget(entry, activate: false);
+        foreach (var entry in WidgetEntry.ToRestore(savedLayout, firebase.Uid).ToArray())
+            OpenManagedWidget(entry, restore: true);
         manager?.Refresh();
         if (pendingPanel is string id) ActivatePanel(id);
     }
 
     private void SuspendAccountWidgets()
     {
-        switchingAccount = true;
-        try
-        {
-            widget?.Close();
-            CloseDesktopWidgets();
-        }
-        finally { switchingAccount = false; }
+        widget?.Close();
+        CloseDesktopWidgets();
     }
 
     private void ShowManager()
@@ -137,58 +141,96 @@ internal sealed partial class HabitApp
         return menu;
     }
 
-    private void TrackWidget(ProPigWindow window, string id, Action<Rect> place)
+    private void ShowWidget(ProPigWindow window, WidgetEntry entry, bool restore)
     {
-        var entry = WidgetEntry.All.First(item => item.Id == id);
         var uid = firebase.Uid;
         widgetLayer.Track(window);
-        window.AddWidgetMenu(ShowManager);
-        void RememberBounds()
+        var initial = savedLayout.Placement(entry.Id);
+        var hasSavedBounds = initial.Left.HasValue && initial.Top.HasValue && initial.Width > 0 && initial.Height > 0;
+        Rect? observed = null;
+        bool RememberBounds()
         {
             var bounds = window.RestoreBounds;
-            if (!bounds.IsEmpty && double.IsFinite(bounds.Left) && double.IsFinite(bounds.Top) &&
-                bounds.Width > 0 && bounds.Height > 0) place(bounds);
+            if (bounds.IsEmpty || !double.IsFinite(bounds.Left) || !double.IsFinite(bounds.Top) ||
+                bounds.Width <= 0 || bounds.Height <= 0 || observed == bounds) return false;
+            var changed = observed.HasValue || !hasSavedBounds;
+            observed = bounds;
+            if (changed) changedBounds[entry.Id] = bounds;
+            return changed;
         }
         void PlacementChanged(object? sender, EventArgs e)
         {
-            if (!window.IsLoaded || window.WindowState != WindowState.Normal || exiting) return;
-            RememberBounds();
-            savePlacement.Stop();
-            savePlacement.Start();
+            if (!window.IsLoaded || window.WindowState != WindowState.Normal || exiting || !RememberBounds()) return;
+            SchedulePlacementSave(TimeSpan.FromMilliseconds(450));
         }
+        window.AddWidgetMenu(ShowManager, () => { RememberBounds(); FlushPlacement(); });
         window.LocationChanged += PlacementChanged;
         window.SizeChanged += PlacementChanged;
-        window.SourceInitialized += (_, _) =>
-        {
-            entry.SetOpen(choices, uid, true);
-            SaveWidgetChoices();
-            manager?.Refresh();
-        };
         window.Loaded += PlacementChanged;
         window.Closing += (_, _) => RememberBounds();
         window.Closed += (_, _) =>
         {
-            if (!exiting && !switchingAccount) entry.SetOpen(choices, uid, false);
-            SaveWidgetChoices();
+            if (window.UnloadRequested) changedActive[(entry, uid)] = false;
+            FlushPlacement();
         };
+        window.Show();
+        if (!restore)
+        {
+            changedActive[(entry, uid)] = true;
+            FlushPlacement();
+        }
+        manager?.Refresh();
     }
 
-    private void SaveWidgetChoices()
+    private void SetWidgetTopmost(string id, bool topmost)
     {
-        try { SaveChoices(); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        changedTopmost[id] = topmost;
+        FlushPlacement();
+    }
+
+    private void SchedulePlacementSave(TimeSpan delay)
+    {
+        savePlacement.Stop();
+        savePlacement.Interval = delay;
+        savePlacement.Start();
     }
 
     private void FlushPlacement()
     {
         savePlacement.Stop();
-        SaveWidgetChoices();
+        if (changedBounds.Count == 0 && changedActive.Count == 0 && changedTopmost.Count == 0) return;
+        void Apply(DesktopLayout layout)
+        {
+            foreach (var (id, bounds) in changedBounds)
+            {
+                var placement = layout.Placement(id);
+                placement.Left = bounds.Left;
+                placement.Top = bounds.Top;
+                placement.Width = bounds.Width;
+                placement.Height = bounds.Height;
+            }
+            foreach (var ((entry, uid), open) in changedActive) entry.SetOpen(layout, uid, open);
+            foreach (var (id, value) in changedTopmost) layout.Placement(id).Topmost = value;
+        }
+        try
+        {
+            savedLayout = layoutStore.ReadOrUpdate(Apply);
+            changedBounds.Clear();
+            changedActive.Clear();
+            changedTopmost.Clear();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Apply(savedLayout);
+            System.Diagnostics.Trace.TraceWarning("Could not save desktop widget layout: {0}", error.Message);
+            if (!exiting && error is IOException) SchedulePlacementSave(TimeSpan.FromSeconds(4));
+        }
     }
 
     private void PrepareToExit()
     {
         exiting = true;
-        if (savePlacement.IsEnabled) FlushPlacement();
+        FlushPlacement();
     }
 
     private void ExitApp()

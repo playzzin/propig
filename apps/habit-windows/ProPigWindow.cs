@@ -24,6 +24,7 @@ internal sealed class ProPigWindow : Window
     public static readonly DependencyProperty SurfaceNameProperty = SurfaceNamePropertyKey.DependencyProperty;
     public string? SurfaceName => (string?)GetValue(SurfaceNameProperty);
     private Action? manageWidgets;
+    internal bool UnloadRequested { get; private set; }
 
     public ProPigWindow(string title, double width, double height, string? surfaceName = null)
     {
@@ -50,7 +51,7 @@ internal sealed class ProPigWindow : Window
         CommandBindings.Add(new CommandBinding(SystemCommands.MinimizeWindowCommand, (_, _) => SystemCommands.MinimizeWindow(this)));
         CommandBindings.Add(new CommandBinding(SystemCommands.MaximizeWindowCommand, (_, _) => SystemCommands.MaximizeWindow(this)));
         CommandBindings.Add(new CommandBinding(SystemCommands.RestoreWindowCommand, (_, _) => SystemCommands.RestoreWindow(this)));
-        CommandBindings.Add(new CommandBinding(SystemCommands.CloseWindowCommand, (_, _) => Close()));
+        CommandBindings.Add(new CommandBinding(SystemCommands.CloseWindowCommand, (_, _) => RequestClose()));
 
         StateChanged += (_, _) => UpdateMaximizedPadding();
         LocationChanged += (_, _) => UpdateMaximizedPadding();
@@ -58,7 +59,15 @@ internal sealed class ProPigWindow : Window
         DpiChanged += (_, _) => UpdateMaximizedPadding();
     }
 
-    internal void AddWidgetMenu(Action manage)
+    // Only a user close unloads a widget. WPF can also close windows during app or session teardown.
+    internal void RequestClose()
+    {
+        UnloadRequested = true;
+        try { Close(); }
+        finally { UnloadRequested = false; }
+    }
+
+    internal void AddWidgetMenu(Action manage, Action movedOrResized)
     {
         manageWidgets = manage;
         const int manageId = 0x1F10, closeId = 0x1F20;
@@ -66,7 +75,7 @@ internal sealed class ProPigWindow : Window
         var settings = new MenuItem { Header = "위젯 관리…" };
         var close = new MenuItem { Header = "위젯 닫기" };
         settings.Click += (_, _) => manage();
-        close.Click += (_, _) => Close();
+        close.Click += (_, _) => RequestClose();
         context.Items.Add(settings);
         context.Items.Add(close);
         ContextMenu = context;
@@ -75,17 +84,21 @@ internal sealed class ProPigWindow : Window
         {
             var hwnd = new WindowInteropHelper(this).Handle;
             var menu = GetSystemMenu(hwnd, false);
-            if (menu == 0) return;
-            AppendMenu(menu, 0x800, 0, null); // MF_SEPARATOR
-            AppendMenu(menu, 0, manageId, "위젯 관리…");
-            AppendMenu(menu, 0, closeId, "위젯 닫기");
+            if (menu != 0)
+            {
+                AppendMenu(menu, 0x800, 0, null); // MF_SEPARATOR
+                AppendMenu(menu, 0, manageId, "위젯 관리…");
+                AppendMenu(menu, 0, closeId, "위젯 닫기");
+            }
             HwndSource.FromHwnd(hwnd)?.AddHook((nint _, int message, nint command, nint position, ref bool handled) =>
             {
-                if (message == 0x0112 && (command == manageId || command == closeId)) // WM_SYSCOMMAND
+                const int wmSysCommand = 0x0112, scClose = 0xF060, wmExitSizeMove = 0x0232;
+                if (message == wmExitSizeMove) movedOrResized();
+                if (message == wmSysCommand && (command == manageId || command == closeId || (command & 0xFFF0) == scClose))
                 {
                     handled = true;
                     if (command == manageId) manage();
-                    else Close();
+                    else RequestClose();
                 }
                 return 0;
             });
@@ -101,7 +114,7 @@ internal sealed class ProPigWindow : Window
         core.ContextMenuRequested += (_, request) =>
         {
             request.MenuItems.Clear();
-            foreach (var (label, action) in new (string, Action)[] { ("위젯 관리…", manage), ("위젯 닫기", host.Close) })
+            foreach (var (label, action) in new (string, Action)[] { ("위젯 관리…", manage), ("위젯 닫기", host.RequestClose) })
             {
                 var item = core.Environment.CreateContextMenuItem(label, null, CoreWebView2ContextMenuItemKind.Command);
                 item.CustomItemSelected += (_, _) => host.Dispatcher.InvokeAsync(action);
