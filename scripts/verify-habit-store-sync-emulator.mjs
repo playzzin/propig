@@ -153,6 +153,10 @@ try {
   const desktopSaved = (await firestore.getDocFromServer(desktopRef)).data();
   assert.deepEqual(desktopSaved.records, saved.records);
   assert.deepEqual(desktopSaved.viewPreferences, saved.viewPreferences);
+  await web.saveHabitViewPreference(uid, 'dailyRecordLayout', 'simple');
+  const changedLayout = (await firestore.getDocFromServer(desktopRef)).data();
+  assert.deepEqual(changedLayout.viewPreferences, { ...saved.viewPreferences, dailyRecordLayout: 'simple' });
+  assert.deepEqual(changedLayout.records, saved.records);
   assert.equal(saved.unrelated, workspace.unrelated);
 
   const [pastWindowsSave] = await Promise.all([
@@ -170,7 +174,7 @@ try {
   assert.equal(savedAcrossDays.records[today].web.checked, false);
   assert.equal(savedAcrossDays.records[today].web.note, initialRecords[today].web.note);
   assert.deepEqual(savedAcrossDays.records[today]['windows.walk'], saved.records[today]['windows.walk']);
-  assert.deepEqual(savedAcrossDays.viewPreferences, saved.viewPreferences);
+  assert.deepEqual(savedAcrossDays.viewPreferences, changedLayout.viewPreferences);
 
   const foreignSave = await windowsRequest(otherUid, { day: yesterday, checked: false });
   assert.equal(foreignSave.status, 403, await foreignSave.text());
@@ -185,7 +189,7 @@ try {
   await Promise.all(rejected);
   const unchanged = (await firestore.getDocFromServer(ref)).data();
   assert.deepEqual(unchanged.records, savedAcrossDays.records);
-  assert.deepEqual(unchanged.viewPreferences, saved.viewPreferences);
+  assert.deepEqual(unchanged.viewPreferences, changedLayout.viewPreferences);
 
   console.log('PASS Firestore emulator: concurrent today and historical records, widget field masks, account preferences and access boundaries');
 } finally {

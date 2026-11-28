@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import type { DocumentData } from 'firebase/firestore';
 import type { StatsPeriod } from '@/components/habits/habitTrackerDateUtils';
-import type { DailyRecordLayout } from '@/components/habits/useDailyRecordLayout';
+export type DailyRecordLayout = 'detail' | 'simple';
 
 export function createHabitWorkspaceRef(uid: string) {
   return doc(db, 'users', uid, 'habitTracker', 'workspace');
