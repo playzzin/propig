@@ -14,7 +14,7 @@ try{
   const shell=page.locator('[data-dashboard-design="calm"]:visible');await shell.waitFor();
   await shell.getByRole('button',{name:'메모장 숨기기',exact:true}).waitFor();
   await page.waitForFunction(()=>document.querySelector('[data-dashboard-design="calm"]')?.getAnimations({subtree:true}).every(a=>a.effect?.getTiming().iterations===Infinity||a.playState==='finished'));
-  assert.equal(await shell.getByRole('heading',{level:1}).textContent(),'위젯 대시보드');
+  assert.equal(await shell.getByRole('heading',{level:1}).textContent(),'그뚠웹');
   const title=await shell.getByRole('heading',{level:1}).boundingBox();assert(title.y<500,'main title must lead first viewport');
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1&&document.body.scrollWidth<=innerWidth+1));
   if(reducedMotion==='reduce')assert.equal(await shell.evaluate(el=>el.getAnimations({subtree:true}).filter(a=>a.playState==='running').length),0);

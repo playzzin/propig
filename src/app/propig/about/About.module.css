@@ -14,19 +14,11 @@
 }
 
 .hero h1,
-.headline,
 .summary {
   margin: 0;
 }
 
 .hero h1 {
-  color: #a7eec7;
-  font-size: clamp(1.25rem, 3vw, 1.65rem);
-  font-weight: 800;
-}
-
-.headline {
-  margin-top: 12px;
   font-size: clamp(2rem, 5vw, 3.75rem);
   font-weight: 850;
   line-height: 1.16;
@@ -43,15 +35,7 @@
   word-break: keep-all;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 24px;
-}
-
 .primary,
-.secondary,
 .pcLink {
   display: inline-flex;
   align-items: center;
@@ -61,55 +45,63 @@
   text-decoration: none;
 }
 
-.primary,
-.secondary {
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+.actions {
+  margin-top: 24px;
 }
 
 .primary {
+  padding: 8px 14px;
+  border-radius: 8px;
   color: #11271b;
   background: #a7eec7;
 }
 
-.secondary {
-  border-color: #547160;
-  color: #f2fcf6;
-}
-
 .primary:hover,
-.secondary:hover,
 .pcLink:hover {
   text-decoration: underline;
 }
 
-.features {
+.features,
+.platforms {
   margin-top: 34px;
 }
 
+.platforms h2,
 .features h2 {
   margin: 0 0 14px;
   font-size: 1.3rem;
 }
 
-.features ul {
+.features ul,
+.platforms ul {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.features li {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+.features ul {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+
+.platforms ul {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+}
+
+.features li,
+.platforms li {
+  min-width: 0;
   padding: 16px;
   border: 1px solid var(--border-medium);
   border-radius: 10px;
   background: var(--bg-card);
+}
+
+.features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .features li svg {
@@ -117,16 +109,28 @@
   color: var(--text-muted);
 }
 
-.features h3 {
+.features h3,
+.platforms h3 {
   margin: 0;
   font-size: 1rem;
 }
 
-.features p {
+.features p,
+.platforms p {
   margin: 5px 0 0;
   color: var(--text-muted);
   line-height: 1.55;
   word-break: keep-all;
+}
+
+.platforms .mobileSummary {
+  margin-top: 14px;
+}
+
+.platforms p a {
+  color: var(--text-main);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .pcLink {

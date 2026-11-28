@@ -15,8 +15,10 @@ export function SiteAppDownload({ siteId }: { siteId: Mode }) {
             <img src={`/downloads/android/${siteId}.png`} alt="" width={44} height={44} style={{ borderRadius: 11, flexShrink: 0 }} />
           </picture>
           <div>
-            <strong style={{ fontSize: 14 }}>{app.label} 앱</strong>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>홈 화면 아이콘으로 이 모드에 바로 접속</p>
+            <strong style={{ fontSize: 14 }}>{app.label} {siteId === 'shop' ? '웹 바로가기' : '앱'}</strong>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              {siteId === 'shop' ? '이 아이콘은 브라우저에서 그뚠웹을 엽니다. 홈 화면 위젯은 그뚠앱에서 추가하세요.' : '홈 화면 아이콘으로 이 모드에 바로 접속'}
+            </p>
           </div>
         </div>
         <a href={`/downloads/android/${app.file}`} download={app.file} aria-label={`${app.label} APK 다운로드`} style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border-medium)', background: 'var(--bg-elevated)', color: 'var(--text-main)', fontSize: 13, fontWeight: 700 }}>
