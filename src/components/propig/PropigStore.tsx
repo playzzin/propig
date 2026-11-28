@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { PROPIG_STORE_APPS, type PropigStoreApp, type PropigWidgetId } from '@/constants/propigStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
+import { useDashboardBrand } from '@/app/propig/_lib/dashboardBrand';
 
 const WIDGET_LABELS: Record<PropigWidgetId, string> = {
   memo: '메모 위젯',
@@ -40,6 +41,7 @@ interface PropigStoreProps {
 }
 
 export default function PropigStore({ onOpenDashboard, onOpenApp }: PropigStoreProps) {
+  const brand = useDashboardBrand();
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
   const appRegistry = usePropigAppRegistry();
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -141,7 +143,7 @@ export default function PropigStore({ onOpenDashboard, onOpenApp }: PropigStoreP
         <HeroCopy>
           <Eyebrow>
             <ShoppingBag size={16} />
-            PROPIG STORE
+            {brand}
           </Eyebrow>
           <HeroTitle>상점</HeroTitle>
           <HeroText>

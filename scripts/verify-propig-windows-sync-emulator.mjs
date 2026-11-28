@@ -42,10 +42,13 @@ function createClient(accountUid) {
     if (name === '@/firebase/config') return { db, auth, ensureFirestorePersistence: async () => {} };
     if (name === '@/contexts/AuthContext') return { useAuth: () => ({ currentUser: auth.currentUser }) };
     if (name === 'firebase/firestore') return firestore;
-    if (!name.startsWith('@/')) return require(name);
+    if (name === '@/app/propig/market/marketData') return load('@shared/koreanMarket');
+    if (name === '@/app/propig/_lib/mobileDashboardWidget') return { getDashboardPlatform: () => 'web' };
+    if (!name.startsWith('@/') && name !== '@shared/koreanMarket') return require(name);
 
     if (modules.has(name)) return modules.get(name);
-    const source = readFileSync(new URL('../src/' + name.slice(2) + '.ts', import.meta.url), 'utf8');
+    const filename = name === '@shared/koreanMarket' ? '../functions/src/shared/koreanMarket.ts' : '../src/' + name.slice(2) + '.ts';
+    const source = readFileSync(new URL(filename, import.meta.url), 'utf8');
     const { outputText } = ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     });
@@ -89,8 +92,37 @@ let stopDesktopMemo;
 let observedWindowsMemos;
 let stopWebTasks;
 let stopWindowsTasks;
+let preferenceViews;
 
 try {
+  const preferences = {};
+  function Preferences({ client, side }) {
+    const hooks = client.load('@/app/propig/_lib/dashboardPreferences');
+    preferences[side] = { layout: hooks.useDashboardLayout(client.auth.currentUser.uid), market: hooks.useMarketView(client.auth.currentUser.uid) };
+    return null;
+  }
+  await act(async () => {
+    preferenceViews = create(React.createElement(React.Fragment, null,
+      ...Object.entries({ web, windows, other }).map(([side, client]) => React.createElement(Preferences, { key: side, side, client }))));
+  });
+  await until(() => Object.values(preferences).every(v => v.layout.ready && v.market.ready));
+  const samsung = { kind: 'stock', code: '005930', name: '삼성전자', market: 'KOSPI', isin: 'KR7005930003' };
+  await act(async () => {
+    preferences.web.layout.move('market', 'memo');
+    preferences.windows.layout.setHidden('todo', true);
+    preferences.web.market.selectInstrument(samsung);
+    preferences.windows.market.setMonths(6);
+    preferences.web.market.setMode('candle');
+  });
+  await until(() => [preferences.web, preferences.windows].every(({ layout, market }) =>
+    layout.order[0] === 'market' && layout.hidden.includes('todo') && market.instrument.code === '005930' && market.months === 6 && market.mode === 'candle'));
+  assert.deepEqual(preferences.web.layout.order, preferences.windows.layout.order);
+  assert.deepEqual(preferences.windows.market.instrument, samsung);
+  assert.equal(preferences.other.market.instrument.code, 'KOSPI');
+  assert.equal(preferences.other.layout.hidden.length, 0);
+  await assert.rejects(firestore.getDocFromServer(firestore.doc(other.db, 'users', uid, 'propigStore', 'marketView')), { code: 'permission-denied' });
+  console.log('PASS dashboard: live cross-client order, visibility, Samsung selection, period and chart style with account isolation');
+
   await Promise.all(originalMemoIds.map((id) => firestore.setDoc(memoRef(web.db, id), editableNote(id))));
   const webMemos = web.load('@/hooks/useStickyNotes');
   const desktopMemos = windows.load('@/hooks/useStickyNotes');
@@ -164,6 +196,7 @@ try {
     .setOccurrenceCompleted(uid, 'windows-task', date, false), { code: 'permission-denied' });
   console.log('PASS todo: different tasks and dates merge across live web and Windows views, without replacing older dates');
 } finally {
+  if (preferenceViews) await act(async () => preferenceViews.unmount());
   stopDesktopMemo?.();
   stopWebTasks?.();
   stopWindowsTasks?.();

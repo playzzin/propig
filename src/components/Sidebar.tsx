@@ -20,6 +20,7 @@ import { isDocumentMenuRoute } from '@/lib/menu-navigation';
 
 interface SidebarProps {
     currentEnv: string;
+    siteName: string;
     isCollapsed: boolean;
     isMobileOpen?: boolean;
     isMobileViewport?: boolean;
@@ -276,6 +277,7 @@ function organizePropigSidebarMenu(
 
 export default function Sidebar({
     currentEnv,
+    siteName,
     isCollapsed,
     isMobileOpen = false,
     isMobileViewport = false,
@@ -504,7 +506,6 @@ export default function Sidebar({
     const { settings } = useSystem();
     const rawLogoUrl = settings.envLogos?.[currentEnv] || settings.logoUrl;
     const logoImage = useBrandImageFallback(rawLogoUrl);
-    const currentSiteName = siteData[currentSite]?.name || currentSite.toUpperCase();
     const homePath = getSiteHomePath(currentSite, siteData);
     const sidebarToggleLabel = isMobileViewport ? '메뉴 닫기' : isCollapsed ? '메뉴 펼치기' : '메뉴 접기';
 
@@ -534,15 +535,15 @@ export default function Sidebar({
             <Link
                 href={homePath}
                 className="sidebar-brand"
-                aria-label={`${currentSiteName} 홈`}
-                title={`${currentSiteName} 홈`}
-                onClick={(event) => handleAnchorMenuClick({ id: 'site-home', text: currentSiteName, path: homePath }, event)}
+                aria-label={`${siteName} 홈`}
+                title={`${siteName} 홈`}
+                onClick={(event) => handleAnchorMenuClick({ id: 'site-home', text: siteName, path: homePath }, event)}
             >
                 <div className="brand-icon flex-center">
                     {logoImage.canRenderImage ? (
                         <img
                             src={logoImage.displaySrc}
-                            alt={`${currentSiteName} logo`}
+                            alt={`${siteName} 로고`}
                             onError={logoImage.markBroken}
                             style={{
                                 width: '100%',
@@ -557,7 +558,7 @@ export default function Sidebar({
                 </div>
                 {!usesCollapsedBehavior && (
                     <span className="brand-name">
-                        {currentSiteName}
+                        {siteName}
                     </span>
                 )}
             </Link>
