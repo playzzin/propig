@@ -10,11 +10,13 @@ if (!isSigned && signingKeys.any { System.getenv(it) }) {
 }
 
 android {
+    buildFeatures { buildConfig true }
     namespace 'com.propig.app'
     compileSdk 36
 
     defaultConfig {
         applicationId 'com.propig.app'
+        buildConfigField 'boolean', 'DASHBOARD_HOST', 'false'
         minSdk 24
         targetSdk 36
         versionCode Integer.parseInt(System.getenv('HABIT_ANDROID_VERSION_CODE') ?: '2')

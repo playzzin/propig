@@ -3,10 +3,10 @@ import Link from 'next/link';
 import { ArrowRight, BarChart3, CloudSun, Cpu, Grid3X3, NotebookPen } from 'lucide-react';
 import styles from './About.module.css';
 
-const description = '메모, 할 일, PC 상태, 시계·날씨, 국내 증시와 MiraBox를 웹 대시보드와 Windows 바탕화면 위젯으로 확인하세요.';
+const description = '그뚠웹에서 대시보드를 꾸미고, 그뚠앱으로 Android와 iPhone 홈 화면에, 그뚠뎃으로 Windows 바탕화면에 위젯을 추가하세요.';
 
 export const metadata: Metadata = {
-  title: '그뚠앱 | 나에게 맞는 대시보드',
+  title: '그뚠웹·그뚠앱·그뚠뎃 | 위젯 사용 안내',
   description,
 };
 
@@ -42,20 +42,44 @@ export default function GeuttunAboutPage() {
   return (
     <div className={styles.page}>
       <section className={styles.hero} aria-labelledby="geuttun-title">
-        <h1 id="geuttun-title">그뚠앱</h1>
-        <p className={styles.headline}>나에게 맞는 대시보드</p>
+        <h1 id="geuttun-title">나에게 맞는 위젯 대시보드</h1>
         <p className={styles.summary}>
-          자주 쓰는 위젯을 골라 웹 대시보드를 구성하세요.
-          Windows에서는 필요한 위젯을 바탕화면에 따로 띄울 수 있습니다.
+          그뚠웹에서 메모와 할 일을 정리하고, 같은 계정으로 오늘의 기록을 이어가세요.
+          그뚠앱은 휴대폰 홈 화면에, 그뚠뎃은 Windows 바탕화면에 필요한 정보를 띄워 줍니다.
         </p>
         <div className={styles.actions}>
           <Link className={styles.primary} href="/propig">
-            대시보드 열기 <ArrowRight size={18} aria-hidden="true" />
+            그뚠웹 대시보드 열기 <ArrowRight size={18} aria-hidden="true" />
           </Link>
-          <a className={styles.secondary} href="https://apps.microsoft.com/detail/restricted/9P80XDSKT26X">
-            Windows 앱 설치 (테스터)
-          </a>
         </div>
+      </section>
+      <section className={styles.platforms} aria-labelledby="geuttun-platforms">
+        <h2 id="geuttun-platforms">내 기기에 위젯 추가하기</h2>
+        <ul>
+          <li>
+            <h3>웹 브라우저 · 그뚠웹</h3>
+            <p><Link href="/propig/store">상점</Link>에서 사용할 앱을 등록한 뒤 대시보드에서 위젯을 끌어 순서를 정하세요.</p>
+          </li>
+          <li>
+            <h3>Android · 그뚠앱</h3>
+            <p>그뚠앱을 설치하고 홈 화면의 빈 곳을 길게 누르세요. ‘위젯’에서 그뚠앱의 ‘오늘 요약’을 추가하세요. ‘오늘 습관’을 고르면 홈 화면에서 습관을 바로 체크할 수 있습니다.</p>
+          </li>
+          <li>
+            <h3>iPhone · 그뚠앱</h3>
+            <p>그뚠앱에서 이메일로 로그인하세요. 홈 화면의 빈 곳을 길게 누른 뒤 위젯 추가 메뉴에서 ‘그뚠앱’을 검색하고 ‘오늘 요약’을 원하는 위치에 놓으세요.</p>
+          </li>
+          <li>
+            <h3>Windows · 그뚠뎃</h3>
+            <p>앱에서 계정을 연결하고 ‘위젯’ 메뉴에서 ‘메모 위젯 열기’ 등을 선택하세요. 바탕화면에서 창을 끌어 위치와 크기를 정할 수 있습니다.</p>
+            <a className={styles.pcLink} href="https://apps.microsoft.com/detail/restricted/9P80XDSKT26X">
+              Windows 테스터용 설치 <ArrowRight size={16} aria-hidden="true" />
+            </a>
+          </li>
+        </ul>
+        <p className={styles.mobileSummary}>
+          휴대폰의 ‘오늘 요약’은 그뚠앱에서 마지막으로 확인한 할 일과 습관의 완료 개수, 갱신 시각을 보여 줍니다.
+          위젯을 누르면 대시보드가 열립니다. Google Play와 App Store 공개 배포는 준비 중입니다.
+        </p>
       </section>
       <section className={styles.features} aria-labelledby="geuttun-features">
         <h2 id="geuttun-features">위젯과 연결 기능</h2>

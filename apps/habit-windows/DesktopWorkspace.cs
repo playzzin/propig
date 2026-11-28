@@ -37,7 +37,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
     private readonly WebView2 web = new();
     private readonly DispatcherTimer timeout = new() { Interval = TimeSpan.FromSeconds(40) };
     private readonly CancellationTokenSource lifetime = new();
-    private readonly TextBlock status = new() { Text = "ProPig 화면을 여는 중", TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock status = new() { Text = "그뚠뎃 화면을 여는 중", TextWrapping = TextWrapping.Wrap };
     private readonly StackPanel notice = new() { Margin = new Thickness(16, 10, 16, 8) };
     private readonly Button recovery = new()
     {
@@ -99,7 +99,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         Children.Add(noticeFrame);
         Children.Add(web);
 
-        timeout.Tick += (_, _) => Fail("ProPig 화면 연결에 시간이 걸리고 있습니다.");
+        timeout.Tick += (_, _) => Fail("그뚠뎃 화면 연결에 시간이 걸리고 있습니다.");
         Loaded += Start;
     }
 
@@ -127,20 +127,20 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
             core.NavigationCompleted += (_, e) =>
             {
                 if (!e.IsSuccess && e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
-                    Fail("ProPig 화면을 불러오지 못했습니다.");
+                    Fail("그뚠뎃 화면을 불러오지 못했습니다.");
             };
-            core.ProcessFailed += (_, _) => Fail("ProPig 화면 연결이 끊겼습니다.");
+            core.ProcessFailed += (_, _) => Fail("그뚠뎃 화면 연결이 끊겼습니다.");
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += OnWebMessage;
             web.Source = entry;
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            Fail("ProPig 화면을 열려면 Microsoft Edge WebView2 Runtime이 필요합니다.");
+            Fail("그뚠뎃 화면을 열려면 Microsoft Edge WebView2 Runtime이 필요합니다.");
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or COMException)
         {
-            Fail("ProPig 화면을 시작하지 못했습니다.");
+            Fail("그뚠뎃 화면을 시작하지 못했습니다.");
         }
     }
 
@@ -298,7 +298,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
         }
         catch (HttpRequestException error) when (error.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
         {
-            if (navigation == document) Fail("ProPig 화면을 열려면 Windows 앱 연결을 다시 승인해 주세요.", renewConnection: true);
+            if (navigation == document) Fail("그뚠뎃 화면을 열려면 Windows 앱 연결을 다시 승인해 주세요.", renewConnection: true);
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or InvalidOperationException or IOException or JsonException or COMException)
         {

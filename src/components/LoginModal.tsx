@@ -10,6 +10,7 @@ import { getRouteSite, getSiteHomePath } from '@/constants/siteHome';
 import { getSwitchableSiteEntries } from '@/constants/accountMenu';
 import { canAccessSiteMode } from '@/utils/menuAccess';
 import { SiteModeSwitcher } from './SiteModeSwitcher';
+import { getDashboardPlatform } from '@/app/propig/_lib/mobileDashboardWidget';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -415,6 +416,7 @@ const LoginDialog: React.FC<Pick<LoginModalProps, 'onClose'>> = ({ onClose }) =>
             </button>
           </form>
 
+          {getDashboardPlatform() !== 'ios' && <>
           <div className="auth-divider">또는</div>
 
           <button
@@ -447,6 +449,7 @@ const LoginDialog: React.FC<Pick<LoginModalProps, 'onClose'>> = ({ onClose }) =>
             )}
             Google로 계속하기
           </button>
+          </>}
           {canEnter ? (
             <button type="button" className="auth-guest-link" disabled={busy || accessLoading} onClick={enterSite}>
               로그인 없이 {selectedName} 둘러보기 <ArrowRight size={16} aria-hidden="true" />

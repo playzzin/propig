@@ -1,14 +1,22 @@
 apply plugin: 'com.android.application'
 
+def signingKeys = ['HABIT_ANDROID_KEYSTORE', 'HABIT_ANDROID_STORE_PASSWORD', 'HABIT_ANDROID_KEY_ALIAS', 'HABIT_ANDROID_KEY_PASSWORD']
+def isSigned = signingKeys.every { System.getenv(it) }
+if (!isSigned && signingKeys.any { System.getenv(it) }) {
+    throw new GradleException('Supply all four Android upload signing settings.')
+}
+
 android {
+    buildFeatures { buildConfig true }
     namespace = "com.propig.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.propig.app"
+        buildConfigField "boolean", "DASHBOARD_HOST", "true"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode Integer.parseInt(System.getenv('HABIT_ANDROID_VERSION_CODE') ?: '3')
+        versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +24,24 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    sourceSets {
+        main.java.srcDir '../habit-store/src/main/java'
+        main.res.srcDir '../habit-store/src/main/res'
+        androidTest.java.srcDir '../../scripts/mobile-widget-checks/android'
+    }
+    if (isSigned) {
+        signingConfigs {
+            upload {
+                storeFile file(System.getenv('HABIT_ANDROID_KEYSTORE'))
+                storePassword System.getenv('HABIT_ANDROID_STORE_PASSWORD')
+                keyAlias System.getenv('HABIT_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('HABIT_ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (isSigned) signingConfig signingConfigs.upload
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -31,6 +55,12 @@ repositories {
 }
 
 dependencies {
+    implementation platform('com.google.firebase:firebase-bom:35.2.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+    implementation "androidx.credentials:credentials:$androidxCredentialsVersion"
+    implementation "androidx.credentials:credentials-play-services-auth:$androidxCredentialsVersion"
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.0'
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
