@@ -3,20 +3,31 @@ name: Habit store packages
 on:
   pull_request:
     paths:
-      - 'android/habit-store/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'capacitor.config.ts'
+      - 'apps/mobile-shell/**'
+      - 'scripts/check-*-dashboard-widget.sh'
+      - 'scripts/mobile-widget-checks/**'
       - 'apps/habit-windows/**'
-      - 'android/app/google-services.json'
-      - 'android/gradle/**'
       - '.github/workflows/habit-store-build.yml'
   push:
     branches: ['codex/**', develop]
     paths:
-      - 'android/habit-store/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'capacitor.config.ts'
+      - 'apps/mobile-shell/**'
+      - 'scripts/check-*-dashboard-widget.sh'
+      - 'scripts/mobile-widget-checks/**'
       - 'apps/habit-windows/**'
-      - 'android/app/google-services.json'
-      - 'android/gradle/**'
       - '.github/workflows/habit-store-build.yml'
   workflow_dispatch:
+    inputs:
+      mobile_web_origin:
+        description: 'Mobile dashboard Firebase Hosting origin (empty uses production)'
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -66,13 +77,21 @@ jobs:
   android:
     name: Build Android App Bundle
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
+    env:
+      GEUTTUN_MOBILE_WEB_ORIGIN: ${{ inputs.mobile_web_origin }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
       - name: Install matching Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
@@ -83,12 +102,73 @@ jobs:
         env:
           HABIT_ANDROID_VERSION_CODE: ${{ vars.HABIT_ANDROID_VERSION_CODE }}
         run: |
-          cp android/app/google-services.json android/habit-store/google-services.json
-          bash android/gradlew -p android/habit-store --no-daemon bundleRelease assembleDebug
+          npx --no-install cap sync android
+          # Hosted runners share Maven Central rate limits. Use Google's Central mirror first.
+          cat > "$RUNNER_TEMP/mobile-central.gradle" <<'GRADLE'
+          beforeProject { project ->
+              [project.buildscript.repositories, project.repositories].each { repositories ->
+                  repositories.maven { url = uri('https://maven-central.storage-download.googleapis.com/maven2') }
+              }
+          }
+          GRADLE
+          bash android/gradlew -p android --no-daemon -I "$RUNNER_TEMP/mobile-central.gradle" :app:bundleRelease :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Bind and exercise home screen widgets
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_4
+          script: bash scripts/check-android-dashboard-widget.sh android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
       - uses: actions/upload-artifact@v4
         with:
           name: propig-android-packages
           path: |
-            android/habit-store/build/outputs/bundle/release/*.aab
-            android/habit-store/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: Build iPhone app and WidgetKit extension
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      GEUTTUN_MOBILE_WEB_ORIGIN: ${{ inputs.mobile_web_origin }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Apple toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+          swiftc ios/App/Shared/DashboardSummary.swift scripts/mobile-widget-checks/ios/CheckSummary.swift -o "$RUNNER_TEMP/check-summary"
+          "$RUNNER_TEMP/check-summary"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Sync mobile dashboard and generate the Xcode targets
+        run: |
+          npx --no-install cap sync ios
+          command -v xcodegen || brew install xcodegen
+          cd ios/App
+          xcodegen generate
+      - name: Compile the app and its embedded widget for iPhone Simulator
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/Geuttun" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
+      - name: Install and open the widget dashboard on iPhone Simulator
+        run: bash scripts/check-ios-dashboard-widget.sh "$RUNNER_TEMP/Geuttun/Build/Products/Release-iphonesimulator/App.app"
+      - name: Package simulator app and generated Xcode project
+        run: |
+          tar -czf "$RUNNER_TEMP/geuttun-ios-simulator.tgz" -C "$RUNNER_TEMP/Geuttun/Build/Products/Release-iphonesimulator" App.app
+          tar -czf "$RUNNER_TEMP/geuttun-xcode-project.tgz" -C ios/App App.xcodeproj CapApp-SPM/Package.swift
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geuttun-ios-simulator
+          path: |
+            ${{ runner.temp }}/geuttun-ios-simulator.tgz
+            ${{ runner.temp }}/geuttun-xcode-project.tgz
           if-no-files-found: error

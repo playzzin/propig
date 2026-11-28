@@ -1,0 +1,9 @@
+<resources>
+    <style name="TodayWidgetCount">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">#F0F8F3</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:visibility">gone</item>
+    </style>
+</resources>

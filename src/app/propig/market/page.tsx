@@ -4,7 +4,7 @@ import MarketDashboard from '@/app/propig/market/MarketDashboard';
 import styles from './MarketPage.module.css';
 
 export const metadata: Metadata = {
-  title: '국내 증시 | ProPig',
+  title: '국내 증시 | 그뚠웹',
   description: '코스피·코스닥 지수와 국내 상장 종목의 시세 차트를 확인합니다.',
 };
 

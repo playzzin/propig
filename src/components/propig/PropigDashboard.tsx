@@ -1,6 +1,8 @@
 'use client';
 
 import { SiteAppDownload } from '@/components/site-home/SiteAppDownload';
+import dynamic from 'next/dynamic';
+import { getDashboardPlatform, publishMobileWidget, requestMobileWidgetPin } from '@/app/propig/_lib/mobileDashboardWidget';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -59,7 +61,6 @@ import { auth, ensureFirestorePersistence } from '@/firebase/config';
 import { createHabitWorkspaceRef, saveHabitRecordPatch, saveHabitWorkspaceFields } from '@/app/habit-tracker/_lib/habitWorkspaceStore';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 import { useStickyNotes } from '@/hooks/useStickyNotes';
-import { isWindowsDashboard } from '@/lib/desktopWorkspaceRoute';
 import {
   bucketListService,
   type BucketCategoryOption,
@@ -77,6 +78,7 @@ import {
 import { TAG_COLOR_ORDER, type StickyNoteColor } from '@/types/stickyNote';
 
 type WidgetId = PropigWidgetId;
+const MobileLoginModal = dynamic(() => import('@/components/LoginModal').then(module => module.LoginModal));
 type WidgetState = 'idle' | 'loading' | 'ready' | 'error';
 type DdayTone = 'none' | 'overdue' | 'today' | 'upcoming' | 'done';
 type MetricTone = 'memo' | 'habit' | 'todo' | 'bucket';
@@ -470,13 +472,18 @@ function normalizeHiddenWidgets(value: unknown): WidgetId[] {
   return [...new Set(value.filter(isWidgetId))];
 }
 
+function layoutKey() {
+  const platform = getDashboardPlatform();
+  return platform === 'web' ? WIDGET_LAYOUT_STORAGE_KEY : `${WIDGET_LAYOUT_STORAGE_KEY}:${platform}`;
+}
+
 function loadWidgetLayout(): { order: WidgetId[]; hidden: WidgetId[] } {
   if (typeof window === 'undefined') {
     return { order: DEFAULT_WIDGET_ORDER, hidden: [] };
   }
 
   try {
-    const raw = window.localStorage.getItem(WIDGET_LAYOUT_STORAGE_KEY);
+    const raw = window.localStorage.getItem(layoutKey()) ?? window.localStorage.getItem(WIDGET_LAYOUT_STORAGE_KEY);
     if (!raw) return { order: DEFAULT_WIDGET_ORDER, hidden: [] };
     const parsed = JSON.parse(raw) as unknown;
     if (!isPlainRecord(parsed)) return { order: DEFAULT_WIDGET_ORDER, hidden: [] };
@@ -1093,13 +1100,16 @@ export default function PropigDashboard() {
   return <PropigDashboardSession key={currentUser?.uid ?? 'anonymous'} />;
 }
 
-const subscribeToWindowsHost = () => () => {};
-const getWindowsHost = () => isWindowsDashboard;
-const getServerWindowsHost = () => false;
+const subscribeToHost = () => () => {};
+const getServerPlatform = () => 'web' as const;
 
 function PropigDashboardSession() {
   const { currentUser, loading: authLoading, isConfigured, loginWithGoogle } = useAuth();
-  const windowsDashboard = useSyncExternalStore(subscribeToWindowsHost, getWindowsHost, getServerWindowsHost);
+  const platform = useSyncExternalStore(subscribeToHost, getDashboardPlatform, getServerPlatform);
+  const windowsDashboard = platform === 'windows';
+  const mobileDashboard = platform === 'ios' || platform === 'android';
+  const brand = windowsDashboard ? '그뚠뎃' : mobileDashboard ? '그뚠앱' : '그뚠웹';
+  const [loginOpen, setLoginOpen] = useState(false);
   const appRegistry = usePropigAppRegistry();
   const router = useRouter();
   const [memoDraft, setMemoDraft] = useState('');
@@ -1122,7 +1132,26 @@ function PropigDashboardSession() {
   const [widgetOrder, setWidgetOrder] = useState<WidgetId[]>(DEFAULT_WIDGET_ORDER);
   const [hiddenWidgetIds, setHiddenWidgetIds] = useState<WidgetId[]>([]);
   const [layoutReady, setLayoutReady] = useState(false);
-  const todayKey = useMemo(() => getTodayKey(), []);
+  const [todayKey, setTodayKey] = useState(getTodayKey);
+  useEffect(() => {
+    let timer: number;
+    const updateDay = () => {
+      const now = new Date();
+      const today = toDateKey(now);
+      setTodayKey(today);
+      setHabitDateKey(selected => selected === todayKey ? today : selected);
+      setTodoDateKey(selected => selected === todayKey ? today : selected);
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(updateDay, midnight.getTime() - now.getTime() + 100);
+    };
+    updateDay();
+    document.addEventListener('visibilitychange', updateDay);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', updateDay);
+    };
+  }, [todayKey]);
   const dateLabel = useMemo(() => formatDashboardDate(todayKey), [todayKey]);
   const uid = currentUser?.uid;
   const installedWidgetIds = useMemo(
@@ -1145,6 +1174,20 @@ function PropigDashboardSession() {
   const habit = useHabitWidget(uid, habitDateKey);
 
   useEffect(() => {
+    if (!mobileDashboard || !uid || auth.currentUser?.uid !== uid
+      || todo.state !== 'ready' || habit.state !== 'ready') return;
+    const scheduled = getOccurrencesForDate(todo.tasks, todayKey);
+    const todayRecords = habit.workspace.records[todayKey] ?? {};
+    void publishMobileWidget(uid, {
+      date: todayKey,
+      habitTotal: habit.workspace.habits.length,
+      habitDone: habit.workspace.habits.filter(item => isHabitRecordDone(todayRecords[item.id])).length,
+      todoTotal: scheduled.length + todo.anytimeTasks.length,
+      todoDone: scheduled.filter(item => item.completed).length,
+    });
+  }, [mobileDashboard, uid, todayKey, todo.state, todo.tasks, todo.anytimeTasks, habit.state, habit.workspace]);
+
+  useEffect(() => {
     const savedLayout = loadWidgetLayout();
     setWidgetOrder(savedLayout.order);
     setHiddenWidgetIds(savedLayout.hidden);
@@ -1153,7 +1196,7 @@ function PropigDashboardSession() {
 
   useEffect(() => {
     if (!layoutReady || typeof window === 'undefined') return;
-    window.localStorage.setItem(WIDGET_LAYOUT_STORAGE_KEY, JSON.stringify({ order: widgetOrder, hidden: hiddenWidgetIds }));
+    window.localStorage.setItem(layoutKey(), JSON.stringify({ order: widgetOrder, hidden: hiddenWidgetIds }));
   }, [hiddenWidgetIds, layoutReady, widgetOrder]);
 
   const toggleHabitRecordEditor = useCallback((habitId: string) => {
@@ -1354,6 +1397,10 @@ function PropigDashboardSession() {
 
   const handleSignIn = async () => {
     if (!isConfigured || isSigningIn) return;
+    if (mobileDashboard) {
+      setLoginOpen(true);
+      return;
+    }
     try {
       setIsSigningIn(true);
       await loginWithGoogle();
@@ -2307,8 +2354,8 @@ function PropigDashboardSession() {
             <CalendarDays size={15} />
             {dateLabel}
           </DateText>
-          <PageTitle>위젯 대시보드</PageTitle>
-          <DashboardTagline>웹과 바탕화면에 필요한 위젯을 골라 쓰세요.</DashboardTagline>
+          <PageTitle>{brand}</PageTitle>
+          <DashboardTagline>내 대시보드에 필요한 위젯을 골라 배치하세요.</DashboardTagline>
           <HeroSummary>
             <span>{heroStatus}</span>
             <em>{heroDetail}</em>
@@ -2374,7 +2421,12 @@ function PropigDashboardSession() {
         <LayoutActions>
           {!windowsDashboard && (
             <>
-              <ShowWidgetButton as={Link} href="/propig/about" prefetch={false}>그뚠앱 소개</ShowWidgetButton>
+              <ShowWidgetButton as={Link} href="/propig/about" prefetch={false}>기기별 위젯 안내</ShowWidgetButton>
+              {platform === 'android' && (
+                <ShowWidgetButton type="button" onClick={async () => {
+                  if (!await requestMobileWidgetPin()) toast.info('홈 화면을 길게 누르고 위젯에서 그뚠앱의 오늘 요약을 선택하세요.');
+                }}>홈 화면에 오늘 요약 추가</ShowWidgetButton>
+              )}
               <ShowWidgetButton as={Link} href="/propig/market" prefetch={false}>
                 <BarChart3 size={15} aria-hidden="true" />
                 국내 증시
@@ -2413,7 +2465,8 @@ function PropigDashboardSession() {
       ) : (
         <AllHiddenState>상점에서 앱을 등록하면 대시보드 위젯이 표시됩니다.</AllHiddenState>
       )}
-      <AppDownloadArea><SiteAppDownload siteId="shop" /></AppDownloadArea>
+      {platform === 'web' && <AppDownloadArea><SiteAppDownload siteId="shop" /></AppDownloadArea>}
+      {loginOpen && <MobileLoginModal isOpen onClose={() => setLoginOpen(false)} />}
     </DashboardShell>
   );
 }

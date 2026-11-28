@@ -1,7 +1,7 @@
 param(
     [string]$PackageName = 'ProPig.Habits.Development',
     [string]$Publisher = 'CN=ProPig Development',
-    [string]$Version = '1.3.0.0',
+    [string]$Version = '1.4.0.0',
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'out')
 )
 $ErrorActionPreference = 'Stop'
@@ -20,9 +20,9 @@ $manifest = [xml]@'
          xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap uap3 rescap">
-  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.3.0.0" ProcessorArchitecture="x64"/>
+  <Identity Name="ProPig.Habits.Development" Publisher="CN=ProPig Development" Version="1.4.0.0" ProcessorArchitecture="x64"/>
   <Properties>
-    <DisplayName>그뚠앱</DisplayName>
+    <DisplayName>그뚠뎃</DisplayName>
     <PublisherDisplayName>ProPig</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -32,7 +32,7 @@ $manifest = [xml]@'
   <Resources><Resource Language="ko-kr"/></Resources>
   <Applications>
     <Application Id="Habits" Executable="ProPig.Habits.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="그뚠앱" Description="나에게 맞는 대시보드와 바탕화면 위젯"
+      <uap:VisualElements DisplayName="그뚠뎃" Description="나에게 맞는 대시보드와 바탕화면 위젯"
         BackgroundColor="#101821" Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"/>
       <Extensions>

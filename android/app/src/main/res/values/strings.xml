@@ -1,7 +1,10 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">propig</string>
-    <string name="title_activity_main">propig</string>
+    <string name="app_name">그뚠앱</string>
+    <string name="title_activity_main">그뚠앱</string>
+    <string name="today_widget_name">오늘 요약</string>
+    <string name="today_widget_description">그뚠앱에서 확인한 오늘 할 일과 습관의 완료 수</string>
+    <string name="habit_widget_name">오늘 습관</string>
     <string name="package_name">com.propig.app</string>
     <string name="custom_url_scheme">com.propig.app</string>
 </resources>

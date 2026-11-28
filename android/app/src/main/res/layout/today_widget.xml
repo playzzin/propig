@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/today_widget_root" android:orientation="vertical"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/today_widget_background" android:padding="12dp" android:gravity="center_vertical">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/today_widget_name" android:textColor="#A7EEC7" android:textStyle="bold" android:textSize="16sp" />
+    <TextView android:id="@+id/today_widget_summary_todo" style="@style/TodayWidgetCount" />
+    <TextView android:id="@+id/today_widget_summary_habit" style="@style/TodayWidgetCount" />
+    <TextView android:id="@+id/today_widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="#C9DBD1" android:textSize="12sp" android:text="앱을 열어 로그인하세요" />
+</LinearLayout>
