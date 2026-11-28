@@ -125,7 +125,8 @@ internal sealed class HabitApp
                     choices = JsonSerializer.Deserialize<Choices>(File.ReadAllText(preferences)) ?? new Choices();
             }
             catch (Exception failure) when (failure is IOException or JsonException) { choices = new Choices(); }
-            var createShortcut = CreateDesktopShortcut(showResult: false, preserveMissing: choices.DesktopShortcutCreated);
+            var migrateShortcut = choices.DesktopShortcutCreated
+                ? CreateDesktopShortcut(showResult: false, preserveMissing: true) : Task.CompletedTask;
             await Run(async () =>
             {
                 try { await firebase.RestoreAsync(); }
@@ -134,7 +135,7 @@ internal sealed class HabitApp
             }, "연결을 확인하지 못했습니다.");
             refresh.Start();
             _ = pcWidgets.Refresh();
-            await createShortcut;
+            await migrateShortcut;
         };
         main.Closing += (_, eventArgs) =>
         {
@@ -415,6 +416,12 @@ internal sealed class HabitApp
             web.IsEnabled = true;
             toolbarActions.Children.Add(web);
         }
+        if (surface == DesktopSurface.System && applicationId != null && toolbar.Child is WrapPanel systemActions)
+        {
+            var addShortcut = Button("바탕화면에 추가", () => CreateSystemShortcut(window));
+            addShortcut.IsEnabled = true;
+            systemActions.Children.Add(addShortcut);
+        }
         var body = new ContentControl
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -530,6 +537,23 @@ internal sealed class HabitApp
         }
     }
 
+    private static async Task CreateSystemShortcut(Window owner)
+    {
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        string result;
+        try
+        {
+            var created = await Task.Run(() => DesktopShortcut.EnsureSystemWidget(desktop));
+            result = created ? "바탕화면에 ‘그뚠뎃 시스템 정보’ 바로가기를 만들었습니다."
+                : "바탕화면에 ‘그뚠뎃 시스템 정보’ 바로가기가 이미 있습니다.";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            result = "바로가기를 만들 수 없습니다. 바탕화면 폴더와 같은 이름의 파일을 확인해 주세요.";
+        }
+        if (owner.IsLoaded) MessageBox.Show(owner, result, "그뚠뎃", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void Paint()
     {
         if (!lifetime.IsCancellationRequested) PaintMain();
@@ -579,7 +603,10 @@ internal sealed class HabitApp
             return Task.CompletedTask;
         });
         if (applicationId != null)
+        {
             AddAction("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true));
+            AddAction("시스템 정보 위젯 바로가기 만들기", () => CreateSystemShortcut(main));
+        }
         actions.Children.Add(menu);
         var signOut = Button("로그아웃", SignOut);
         signOut.Margin = new Thickness(0, 8, 12, 6);

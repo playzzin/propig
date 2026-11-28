@@ -19,7 +19,7 @@ const features = [
   {
     icon: Cpu,
     title: '시스템 정보',
-    detail: 'Windows PC의 CPU, 메모리, 디스크 사용량을 확인하고 같은 계정의 웹에서도 보세요.',
+    detail: 'Windows PC의 CPU 온도와 사용률, 메모리, 디스크 사용량을 확인하세요. 그뚠뎃에서 PC 공유를 켜면 같은 계정의 웹에서도 볼 수 있습니다.',
   },
   {
     icon: CloudSun,
@@ -70,7 +70,7 @@ export default function GeuttunAboutPage() {
           </li>
           <li>
             <h3>Windows · 그뚠뎃</h3>
-            <p>앱에서 계정을 연결하고 ‘위젯’ 메뉴에서 ‘메모 위젯 열기’ 등을 선택하세요. 바탕화면에서 창을 끌어 위치와 크기를 정할 수 있습니다.</p>
+            <p>앱에서 계정을 연결하고 ‘위젯’ 메뉴에서 시스템 정보나 메모 위젯을 열어 원하는 위치에 놓으세요. 시스템 정보 위젯 상단의 ‘바탕화면에 추가’ 또는 앱의 ‘위젯 → 시스템 정보 위젯 바로가기 만들기’를 누르면 바탕화면에서 이 위젯을 바로 열 수 있습니다.</p>
             <a className={styles.pcLink} href="https://apps.microsoft.com/detail/restricted/9P80XDSKT26X">
               Windows 테스터용 설치 <ArrowRight size={16} aria-hidden="true" />
             </a>

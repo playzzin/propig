@@ -28,7 +28,7 @@ internal static class PcWidgetActions
                 case "dock-controls": openPanel("dock"); break;
                 case "ai-panel": openPanel("usage"); break;
                 case "mira-controls": return PcMiraBoxDevice.OpenControls();
-                case "core-temp-info": Open("https://www.alcpu.com/CoreTemp/"); break;
+                case "core-temp-info": Open(PcTemperatureSetup.Website); break;
                 case "chrome": Run(Installed("chrome.exe", @"Google\Chrome\Application\chrome.exe")); break;
                 case "claude": Run(Installed("Claude.exe", @"AnthropicClaude\Claude.exe", @"Programs\Claude\Claude.exe", @"Claude\Claude.exe")); break;
                 case "antigravity": Run(Installed("Antigravity.exe", @"Programs\Antigravity\Antigravity.exe", @"Programs\Antigravity IDE\Antigravity IDE.exe")); break;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import dynamic from 'next/dynamic';
 import { collection, limit, onSnapshot, query } from 'firebase/firestore';
 import { CalendarDays, ChartCandlestick, Clock3, Cpu, Gauge, Grid2X2, Monitor, PanelsTopLeft, Settings2 } from 'lucide-react';
@@ -10,13 +10,14 @@ import { isWindowsDashboard } from '@/lib/desktopWorkspaceRoute';
 import { CalendarPanel } from './ClockCalendar';
 import { WeatherPanel } from './WeatherPanel';
 import { UsageNotes } from './UsageNotes';
-import { DockPanel, MiraBoxPanel, SystemPanel, UsagePanel } from './DevicePanels';
+import { DockPanel, hasRecentSensorReading, MiraBoxPanel, SystemPanel, UsagePanel } from './DevicePanels';
 import { isPcPanel, pcPanels, readPcSnapshot, type PcPanel, type PcSnapshot } from './pcSnapshot';
 import styles from './PcWidgetBoard.module.css';
 
 type Device = { id: string; sample: PcSnapshot };
 type Cloud = { uid: string; devices: Device[]; failed?: boolean };
-type Native = { requestId: string; sample: PcSnapshot; sharing: boolean; removing: boolean; cloudStatus: string; result: string };
+type NativeReading = { requestId: string; sample: PcSnapshot; temperatureSetupSupported: boolean };
+type Native = NativeReading & { sharing: boolean; removing: boolean; cloudStatus: string; result: string };
 type Bridge = {
   postMessage: (data: object) => void;
   addEventListener: (type: 'message', callback: (e: MessageEvent) => void) => void;
@@ -31,7 +32,8 @@ const bridge = () => (window as Window & {chrome?: {webview?: Bridge}}).chrome?.
 
 function useNativeWidget(requestId?: string) {
   const [state, setState] = useState<Native | null>(null);
-  const [waiting, setWaiting] = useState(false);
+  const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const latest = useRef<NativeReading | null>(null);
   const send = useCallback((target?: string) => {
     if (!requestId) return;
     bridge()?.postMessage({ version: 1, requestId, type: target ? 'pc-widget-action' : 'pc-widget-read', ...(target && {target}) });
@@ -43,20 +45,36 @@ function useNativeWidget(requestId?: string) {
       if (data?.version !== 1 || data.type !== 'pc-widget-state' || data.requestId !== requestId) return;
       const sample = readPcSnapshot(data.data?.sample);
       if (!sample) return;
-      setState(previous => ({ requestId, sample, sharing: data.data.sharing === true, removing: data.data.removing === true,
+      const reading = { requestId, sample, temperatureSetupSupported: data.data.temperatureSetupSupported === true };
+      latest.current = reading;
+      setState(previous => ({ ...reading, sharing: data.data.sharing === true, removing: data.data.removing === true,
         cloudStatus: typeof data.data.cloudStatus === 'string' ? data.data.cloudStatus : '',
         result: typeof data.result === 'string' ? data.result : previous?.requestId === requestId ? previous.result : '' }));
-      if (typeof data.result === 'string') setWaiting(false);
+      if (typeof data.result === 'string') setWaitingFor(null);
     };
     host.addEventListener('message', receive);
     const read = () => { if (document.visibilityState !== 'hidden') send(); };
     read();
     const interval = window.setInterval(read, 4000);
     document.addEventListener('visibilitychange', read);
-    return () => { host.removeEventListener('message', receive); clearInterval(interval); document.removeEventListener('visibilitychange', read); };
+    return () => {
+      latest.current = null;
+      host.removeEventListener('message', receive);
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', read);
+    };
   }, [requestId, send]);
-  const action = (id: string) => { setWaiting(true); send(id); };
-  return { native: state?.requestId === requestId ? state : null, waiting, action };
+  const action = (id: string) => {
+    if (!requestId || waitingFor === requestId) return;
+    if (id === 'core-temp-setup') {
+      const reading = latest.current;
+      if (!reading?.temperatureSetupSupported || reading.requestId !== requestId || reading.sample.source !== 'windows'
+          || reading.sample.sensors?.cpuTemp !== null || !hasRecentSensorReading(reading.sample.sensors)) return;
+    }
+    setWaitingFor(requestId);
+    send(id);
+  };
+  return { native: state?.requestId === requestId ? state : null, waiting: waitingFor === requestId, action };
 }
 
 function useCloudDevices(uid: string | undefined) {
@@ -122,7 +140,10 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
       <div className={styles.title}><Monitor size={22} aria-hidden="true"/><h1>PC 위젯</h1></div>
       {!nativeMarket && (desktop ? <button type="button" className={styles.option} aria-expanded={settings} onClick={() => setSettings(!settings)}>
         <Settings2 size={16} aria-hidden="true"/> 연결 설정
-      </button> : <a className={styles.option} href={'propig-widgets:' + panel}><Monitor size={15} aria-hidden="true"/>Windows 위젯 열기</a>)}
+      </button> : <div className={styles.heading}>
+        {panel === 'system' && !isWindowsDashboard && <a className={styles.option} href="https://apps.microsoft.com/detail/restricted/9P80XDSKT26X">그뚠뎃 설치 (테스터)</a>}
+        <a className={styles.option} href={'propig-widgets:' + panel}><Monitor size={15} aria-hidden="true"/>{panel === 'system' ? '이 PC의 시스템 위젯 열기' : 'Windows 위젯 열기'}</a>
+      </div>)}
     </header>
     {!desktop && <nav className={styles.tabs} aria-label="PC 위젯 선택">
       {pcPanels.map(p => {const Icon = icons[p.id]; return <button type="button" key={p.id} aria-current={p.id === panel ? 'page' : undefined} onClick={() => selectPanel(p.id)}>
@@ -149,11 +170,12 @@ export default function PcWidgetBoard({requestId}: { requestId?: string }) {
         <button type="button" disabled={waiting} onClick={() => action('choose-workspace')}>작업 폴더 선택</button>
       </>}
     </section>}
-    {!localPanel && sample?.source === 'legacy' && <p className={styles.help}>이 PC는 이전 버전으로 연결되어 있습니다. 독립형 위젯을 사용하려면 ProPig Windows 앱을 업데이트해 주세요.</p>}
+    {!localPanel && sample?.source === 'legacy' && <p className={styles.help}>이 PC는 이전 버전으로 연결되어 있습니다. 독립형 위젯을 사용하려면 그뚠뎃을 업데이트해 주세요.</p>}
     {!localPanel && !desktop && !sample && !loading && <p className={styles.help}>Windows 앱의 <strong>위젯 → 시스템 정보 → 연결 설정</strong>에서 이 PC를 웹에 공유할 수 있습니다.</p>}
     <section className={styles.panel} aria-label={pcPanels.find(p => p.id === panel)?.label}>
-      {panel === 'system' && <SystemPanel system={sample?.system ?? null} sensors={sample?.sensors ?? null}
-        onSensorHelp={desktop || isWindowsDashboard ? () => launch('core-temp-info') : undefined}/>}
+      {panel === 'system' && <SystemPanel system={sample?.system ?? null} sensors={sample?.sensors ?? null} waiting={waiting} remotePc={Boolean(device) && !desktop}
+        onSensorSetup={desktop && onPc && native?.temperatureSetupSupported ? () => action('core-temp-setup') : undefined}
+        onSensorHelp={desktop && onPc ? () => action('core-temp-info') : undefined}/>}
       {panel === 'clock' && <WeatherPanel externalLinks={!desktop}/>}
       {panel === 'calendar' && <CalendarPanel/>}
       {panel === 'usage' && <><UsagePanel usage={sample?.usage ?? null}/>

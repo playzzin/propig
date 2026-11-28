@@ -18,6 +18,7 @@ internal sealed class PcDeviceLink
 internal sealed class PcWidgetHub(FirebaseHabits firebase, Func<Dictionary<string, PcDeviceLink>> devices, Action persist, Action<string> openPanel, CancellationToken lifetime) : IDisposable
 {
     private readonly Lazy<PcWidgetSampler> sampler = new(() => new PcWidgetSampler());
+    private readonly PcTemperatureSetup temperatureSetup = new();
     private readonly SemaphoreSlim transfer = new(1, 1);
     private string? lastAccount;
     private DateTime lastAttempt;
@@ -26,7 +27,7 @@ internal sealed class PcWidgetHub(FirebaseHabits firebase, Func<Dictionary<strin
     internal object Read(string account)
     {
         var link = devices().GetValueOrDefault(account);
-        return new { sample = WithNotes(link), sharing = link?.Share == true,
+        return new { sample = WithNotes(link), sharing = link?.Share == true, temperatureSetupSupported = true,
             removing = link?.Removing == true, cloudStatus = account == lastAccount ? cloudStatus : null };
     }
 
@@ -43,6 +44,15 @@ internal sealed class PcWidgetHub(FirebaseHabits firebase, Func<Dictionary<strin
     internal async Task<string> Execute(string? action, Window? owner, string account)
     {
         if (firebase.Uid != account) return "기존 계정으로 다시 연결해 주세요.";
+        if (action == "core-temp-setup")
+        {
+            if (owner == null) return "측정할 PC의 시스템 정보 위젯에서 열어 주세요.";
+            return await temperatureSetup.Run(
+                () => firebase.Uid == account && owner.IsLoaded ? sampler.Value.Sample().Sensors : null,
+                message => MessageBox.Show(owner, message, "그뚠뎃 · CPU 온도 연결",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes,
+                lifetime);
+        }
         if (action?.Split('/') is ["statusline", var provider, var operation] && provider is "claude" or "antigravity" && operation is "connect" or "remove")
             return PcAiUsage.ConfigureStatusLine(provider, operation == "remove");
         if (action?.Split('/') is ["note", var type, var first, var second])
