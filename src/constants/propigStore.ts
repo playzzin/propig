@@ -1,8 +1,8 @@
 import type { MenuItem } from '@/types/menu';
 
-export type PropigStoreAppId = 'memos' | 'habit' | 'bucket' | 'todo' | 'calculator' | 'pc-widgets' | 'finance';
+export type PropigStoreAppId = 'memos' | 'habit' | 'bucket' | 'todo' | 'calculator' | 'pc-widgets' | 'market' | 'finance';
 export type PropigStoreAppStatus = 'available' | 'planned';
-export type PropigWidgetId = 'memo' | 'habit' | 'bucket' | 'todo';
+export type PropigWidgetId = 'memo' | 'habit' | 'bucket' | 'todo' | 'market';
 
 export interface PropigStoreApp {
   id: PropigStoreAppId;
@@ -103,6 +103,20 @@ export const PROPIG_STORE_APPS: PropigStoreApp[] = [
     status: 'available',
   },
   {
+    id: 'market',
+    title: '국내 증시',
+    shortTitle: '주식',
+    summary: '코스피·코스닥 지수와 국내 주식 시세를 확인합니다.',
+    description: '종목명이나 코드로 검색하고, 대시보드와 Windows 바탕화면에서 거래일별 차트를 확인합니다.',
+    path: '/propig/market',
+    menuItemId: 'shop-market',
+    icon: 'chart-line',
+    color: '#53c5bb',
+    badge: 'KRX',
+    status: 'available',
+    widgetId: 'market',
+  },
+  {
     id: 'finance',
     title: '머니 플래너',
     shortTitle: '머니',
@@ -118,7 +132,7 @@ export const PROPIG_STORE_APPS: PropigStoreApp[] = [
 export const PROPIG_AVAILABLE_STORE_APPS = PROPIG_STORE_APPS.filter((app) => app.status === 'available');
 export const PROPIG_AVAILABLE_STORE_APP_IDS = PROPIG_AVAILABLE_STORE_APPS.map((app) => app.id);
 export const DEFAULT_PROPIG_INSTALLED_APP_IDS: PropigStoreAppId[] = ['memos'];
-export const PROPIG_WIDGET_IDS: PropigWidgetId[] = ['memo', 'habit', 'bucket', 'todo'];
+export const PROPIG_WIDGET_IDS: PropigWidgetId[] = ['memo', 'habit', 'bucket', 'todo', 'market'];
 
 export const PROPIG_STORE_PAGE_MENU_ITEM: MenuItem = {
   id: 'shop-store',

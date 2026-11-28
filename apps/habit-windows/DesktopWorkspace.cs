@@ -272,6 +272,7 @@ internal sealed class DesktopWorkspace : DockPanel, IDisposable
     private void OpenTarget(string? target)
     {
         if (target == "pc-widgets") { openPcPanel?.Invoke("system"); return; }
+        if (target == "market") { openPcPanel?.Invoke("market"); return; }
         DesktopTarget? destination = target switch
         {
             "memo" => DesktopTarget.Memo,

@@ -21,7 +21,7 @@ const StickyNotesBoard = dynamic(() => import('@/components/StickyNotesBoard'), 
 
 type DesktopApp = 'habit' | 'memos' | 'todo';
 type WebApp = 'bucket' | 'calculator' | 'pc-widgets';
-type DesktopWidget = 'habit' | 'memo' | 'todo';
+type DesktopWidget = 'habit' | 'memo' | 'todo' | 'market';
 type View = 'home' | 'store' | DesktopApp;
 
 interface DesktopShellProps {
@@ -34,6 +34,7 @@ const WIDGET_LABELS: Record<DesktopWidget, string> = {
   habit: '습관 위젯',
   memo: '메모 위젯',
   todo: '할일 위젯',
+  market: '국내 증시 위젯',
 };
 
 function isWebApp(appId: PropigStoreAppId): appId is WebApp {
@@ -66,6 +67,7 @@ export function DesktopShell({ onHabitWrite, onOpenWidget, onOpenWebApp }: Deskt
     : undefined;
 
   function openApp(appId: PropigStoreAppId) {
+    if (appId === 'market') onOpenWidget('market');
     if (isWebApp(appId)) onOpenWebApp(appId);
     if (appId === 'habit' || appId === 'memos' || appId === 'todo') setView(appId);
   }

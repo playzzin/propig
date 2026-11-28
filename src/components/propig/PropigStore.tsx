@@ -18,15 +18,16 @@ import {
 } from 'lucide-react';
 import styled, { css, keyframes } from 'styled-components';
 import { toast } from 'sonner';
-import { PROPIG_STORE_APPS, type PropigStoreApp } from '@/constants/propigStore';
+import { PROPIG_STORE_APPS, type PropigStoreApp, type PropigWidgetId } from '@/constants/propigStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePropigAppRegistry } from '@/hooks/usePropigAppRegistry';
 
-const WIDGET_LABELS: Record<string, string> = {
+const WIDGET_LABELS: Record<PropigWidgetId, string> = {
   memo: '메모 위젯',
   habit: '습관 위젯',
   bucket: '버킷 위젯',
   todo: '할일 위젯',
+  market: '주식 위젯',
 };
 
 function getStoreSurfaceLabel(app: Pick<PropigStoreApp, 'widgetId'>): string {

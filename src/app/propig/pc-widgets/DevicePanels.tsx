@@ -76,7 +76,7 @@ function Meter({ label, value, detail }: { label: string; value: number | null |
   );
 }
 
-export function SystemPanel({ system, sensors }: { system: PcSystem | null; sensors: PcSensors | null }) {
+export function SystemPanel({ system, sensors, onSensorHelp }: { system: PcSystem | null; sensors: PcSensors | null; onSensorHelp?: () => void }) {
   const now = useSyncExternalStore(subscribeClock, getTime, getServerTime);
   const chips = [
     { title: 'CPU', name: system?.cpuName, load: system?.cpu, temp: sensors?.cpuTemp },
@@ -103,9 +103,19 @@ export function SystemPanel({ system, sensors }: { system: PcSystem | null; sens
         <Meter label="시스템 드라이브" value={system?.disk} />
       </div>
       <dl className={styles.sources}>
+        {sensors?.cpuTempSource && <div><dt>CPU 온도 센서</dt><dd>{sensors.cpuTempSource === 'firmware' ? 'Windows CPU 온도 영역' : 'Core Temp · 최고 측정 온도'}</dd></div>}
         <div><dt>Windows 리소스</dt><dd><Stamp value={system?.updatedAt} now={now} staleAfter={2 * minute} /></dd></div>
         <div><dt>하드웨어 센서</dt><dd><Stamp value={sensors?.updatedAt} now={now} staleAfter={30_000} /></dd></div>
       </dl>
+      {system?.cpuName && sensors?.cpuTemp == null && (
+        <details className={styles.notice}>
+          <summary>CPU 온도 연결 방법</summary>
+          <p>Windows가 CPU 온도를 제공하면 자동으로 표시됩니다. 값이 비어 있으면 측정할 PC에서 Core Temp를 실행하세요. 여러 코어 온도가 있으면 가장 높은 값을 표시합니다.</p>
+          {onSensorHelp
+            ? <button className={styles.textButton} type="button" onClick={onSensorHelp}>Core Temp 공식 사이트</button>
+            : <a href="https://www.alcpu.com/CoreTemp/" target="_blank" rel="noreferrer">Core Temp 공식 사이트</a>}
+        </details>
+      )}
     </section>
   );
 }
