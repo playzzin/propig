@@ -74,6 +74,16 @@ static async Task CheckProviders(string root)
     Check(sample.Providers.Any(p => p.Id == "antigravity" && p.Status == "STALE" && p.Weekly == null), "Expired observations cannot appear current.");
 }
 
+TemperatureChecks.CheckReadings();
+Check(PcWidgetWindows.PanelId(DesktopSurface.Market) == "market" &&
+    PcWidgetWindows.FromCommandLine(["propig-widgets:market"]) == "market" &&
+    PcWidgetWindows.FromCommandLine(["propig-widgets:market/other"]) == null,
+    "The stock widget must open only through its registered desktop target.");
+if (args.Contains("--temperature-live"))
+{
+    await TemperatureChecks.CheckLive();
+    return;
+}
 var fixture = Directory.CreateTempSubdirectory("propig-widget-check-");
 try { CheckLayout(fixture.FullName); await CheckProviders(fixture.FullName); }
 finally { fixture.Delete(recursive: true); }
@@ -96,4 +106,4 @@ if (args.Contains("--live"))
     Console.WriteLine($"GPU temperature={live.Sensors?.GpuTemp}, GPU load={live.Sensors?.Gpu}, CPU temperature={live.Sensors?.CpuTemp}");
     Console.WriteLine($"MiraBox connected={live.Mirabox?.Online}, visible keys={live.Mirabox?.Slots.Length}, supported keys={live.Mirabox?.Slots.Count(s => s.Runnable)}");
 }
-Console.WriteLine("PASS native sampling, empty profile, deck layout validation, optional quota connections and expiry.");
+Console.WriteLine("PASS CPU temperature providers, stock widget activation, native sampling, deck layout, optional quota connections and expiry.");

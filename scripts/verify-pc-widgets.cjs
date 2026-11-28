@@ -72,7 +72,7 @@ const fixture = {
 
 function checkDecoder() {
   const { readPcSnapshot, isPcPanel, pcPanels } = contract;
-  assert.deepEqual(pcPanels.map(({ id }) => id), ['system', 'clock', 'calendar', 'usage', 'mirabox', 'dock']);
+  assert.deepEqual(pcPanels.map(({ id }) => id), ['system', 'clock', 'calendar', 'usage', 'mirabox', 'dock', 'market']);
   assert(pcPanels.every(({ id }) => isPcPanel(id)));
   assert.equal(isPcPanel('unknown'), false);
   for (const invalid of [null, {}, [], '{', ' '.repeat(32769), { ...fixture, version: 2 }, { ...fixture, system: {} }]) {
@@ -80,6 +80,12 @@ function checkDecoder() {
   }
   const snapshot = readPcSnapshot(JSON.stringify(fixture));
   assert.deepEqual(snapshot, readPcSnapshot(fixture));
+  assert.equal(snapshot.sensors.cpuTempSource, undefined);
+  const sensorReading = (temp, source) => readPcSnapshot({ ...fixture, sensors: { ...fixture.sensors, cpuTemp: temp, cpuTempSource: source } }).sensors;
+  assert.equal(sensorReading(57.5, 'core-temp').cpuTempSource, 'core-temp');
+  assert.equal(sensorReading(0, 'firmware').cpuTempSource, 'firmware');
+  assert.equal(sensorReading(null, 'core-temp').cpuTempSource, undefined);
+  assert.equal(sensorReading(57.5, 'unknown').cpuTempSource, undefined);
   assert.equal(snapshot.system.cpu, 0);
   assert.equal(snapshot.system.ram, null);
   assert.equal(snapshot.usage.daily[0].tokens, 0);
@@ -132,7 +138,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.document = document;
 globalThis.window = Object.assign(new EventTarget(), {
   setTimeout: schedule, clearTimeout: cancel, setInterval: schedule, clearInterval: cancel,
-  location: { search: '' },
+  location: { search: '', assign(value) { this.href = value; } },
 });
 
 const element = React.createElement;
@@ -173,6 +179,12 @@ async function checkPanels(sample) {
     assert.equal(heading(calendar), '2024년 2월');
     assert.equal(weather.findAllByType('time')[0].children[0], '23:59');
     assert.equal(system.findByProps({ 'aria-label': 'CPU 사용률' }).props.value, 0);
+    await act(async () => view.update(render({ ...sample, sensors: { ...sample.sensors, cpuTemp: 57.5, cpuTempSource: 'core-temp' } })));
+    assert.match(renderedText(system), /57.5 °C/);
+    assert.match(renderedText(system), /Core Temp · 최고 측정 온도/);
+    await act(async () => view.update(render({ ...sample, sensors: null })));
+    assert.match(renderedText(system), /CPU 온도 연결 방법/);
+    await act(async () => view.update(render(sample)));
     assert.equal(system.findByProps({ 'aria-label': '메모리 측정값 없음' }).props.role, 'img');
     assert.equal(usage.findByProps({ 'aria-label': '5시간 잔여' }).props.value, 0);
     assert.equal(usage.findByProps({ 'data-provider': 'claude' }).findAllByType('progress').length, 0);
@@ -226,6 +238,15 @@ async function checkPanels(sample) {
 async function checkAccountAndBridge() {
   const accounts = [];
   const messages = [];
+  const host = { isWindowsDashboard: false };
+  const market = load('../market/MarketDashboard.tsx', {
+    '@/lib/desktopWorkspaceRoute': host,
+    './MarketChart': load('../market/MarketChart.tsx'),
+    './marketData': load('../market/marketData.ts'),
+    './marketClient': {
+      loadPrices: async () => [{ date: '2024-02-29', close: 1234.5, open: 1200, high: 1300, low: 1190, change: 1.2 }],
+    },
+  }).default;
   const auth = { currentUser: { uid: 'account-a' }, loading: false };
   const firestore = {
     collection: (_db, ...segments) => segments.join('/'),
@@ -238,6 +259,8 @@ async function checkAccountAndBridge() {
     },
   };
   const Board = load('PcWidgetBoard.tsx', {
+    'next/dynamic': () => market,
+    '@/lib/desktopWorkspaceRoute': host,
     'firebase/firestore': firestore, '@/firebase/config': { db: {} },
     '@/contexts/AuthContext': { useAuth: () => auth },
     './pcSnapshot': contract, './ClockCalendar': clock, './DevicePanels': panels, './UsageNotes': notes,
@@ -288,6 +311,19 @@ async function checkAccountAndBridge() {
     assert.doesNotMatch(renderedText(view.root), /로그인하면|PC가 없습니다/);
     await act(async () => choosePanel('달력').props.onClick());
     assert.match(renderedText(view.root), /2024년/);
+    await act(async () => choosePanel('국내 증시').props.onClick());
+    assert.match(renderedText(view.root), /시세 데이터 연결/);
+    assert.doesNotMatch(renderedText(view.root), /로그인하면|PC 목록을/);
+    assert(view.root.findAllByType('a').some(link => link.props.href === 'propig-widgets:market'));
+    await act(async () => view.root.findByProps({type: 'password'}).props.onChange({target: {value: 'public-data-test-fixture'}}));
+    await act(async () => view.root.findByType('form').props.onSubmit({preventDefault() {}}));
+    assert.match(renderedText(view.root), /코스피/);
+    assert.match(renderedText(view.root), /1,234.5/);
+    assert(view.root.findAllByType('polyline').length > 0);
+    host.isWindowsDashboard = true;
+    await act(async () => choosePanel('국내 증시').props.onClick());
+    assert.equal(window.location.href, 'propig-widgets:market');
+    host.isWindowsDashboard = false;
   } finally { await act(async () => view.unmount()); }
 
   const response = (id, data) => bridge.dispatchEvent(new MessageEvent('message', {
@@ -330,6 +366,11 @@ async function checkAccountAndBridge() {
 
 async function main() {
   const sample = checkDecoder();
+  const store = load('../../../constants/propigStore.ts');
+  assert(store.isAvailablePropigStoreAppId('market'));
+  assert(store.PROPIG_WIDGET_IDS.includes('market'));
+  assert.equal(store.getPropigStoreAppForWidget('market').path, '/propig/market');
+  assert(store.PROPIG_STORE_MENU_ITEMS.some(item => item.id === 'shop-market' && item.propigAppId === 'market'));
   const originalNow = Date.now;
   const originalClearInterval = globalThis.clearInterval;
   Date.now = () => now;
@@ -342,7 +383,7 @@ async function main() {
     Date.now = originalNow;
     globalThis.clearInterval = originalClearInterval;
   }
-  console.log('PASS PC widgets: bounded readings, six panels, KST rollover, account changes, device-scoped key links, keyboard-accessible slots and native session isolation.');
+  console.log('PASS PC widgets: temperature sources, market registration and launch, KST rollover, account changes, device-scoped key links and native session isolation.');
 }
 
 async function checkForecast() {

@@ -163,7 +163,7 @@ internal sealed class HabitApp
     {
         if (id == "main") { ShowMain(); return; }
         if (!sessionRestored) { pendingPanel = id; ShowMain(); return; }
-        if (firebase.Uid == null && id is "clock" or "calendar")
+        if (firebase.Uid == null && id is "clock" or "calendar" or "market")
         {
             pendingPanel = null;
             var guest = PcWidgetWindows.Panels.First(p => p.Id == id);
@@ -538,7 +538,7 @@ internal sealed class HabitApp
 
     private void PaintMain()
     {
-        if (sessionRestored && pendingPanel is string requested && (firebase.Uid != null || requested is "clock" or "calendar")) ActivatePanel(requested);
+        if (sessionRestored && pendingPanel is string requested && (firebase.Uid != null || requested is "clock" or "calendar" or "market")) ActivatePanel(requested);
         var uid = firebase.Uid;
         if (desktopWorkspace != null && desktopWorkspace.AccountUid != uid) CloseWorkspace();
         var nativeScreen = uid == null || configureWidget;
@@ -571,7 +571,6 @@ internal sealed class HabitApp
         widgets.Items.Add(new Separator());
         foreach (var panel in PcWidgetWindows.Panels)
             AddAction(panel.Label, () => { OpenDesktopWidget(panel.Surface, panel.Label); return Task.CompletedTask; });
-        AddAction("국내 증시", OpenMarketWidget);
         widgets.Items.Add(new Separator());
         AddAction("습관 위젯 설정", () =>
         {

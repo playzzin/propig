@@ -54,6 +54,7 @@ import styled, { keyframes } from 'styled-components';
 import { toast } from 'sonner';
 import {
   getPropigStoreAppById,
+  PROPIG_WIDGET_IDS,
   type PropigWidgetId,
 } from '@/constants/propigStore';
 import { useAuth } from '@/contexts/AuthContext';
@@ -176,12 +177,14 @@ const MEMO_ALL_CATEGORY = 'all';
 const MEMO_UNTAGGED_CATEGORY = '__untagged__';
 const MEMO_ALL_COLORS = 'all';
 const HABIT_ALL_CATEGORY = 'all';
-const DEFAULT_WIDGET_ORDER: WidgetId[] = ['memo', 'habit', 'bucket', 'todo'];
+const MarketDashboard = dynamic(() => import('@/app/propig/market/MarketDashboard'));
+const DEFAULT_WIDGET_ORDER = PROPIG_WIDGET_IDS;
 const WIDGET_LABELS: Record<WidgetId, string> = {
   memo: '메모장',
   habit: '습관 트래커',
   bucket: '버킷리스트',
   todo: '할일 일정표',
+  market: '국내 증시',
 };
 
 const EMPTY_HABIT_WORKSPACE: HabitWorkspace = {
@@ -454,7 +457,7 @@ function removeUndefined(value: unknown): unknown {
 }
 
 function isWidgetId(value: unknown): value is WidgetId {
-  return value === 'memo' || value === 'habit' || value === 'bucket' || value === 'todo';
+  return PROPIG_WIDGET_IDS.some(id => id === value);
 }
 
 function isChoiceMode(mode: RecordMode): mode is 'singleChoice' | 'multiChoice' {
@@ -1780,6 +1783,20 @@ function PropigDashboardSession() {
   };
 
   const renderWidget = (id: WidgetId, chrome: WidgetChrome) => {
+    if (id === 'market') {
+      return (
+        <WidgetPanel $accent="#53c5bb">
+          <WidgetHeader>
+            {chrome.renderTitle(<BarChart3 size={20} />)}
+            <WidgetHeaderActions>
+              {!windowsDashboard && <WidgetLink href="/propig/market" aria-label="국내 증시 전체 보기"><ArrowUpRight size={17} /></WidgetLink>}
+              {chrome.hideButton}
+            </WidgetHeaderActions>
+          </WidgetHeader>
+          <MarketDashboard compact />
+        </WidgetPanel>
+      );
+    }
     if (id === 'memo') {
       return (
         <WidgetPanel $accent="#2dd4bf">

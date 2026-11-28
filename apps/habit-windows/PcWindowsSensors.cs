@@ -27,12 +27,11 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
 
     private void Update()
     {
-        PcSensors? result = null;
+        double? gpuTemp = null, gpu = null, cpuTemp = null;
         try
         {
             var adapter = new OpenAdapter { DeviceName = displayName ?? "" };
             string? luid = null;
-            double? gpuTemp = null;
             if (displayName != null && D3DKMTOpenAdapterFromGdiDisplayName(ref adapter) == 0)
             {
                 try
@@ -47,7 +46,6 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
                 PdhAddEnglishCounterW(query, @"\GPU Engine(*)\Utilization Percentage", 0, out gpuCounter);
                 PdhAddEnglishCounterW(query, @"\Thermal Zone Information(*)\Temperature", 0, out thermalCounter);
             }
-            double? gpu = null, cpuTemp = null;
             if (query != 0 && PdhCollectQueryData(query) == 0)
             {
                 if (luid != null)
@@ -71,15 +69,21 @@ internal sealed class PcWindowsSensors(string? displayName) : IDisposable
                     if (celsius is > -50 and < 150) cpuTemp = Math.Max(cpuTemp ?? celsius, celsius);
                 }
             }
-            if (gpuTemp != null || gpu != null || cpuTemp != null)
-                result = new(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cpuTemp, gpuTemp, gpu);
         }
         catch (Exception error) when (error is EntryPointNotFoundException or DllNotFoundException or ExternalException) { }
         finally
         {
+            var temperatureSource = cpuTemp.HasValue ? "firmware" : null;
+            if (!cpuTemp.HasValue && PcCoreTemperature.Read() is double coreTemperature)
+            {
+                cpuTemp = coreTemperature;
+                temperatureSource = "core-temp";
+            }
             lock (gate)
             {
-                latest = result;
+                latest = gpuTemp != null || gpu != null || cpuTemp != null
+                    ? new(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cpuTemp, gpuTemp, gpu, temperatureSource)
+                    : null;
                 nextRead = Environment.TickCount64 + 4000;
                 pending = false;
                 if (disposed) CloseQuery();
