@@ -349,7 +349,7 @@ internal sealed partial class HabitApp
     private void OpenDesktopWidget(DesktopSurface surface, string surfaceName, bool activate = true, bool restore = false)
     {
         var market = surface == DesktopSurface.Market;
-        if (market && !sessionRestored) { pendingPanel = "market"; return; }
+        if (market && !SessionRestored) { pendingPanel = "market"; return; }
         var uid = firebase.Uid;
         var guestClock = uid == null && surface is DesktopSurface.Clock or DesktopSurface.Calendar;
         if (lifetime.IsCancellationRequested || (!market && !guestClock && uid == null)) return;
