@@ -3,7 +3,7 @@ import MarketDashboard from '@/app/propig/market/MarketDashboard';
 import styles from '../../market/MarketPage.module.css';
 
 export const metadata: Metadata = {
-  title: '국내 증시 위젯 | ProPig',
+  title: '국내 증시 위젯 | 그뚠뎃',
 };
 
 export default function DesktopMarketPage() {

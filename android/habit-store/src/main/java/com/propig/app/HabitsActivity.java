@@ -125,6 +125,11 @@ public final class HabitsActivity extends Activity {
         if (message != null) text(message, 15, 0xffffc2ad);
         String uid = Habits.uid();
         if (uid == null) {
+            if (BuildConfig.DASHBOARD_HOST) {
+                text("대시보드에서 로그인한 뒤 습관을 선택하세요.", 15, 0xffcad6e1);
+                button("그뚠앱 대시보드 열기", this::openDashboard);
+                return;
+            }
             text("기존 ProPig Google 계정으로 로그인", 15, 0xffcad6e1);
             Button login = button(signingIn ? "로그인 중" : "Google 로그인", this::signIn);
             login.setEnabled(!signingIn);
@@ -133,7 +138,8 @@ public final class HabitsActivity extends Activity {
         String date = Habits.today();
         if (workspace != null && workspace.getMetadata().hasPendingWrites()) text("동기화 중", 14, 0xffcad6e1);
         button("홈 화면 위젯 추가", this::requestWidget);
-        button("로그아웃", () -> {
+        if (BuildConfig.DASHBOARD_HOST) button("그뚠앱 대시보드 열기", this::openDashboard);
+        else button("로그아웃", () -> {
             auth.signOut();
             HabitWidget.publish(this, null, null, null);
         });
@@ -173,6 +179,12 @@ public final class HabitsActivity extends Activity {
             });
         }
         scroll.post(() -> scroll.scrollTo(0, offset));
+    }
+
+    private void openDashboard() {
+        android.content.Intent dashboard = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (dashboard != null) startActivity(dashboard.setAction("com.propig.app.OPEN_DASHBOARD"));
+        finish();
     }
 
     private void requestWidget() {

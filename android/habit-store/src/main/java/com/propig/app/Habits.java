@@ -31,7 +31,13 @@ final class Habits {
 
     static String uid() {
         FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
-        return user == null ? null : user.getUid();
+        if (user == null) return null;
+        if (BuildConfig.DASHBOARD_HOST) {
+            Context context = FirebaseApp.getInstance().getApplicationContext();
+            String owner = context.getSharedPreferences("dashboard-today", Context.MODE_PRIVATE).getString("uid", null);
+            if (!user.getUid().equals(owner)) return null;
+        }
+        return user.getUid();
     }
 
     static boolean owns(String uid) {

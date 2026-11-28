@@ -53,7 +53,7 @@ internal sealed class HabitApp
     private readonly CancellationTokenSource lifetime = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer workspaceRefresh = new() { Interval = TimeSpan.FromMilliseconds(250) };
-    private readonly Window main = new ProPigWindow("그뚠앱", 1120, 780);
+    private readonly Window main = new ProPigWindow("그뚠뎃", 1120, 780);
     private readonly ScrollViewer mainList = NewScrollViewer();
     private readonly DockPanel workspacePanel = new() { Visibility = Visibility.Collapsed };
     private readonly ContentControl workspaceToolbar = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -179,16 +179,16 @@ internal sealed class HabitApp
             OpenDesktopWidget(DesktopSurface.MiraBox, "MiraBox");
             var owner = desktopWidgets.GetValueOrDefault(DesktopSurface.MiraBox) ?? main;
             var message = pcWidgets.PressKey(owner, uid, layout, key, device);
-            MessageBox.Show(owner,message,"그뚠앱 · MiraBox");
+            MessageBox.Show(owner,message,"그뚠뎃 · MiraBox");
             return;
         }
         if (id.Split('/') is ["dock", var target] && PcWidgetActions.Names.TryGetValue(target,out var label))
         {
             ShowMain();
-            if (MessageBox.Show(main,$"이 PC에서 ‘{label}’ 동작을 열까요?","그뚠앱 · 바로가기", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes && firebase.Uid == uid)
+            if (MessageBox.Show(main,$"이 PC에서 ‘{label}’ 동작을 열까요?","그뚠뎃 · 바로가기", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes && firebase.Uid == uid)
             {
                 var result = await pcWidgets.Execute(target, main, uid);
-                if (result != "Windows에 요청했습니다.") MessageBox.Show(main,result,"그뚠앱 · 바로가기");
+                if (result != "Windows에 요청했습니다.") MessageBox.Show(main,result,"그뚠뎃 · 바로가기");
             }
             return;
         }
@@ -279,7 +279,7 @@ internal sealed class HabitApp
         const double minHeight = 250;
         var area = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        var window = new ProPigWindow("그뚠앱 오늘 습관 위젯",
+        var window = new ProPigWindow("그뚠뎃 오늘 습관 위젯",
             RestoreDimension(choices.Width, 348, minWidth, area.Width),
             RestoreDimension(choices.Height, 570, minHeight, area.Height), "오늘 습관");
         window.MinWidth = minWidth;
@@ -360,7 +360,7 @@ internal sealed class HabitApp
         try { Process.Start(new ProcessStartInfo(FirebaseHabits.WebOrigin + path) { UseShellExecute = true }); }
         catch (Win32Exception)
         {
-            MessageBox.Show("기본 브라우저를 열지 못했습니다.", "그뚠앱", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("기본 브라우저를 열지 못했습니다.", "그뚠뎃", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -382,7 +382,7 @@ internal sealed class HabitApp
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         var minWidth = market ? 350 : 280;
         var minHeight = market ? 390 : 320;
-        var window = new ProPigWindow($"그뚠앱 {surfaceName} 위젯",
+        var window = new ProPigWindow($"그뚠뎃 {surfaceName} 위젯",
             RestoreDimension(placement.Width, market ? 665 : 374, minWidth, area.Width),
             RestoreDimension(placement.Height, market ? 650 : 550, minHeight, area.Height), surfaceName);
         window.MinWidth = minWidth;
@@ -517,8 +517,8 @@ internal sealed class HabitApp
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
             }
             if (showResult) shortcutNotice = created
-                ? "바탕화면에 ‘그뚠앱’ 바로가기를 만들었습니다."
-                : "바탕화면에 ‘그뚠앱’ 바로가기가 이미 있습니다.";
+                ? "바탕화면에 ‘그뚠뎃’ 바로가기를 만들었습니다."
+                : "바탕화면에 ‘그뚠뎃’ 바로가기가 이미 있습니다.";
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or COMException)
         {
@@ -685,7 +685,7 @@ internal sealed class HabitApp
         {
             if (!compact)
             {
-                actions.Children.Add(Button("그뚠앱 본창으로 돌아가기", () =>
+                actions.Children.Add(Button("그뚠뎃 본창으로 돌아가기", () =>
                 {
                     configureWidget = false;
                     PaintMain();

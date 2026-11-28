@@ -15,6 +15,7 @@ import {
   UserCredential,
 } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase/config';
+import { getDashboardPlatform, syncMobileWidgetAccount } from '@/app/propig/_lib/mobileDashboardWidget';
 
 type FirebaseEnv = {
   apiKey?: string;
@@ -60,6 +61,13 @@ const isMissingNativeAuthPluginError = (error: unknown) => {
   return /not implemented|no implementation|not available|plugin .*not/i.test(error.message);
 };
 
+// The Android check-off widget uses Firebase's native session as well as the web dashboard.
+async function syncAndroidPasswordSession(email: string, password: string, uid: string) {
+  if (getDashboardPlatform() !== 'android' || auth.currentUser?.uid !== uid) return;
+  const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+  await FirebaseAuthentication.signInWithEmailAndPassword({ email, password });
+}
+
 const signInWithNativeGoogle = async (): Promise<UserCredential> => {
   try {
     const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
@@ -82,7 +90,7 @@ const signInWithNativeGoogle = async (): Promise<UserCredential> => {
 };
 
 const signOutNativeAuth = async () => {
-  if (!(await isNativeAuthPlatform())) return;
+  if (getDashboardPlatform() === 'ios' || !(await isNativeAuthPlatform())) return;
 
   try {
     const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
@@ -137,6 +145,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         unsubscribe = onAuthStateChanged(auth, (user) => {
           if (didCancel) return;
+          void syncMobileWidgetAccount(user?.uid ?? null);
           window.clearTimeout(bootstrapTimeout);
           setCurrentUser(user);
           setError(null);
@@ -169,6 +178,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     async (email: string, password: string): Promise<UserCredential> => {
       assertConfigured();
       const credential = await signInWithEmailAndPassword(auth, email, password);
+      await syncAndroidPasswordSession(email, password, credential.user.uid);
       setCurrentUser(credential.user);
       setError(null);
       setLoading(false);
@@ -192,6 +202,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     async (email: string, password: string): Promise<UserCredential> => {
       assertConfigured();
       const credential = await createUserWithEmailAndPassword(auth, email, password);
+      await syncAndroidPasswordSession(email, password, credential.user.uid);
       setCurrentUser(credential.user);
       setError(null);
       setLoading(false);
