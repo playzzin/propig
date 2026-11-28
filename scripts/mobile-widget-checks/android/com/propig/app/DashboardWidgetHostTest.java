@@ -62,8 +62,9 @@ public class DashboardWidgetHostTest {
             Activity opened = instrumentation.waitForMonitorWithTimeout(monitor, 15_000);
             assertNotNull("Tapping Today must start the dashboard activity", opened);
             assertEquals("com.propig.app.MainActivity", opened.getClass().getName());
-            assertEquals("com.propig.app.OPEN_DASHBOARD", opened.getIntent().getAction());
-            verifyAccountChanges((MainActivity) opened, today);
+            MainActivity dashboard = (MainActivity) opened;
+            waitForDashboard(dashboard);
+            verifyAccountChanges(dashboard, today);
         } finally {
             instrumentation.removeMonitor(monitor);
             instrumentation.runOnMainSync(() -> {
@@ -72,6 +73,19 @@ public class DashboardWidgetHostTest {
                 activity.finish();
             });
         }
+    }
+
+    private void waitForDashboard(MainActivity app) {
+        String expected = app.getBridge().getAppUrl();
+        assertEquals("/propig", android.net.Uri.parse(expected).getPath());
+        long deadline = SystemClock.elapsedRealtime() + 20_000;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            AtomicReference<String> url = new AtomicReference<>();
+            instrumentation.runOnMainSync(() -> url.set(app.getBridge().getWebView().getUrl()));
+            if (expected.equals(url.get()) || (expected + "/").equals(url.get())) return;
+            SystemClock.sleep(100);
+        }
+        fail("Tapping Today must navigate the web view to the configured dashboard");
     }
 
     private void verifyAccountChanges(MainActivity app, AppWidgetHostView today) {

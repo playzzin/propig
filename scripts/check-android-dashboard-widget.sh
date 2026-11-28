@@ -18,6 +18,8 @@ package=com.propig.app
 "${device[@]}" install -r -t "$1"
 "${device[@]}" install -r -t "$2"
 "${device[@]}" shell am start -W -n "$package/.MainActivity"
+# Start the widget-host test with its own empty activity stack on this emulator.
+"${device[@]}" shell am force-stop "$package"
 
 # The test uses a real AppWidgetHost in the instrumented app on a disposable emulator.
 user_id=$("${device[@]}" shell am get-current-user | tr -d '\r')
