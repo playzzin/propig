@@ -27,6 +27,8 @@ internal sealed class Choices
     public double? Height { get; set; }
     public bool DesktopShortcutCreated { get; set; }
     public Dictionary<DesktopSurface, DesktopWidgetPlacement> DesktopWidgets { get; set; } = new();
+    public HashSet<string> GuestWidgets { get; set; } = new();
+    public Dictionary<string, HashSet<string>> OpenWidgets { get; set; } = new();
     public Dictionary<string, PcDeviceLink> PcDevices { get; set; } = new();
 }
 
@@ -39,7 +41,7 @@ internal sealed class DesktopWidgetPlacement
     public double? Height { get; set; }
 }
 
-internal sealed class HabitApp
+internal sealed partial class HabitApp
 {
     private sealed record WidgetLayout(Grid Root, ContentControl Summary, ScrollViewer List, ContentControl Actions, HabitWidgetMotion Motion);
 
@@ -49,7 +51,7 @@ internal sealed class HabitApp
     private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(21, 42, 45));
     private static readonly Brush FrameLine = new SolidColorBrush(Color.FromRgb(45, 73, 75));
     private static readonly CultureInfo Korean = CultureInfo.GetCultureInfo("ko-KR");
-    private readonly FirebaseHabits firebase = new();
+    private readonly FirebaseHabits firebase;
     private readonly CancellationTokenSource lifetime = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer workspaceRefresh = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -62,7 +64,7 @@ internal sealed class HabitApp
         HorizontalContentAlignment = HorizontalAlignment.Stretch,
         VerticalContentAlignment = VerticalAlignment.Stretch
     };
-    private readonly string preferences = Path.Combine(FirebaseHabits.AppDirectory, "widget.json");
+    private readonly string preferences;
     private readonly string? applicationId = DesktopShortcut.CurrentApplicationId();
     private readonly Dictionary<DesktopSurface, Window> desktopWidgets = new();
     private Window? widget;
@@ -89,21 +91,37 @@ internal sealed class HabitApp
     [STAThread]
     public static void Main(string[] args)
     {
+        var startup = WidgetStartup.IsActivation(args);
         var panel = PcWidgetWindows.FromCommandLine(args);
         using var activation = new PcWidgetWindows.Activation();
-        if (!activation.Primary) { activation.Forward(panel); return; }
-        var app = new Application { ShutdownMode = ShutdownMode.OnLastWindowClose };
+        if (!activation.Primary)
+        {
+            if (!startup) activation.Forward(panel);
+            return;
+        }
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
             Source = new Uri("pack://application:,,,/HabitTheme.xaml", UriKind.Absolute)
         });
-        var controller = new HabitApp { pendingPanel = panel };
+        var controller = new HabitApp(FirebaseHabits.AppDirectory) { pendingPanel = panel };
+        controller.Attach(app, startup);
         activation.Listen(app.Dispatcher, controller.ActivatePanel);
-        app.Run(controller.main);
+        app.Run();
     }
 
-    private HabitApp()
+    internal void Attach(Application app, bool startup)
     {
+        app.MainWindow = main;
+        app.Startup += async (_, _) => await StartAsync(startup);
+        app.SessionEnding += (_, _) => PrepareToExit();
+        app.Exit += (_, _) => Stop();
+    }
+
+    internal HabitApp(string dataDirectory)
+    {
+        firebase = new FirebaseHabits(dataDirectory);
+        preferences = Path.Combine(dataDirectory, "widget.json");
         pcWidgets = new PcWidgetHub(firebase, () => choices.PcDevices, SaveChoices, ActivatePanel, lifetime.Token);
         main.MinWidth = 490;
         main.Width = RestoreDimension(null, main.Width, main.MinWidth, SystemParameters.WorkArea.Width);
@@ -117,32 +135,12 @@ internal sealed class HabitApp
         workspacePanel.Children.Add(workspaceBody);
         main.Content = new Grid { Children = { mainList, workspacePanel } };
 
-        main.Loaded += async (_, _) =>
-        {
-            try
-            {
-                if (File.Exists(preferences))
-                    choices = JsonSerializer.Deserialize<Choices>(File.ReadAllText(preferences)) ?? new Choices();
-            }
-            catch (Exception failure) when (failure is IOException or JsonException) { choices = new Choices(); }
-            var createShortcut = CreateDesktopShortcut(showResult: false, preserveMissing: choices.DesktopShortcutCreated);
-            await Run(async () =>
-            {
-                try { await firebase.RestoreAsync(); }
-                finally { sessionRestored = true; }
-                await Read();
-            }, "연결을 확인하지 못했습니다.");
-            refresh.Start();
-            _ = pcWidgets.Refresh();
-            await createShortcut;
-        };
         main.Closing += (_, eventArgs) =>
         {
-            if (!HasOpenWidgets) return;
+            if (exiting) return;
             eventArgs.Cancel = true;
             main.Hide();
         };
-        main.Closed += (_, _) => Stop();
         refresh.Tick += async (_, _) =>
         {
             _ = pcWidgets.Refresh();
@@ -156,7 +154,6 @@ internal sealed class HabitApp
             if (widget != null && firebase.Uid != null)
                 await Run(Read, "기록을 새로 불러오지 못했습니다.", paintBefore: false);
         };
-        Paint();
     }
 
     private async void ActivatePanel(string id)
@@ -265,10 +262,11 @@ internal sealed class HabitApp
         else Paint();
     }
 
-    private void ToggleWidget()
+    private void OpenHabitWidget(bool activate = true)
     {
         if (widget != null)
         {
+            if (!activate) return;
             if (widget.WindowState == WindowState.Minimized) widget.WindowState = WindowState.Normal;
             widget.Activate();
             return;
@@ -283,6 +281,7 @@ internal sealed class HabitApp
             RestoreDimension(choices.Height, 570, minHeight, area.Height), "오늘 습관");
         window.MinWidth = minWidth;
         window.MinHeight = minHeight;
+        window.ShowActivated = activate;
         window.Topmost = choices.Topmost;
         widgetLayout = CreateWidgetLayout(window);
         window.Content = widgetLayout.Root;
@@ -293,16 +292,13 @@ internal sealed class HabitApp
             window.Left = Math.Min(left, Math.Max(area.Left, area.Right - window.Width));
             window.Top = Math.Min(top, Math.Max(area.Top, area.Bottom - window.Height));
         }
-        window.Closing += (_, _) =>
+        TrackWidget(window, "habit", bounds =>
         {
-            var bounds = window.RestoreBounds;
-            if (bounds.IsEmpty) return;
             choices.Left = bounds.Left;
             choices.Top = bounds.Top;
             choices.Width = bounds.Width;
             choices.Height = bounds.Height;
-            SaveChoices();
-        };
+        });
         window.Closed += (_, _) =>
         {
             widgetLayout?.Motion.Dismiss();
@@ -310,7 +306,7 @@ internal sealed class HabitApp
             widgetLayout = null;
             widgetDate = null;
             widgetWeekEnd = null;
-            CloseHiddenMainWhenIdle();
+            manager?.Refresh();
         };
         widget = window;
         window.Show();
@@ -318,16 +314,9 @@ internal sealed class HabitApp
         _ = ChangeWidgetView();
     }
 
-    private bool HasOpenWidgets => widget != null || desktopWidgets.Count != 0;
-
-    private void CloseHiddenMainWhenIdle()
-    {
-        if (!main.IsVisible && !HasOpenWidgets && !lifetime.IsCancellationRequested) main.Close();
-    }
-
     private void ShowMain()
     {
-        if (!main.IsVisible) main.Show();
+        if (!main.IsVisible) { main.Show(); PaintMain(); }
         if (main.WindowState == WindowState.Minimized) main.WindowState = WindowState.Normal;
         main.Activate();
     }
@@ -343,7 +332,7 @@ internal sealed class HabitApp
                 OpenDesktopWidget(DesktopSurface.Todo, "할일 일정표");
                 break;
             case DesktopTarget.Habit:
-                ToggleWidget();
+                OpenHabitWidget();
                 break;
             case DesktopTarget.Bucket:
                 OpenWebApp("/bucket-list");
@@ -363,7 +352,7 @@ internal sealed class HabitApp
         }
     }
 
-    private void OpenDesktopWidget(DesktopSurface surface, string surfaceName)
+    private void OpenDesktopWidget(DesktopSurface surface, string surfaceName, bool activate = true)
     {
         var market = surface == DesktopSurface.Market;
         var uid = firebase.Uid;
@@ -371,6 +360,7 @@ internal sealed class HabitApp
         if (lifetime.IsCancellationRequested || (!market && !guestClock && uid == null)) return;
         if (desktopWidgets.TryGetValue(surface, out var existing))
         {
+            if (!activate) return;
             if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
             existing.Activate();
             return;
@@ -386,6 +376,7 @@ internal sealed class HabitApp
             RestoreDimension(placement.Height, market ? 650 : 550, minHeight, area.Height), surfaceName);
         window.MinWidth = minWidth;
         window.MinHeight = minHeight;
+        window.ShowActivated = activate;
         window.Topmost = placement.Topmost;
         if (placement.Left is double left && placement.Top is double top &&
             left >= area.Left && left < area.Right - 100 && top >= area.Top && top < area.Bottom - 80)
@@ -398,7 +389,11 @@ internal sealed class HabitApp
         var open = Button("앱 열기", () => { ShowMain(); return Task.CompletedTask; });
         open.IsEnabled = true;
         var pin = Option("항상 위", window.Topmost);
-        pin.Click += (_, _) => window.Topmost = pin.IsChecked == true;
+        pin.Click += (_, _) =>
+        {
+            placement.Topmost = window.Topmost = pin.IsChecked == true;
+            SaveWidgetChoices();
+        };
         var toolbar = new Border
         {
             Style = (Style)Application.Current.FindResource("ProPigToolbar"),
@@ -428,7 +423,7 @@ internal sealed class HabitApp
             renderer?.Dispose();
             if (market || guestClock)
             {
-                var view = new PublicWidgetView(surface, surfaceName, AttachRenderer);
+                var view = new PublicWidgetView(surface, surfaceName, firebase.DataDirectory, AttachRenderer);
                 renderer = view;
                 body.Content = view;
             }
@@ -440,25 +435,21 @@ internal sealed class HabitApp
             }
         }
 
-        window.Closing += (_, _) =>
+        choices.DesktopWidgets[surface] = placement;
+        TrackWidget(window, WidgetEntry.ForSurface(surface).Id, bounds =>
         {
-            var bounds = window.RestoreBounds;
-            if (bounds.IsEmpty) return;
             placement.Left = bounds.Left;
             placement.Top = bounds.Top;
             placement.Width = bounds.Width;
             placement.Height = bounds.Height;
             placement.Topmost = window.Topmost;
-            choices.DesktopWidgets[surface] = placement;
-            try { SaveChoices(); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
-        };
+        });
         window.Closed += (_, _) =>
         {
             body.Content = null;
             renderer?.Dispose();
             desktopWidgets.Remove(surface);
-            CloseHiddenMainWhenIdle();
+            manager?.Refresh();
         };
 
         desktopWidgets.Add(surface, window);
@@ -471,23 +462,19 @@ internal sealed class HabitApp
         foreach (var window in desktopWidgets.Values.ToArray()) window.Close();
     }
 
-    private Task OpenMarketWidget()
-    {
-        OpenDesktopWidget(DesktopSurface.Market, "국내 증시");
-        return Task.CompletedTask;
-    }
-
     private static double RestoreDimension(double? saved, double defaultSize, double minimum, double available) =>
         Math.Clamp(saved is double size && double.IsFinite(size) ? size : defaultSize, minimum, Math.Max(minimum, available));
 
     private void Stop()
     {
+        PrepareToExit();
         refresh.Stop();
         workspaceRefresh.Stop();
         lifetime.Cancel();
+        tray?.Dispose();
+        widgetLayer.Dispose();
         pcWidgets.Dispose();
-        CloseWorkspace();
-        CloseDesktopWidgets();
+        desktopWorkspace?.Dispose();
     }
 
     private HashSet<string> Chosen(string uid) => choices.Habits.TryGetValue(uid, out var saved)
@@ -496,7 +483,7 @@ internal sealed class HabitApp
 
     private void SaveChoices()
     {
-        Directory.CreateDirectory(FirebaseHabits.AppDirectory);
+        Directory.CreateDirectory(firebase.DataDirectory);
         File.WriteAllText(preferences + ".tmp", JsonSerializer.Serialize(choices));
         File.Move(preferences + ".tmp", preferences, overwrite: true);
     }
@@ -532,13 +519,12 @@ internal sealed class HabitApp
 
     private void Paint()
     {
-        if (!lifetime.IsCancellationRequested) PaintMain();
+        if (!lifetime.IsCancellationRequested && main.IsVisible) PaintMain();
         if (widget != null) PaintWindow(widget, true);
     }
 
     private void PaintMain()
     {
-        if (sessionRestored && pendingPanel is string requested && (firebase.Uid != null || requested is "clock" or "calendar" or "market")) ActivatePanel(requested);
         var uid = firebase.Uid;
         if (desktopWorkspace != null && desktopWorkspace.AccountUid != uid) CloseWorkspace();
         var nativeScreen = uid == null || configureWidget;
@@ -551,36 +537,7 @@ internal sealed class HabitApp
         }
 
         var actions = new WrapPanel { Margin = new Thickness(12, 8, 6, 2) };
-        var menu = new Menu { Background = Brushes.Transparent, IsEnabled = !busy };
-        var widgets = new MenuItem { Header = "위젯", Foreground = Brushes.White };
-        menu.Items.Add(widgets);
-
-        void AddAction(string label, Func<Task> action)
-        {
-            var item = new MenuItem { Header = label, Foreground = SystemColors.MenuTextBrush };
-            item.Click += async (_, _) => await action();
-            widgets.Items.Add(item);
-        }
-
-        foreach (var (label, target) in new[] {
-            ("습관 위젯 열기", DesktopTarget.Habit), ("메모 위젯 열기", DesktopTarget.Memo),
-            ("일정 위젯 열기", DesktopTarget.Todo) })
-        {
-            AddAction(label, () => { OpenDesktopTarget(target); return Task.CompletedTask; });
-        }
-        widgets.Items.Add(new Separator());
-        foreach (var panel in PcWidgetWindows.Panels)
-            AddAction(panel.Label, () => { OpenDesktopWidget(panel.Surface, panel.Label); return Task.CompletedTask; });
-        widgets.Items.Add(new Separator());
-        AddAction("습관 위젯 설정", () =>
-        {
-            configureWidget = true;
-            PaintMain();
-            return Task.CompletedTask;
-        });
-        if (applicationId != null)
-            AddAction("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true));
-        actions.Children.Add(menu);
+        actions.Children.Add(CreateWidgetsMenu());
         var signOut = Button("로그아웃", SignOut);
         signOut.Margin = new Thickness(0, 8, 12, 6);
         signOut.VerticalAlignment = VerticalAlignment.Top;
@@ -612,9 +569,10 @@ internal sealed class HabitApp
     {
         ShowMain();
         CloseWorkspace();
-        CloseDesktopWidgets();
+        SuspendAccountWidgets();
         PaintMain();
-        await firebase.ConnectAsync(lifetime.Token);
+        try { await firebase.ConnectAsync(lifetime.Token); }
+        finally { RestoreWidgets(); }
         await Read();
     }, "Windows 앱 연결에 실패했습니다. 다시 시도해 주세요.");
 
@@ -629,9 +587,10 @@ internal sealed class HabitApp
     private Task SignOut() => Run(() =>
     {
         CloseWorkspace();
-        CloseDesktopWidgets();
+        SuspendAccountWidgets();
         configureWidget = false;
         firebase.SignOut();
+        RestoreWidgets();
         return Read();
     }, "로그아웃을 완료하지 못했습니다.");
 
@@ -689,18 +648,10 @@ internal sealed class HabitApp
                     PaintMain();
                     return Task.CompletedTask;
                 }, primary: true));
-                actions.Children.Add(Button("바탕화면 위젯 켜기", () => { ToggleWidget(); return Task.CompletedTask; }));
             }
             actions.Children.Add(Button("새로고침", async () => await Run(Read, "기록을 불러오지 못했습니다.")));
         }
-        if (!compact && applicationId != null)
-            actions.Children.Add(Button("바탕화면 바로가기 만들기", () => CreateDesktopShortcut(showResult: true)));
-        if (!compact)
-        {
-            var marketButton = Button("국내 증시 위젯 열기", OpenMarketWidget);
-            marketButton.IsEnabled = true;
-            actions.Children.Add(marketButton);
-        }
+        if (!compact) actions.Children.Add(CreateWidgetsMenu());
 
         if (layout != null)
         {
@@ -715,20 +666,13 @@ internal sealed class HabitApp
 
         if (uid == null)
         {
-            if (!compact)
-            {
-                foreach (var panel in PcWidgetWindows.Panels.Where(p => p.Surface is DesktopSurface.Clock or DesktopSurface.Calendar))
-                    stack.Children.Add(Button(panel.Label + " 위젯 열기", () => { OpenDesktopWidget(panel.Surface, panel.Label); return Task.CompletedTask; }));
-            }
             stack.Children.Add(Button("ProPig Google 로그인", async () => await Run(async () =>
             {
                 await firebase.ConnectAsync(lifetime.Token);
-                foreach (var surface in new[] { DesktopSurface.Clock, DesktopSurface.Calendar })
-                {
-                    if (!desktopWidgets.TryGetValue(surface, out var guest)) continue;
-                    guest.Close();
-                    OpenDesktopWidget(surface, PcWidgetWindows.Panels.First(p => p.Surface == surface).Label);
-                }
+                var guestWindows = WidgetEntry.All.Where(entry => entry.CanOpen(null) && IsWidgetOpen(entry)).ToArray();
+                SuspendAccountWidgets();
+                RestoreWidgets();
+                foreach (var entry in guestWindows) OpenManagedWidget(entry, activate: false);
                 await Read();
             }, "로그인 연결에 실패했습니다. 앱에서 다시 시도해 주세요."), primary: true));
             scroller.ScrollToTop();

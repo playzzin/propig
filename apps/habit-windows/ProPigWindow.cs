@@ -1,10 +1,12 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shell;
+using Microsoft.Web.WebView2.Core;
 
 namespace ProPig.Habits;
 
@@ -13,14 +15,15 @@ internal sealed class ProPigWindow : Window
     private const double TitleBarHeight = 44;
     private const double ResizeBorder = 6;
     private const uint MonitorDefaultToNearest = 2;
-    private static readonly BitmapFrame AppIcon = BitmapFrame.Create(
-        new Uri("pack://application:,,,/Assets/ProPig.ico", UriKind.Absolute));
+    internal static readonly Uri IconResource = new("pack://application:,,,/ProPig.Habits;component/Assets/ProPig.ico");
+    private static readonly BitmapFrame AppIcon = BitmapFrame.Create(IconResource);
 
     private static readonly DependencyPropertyKey SurfaceNamePropertyKey = DependencyProperty.RegisterReadOnly(
         nameof(SurfaceName), typeof(string), typeof(ProPigWindow), new PropertyMetadata(null));
 
     public static readonly DependencyProperty SurfaceNameProperty = SurfaceNamePropertyKey.DependencyProperty;
     public string? SurfaceName => (string?)GetValue(SurfaceNameProperty);
+    private Action? manageWidgets;
 
     public ProPigWindow(string title, double width, double height, string? surfaceName = null)
     {
@@ -54,6 +57,64 @@ internal sealed class ProPigWindow : Window
         SizeChanged += (_, _) => UpdateMaximizedPadding();
         DpiChanged += (_, _) => UpdateMaximizedPadding();
     }
+
+    internal void AddWidgetMenu(Action manage)
+    {
+        manageWidgets = manage;
+        const int manageId = 0x1F10, closeId = 0x1F20;
+        var context = new ContextMenu();
+        var settings = new MenuItem { Header = "위젯 관리…" };
+        var close = new MenuItem { Header = "위젯 닫기" };
+        settings.Click += (_, _) => manage();
+        close.Click += (_, _) => Close();
+        context.Items.Add(settings);
+        context.Items.Add(close);
+        ContextMenu = context;
+        // The caption is a native non-client area. Right-click and Alt+Space use its system menu.
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var menu = GetSystemMenu(hwnd, false);
+            if (menu == 0) return;
+            AppendMenu(menu, 0x800, 0, null); // MF_SEPARATOR
+            AppendMenu(menu, 0, manageId, "위젯 관리…");
+            AppendMenu(menu, 0, closeId, "위젯 닫기");
+            HwndSource.FromHwnd(hwnd)?.AddHook((nint _, int message, nint command, nint position, ref bool handled) =>
+            {
+                if (message == 0x0112 && (command == manageId || command == closeId)) // WM_SYSCOMMAND
+                {
+                    handled = true;
+                    if (command == manageId) manage();
+                    else Close();
+                }
+                return 0;
+            });
+        };
+    }
+
+    internal static void ConfigureWebWidgetMenu(FrameworkElement view, CoreWebView2 core)
+    {
+        var host = GetWindow(view) as ProPigWindow;
+        var manage = host?.manageWidgets;
+        core.Settings.AreDefaultContextMenusEnabled = manage != null;
+        if (host == null || manage == null) return;
+        core.ContextMenuRequested += (_, request) =>
+        {
+            request.MenuItems.Clear();
+            foreach (var (label, action) in new (string, Action)[] { ("위젯 관리…", manage), ("위젯 닫기", host.Close) })
+            {
+                var item = core.Environment.CreateContextMenuItem(label, null, CoreWebView2ContextMenuItemKind.Command);
+                item.CustomItemSelected += (_, _) => host.Dispatcher.InvokeAsync(action);
+                request.MenuItems.Add(item);
+            }
+        };
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint GetSystemMenu(nint hwnd, bool revert);
+
+    [DllImport("user32.dll", EntryPoint = "AppendMenuW", CharSet = CharSet.Unicode)]
+    private static extern bool AppendMenu(nint menu, uint flags, nuint id, string? label);
 
     private void UpdateMaximizedPadding()
     {

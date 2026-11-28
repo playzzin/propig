@@ -52,6 +52,13 @@ jobs:
             throw 'The clean-install test requires a Windows runner without the previous widget provider.'
           }
           dotnet run --project apps/habit-windows/checks/WidgetChecks.csproj -c Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $profileDir = Join-Path $env:RUNNER_TEMP 'propig-widget-session'
+          New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+          foreach ($phase in 'manage', 'restore', 'empty') {
+            dotnet run --no-build --project apps/habit-windows/checks/WidgetChecks.csproj -c Release -- --widget-session-live $phase $profileDir
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
       - name: Package Windows desktop app and widget
         shell: pwsh
         env:
