@@ -34,7 +34,12 @@ internal sealed class WidgetTray : IDisposable
             widgets.Enabled = widgets.DropDownItems.Count != 0;
         };
         notification = new Forms.NotifyIcon { Icon = icon, Text = "그뚠뎃 · 위젯 관리", ContextMenuStrip = menu, Visible = true };
-        notification.MouseDoubleClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) manage(); };
+        void OpenManager(object? sender, Forms.MouseEventArgs e)
+        {
+            if (e.Button == Forms.MouseButtons.Left) manage();
+        }
+        notification.MouseClick += OpenManager;
+        notification.MouseDoubleClick += OpenManager;
     }
 
     public void Dispose()
